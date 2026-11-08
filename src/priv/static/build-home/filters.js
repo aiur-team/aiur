@@ -11,35 +11,35 @@ import { NP, colKey, tstate } from './match.js';
 import { syncAst } from './band.js';
 export { syncAst } from './band.js';
 
-export const rowOk = (state, t) => (!state.f.epic.length || state.f.epic.includes(colKey(t))) && (tstate(t) !== NP || state.f.tstate.includes(NP));
-export const layoutKey = state => state.f.epic.join(',') + (state.f.tstate.includes(NP) ? '|np' : '');
+export const rowOk = (state, t) => (!state.f.lane.length || state.f.lane.includes(colKey(t))) && (tstate(t) !== NP || state.f.tstate.includes(NP));
+export const layoutKey = state => state.f.lane.join(',') + (state.f.tstate.includes(NP) ? '|np' : '');
 let lastKey = '';
 export const setLastKey = key => { lastKey = key; };
 onReset(() => { lastKey = ''; });
 const selected = k => k === 'feature' ? (S.feature ? [S.feature] : []) : S.f[k];
 const ticketOptions = [['merged', 'Merged', 'merged'], ['failed', 'Failed', 'failed'], ['in progress', 'In progress', 'active'], ['queued', 'Queued', 'queued'], ['held', 'Held', 'held'], ['blocked', 'Blocked', 'blocked'], ['open', 'Not queued', 'open']];
-function featureOption(f) {
-  const s = f.stats, known = Number.isInteger(s?.pct) && s.pct >= 0 && s.pct <= 100;
-  const title = known ? null : (s?.pct_min == null ? 'unknown' : 'at least ' + s.pct_min + '% weighted · unknown: ' + (s.reasons || []).join(', '));
-  return [f.key, f.label + '  ' + (known ? s.pct + '%' : '—'), null, f.hue, null, null, title];
+// Same merged/total source as the Features list rows.
+function featureOption(f, bars) {
+  const bar = bars?.find(b => b.key === f.key);
+  return [f.key, f.label + '  ' + (bar ? Math.floor(bar.merged * 100 / bar.total) + '%' : '—'), null, f.hue, null, null, bar ? bar.merged + ' of ' + bar.total + ' merged' : 'unknown'];
 }
 // shortcut: row-only diffs refresh open options on the next render; revisit for live option updates.
 export function FOPTS() {
-  const D = ctx.D ?? { all: [], hist: [], features: {}, epics: {}, order: [], counts: {} };
+  const D = ctx.D ?? { all: [], hist: [], features: {}, lanes: {}, order: [], counts: {} };
   const models = [...new Set([...D.all.map(t => t.agent?.model), ...S.f.model])].filter(k => typeof k === 'string' && k && !Object.hasOwn(LOGOS, k)).sort();
   const features = Object.values(D.features).filter(f => f.stats?.total > 0 || !f.stats || f.key === S.feature)
     .sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.key.localeCompare(b.key));
   const recent = features.filter(f => f.stats?.total > 0 || !f.stats).slice(-6);
   const current = Object.hasOwn(D.features, S.feature) ? D.features[S.feature] : null;
   if (current && !recent.includes(current)) recent.push(current);
-  const epics = D.order.filter(k => (D.counts == null || D.counts[k] > 0) && Object.hasOwn(D.epics, k));
-  for (const k of S.f.epic) if (!epics.includes(k)) epics.push(k);
+  const lanes = D.order.filter(k => (D.counts == null || D.counts[k] > 0) && Object.hasOwn(D.lanes, k));
+  for (const k of S.f.lane) if (!lanes.includes(k)) lanes.push(k);
   const tickets = [...ticketOptions];
   if (D.hist.some(t => t.status === 'not_planned') || S.f.tstate.includes(NP)) tickets.push([NP, 'Not planned', 'np']);
   return {
     model: { label: 'Model', opts: Object.keys(LOGOS).map(k => [k, modelInfo(k).name, LOGOS[k].src]).concat(models.map(k => [k, modelInfo(k).name, null, null, null, modelInfo(k).mono])) },
-    feature: { label: 'Feature', opts: recent.map(featureOption).concat(S.feature && !current ? [[S.feature, S.feature]] : []) },
-    epic: { label: 'Epic', opts: epics.map(k => [k, D.epics[k]?.label ?? k, null, D.epics[k]?.unsorted ? null : D.epics[k]?.hue]) },
+    feature: { label: 'Feature', opts: recent.map(f => featureOption(f, D.feature_progress?.bars)).concat(S.feature && !current ? [[S.feature, S.feature]] : []) },
+    lane: { label: 'Lane', opts: lanes.map(k => [k, D.lanes[k]?.label ?? k, null, D.lanes[k]?.unsorted ? null : D.lanes[k]?.hue]) },
     tstate: { label: 'Ticket', opts: tickets.map(o => [o[0], o[1], null, null, o[2]]) },
     astate: { label: 'Agent', opts: Object.keys(AST).map(v => [v, AST[v].label, null, null, AST[v].cls]).concat([['none', 'No agent', null, null, 'open']]) },
   };

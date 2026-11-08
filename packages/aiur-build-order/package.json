@@ -1,0 +1,46 @@
+{
+  "name": "aiur-build-order",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Render a published build-order.v1 graph as a review page, an SVG graph or an <aiur-build-order> element, with no daemon.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./aiur-build-order.css": "./dist/aiur-build-order.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "aiur-style": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "aiur-style": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "playwright test",
+    "serve:fixtures": "node scripts/serve-fixtures.mjs",
+    "pack:check": "node scripts/build.mjs && node scripts/check-package.mjs"
+  }
+}

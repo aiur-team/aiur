@@ -11,7 +11,11 @@ defmodule Aiur.VoiceConversation.OpenAIProvider do
   @impl true
   def open(spec) do
     voice = spec |> Map.get(:fake, []) |> Keyword.get(:voice_id)
-    spec |> Map.put(:voice_id, voice) |> Map.put(:system_prompt, Aiur.VoiceConversation.Provider.prompt()) |> OpenAIRealtime.open()
+
+    spec
+    |> Map.put(:voice_id, voice)
+    |> Map.update(:system_prompt, Aiur.VoiceConversation.Provider.prompt(), fn prompt -> if prompt in [nil, ""], do: Aiur.VoiceConversation.Provider.prompt(), else: prompt end)
+    |> OpenAIRealtime.open()
   end
 
   @impl true

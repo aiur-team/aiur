@@ -78,6 +78,42 @@ def _load_extension(pack: Path) -> dict[str, Any]:
     return value
 
 
+def check_graph_review(build_path: Path, review_path: Path) -> None:
+    """Refuse a publication whose review contradicts its own graph.
+
+    The published review reads waves, edges, critical path, progress and
+    grouping from one ``build-order.v1`` document. When the operator passes the
+    published review, publication re-renders it from the pack walk and requires
+    the on-disk review to match, so a pack that would publish a contradictory
+    review fails here instead.
+    """
+    publication_modules = Path(__file__).resolve().parent / "publication"
+    if str(publication_modules) not in sys.path:
+        sys.path.insert(0, str(publication_modules))
+    from publication_common import Report
+    from publication_graph_document import GraphDocumentError, pack_walk_document
+    from publication_review import render_review
+    from publication_review_checks import check_document_against_pack
+
+    try:
+        build = json.loads(build_path.read_text(encoding="utf-8"))
+        document = pack_walk_document(build)
+    except (OSError, UnicodeError, json.JSONDecodeError, GraphDocumentError) as exc:
+        raise PublicationError(f"graph review cannot be rendered: {exc}") from None
+    report = Report()
+    if not check_document_against_pack(build, document, report):
+        raise PublicationError("; ".join(sorted(report.errors)))
+    try:
+        actual = review_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise PublicationError(f"graph review is unavailable: {exc}") from None
+    if actual.rstrip("\n") != render_review(document).rstrip("\n"):
+        raise PublicationError(
+            f"{review_path.name} does not match the review rendered from the "
+            "build-order.v1 document; rerun render_build_order_review.py"
+        )
+
+
 def load_driver(
     build_path: Path, publication_path: Path,
     approved_sha: str, green_authority_sha: str,
@@ -130,9 +166,15 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--receipt-commit")
     parser.add_argument("--receipt-url")
+    parser.add_argument(
+        "--graph-review", type=Path,
+        help="published review body that must match the pack's build-order.v1 review",
+    )
     args = parser.parse_args(argv[1:])
     publication = args.publication or args.build.parent / "publication.json"
     try:
+        if args.graph_review is not None:
+            check_graph_review(args.build, args.graph_review)
         driver = load_driver(
             args.build, publication, args.approved_sha,
             args.green_authority_sha,

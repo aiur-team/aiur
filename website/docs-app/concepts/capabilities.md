@@ -31,7 +31,7 @@ minimum versions; an empty map imposes no minimum. Clients below a listed minimu
 must block writes and request an update.
 
 Cache by `(instance_id, boot_id, revision)`. `boot_id` changes on daemon restart;
-`revision` increases within that boot when capabilities change and is not persisted.
+`revision` increases within that boot when capabilities or Executor presence change and is not persisted.
 Refetch on reconnect, a new boot, `system.capabilities.changed`, and before a write.
 
 `observed_at` records computation time. `age_ms` is computed at read time using the
@@ -133,6 +133,11 @@ The directory is private (0700) and the file is private (0600). `machine_id` is
 
 `instance_id` combines it with the launcher's instance key; moving the project root
 changes that key. The default machine label is the first DNS label of the hostname.
+
+Control results, instance heartbeats and the instance summary also carry `gateway_id` (the
+machine id alone, shared by every instance on the machine) and `gateway_label`. When the
+identity is unreadable both are `null` and `gateway_identity` is `"unavailable"`; an id is
+never invented. `instance_id` is unchanged.
 
 An unreadable or damaged identity is never silently replaced. To reset deliberately,
 stop all instances using this store, back up and remove its `identity.json`, then

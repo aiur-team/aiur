@@ -31,7 +31,9 @@ defmodule Aiur.Commands.RollbackTest do
       override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       override_merge_settled: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, expected_version: 1, committed_at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
-      executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
+      executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at},
+      executor_claimed: %{executor_id: "executor", expires_at: DateTime.add(at, 60), at: at},
+      executor_claim_released: %{executor_id: "executor", reason: :released, at: at}
     }
 
     for type <- EventData.fact_types() do

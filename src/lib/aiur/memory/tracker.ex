@@ -55,6 +55,31 @@ defmodule Aiur.Memory.Tracker do
     {:ok, issue_entries()}
   end
 
+  @doc "Adds a development-seeded issue to the configured in-memory tracker."
+  @spec add_issue(Issue.t()) :: :ok | {:error, :duplicate_id | :duplicate_identifier}
+  def add_issue(%Issue{} = issue) do
+    issues = configured_issues()
+
+    cond do
+      Enum.any?(issues, fn
+        %Issue{id: id} -> id == issue.id
+        _ -> false
+      end) ->
+        {:error, :duplicate_id}
+
+      Enum.any?(issues, fn
+        %Issue{identifier: identifier} -> identifier == issue.identifier
+        _ -> false
+      end) ->
+        {:error, :duplicate_identifier}
+
+      true ->
+        Application.put_env(:aiur, :memory_tracker_issues, issues ++ [issue])
+        send_event({:memory_tracker_issue_added, issue})
+        :ok
+    end
+  end
+
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names) do
     fetch_issues_by_states(state_names, [])

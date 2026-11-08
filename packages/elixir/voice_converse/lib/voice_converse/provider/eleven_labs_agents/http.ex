@@ -11,6 +11,28 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.HTTP do
     request(:delete, url, opts)
   end
 
+  @spec post(String.t(), keyword()) :: {:ok, non_neg_integer(), binary()} | {:error, term()}
+  def post(url, opts) do
+    :inets.start()
+
+    headers =
+      opts
+      |> Keyword.get(:headers, [])
+      |> Enum.map(fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
+
+    timeout = Keyword.get(opts, :receive_timeout, 30_000)
+
+    case :httpc.request(
+           :post,
+           {String.to_charlist(url), headers, ~c"application/json", Keyword.fetch!(opts, :body)},
+           request_options(timeout),
+           body_format: :binary
+         ) do
+      {:ok, {{_version, status, _reason}, _headers, body}} -> {:ok, status, body}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp request(method, url, opts) do
     :inets.start()
 

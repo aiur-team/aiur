@@ -2,6 +2,8 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
   use ExUnit.Case, async: true
 
   @allowed_main_literals %{
+    # LiveView's root marker is a framework selector, not a branch default.
+    "aiur_web/components/layouts.ex" => [~s|document.querySelector("[data-phx-main]")|],
     "aiur_web/live/streamdeck_live.ex" => [~s(class="sd-key-main")],
     # Policy labels are identifiers, independent of the configured integration branch.
     "aiur/config/schema/merge_policy.ex" => [~s|field(:fixer_label, :string, default: "main-fix")|, ~s|field(:full_ci_labels, {:array, :string}, default: ["main-fix"])|],

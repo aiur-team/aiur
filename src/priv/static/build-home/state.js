@@ -1,7 +1,7 @@
 import { fromServer } from './url.js';
 
 export const SPANS = [1, 2, 3, 5, 7, 10, 14, 21, 30];
-export const FKEYS = ['epic', 'feature', 'model', 'tstate', 'astate'];
+export const FKEYS = ['lane', 'feature', 'model', 'tstate', 'astate'];
 export const LH = 46, SEC = 36;
 export const S = {}, ctx = {};
 const resets = [];
@@ -9,8 +9,8 @@ export const onReset = fn => resets.push(fn);
 export function resetState(urlState = {}) {
   for (const key of Object.keys(S)) delete S[key];
   Object.assign(S, {
-    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus',
-    f: { type: [], model: [], feature: [], epic: [], tstate: [], astate: [] },
+    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus', fsort: 'goal',
+    f: { type: [], model: [], feature: [], lane: [], tstate: [], astate: [] },
     pop: null, loading: true, ready: false, flow: false, K: 2,
     density: 'card', trees: false, liveMin: false, ticket: null,
   });
@@ -45,7 +45,7 @@ function defaultUnavailable(reason) {
   loading.textContent = 'Build timeline unavailable · ' + (Object.hasOwn(words, reason) ? words[reason] : `unknown cause (${String(reason).slice(0, 80)})`);
 }
 export const fx = {
-  viewport() {}, relayout() {}, update() {}, jumpNow() {}, liveGuard() {}, markScrolling() {},
+  viewport() {}, relayout() {}, update() {}, jumpNow() {}, markScrolling() {},
   unlock() {}, closeTree() {}, chainOf: () => new Set(), renderFilters() {},
   renderUsage() {}, renderOffline() {}, renderFeatures() {}, renderTools() {},
   spanToolsHTML: () => '', wireSpanTools() {}, renderStatus() {},
@@ -56,7 +56,7 @@ export const fx = {
   activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
-  drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
+  drawEdges() {}, renderBand() {}, renderList() {}, mountBuildOrder() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
   appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, disposeLive() {}, conversationApplied() {}, updateTyping() {}, onConversation() {}, reconnectConversation() {},
   renderCommand() {}, placeCommand() {},

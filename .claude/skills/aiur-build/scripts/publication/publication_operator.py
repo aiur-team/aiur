@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +31,9 @@ import publication_client
 import publication_mappings
 import publication_materialize
 import publication_pending
+import publication_registry
 import publication_relationships
+from publication_context import validate_product_feature_publication
 from publication_client import (  # noqa: F401
     AUTHORITY_CHECKPOINT_MUTATIONS,
     Budget,
@@ -85,6 +89,12 @@ class Publisher:
         # batch operation: report every oversized member before labels or
         # issues can leave the pack in a partial state.
         self._validate_body_lengths()
+        try:
+            validate_product_feature_publication(self.context.build)
+        except (KeyError, ValueError) as exc:
+            raise PublicationError(str(exc)) from None
+        if self.context.build.get("product_features"):
+            self._resolve_cli()
         self._persisted_mappings()
         self._check_authority()
         self._validate_persisted_ownership()
@@ -110,6 +120,7 @@ class Publisher:
                 raise PublicationError(
                     "publication did not materialize every planned identity"
                 )
+            registry = self._ensure_registry(mappings)
             self._ensure_relationships(mappings)
             comment = (
                 self._ensure_pending_comment(mappings[self.context.root_id])
@@ -130,6 +141,7 @@ class Publisher:
                 spec.kind == "ticket" for spec in self.context.specs.values()
             ),
             "blocked_by_edges": len(self.context.expected_edges),
+            "registry": registry,
             "reapproval": reapproval,
             **(
                 {"pending_comment": fresh["comment"]["url"]}
@@ -154,6 +166,32 @@ class Publisher:
         })
         if error is not None:
             raise PublicationError(error)
+
+    def _run_cli(self, arguments: list[str], label: str) -> str:
+        try:
+            command = self._resolve_cli()
+            result = subprocess.run(
+                [command, *arguments],
+                check=False, capture_output=True,
+                text=True, timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise PublicationError(f"{label} failed: {exc}") from None
+        if result.returncode:
+            detail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
+            raise PublicationError(f"{label} failed:\n{detail}")
+        return result.stdout
+
+    @staticmethod
+    def _resolve_cli() -> str:
+        requested = os.environ.get("AIUR_FEATURE_CLI") or "aiur"
+        command = shutil.which(requested)
+        if command is None:
+            raise PublicationError(
+                "feature publication requires an executable aiur command on PATH; "
+                "set AIUR_FEATURE_CLI to override it"
+            )
+        return command
 
     def finalize(self, receipt_commit: str, receipt_url: str) -> dict[str, Any]:
         if not self.context.reconciliation_comment:
@@ -399,6 +437,7 @@ class Publisher:
     _atomic_write_json = staticmethod(publication_materialize.atomic_write_json)
     _validate_live_issue_identity = publication_relationships.validate_live_issue_identity
     _validate_live_issue_authority = publication_relationships.validate_live_issue_authority
+    _ensure_registry = publication_registry.ensure_registry
     _ensure_relationships = publication_relationships.ensure_relationships
     _ensure_pending_comment = publication_pending.ensure_pending_comment
     _fresh_evidence = publication_pending.fresh_evidence

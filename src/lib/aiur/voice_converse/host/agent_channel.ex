@@ -31,6 +31,7 @@ defmodule Aiur.VoiceConverse.Host.AgentChannel do
     end
   end
 
+  def subscribe(:executor, _pid), do: :not_applicable
   def subscribe(_target, _pid), do: :unsupported
 
   @impl true

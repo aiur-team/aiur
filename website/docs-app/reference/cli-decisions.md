@@ -36,10 +36,13 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur commands --cursor TOKEN` | Continues a paginated decision query. | `aiur commands --cursor TOKEN` |
 | `aiur commands --limit 20` | Sets a result limit from 1 to 100 (default 25). Values outside this range exit 64 with a usage diagnostic. | `aiur commands --limit 20` |
 | `aiur commands --json` | Emits machine-readable decision rows, including request attribution and short labels. The alias remains supported. | `aiur commands --json` |
+| `aiur commands repair` | Recovers a read-only Command journal. Quarantines each record that fails verification, and each later record that depends on it, to a sibling `decisions.quarantine-<UTC>.ndjson`. Keeps every valid record and restores write access. `--json` prints the report as JSON. Exits 1 if the store is still not writable. See [repairing a read-only journal](/concepts/commands#repairing-a-read-only-journal). | `aiur commands repair` |
 | `aiur operator-relay-answer DECISION-ID` | Records an operator's already-given answer when `executor.relay_operator_answers: true`. Requires `--expected-version`, exactly one of `--option` or `--custom-response`, `--quote` (verbatim operator words), `--relayed-by` (Executor identity), and `--idempotency-key`. Accepted for `human_required`; recorded as `operator_relayed`, never a direct operator answer. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote "keep them" --relayed-by attended-executor --idempotency-key palette-1` |
 | `aiur operator-relay-answer DECISION-ID --supersede` | Relays the operator's override before or after worker delivery, preserving the prior answer and routing evidence. Delivery waits for the next session when needed; a merged PR creates a corrective ticket. Refused when the active answer was recorded directly by the operator. | `aiur operator-relay-answer dec_123 --expected-version 1 --option replace --quote "replace them instead" --relayed-by attended-executor --idempotency-key palette-2 --supersede` |
 | `aiur answer DECISION-ID --operator` | Human operators only. Requires an interactive terminal, shows the Command question, version and selected answer, then requires typing the decision ID to confirm. Agents and Executors must never run it. It accepts only `human_required` Commands and records actor `cli:<user>`. | `aiur answer dec_123 --option build_content --operator` |
 | `aiur executor-ack DECISION-ID` | Records that the Executor has seen a Command. Stops its acknowledgement deadline while preserving its answer deadline. Repeats succeed with “already acknowledged”. The ID is `dec_` followed by 16 lowercase hexadecimal characters. | `aiur executor-ack dec_0123456789abcdef` |
+| `aiur executor-claim-decision DECISION-ID --as exec-1 [--ttl SECONDS]` | Makes one Executor the owner of one open Command. Another Executor's `executor-answer` is refused with the claimant's id until the claim expires (default 1800 s), is released, or the Command is answered. Operators are never blocked. `--as` is required and cannot be `aiur-cli`. The claim lives on the daemon that holds the Command. | `aiur executor-claim-decision dec_0123456789abcdef --as exec-1` |
+| `aiur executor-release-decision DECISION-ID --as exec-1` | Hands a claim back. Only the claimant can release a live claim. | `aiur executor-release-decision dec_0123456789abcdef --as exec-1` |
 | `aiur executor-ack DECISION-ID --executor-id exec-1` | Optional attribution; defaults to `aiur-cli`. Must contain 1–256 bytes. | `aiur executor-ack dec_0123456789abcdef --executor-id exec-1` |
 | `aiur executor-answer DECISION-ID` | Records a supervising-Executor answer to one open decision. It requires `--expected-version`, `--rationale`, `--idempotency-key`, and exactly one of `--option` or `--custom-response`. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |
 | `aiur executor-answer DECISION-ID` with `executor.allow_reversible_human_required_answers: true` | Opt-in allows the Executor to answer reversible legacy human-required engineering Commands. The durable answer records the Executor actor and rationale. Product, spend, external publication, and security bases remain human-only. | `aiur executor-answer dec_123 --expected-version 1 --option keep --rationale "Matches the accepted trailer format" --idempotency-key run-2` |
@@ -131,9 +134,10 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur --instance nuc executor-wait --as fleet-executor --json` | Waits on one named remote instance using the same per-instance cursor and deferred acknowledgement behavior. | `aiur --instance nuc executor-wait --as fleet-executor --json` |
 | `aiur executor-fast-forward <wake-id>` | Explicitly acknowledges an exact durable wake prefix that this Executor demonstrably covered by another complete means. It acquires the owner lease, refuses a live peer owner, rejects an absent or future id, reports before/through/acknowledged/pending counts, and preserves newer wakes. This is recovery, not the normal consumption loop. | `aiur executor-fast-forward 2832 --as agent-a` |
 | `aiur executor-roster` | Lists every Executor consumer with the evidence behind its state: role, host, pid, `claimed_at`, `last_renewed_at`, `last_acknowledged_at`, `pending_count`, cursor position, and whether the cursor moved since the previous observation. | `aiur executor-roster --json` |
+| `aiur executor-attach --check [--json]` | Local-only, read-only checks for listener, binding, private credential files, harness hooks, hook age, transcript readability and format drift. Each row reports `ok`, `fail` or `unknown` with guidance. JSON emits an array of `{check, status, detail, observed_at}`. Exit 0 requires every check to be `ok`; otherwise exit 1. Requires the daemon. | `aiur executor-attach --check --json` |
 | `aiur executor-attach --harness claude\|codex [--takeover] [--print-config]` | Attaches an Executor binding to this instance. Requires a running dashboard listener. Claude installs hooks at the Git repository root (or current directory outside Git); `--print-config` prints them instead. Codex always prints config for interactive trust. A live binding refuses replacement (exit 75); `--takeover` names the superseded binding. | `aiur executor-attach --harness claude` |
 | `aiur executor-detach` | Ends the binding if needed, rotates its hook token, and removes marked Claude hooks at the Git repository root (or current directory outside Git). Cleanup also runs after SessionEnd and without a binding. | `aiur executor-detach` |
-| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, and rejected foreign-session/not-attached counts. Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
+| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, rejected foreign-session/not-attached counts, and `transcript_rejection` (null for no rejection, `unknown` when capture status is unavailable). Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
 | `aiur executor-claim` | Claims the wake stream. Refused when a live, renewing owner holds it; the refusal names that owner so a takeover is an operator decision, never a silent steal. | `aiur executor-claim --as agent-a` |
 | `aiur executor-release` | Gives up this consumer's claim so a successor can take over immediately. | `aiur executor-release --as agent-a` |
 | `aiur executor-revoke <consumer-id>` | Operator-only revoke of the named live owner. Requires the owner's id, read from the roster first. | `aiur executor-revoke agent-a` |
@@ -238,3 +242,41 @@ returns 73 naming the settings path.
 
 Use `--takeover --print-config` to replace
 that pending binding and print config for manual installation.
+
+Attached Claude sessions capture their validated JSONL transcript into the durable
+Executor conversation, including history from the first record. Capture resumes
+from a saved byte offset after daemon restarts.
+
+The Executor view hides reasoning rows. Journal capture retains the original
+text; history reads mask known credentials and URLs by default. Explicit raw
+reveal remains restricted to a writable loopback session.
+
+Typed prompts and Remote Control
+prompts appear as Executor operator messages; Remote Control retains its origin.
+
+Only the attached session file is read; Aiur does not scan provider directories.
+A missing or rejected source records a conversation gap. Clear opens a new
+session, truncation opens a fork, and detach ends capture while preserving history.
+
+`executor-session` reports stored-path rejection reasons such as `not_regular`
+when a file has been replaced by a symlink. Provider flush latency can delay live
+entries beyond the 400 ms poll interval.
+
+If capture is busy with a large backfill or unavailable, `executor-session`
+retains the hook-derived binding and age and reports `transcript_rejection: "unknown"`.
+
+`executor-session --json` includes `transcript_format`: generation totals by record
+class (`mapped`, `ignored_known`, `unknown`) and version (`tested`, `untested`,
+`absent`), the last untested version, and an alert latch.
+
+Counters checkpoint
+with the transcript cursor (at most every two seconds while polling), survive
+restarts, and reset on a new attachment generation. Older bindings have null
+diagnostics until capture starts.
+
+Tested versions are 2.1.287–2.1.299. After at
+least 200 records, more than 2% unknown records or any untested version emits
+one `system.executor.transcript.drift` attention per generation.
+
+Missing versions
+alone do not alert. Diagnostics contain counts and version numbers, never content.

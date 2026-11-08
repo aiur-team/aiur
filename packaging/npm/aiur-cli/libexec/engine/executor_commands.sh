@@ -25,6 +25,33 @@ cmd_executor_ack() {
   run_control_rpc "Aiur.AgentControlCLI.executor_ack([$opts])"
 }
 
+# Called with the subcommand name still in $1 (executor-claim-decision | executor-release-decision).
+cmd_executor_claim_decision() {
+  local sub="$1" fn="${1//-/_}" decision_id executor_id="" ttl="" arg
+  shift
+  decision_id="${1:-}"
+  [[ "$decision_id" =~ ^dec_[0-9a-f]{16}$ ]] || { echo "aiur: $sub expects a decision ID (dec_ followed by 16 lowercase hex characters)" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --as) [ "$#" -gt 1 ] || { echo "aiur: $sub --as requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --as=*) executor_id="${arg#--as=}" ;;
+      --ttl) [ "$sub" = executor-claim-decision ] && [ "$#" -gt 1 ] || { echo "aiur: $sub --ttl requires a value" >&2; exit 64; }; shift; ttl="$1" ;;
+      --ttl=*) [ "$sub" = executor-claim-decision ] || { echo "aiur: $sub received an unexpected argument: $arg" >&2; exit 64; }; ttl="${arg#--ttl=}" ;;
+      *) echo "aiur: $sub received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$executor_id" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "aiur: $sub requires --as <executor> ([A-Za-z0-9._-])" >&2; exit 64; }
+  [ -z "$ttl" ] || [[ "$ttl" =~ ^[0-9]+$ ]] || { echo "aiur: $sub --ttl must be a positive number of seconds" >&2; exit 64; }
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  [ -z "$ttl" ] || opts="$opts, ttl_s: $ttl"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id}"
+  run_control_rpc "Aiur.AgentControlCLI.${fn}([$opts])"
+}
+
 cmd_executor_answer() {
   local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then

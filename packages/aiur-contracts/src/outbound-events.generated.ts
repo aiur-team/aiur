@@ -10,7 +10,8 @@ export type OutboundEvent =
   | TicketProgressChangedEvent
   | TicketUsageChangedEvent
   | TicketSpendCapReachedEvent
-  | TicketCancelResultEvent;
+  | TicketCancelResultEvent
+  | TicketDecisionEvent;
 export type TicketLifecycleChangedEvent = OutboundEventEnvelope & {
   topic: string;
   refs: {
@@ -69,6 +70,34 @@ export type TicketCancelResultEvent = OutboundEventEnvelope & {
   attrs: {
     tracker_state: "cancelled";
     process_status: "exited" | "still_running" | "kill_failed" | "generation_changed";
+  };
+  [k: string]: unknown;
+};
+export type TicketDecisionEvent = OutboundEventEnvelope & {
+  topic: string;
+  refs: {
+    ticket: string;
+    decision_id: string;
+    decision_version: number;
+  };
+  attrs: {
+    question: string;
+    /**
+     * @maxItems 20
+     */
+    options: {
+      id: string | null;
+      label: string | null;
+      description: string | null;
+      benefits: string | null;
+      drawbacks: string | null;
+      risk: string | null;
+    }[];
+    answer?: {
+      selected_option_id: string | null;
+      custom_response: string | null;
+      rationale: string | null;
+    };
   };
   [k: string]: unknown;
 };

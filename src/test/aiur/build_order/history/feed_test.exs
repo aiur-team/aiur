@@ -1,5 +1,6 @@
 defmodule Aiur.BuildOrder.History.FeedTest do
   use ExUnit.Case, async: true
+  alias Aiur.BuildOrder.Features.{LabelRules, LabelStateStore}
   alias Aiur.BuildOrder.History.{Feed, Row, TelemetryScan}
   alias Aiur.BuildOrder.Lifecycle
   @t ~U[2026-10-01 12:00:00Z]
@@ -119,5 +120,26 @@ defmodule Aiur.BuildOrder.History.FeedTest do
     assert TelemetryScan.dispatches(path <> ".missing") == %{}
     File.write!(path, Jason.encode!(%{timestamp: "bad", attributes: %{event: "dispatch", boundary: "point", ticket: "7"}}))
     assert TelemetryScan.dispatches(path) == %{}
+  end
+
+  # Guards #7454: a label description must never be folded into the stored label name.
+  test "a described feature label stays the bare feature:<slug> for label diffs, LabelRules and LabelStateStore" do
+    description = "Feature collection: MP-E2 Commands (routing, escalation, native questions)"
+    labels = [%{"name" => "feature:mp-e2", "description" => description}, %{"name" => "agent:todo"}]
+    [first] = Feed.issue(nil, body(%{"labels" => labels}), @t)
+    assert first.fields.labels == ["agent:todo", "feature:mp-e2"]
+    assert first.fields.label_descriptions == %{"feature:mp-e2" => description}
+
+    # A row held with bare labels sees no label change when the same labels arrive with descriptions.
+    held = %{apply_event(nil, first) | labels: ["agent:todo", "feature:mp-e2"]}
+    [again] = Feed.issue(held, body(%{"labels" => labels, "updated_at" => DateTime.to_iso8601(@later)}), @later)
+    refute Map.has_key?(again.fields, :label_events)
+    assert again.fields.labels == held.labels
+
+    assert Enum.map(first.fields.labels, &LabelRules.parse/1) == [:ignore, {:ok, "mp-e2"}]
+    row = apply_event(nil, first)
+    snapshot = %{owners: %{7 => %{feature: "mp-e2"}}, features: %{}}
+    assert {:ok, entries} = LabelStateStore.rebuild(snapshot, fn [7] -> {:ok, [row], :healthy} end, nil, [], @later)
+    assert entries[{"mp-e2", 7}].state == :labelled
   end
 end

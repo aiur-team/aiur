@@ -17,6 +17,7 @@
     "commands",
     "config",
     "conversations",
+    "event-bus",
     "executor-attention",
     "harness-adapters",
     "identity",

@@ -6,10 +6,10 @@ import { PHONE_CELLS, PHONE_DATASETS, geom, openPhoneProduct, phoneCell } from '
 
 test.setTimeout(180_000)
 
-// The product's own flow rule (J:646-650, J:781): no lanes or edges, epic colouring, K slots.
+// The product's own flow rule (J:646-650, J:781): no lanes or edges, lane colouring, K slots.
 function expectFlowLayout(g) {
   expect(g.lanes).toBe(0)
-  expect(g.laneG).toBe('Colour = epic')
+  expect(g.laneG).toBe('Colour = lane')
   expect(g.edgesHidden).toBe(true)
   expect(g.histLefts.length).toBeLessThanOrEqual(Math.max(2, Math.floor((g.vpW - 46 - 14) / 140)))
 }
@@ -50,9 +50,9 @@ for (const name of ['p390', 'p430']) test(`phone guard: board geometry fits at $
     // Gutter (J:541): 46 px below a 640 px root; cards never cross vpW - 14.
     expect(product.histLefts[0]).toBe(46)
     expect(product.maxRight).toBeLessThanOrEqual(product.vpW - 14)
-    // Band stack (J:491): one column on a phone.
+    // #7687: the band tiles the board's flow columns instead of stacking in one column.
     expect(product.bandCards, 'band check needs ≥ 2 band items').toBeGreaterThanOrEqual(2)
-    expect(new Set(product.bandLefts).size).toBe(1)
+    expect(new Set(product.bandLefts).size).toBeGreaterThan(1)
     expectFlowLayout(product)
     if (name === 'p390') {
       // Product uses flow layout at the 390 px phone width.

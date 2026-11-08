@@ -4,7 +4,7 @@ defmodule Aiur.VoiceConverse.Host.Config do
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.VoiceConversationProviders
   alias Aiur.VoiceConversation.Provider
-  alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials}
+  alias Aiur.VoiceConverse.Host.{AgentChannel, BriefingSource, CommandSource, Credentials, Roles}
 
   @limit_keys [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget]
 
@@ -36,7 +36,10 @@ defmodule Aiur.VoiceConverse.Host.Config do
       agent_channel: AgentChannel,
       transcript_root: transcript_root,
       llm: settings.llm,
+      agent_id: settings.agent_id,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
+      roles: Roles.defaults(),
+      glossary: [Roles.glossary()],
       roles_dir: settings.roles_dir,
       redactor: &redact/1,
       limits: Map.take(settings, @limit_keys),
@@ -47,5 +50,5 @@ defmodule Aiur.VoiceConverse.Host.Config do
   defp redact(text), do: text |> VoiceConverse.Redact.redact() |> Aiur.SecretRedactor.redact() |> Aiur.SecretRedactor.redact_urls()
   defp provider(%{provider: :openai_realtime} = settings), do: {Aiur.VoiceConversation.OpenAIProvider, [voice_id: settings.voice_id]}
   defp provider(%{agent_id: nil}), do: nil
-  defp provider(%{agent_id: agent_id}), do: {Provider, [agent_id: agent_id]}
+  defp provider(_settings), do: {Provider, []}
 end

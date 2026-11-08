@@ -1,7 +1,7 @@
 defmodule VoiceConverse.SummaryTool do
   @moduledoc "Validated, untrusted session summary categories supplied by the voice agent."
 
-  alias VoiceConverse.{Config, Events}
+  alias VoiceConverse.{Config, Events, Redact}
 
   @fields ~w(decisions open_questions ideas)
   @max_items 20
@@ -28,7 +28,7 @@ defmodule VoiceConverse.SummaryTool do
   def handle(state, params) do
     case validate(params) do
       {:ok, summary} ->
-        summary = Map.new(summary, fn {key, items} -> {key, Enum.map(items, &state.config.redactor.(&1))} end)
+        summary = Redact.redact_value(summary, state.config.redactor)
         state.event_broadcast.(state.subscribers, state.id, {:summary_recorded, summary})
         {%{text: "Summary recorded. End the conversation when ready.", is_error: false, end?: false}, state}
 
@@ -60,7 +60,7 @@ defmodule VoiceConverse.SummaryTool do
 
   @spec redact_event(Config.t(), Events.ToolCall.t()) :: Events.ToolCall.t()
   def redact_event(config, %Events.ToolCall{name: "record_summary"} = event),
-    do: %{event | params: redact(event.params, config.redactor)}
+    do: %{event | params: Redact.redact_value(event.params, config.redactor)}
 
   def redact_event(_config, event), do: event
 
@@ -73,12 +73,4 @@ defmodule VoiceConverse.SummaryTool do
     do: String.trim(text) != "" and String.length(text) <= @max_text
 
   defp valid_text?(_text), do: false
-
-  defp redact(value, redactor) when is_binary(value), do: redactor.(value)
-  defp redact(value, redactor) when is_list(value), do: Enum.map(value, &redact(&1, redactor))
-
-  defp redact(value, redactor) when is_map(value),
-    do: Map.new(value, fn {key, item} -> {key, redact(item, redactor)} end)
-
-  defp redact(value, _redactor), do: value
 end

@@ -5,6 +5,13 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
+When publishing an `aiur-build` build order, publication registers one epic for
+the pack, one feature per product feature group inside that epic, and each
+feature's lanes. An epic holds features, a feature holds tickets, and a lane is
+the technical column a ticket belongs to. Assign every member to its product
+feature and planned lane. Use plain GitHub issue titles; keep logical IDs in
+ticket bodies and publication receipts.
+
 Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
 
 Home setup is performed once; each repository still needs readiness checks. Follow [per-repository setup](../aiur-intro/SKILL.md#prepare-each-repository-without-repeating-init): verify effective credential Write access, base-branch inputs, CODEOWNERS or
@@ -162,6 +169,47 @@ From the repository root:
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
 
+When changing capacity on a running daemon, edit `.aiur/config` and let the
+one-second config poll reload it. Do not run `aiur stop` and relaunch just to
+change `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, or
+`agent.max_cpu_pressure`; confirm the result with `"$AIUR_CMD" status`.
+
+### Skill mapping
+
+Workers load the skills that fit their ticket when `agent.skills` maps a lane,
+owning feature, label or complexity level to skill names. Configure it during
+preflight so each lane's workers start with its skills and the index of the rest,
+instead of every worker carrying the whole library. See
+[Matching skills to a ticket](../../../website/docs-app/skills.md#matching-skills-to-a-ticket).
+
+```yaml
+agent:
+  skills:
+    by_lane:
+      art: [pixel-art, palette-discipline]
+      frontend: [ui-kit, design-import]
+      audio: [audio-design]
+    by_feature:
+      items-ui: [ui-kit, design-import]
+      combat: [combat-tuning]
+    by_label:
+      pixel-art: [pixel-art, palette-discipline]
+```
+
+A lane is the technical column the work belongs to: a `lane:`, `area:` or
+`build-lane:` label suffix, or a configured lane's label matchers. Labels
+outrank lanes, lanes outrank the owning feature, and the feature outranks
+complexity; matching sets combine.
+
+A `skills:<name>` label or a `Skills: a, b` body line adds skills to one ticket,
+and `Skills only: a, b` replaces the configured set for it.
+
+Config is read when a worker's prompt is built, so an edit applies to the next
+dispatch without a relaunch. Verify with `"$AIUR_CMD" agents`: each row shows the
+worker's mapped skills and the reason each was selected. A mapped name with no
+installed skill logs a warning and appears in the prompt and dispatch record as
+missing; report it rather than letting the worker stall on it.
+
 Preflight also covers the Executor wake path. The listener is armed on **every**
 run now, with or without `--executor`, so `LISTENER absent` no longer means "no
 Executor was intended" — it always means the recording path is broken and this
@@ -181,6 +229,11 @@ in consumer repositories. Equivalent background forms are:
 "$AIUR_CMD" --bg --executor --debug --max-agents <n>
 ```
 
+For a capacity adjustment after launch, change the relevant live setting in
+`.aiur/config` and verify it with `"$AIUR_CMD" status`. Do not stop and relaunch
+the daemon for this; accepted config edits reload within about one second while
+agent turns continue.
+
 `--executor` is required for every Executor-owned run, but what it now declares
 is **authority**, not recording. Every run records the wake stream and every run
 arms the listener; `--executor` is what raises created and deferred Commands as
@@ -189,6 +242,18 @@ needs-attention alerts, and it registers a renewing principal in
 observer. Registration never acknowledges wakes or advances the shared cursor;
 only `executor-wait` does that. If you are acting as the Executor, launch with
 `--executor`; there is no valid Executor launch without it.
+
+Offer Executor conversation attachment as a separate opt-in; never attach the
+user's session merely because you operate the run. Before using
+`aiur executor-attach --harness claude` or `--harness codex`, explain that Aiur
+may read that session's transcript and retain a local, owner-only journal until
+deleted. Device pairing is not available yet; when it ships, pairing a phone or
+watch will grant full access, including the Executor transcript, with no separate
+transcript toggle. Claude installs marked project-local hooks;
+Codex prints configuration for manual merge and `/hooks` trust. Explain
+`aiur executor-detach` and that existing recordings remain. Attachment alone
+does not enable dashboard chat in attach-only builds. See
+[Executor opt-in and privacy](../../../website/docs-app/concepts/executor.md#talk-to-the-executor-from-the-dashboard).
 
 For a multi-instance fleet, run one Executor from one machine. Stop the
 per-machine Executors, then use `aiur --instance all executor-wait --as
@@ -294,6 +359,20 @@ Command triage: [deadlines, acknowledgement, and asking the human](references/co
 
 Read now: [Drive the run](references/driving.md) on every observation, and [Review and merge](references/review-and-merge.md) before review, merge, or closure.
 
+## Per-ticket deep dives
+
+Scoping one ticket — an open-ended question that decides that ticket's design,
+contract, or acceptance — is a research spike, not a run-log exercise. Use the
+`research-spike` skill for it: brainstorm, plan, research the ticket, then write
+the specs the worker executes. Whole-feature decomposition stays with
+`aiur-build` and the shared `build-order` skill; a spike never decomposes a
+feature.
+
+Put the spike's output where the fleet can see it — the ticket itself, or the
+artifacts the spike names, linked from the Executor handoff. An investigation
+that lives only inside an Executor turn is invisible to the workers who must act
+on it.
+
 ## 6. Backstop and defects
 
 Prioritize restoring productive Aiur workers, but do not preserve nominal
@@ -363,6 +442,17 @@ state in the [capacity policy](references/executor.md#capacity-policy) and recor
 ledger.
 
 ## 7. Rebuild, resume, and stop
+
+Use `aiur redispatch <ticket-id> [--backend <backend>]` when a live worker must
+move to another backend. It stops the current worker and starts one replacement
+in the same workspace, preserving local edits, branch, PR and workpad. Omit
+`--backend` to use current routing and account selection; provide a backend
+name matching a configured backend exactly (for example `codex`) to pin the
+replacement. Without a pin, ticket labels remain unchanged. Teardown ends the
+current session immediately, so any unsaved output still held only in that
+session is lost; save important output to the workspace before switching. This
+differs from `resume`, which continues the existing session on its current
+backend and account.
 
 Use deliberate rebuild checkpoints after merges that must enter the worker
 base. Stop the current session cleanly, update the base under the repository's

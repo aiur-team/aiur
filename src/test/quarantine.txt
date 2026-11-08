@@ -9,8 +9,10 @@ Aiur.CodingAgentCheckpointTest	Codex adapter treats idle thread status as turn c
 Aiur.Commands.NativeCaptureTest	derived approval labels use the existing policy for every question	#6866	2026-11-10
 Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
 Aiur.DaemonHeartbeatTest	*	#6054	2026-12-31
+Aiur.GitHub.Budget.LedgerAndCeilingsTest	warn_metering_unavailable/0 stays silent when the broker can run	#7550	2026-11-20
 Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
 Aiur.GitHub.ResourceStore.MergeTest	merging into a held body concurrent merges lose nothing and the body never goes backwards	#6609	2026-11-10
+Aiur.LandingWatch.QuarantinePRTest	when only auto-merge fails, the retry reuses the committed branch and writes no new head	#7383	2026-11-15
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
@@ -18,6 +20,7 @@ Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and re
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
+Aiur.Scripts.AgentWorktreeTest	create checks out the PR head in a unique worktree with a unique branch	#7539	2026-11-20
 Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding pane ids	#7282	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31

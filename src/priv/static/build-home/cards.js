@@ -7,7 +7,7 @@ import { nowMs } from './clock.js';
 import { fmtD, fmtT, fmtH, dayKey } from './util.js';
 import { I } from './icons.js';
 import { progress } from './now-state.js';
-import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
+import { rowState, holdLinkHTML, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
 import { labelCard } from './a11y.js';
@@ -41,9 +41,9 @@ export function alignActiveGlow(el) {
     if (animation.animationName === 'bdRot') animation.startTime = 0;
   }
 }
-function epic(key) {
-  if (Object.hasOwn(ctx.D.epics, key)) return ctx.D.epics[key];
-  if (!warned.has(key)) { console.warn('Unknown epic:', key); warned.add(key); }
+function lane(key) {
+  if (Object.hasOwn(ctx.D.lanes, key)) return ctx.D.lanes[key];
+  if (!warned.has(key)) { console.warn('Unknown lane:', key); warned.add(key); }
   return { key: 'unsorted', unsorted: true };
 }
 export function cardDetail(it) {
@@ -95,7 +95,7 @@ function historyContent(t, points) {
   return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + value + '</span></div>' };
 }
 export function makeCard(it) {
-  const t = it.t, e = epic(colKey(t)), det = cardDetail(it), ag = rowState(t), cls = agentClasses(t, det);
+  const t = it.t, e = lane(colKey(t)), det = cardDetail(it), ag = rowState(t), cls = agentClasses(t, det);
   const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null;
   const el = document.createElement('div');
   const startUnknown = it.startUnknown || (S.view === 'gantt' && t.sec === 'hist' && t.start == null);
@@ -104,6 +104,7 @@ export function makeCard(it) {
   el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
     (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
     (t.sec === 'plan' && (t.cue?.failed || t.cue?.blockedChain) ? ' blk' : '') + (cls.hasAg ? ' has-ag' : '') + (t.status === 'not_planned' ? ' np' : '');
+  if (t.sec === 'hist' && t.status === 'done') el.classList.add('completed');
   const hue = finite(e.hue, 0, 360);
   if (hue !== null) el.style.setProperty('--h', hue);
   if (e.unsorted && hue === null) el.style.setProperty('--ec', 'var(--muted)');
@@ -122,11 +123,13 @@ export function makeCard(it) {
     const points = number(t.pts, 'pts', 'Points unknown');
     let body = '', status = '';
     if (t.sec === 'hist') ({ body, status } = historyContent(t, points));
-    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>') + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
+    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (holdLinkHTML(t) || (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>')) + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
     else if (t.sec === 'plan') ({ body, status } = planContent(t, points));
     else status = '<div class="bd-status"><span>Open · not queued</span><span>' + points + ' pts</span></div>';
     el.innerHTML = glow + '<div class="bd-in"' + (startUnknown || estUnknown ? ' title="' + esc(tip) + '"' : '') + '>' + sr + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + logoHTML(t, det);
   }
+  el.querySelector('.bd-hold')?.addEventListener('click', event => event.stopPropagation());
+  el.querySelector('.bd-hold')?.addEventListener('keydown', event => event.stopPropagation());
   el.setAttribute('role', 'button'); decorate(el); return el;
 }
 export function decorate(el) {

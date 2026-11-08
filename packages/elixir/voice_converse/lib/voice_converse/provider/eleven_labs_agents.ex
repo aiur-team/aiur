@@ -4,6 +4,11 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   The provider process owns the websocket. Credentials and the one-time signed
   URL are used while connecting and are never retained in its state.
+
+  `spec.agent_id` is the hosted Agent the conversation runs on. It is an
+  account-visible identifier, not a credential, and it is required: without one
+  the signed-URL request would fall back to the account's default agent, so
+  `open/1` refuses before any transport opens.
   """
 
   use GenServer
@@ -37,13 +42,24 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     }
   end
 
+  @doc "Renders PCM speech and character alignment using ElevenLabs' timestamped TTS endpoint."
+  @spec render_speech(VoiceConverse.Provider.render_spec()) ::
+          {:ok, VoiceConverse.Provider.render_result()} | {:error, Events.Error.t()}
+  defdelegate render_speech(spec), to: VoiceConverse.Provider.ElevenLabsNarration
+
   @doc "Opens an unlinked daemon-held provider connection."
   @spec open(VoiceConverse.Provider.session_spec()) :: {:ok, pid()} | {:error, Events.Error.t()}
   def open(%{owner: owner, credentials: {credentials, provider_id}} = spec)
       when is_pid(owner) and is_atom(credentials) and is_atom(provider_id) do
-    case credential_present?(credentials, provider_id) do
-      :present -> GenServer.start(__MODULE__, spec)
-      :missing -> {:error, Events.Error.new(:unconfigured, "ElevenLabs is not configured.")}
+    cond do
+      credential_present?(credentials, provider_id) != :present ->
+        {:error, Events.Error.new(:unconfigured, "ElevenLabs is not configured.")}
+
+      not valid_agent_id?(spec) ->
+        {:error, Events.Error.new(:unconfigured, "No ElevenLabs agent is configured.")}
+
+      true ->
+        GenServer.start(__MODULE__, Map.put(spec, :agent_id, String.trim(spec.agent_id)))
     end
   end
 
@@ -369,8 +385,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   defp atom_format(format) when is_atom(format), do: Atom.to_string(format)
   defp atom_format(format), do: format
 
-  defp signed_url_endpoint(nil), do: @signed_url_endpoint
-  defp signed_url_endpoint(agent_id), do: @signed_url_endpoint <> "?" <> URI.encode_query(%{"agent_id" => agent_id})
+  defp signed_url_endpoint(agent_id) when is_binary(agent_id),
+    do: @signed_url_endpoint <> "?" <> URI.encode_query(%{"agent_id" => agent_id})
 
   defp http_error_code(status) when status in [401, 403], do: :provider_auth
   defp http_error_code(429), do: :provider_quota
@@ -398,6 +414,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   catch
     _kind, _reason -> :missing
   end
+
+  defp valid_agent_id?(%{agent_id: agent_id}) when is_binary(agent_id), do: String.trim(agent_id) != ""
+  defp valid_agent_id?(_spec), do: false
 
   defp error_message(:provider_auth), do: "ElevenLabs authentication failed."
   defp error_message(:provider_quota), do: "ElevenLabs quota is unavailable."

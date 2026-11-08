@@ -7,8 +7,10 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
   alias Aiur.{AgentQueue, AgentQueueStore, Orchestrator}
   alias Aiur.Conversation.TestSupport
-  alias Aiur.Executor.{HookToken, Session}
+  alias Aiur.Executor.{HookToken, Send, Session}
+  alias Aiur.Listener
   alias Aiur.Listener.{HookEnvelope, ModeStore, Receipt}
+  alias Aiur.Orchestrator.ListenerDeliveryTarget
   alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, PendingStore}
 
   # Only process lifecycle and fixture insertion are doubled; claims route through the production callbacks.
@@ -59,6 +61,25 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     assert {:ok, pending} = Session.attach(%{harness: "claude"})
     assert {:ok, binding} = Session.bind_provider_session(pending.binding_id, %{session_id: "session-http"})
     Map.merge(context, %{token: token, binding: binding, broker: broker})
+  end
+
+  test "Executor adapter reaches the production listener queue and hook receipt", context do
+    previous = Application.fetch_env!(:aiur, :listener_delivery_target)
+    Application.put_env(:aiur, :listener_delivery_target, ListenerDeliveryTarget)
+    on_exit(fn -> Application.put_env(:aiur, :listener_delivery_target, previous) end)
+
+    assert Send.capability(writable: true) == :available
+    assert {:ok, id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
+    assert item(id).target_issue_identifier == "executor"
+    assert item(id).body.text == "inspect this run"
+    refute item(id).persist_across_restart?
+    assert AgentQueueStore.get(PendingStore.load(), id) == nil
+    assert {:ok, ^id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
+    assert {:ok, %{receipt: :accepted}} = Listener.receipt(id)
+    response = request(context)
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body)["reason"] =~ "inspect this run"
+    assert {:ok, %{receipt: :harness_queued}} = Listener.receipt(id)
   end
 
   test "Stop returns block envelope, persists harness queueing and does not duplicate", context do

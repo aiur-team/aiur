@@ -15,7 +15,7 @@ test('no horizontal page scroll and every bottom-nav item is fully visible', asy
   await open(page)
   const fit = await page.evaluate(() => ({
     innerWidth, scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth,
-    items: Array.from(document.querySelectorAll('a.snav'), item => {
+    items: Array.from(document.querySelectorAll('a.snav')).filter(item => item.getClientRects().length).map(item => {
       const box = item.getBoundingClientRect(), label = item.querySelector('.snav-label')
       return { path: item.getAttribute('href'), text: label.textContent.trim(), left: box.left, right: box.right, clipped: label.scrollWidth > label.clientWidth }
     })

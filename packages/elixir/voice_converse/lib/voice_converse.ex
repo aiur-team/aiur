@@ -40,15 +40,48 @@ defmodule VoiceConverse do
   @doc "Relays an audio chunk to a live conversation."
   @spec push_audio(module(), String.t(), String.t()) :: :ok | {:error, :not_found}
   def push_audio(instance, conversation_id, audio_b64) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       VoiceConverse.Session.push_audio(pid, audio_b64)
+    end
+  end
+
+  @doc "Sends a bounded client transcription to the conversation provider."
+  @spec push_text(module(), String.t(), String.t()) :: :ok | {:error, atom()}
+  def push_text(instance, id, text) when is_binary(text) and byte_size(text) in 1..16_384 do
+    with {:ok, pid} <- session_pid(instance, id) do
+      GenServer.cast(pid, {:client_text, text})
+    end
+  end
+
+  def push_text(_instance, _id, _text), do: {:error, :invalid_payload}
+
+  @doc "Reports playback state, optionally including turn-relative progress for interruption truncation."
+  @spec playback_state(module(), String.t(), String.t() | map()) :: :ok | {:error, atom()}
+  def playback_state(instance, id, status) when status in ["playing", "stopped"],
+    do: playback_state(instance, id, %{"state" => status})
+
+  def playback_state(instance, id, frame) when is_map(frame) do
+    with {:ok, json} <- VoiceConverse.Wire.encode(Map.merge(frame, %{"v" => 1, "type" => "playback_state"})),
+         {:ok, frame} <- VoiceConverse.Wire.decode(json),
+         {:ok, pid} <- session_pid(instance, id) do
+      GenServer.call(pid, {:playback_state, frame})
+    end
+  end
+
+  def playback_state(_, _, _), do: {:error, :invalid_payload}
+
+  @doc "Refreshes a live conversation's briefing and sends changed lines as context."
+  @spec refresh_briefing(module(), String.t()) :: :ok | {:error, :not_found | :unavailable}
+  def refresh_briefing(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
+      GenServer.call(pid, :refresh_briefing)
     end
   end
 
   @doc "Ends a live conversation with one stable end reason."
   @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
   def end_session(instance, conversation_id, reason \\ :user_end) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       VoiceConverse.Session.end_session(pid, reason)
     end
   end
@@ -57,7 +90,7 @@ defmodule VoiceConverse do
   @spec confirm_draft(module(), String.t(), String.t(), keyword()) ::
           {:ok, VoiceConverse.Drafts.Draft.t()} | {:error, term()}
   def confirm_draft(instance, conversation_id, draft_id, opts \\ []) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       GenServer.call(pid, {:confirm_draft, draft_id, opts})
     end
   end
@@ -66,7 +99,7 @@ defmodule VoiceConverse do
   @spec discard_draft(module(), String.t(), String.t(), keyword()) ::
           {:ok, VoiceConverse.Drafts.Draft.t()} | {:error, term()}
   def discard_draft(instance, conversation_id, draft_id, opts \\ []) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       GenServer.call(pid, {:discard_draft, draft_id, opts})
     end
   end
@@ -74,7 +107,7 @@ defmodule VoiceConverse do
   @doc "Subscribes a process to conversation events."
   @spec subscribe(module(), String.t(), pid()) :: :ok | {:error, :not_found}
   def subscribe(instance, conversation_id, subscriber \\ self()) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       VoiceConverse.Session.subscribe(pid, subscriber)
     end
   end
@@ -82,8 +115,15 @@ defmodule VoiceConverse do
   @doc "Removes a process from conversation event delivery and starts transport grace when it was last."
   @spec unsubscribe(module(), String.t(), pid()) :: :ok | {:error, :not_found}
   def unsubscribe(instance, conversation_id, subscriber \\ self()) do
-    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+    with {:ok, pid} <- session_pid(instance, conversation_id) do
       VoiceConverse.Session.unsubscribe(pid, subscriber)
+    end
+  end
+
+  defp session_pid(instance, id) do
+    case SessionRegistry.lookup(instance, id) do
+      {:ok, pid} -> {:ok, pid}
+      :error -> {:error, :not_found}
     end
   end
 
@@ -94,25 +134,55 @@ defmodule VoiceConverse do
     end
   end
 
-  # Startup order is intentional: the durable cleanup queue comes up first, then reconciliation
-  # seals any interrupted transcripts and appends cleanup work before later session children may
-  # accept a new conversation.
+  # Startup order is intentional: the durable cleanup queue comes up first. File mode then seals
+  # interrupted transcripts before later session children may accept a new conversation.
   defp children(%Config{} = config) do
     session_children = [
       {Registry, keys: :unique, name: SessionRegistry.name(config.name)},
       {SessionSupervisor, config}
     ]
 
-    transcript_children(config) ++ session_children
+    cleanup_children(config) ++ transcript_children(config) ++ session_children
+  end
+
+  defp cleanup_children(%Config{cleanup_root: nil} = config) do
+    if config.transcript == :file, do: file_cleanup_child(config), else: []
+  end
+
+  defp cleanup_children(%Config{cleanup_root: root} = config), do: cleanup_child(config, root)
+
+  defp file_cleanup_child(%Config{name: name, credentials: credentials, transcript_root: root} = config) do
+    cleanup = Module.concat(name, ProviderCleanup)
+
+    [
+      {ProviderCleanup,
+       Keyword.merge(config.cleanup_options,
+         name: cleanup,
+         transcript_root: root,
+         credentials: {credentials, :elevenlabs}
+       )}
+    ]
+  end
+
+  defp cleanup_child(%Config{name: name, credentials: credentials, cleanup_options: options}, root) do
+    cleanup = Module.concat(name, ProviderCleanup)
+
+    [
+      {ProviderCleanup,
+       Keyword.merge(options, name: cleanup, cleanup_root: root, credentials: {credentials, :elevenlabs})}
+    ]
   end
 
   defp transcript_children(%Config{transcript: :none}), do: []
 
-  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root, credentials: credentials}) do
+  defp transcript_children(%Config{
+         transcript: :file,
+         name: name,
+         transcript_root: root
+       }) do
     cleanup = Module.concat(name, ProviderCleanup)
 
     [
-      {ProviderCleanup, name: cleanup, transcript_root: root, credentials: {credentials, :elevenlabs}},
       {BootReconciler, transcript_root: root, cleanup: cleanup}
     ]
   end

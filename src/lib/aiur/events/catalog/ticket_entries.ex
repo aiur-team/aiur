@@ -18,6 +18,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.error.tokens_exhausted", "agent-runner"},
     # aiur/executor_sweep/wake.ex
     {"ticket.*.agent.executor-sweep.finding", "executor-attention"},
+    # aiur/orchestrator/retry_engine/agent_down.ex
+    {"ticket.*.agent.launch_failed", "orchestration"},
     # aiur/orchestrator/issue_sync/transition_alerts.ex
     {"ticket.*.agent.handoff.human_review", "orchestration"},
     # aiur/orchestrator/lifecycle_fence_expiry.ex
@@ -88,6 +90,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.pr.approval_carried", "orchestration"},
     # aiur/events/github_ci_poller/recovery.ex
     {"ticket.*.pr.ci_recovery.*", "github-listeners"},
+    # aiur/events/github_ci_poller/recovery_safety.ex
+    {"ticket.*.pr.ci_recovery.rerun", "github-listeners"},
     # aiur/landing_watch/pr_rerun.ex
     {"ticket.*.pr.ci_recovery.rerun_limit", "orchestration"},
     # aiur/landing_watch.ex
@@ -130,6 +134,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.workspace.wip_discarded", "workspace"},
     # aiur/workspace/wip_preservation.ex
     {"ticket.*.workspace.wip_preservation_failed", "workspace"},
+    # aiur/workspace/refresh.ex
+    {"ticket.*.workspace.wip_preservation_skipped", "workspace"},
     # aiur/workspace/wip_preservation/artifact.ex
     {"ticket.*.workspace.wip_preservation_incomplete", "workspace"},
     # aiur/workspace/wip_preservation/artifact.ex

@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.Render.Views do
   @moduledoc "Existing focused views expressed as common renderer faces and strip parts."
-  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, EpicFrame, Nav}
+  alias AiurWeb.Streamdeck.Deck.{ChatNavigation, LaneFrame, Nav}
   alias AiurWeb.Streamdeck.Render.{Fleet, MeterDetail, Settings, Svg, ViewStrip}
   import Svg, only: [field: 2, field: 3]
 
@@ -34,11 +34,11 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     {faces ++ [card("LIVE", "LIVE", "", live: true, selected: is_nil(chat.selected))], chat_regions(model)}
   end
 
-  def compose(%{nav: %{view: :epic} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
-    do: with_toast(EpicFrame.compose(field(model, :grid) || model, nav), model)
+  def compose(%{nav: %{view: :lane} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"],
+    do: with_toast(LaneFrame.compose(field(model, :grid) || model, nav), model)
 
   def compose(%{nav: %{view: :fleet} = nav} = model) when not is_map_key(model, :surface) or model.surface in [:grid, "grid"] do
-    with_toast(Fleet.compose(field(model, :grid) || model, nav), model)
+    with_toast(Fleet.compose(field(model, :grid) || model, nav, field(model, :usage) || %{}), model)
   end
 
   def compose(model) do

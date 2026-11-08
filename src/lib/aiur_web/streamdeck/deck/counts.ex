@@ -7,13 +7,13 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
   @spec categories(map()) :: map()
   def categories(counts) do
     by_state = counts.by_state
-    known = ~w(active command error retrying ci_wait usage_limited parked paused)
+    known = ~w(active native_question command error retrying ci_wait usage_limited parked paused)
     unknown = counts.agents - Enum.sum(Map.values(Map.take(by_state, known)))
 
     %{
       active: Map.get(by_state, "active", 0) + unknown,
       unknown: unknown,
-      command: Map.get(by_state, "command", 0),
+      command: Map.get(by_state, "command", 0) + Map.get(by_state, "native_question", 0),
       error: Map.get(by_state, "error", 0) + Map.get(by_state, "retrying", 0),
       ci_wait: Map.get(by_state, "ci_wait", 0),
       usage_limited: Map.get(by_state, "usage_limited", 0),

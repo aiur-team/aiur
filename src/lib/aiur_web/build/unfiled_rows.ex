@@ -70,7 +70,7 @@ defmodule AiurWeb.Build.UnfiledRows do
       start_src: "unknown",
       title: ticket.title,
       type: "feature",
-      epic: if(MapSet.member?(context.epics, ticket.lane), do: ticket.lane),
+      epic: if(MapSet.member?(context.lanes, ticket.lane), do: ticket.lane),
       feature: nil,
       also: [],
       cx: cx,

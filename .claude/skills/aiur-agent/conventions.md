@@ -30,9 +30,9 @@ creation request with one explicit disposition:
   (`agent:todo` in the standard workflow);
 - deliberately parked work carries `needs-triage` or `human:todo`, with the
   reason in its body;
-- Build Order roots carry `build-order`; containers named `Epic:` carry `epic`.
-  These are hierarchy, not executable work, so they do not receive
-  `agent:todo`.
+- Build Order roots carry `build-order`; hierarchy containers named `Epic:`
+  carry `epic`. These are hierarchy, not executable work, so they do not
+  receive `agent:todo`.
 
 Set the label in the `gh issue create --label ...` command. Do not create an
 unlabelled issue and rely on a follow-up edit: a failed or forgotten second
@@ -45,7 +45,7 @@ refused; use `gh issue create --label ...` so the disposition can be checked.
 The repository's pre-tool hook applies the same rule to Executor Bash calls and
 recognizable non-`gh` GitHub issue creation.
 
-**Give every finding you file a home-page epic.** After issue creation returns the number, call `aiur_set_epic {"epic":"infra","ids":[101]}` (replace the example key and id); Aiur records you as the actor. Use a general epic key only; an unknown key is refused with the list of valid keys, so read that error rather than guess. If the finding belongs to a feature, use `aiur_feature {"op":"add","slug":"docs-site","ids":[101]}` instead, replacing the slug and id. If you cannot tell which epic fits, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. If the tool is absent or build history is unavailable, skip the step and say so in the workpad; never block filing on it.
+**Give every finding you file a home-page lane.** An epic holds features, a feature holds tickets, and a lane is the technical column a ticket belongs to. After issue creation returns the number, call `aiur_set_lane {"epic":"infra","ids":[101]}` (the argument key is still `epic`; replace the example lane key and id); Aiur records you as the actor. Use a configured lane key only; an unknown key is refused with the list of valid keys, so read that error rather than guess. If the finding belongs to a feature, use `aiur_feature {"op":"add","slug":"docs-site","ids":[101]}` instead, replacing the slug and id. If you cannot tell which lane fits, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. If the tool is absent or build history is unavailable, skip the step and say so in the workpad; never block filing on it.
 
 ## Out-of-scope findings
 
@@ -70,6 +70,14 @@ Instead:
 Keep the current PR focused on the originally-scoped change.
 
 ## Tooling environment
+
+### Build-gate occupancy
+
+Use `aiur status` and its `BUILD GATE HOLDER` / `BUILD GATE QUEUED` lines to
+understand build-slot occupancy. Do not inspect raw files in
+`~/.aiur/build-gate/` as lease evidence: owner candidates and handshake
+publication files are not slot leases. A full gate is shown by live holders
+and queued work in status.
 
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for
 you, pointing at per-workspace directories. `mise trust` has already been run for

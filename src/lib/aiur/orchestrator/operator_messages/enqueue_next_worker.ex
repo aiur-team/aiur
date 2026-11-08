@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
         turn_id: request.turn_id,
         action_id: request.action_id,
         correlation: request.correlation,
-        persist_across_restart?: true
+        persist_across_restart?: identifier != "executor"
       )
 
     case enqueue_plain.(state.queue_store, attrs, request) do

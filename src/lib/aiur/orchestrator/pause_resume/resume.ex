@@ -272,7 +272,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   end
 
   @doc false
-  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
+  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, term()}
   def resume_paused_issue_preflight(%State{} = state, running_entry) do
     cond do
       # A worker still working under its own pending input pause holds its
@@ -289,10 +289,10 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
         {:error, :max_concurrent_agents_reached}
 
       not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->
-        {:error, :max_concurrent_agents_reached}
+        {:error, {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)]))}}
 
       not Slots.resume_worker_slot_available?(state, Map.get(running_entry, :worker_host)) ->
-        {:error, :max_concurrent_agents_reached}
+        {:error, :no_worker_capacity}
 
       true ->
         :ok

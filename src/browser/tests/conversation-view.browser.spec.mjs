@@ -75,7 +75,7 @@ test('live entries follow at bottom and preserve the scrolled-up viewport with a
   await expect(page.locator('#entry-2006')).toBeInViewport()
 })
 
-test('entry kinds wrap and collapsed output expands at phone and desktop widths', async ({ page }) => {
+test('Executor hides reasoning while entry kinds wrap and tool output expands at phone and desktop widths', async ({ page }) => {
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     await page.request.post('/conversation-fixture/reset')
@@ -92,7 +92,9 @@ test('entry kinds wrap and collapsed output expands at phone and desktop widths'
     await expect(page.locator('#entry-2006 .conversation-operator-bubble')).toContainText('Executor')
     await expect(page.locator('#entry-2007 .conversation-system')).toContainText('System')
     await expect(page.locator('#entry-2008 .conversation-alert')).toContainText('Alert:')
-    for (const pos of [2002, 2003, 2004]) {
+    await expect(page.locator('#entry-2002 .conversation-entry')).toHaveCount(0)
+    await expect(page.locator('.conversation-reasoning')).toHaveCount(0)
+    for (const pos of [2003, 2004]) {
       const details = page.locator(`#entry-${pos} details`)
       await expect(details).not.toHaveAttribute('open')
       await details.locator('summary').click()

@@ -61,6 +61,12 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.SupervisorAuth)
   end
 
+  # Ticket-scoped Commands API: the caller carries a short-lived grant minted
+  # by a host server, never the instance supervisor credential.
+  pipeline :commands_scope_auth do
+    plug(AiurWeb.CommandsScopeAuth)
+  end
+
   # GitHub webhook deliveries carry no bearer token and no browser session:
   # they authenticate by HMAC signature over the raw body, so they need their
   # own pipeline rather than the dashboard or supervisor auth pipelines.
@@ -108,9 +114,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -148,13 +154,24 @@ defmodule AiurWeb.Router do
   end
 
   # Decision routes and catches must precede generic issue reads.
+  CommandsApi.reads()
+  CommandsApi.mutations()
+  CommandsApi.method_catches()
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
   Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
+    end
+  end
+
   DashboardPages.static_assets()
   DashboardPages.pages()
-  Experiments.pages()
   Api.agent_writes()
   Api.machine_writes()
   Events.session()

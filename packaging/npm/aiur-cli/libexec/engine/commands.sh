@@ -101,6 +101,39 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+cmd_redispatch() {
+  local backend=""
+  local backend_seen=0
+  local targets=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --backend)
+        [ "$backend_seen" -eq 0 ] || { echo "aiur: --backend may be specified once" >&2; exit 64; }
+        [ "$#" -ge 2 ] || { echo "aiur: --backend requires a configured backend name" >&2; exit 64; }
+        backend="$2"
+        backend_seen=1
+        shift 2
+        ;;
+      *) targets+=("$1"); shift ;;
+    esac
+  done
+  if [ "${#targets[@]}" -eq 0 ] || ! parse_issue_targets "${targets[@]}" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: redispatch expects explicit issue IDs (e.g. aiur redispatch 44 45 --backend codex)" >&2
+    exit 64
+  fi
+  if [ "$backend_seen" -eq 1 ] && [[ ! "$backend" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    echo "aiur: --backend expects a backend name using letters, digits, dots, or dashes" >&2
+    exit 64
+  fi
+  local literal
+  literal="$(elixir_list_literal "${parsed_targets[@]}")"
+  if [ "$backend_seen" -eq 1 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, \"$backend\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, nil)"
+  fi
+}
+
 cmd_executor_ownership() {
   local command="$1"
   shift
@@ -220,10 +253,25 @@ cmd_agents() {
   fi
 }
 
+# `aiur commands repair` — the one mutation under `commands`: quarantine journal
+# records that fail verification and restore write access (#7577).
+cmd_commands_repair() {
+  case "$*" in
+    "") run_control_rpc "Aiur.AgentControlCLI.commands_repair([])" ;;
+    --json) run_control_rpc "Aiur.AgentControlCLI.commands_repair([json: true])" ;;
+    *) echo "aiur: commands repair only accepts --json" >&2; exit 64 ;;
+  esac
+}
+
 # `aiur commands` — read the dashboard's retained Decision projection without
 # exposing any dispatch or answer mutation path.
 cmd_commands() {
   local filter="open" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  if [ "${1:-}" = "repair" ]; then
+    shift
+    cmd_commands_repair "$@"
+    return
+  fi
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -306,6 +354,22 @@ cmd_set() {
   encoded_caller_agent_workspace_env="$(printf '%s' "$caller_agent_workspace_env" | base64 | tr -d '\n')"
 
   case "$key" in
+    --help)
+      cat <<'EOF'
+Usage: aiur set <key> <json> | --list [--json] | --unset <key>
+       aiur set max-agents <n>
+
+Store or remove an allowlisted runtime setting for this Aiur instance.
+Runtime settings persist across restarts and apply live. `max-agents` is a
+session-only concurrent-agent cap and resets when the daemon restarts.
+
+To change `.aiur/config`, edit the file directly. The running daemon checks it
+about once a second and reloads valid changes without a restart. Confirm with
+`aiur status`; rejected changes keep the last good config and show
+`CONFIG RELOAD REJECTED` until a corrected file reloads.
+EOF
+      exit 0
+      ;;
     max-agents)
       local n="${1:-}"
       if [ -z "$n" ] || [[ ! "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ]; then

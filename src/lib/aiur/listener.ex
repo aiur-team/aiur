@@ -4,7 +4,7 @@ defmodule Aiur.Listener do
   alias Aiur.Listener.{Effective, ModeStore, Receipt, SpecStatus}
   alias Aiur.TrackerIdentity
 
-  @type target :: String.t() | TrackerIdentity.t()
+  @type target :: String.t() | TrackerIdentity.t() | %{required(:v) => 1, required(:subject) => :executor, optional(:__struct__) => module()}
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
   @doc false
@@ -18,7 +18,8 @@ defmodule Aiur.Listener do
   Enqueue conversation text through the C1 send port: `send(target, text, opts)`.
 
   `target` is a ticket identifier or `%Aiur.TrackerIdentity{}`. The
-  `ConversationRef` overload belongs to C6/MP-E3. The plan form
+  Executor `ConversationRef` overload is enabled only when the delivery target
+  advertises `executor_delivery_installed?/0`. The plan form
   `send(conversation_ref, text, client_request_id, opts)` maps its request ID
   to `opts[:client_request_id]`; this port currently takes three arguments.
 
@@ -68,6 +69,13 @@ defmodule Aiur.Listener do
     end
   end
 
+  @doc "True only when the configured delivery target supports Executor refs and hook delivery."
+  @spec executor_delivery_installed?() :: boolean()
+  def executor_delivery_installed? do
+    target = delivery_target()
+    Code.ensure_loaded?(target) and function_exported?(target, :executor_delivery_installed?, 0) and target.executor_delivery_installed?() == true
+  end
+
   @spec get_mode(target()) :: result()
   def get_mode(target) do
     if valid_target?(target), do: delivery_target().get_mode(target), else: {:error, :invalid_target}
@@ -100,6 +108,7 @@ defmodule Aiur.Listener do
   def receipt_for_send_result({:error, _}), do: :failed
   def receipt_for_send_result({:ok, _}), do: :accepted
 
+  defp valid_target?(%{v: 1, subject: :executor}), do: executor_delivery_installed?()
   defp valid_target?(%TrackerIdentity{identifier: id}), do: is_binary(id) and id != ""
   defp valid_target?(id), do: is_binary(id) and id != ""
   defp delivery_target, do: Application.fetch_env!(:aiur, :listener_delivery_target)

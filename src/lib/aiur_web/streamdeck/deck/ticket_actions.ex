@@ -17,8 +17,13 @@ defmodule AiurWeb.Streamdeck.Deck.TicketActions do
           nil
       end
 
-    %{modal: String.trim_trailing(Endpoint.url(), "/") <> "/build?ticket=" <> URI.encode_www_form(id), pr: url}
+    %{modal: String.trim_trailing(Endpoint.url(), "/") <> modal_path(id, row), pr: url}
   end
+
+  defp modal_path(_id, %{agent: %{state: "native_question", native_hold: %{decision_id: decision_id}}}),
+    do: "/commands/" <> URI.encode_www_form(decision_id)
+
+  defp modal_path(id, _row), do: "/build?ticket=" <> URI.encode_www_form(id)
 
   @spec availability(String.t(), map() | nil) :: map()
   def availability(id, control) do

@@ -329,6 +329,7 @@ defmodule Aiur.Workflow do
   # `base_build:` (if any) is used unchanged.
   defp resolve_prewarm(config, path) do
     with %{} = prewarm <- Map.get(config, "prewarm"),
+         true <- Map.get(prewarm, "enabled", false),
          rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
       resolved = Path.expand(rel, Path.dirname(path))
 

@@ -80,7 +80,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
         end
       end,
       overrides: fn -> {:ok, get.(:overrides), %{state: :healthy}} end,
-      settings: fn -> {:ok, %{build_order: %{general_epics: get.(:catalog)}}} end,
+      settings: fn -> {:ok, %{build_order: %{lanes: get.(:catalog)}}} end,
       history: fn numbers ->
         rows = Enum.map(numbers, &%{number: &1, labels: get.(:labels), lifecycle: %{state: get.(:lifecycle)}, observed_at: get.(:now)})
         {:ok, rows, %{state: get.(:health)}}
@@ -398,7 +398,15 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
   test "supervision keeps the optional writer before the Executor binding" do
     opts = [interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false]
     enabled = Aiur.Application.child_specs([recording?: true] ++ opts)
-    assert Enum.map(Enum.take(enabled, -3), &Supervisor.child_spec(&1, []).id) == [LabelBackfill, Aiur.Executor.Session, Aiur.Executor.SessionIngest]
+
+    assert Enum.map(Enum.take(enabled, -5), &Supervisor.child_spec(&1, []).id) == [
+             LabelBackfill,
+             Aiur.Executor.Session,
+             Aiur.Executor.SessionIngest,
+             Aiur.Executor.TranscriptSupervisor,
+             Aiur.Executor.TranscriptIngest
+           ]
+
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)
     refute Enum.any?(disabled, &(Supervisor.child_spec(&1, []).id == LabelBackfill))
   end

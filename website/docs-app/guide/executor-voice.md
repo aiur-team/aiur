@@ -24,6 +24,29 @@ prototype below remains separately available.
 The shared composer’s dictation path does not replace the prototype’s provider
 comparison, ratings or delivery receipts. Those remain on `/voice` for acceptance.
 
+## Conversation transport
+
+The authenticated dashboard socket `/voice` also accepts `voice:converse`.
+Join with `v: 1`, `mode: "converse"`, `surface: "conversation_panel"`, a worker
+or Executor `target`, and a client-chosen `client_session_id`. The panel UI
+ships separately; this topic does not start capture by itself.
+
+Clients send PCM16 mono 16 kHz `audio` chunks (`data`, base64), `client_text`,
+`playback_state` (`playing` or `stopped`), `confirm_draft`, `discard_draft`, and
+`end`. Only an authenticated client confirmation can deliver a draft.
+The daemon relays `state`, `transcript`, `assistant_text`, `audio`,
+`interrupted`, `draft`, `delivery`, `error`, and `ended`.
+
+Audio chunks preserve
+the provider's format and contain at most 131,072 decoded bytes; `audio_done`
+marks the end of the session's audio stream. Client chunks above 256 KiB are refused.
+
+A reconnect with the same authenticated connection, target and
+`client_session_id` reattaches within ten seconds. The session retains its
+capacity lease through that grace period. After grace expires it ends with
+`transport_lost`; authentication changes end it with `auth_changed`.
+The core retains its configured duration, idle and daily limits.
+
 ## Voice prototype
 
 On `/voice`, choose **ElevenLabs** or **OpenAI**, enter its model,
@@ -77,6 +100,20 @@ Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
 for provider configuration, credentials and ElevenLabs client-tool setup.
 
+## Live conversation context
+
+The reusable voice session receives worker status notes, Commands and phase/PR
+milestones while you talk. Updates enter context silently, coalesced over five
+seconds; agent answers and refreshed notes can be spoken at the next pause.
+
+Each event is redacted and saved before delivery. When a Command resolves elsewhere,
+unconfirmed instruction drafts become stale so you can review them against the new
+context. A missing live subscription is reported as a gap; tool calls still refresh
+the briefing.
+
+Live Executor context reads presence after capability notifications and reports the number
+of tickets affected by a failed queue prerequisite, plus when that prerequisite clears.
+
 ### Read-only side questions
 
 Hosts that advertise a fork can answer `ask_agent` history or reasoning questions from
@@ -91,3 +128,30 @@ Replay answers are identified as coming from a summary once per session.
 The voice transcript
 records `side_query` with the fork mode, child session ID and cost when supplied by the host;
 missing identity or cost remains unknown. Host support determines whether this path is available.
+
+### Standalone example for package consumers
+
+`packages/elixir/voice_converse/examples/local_host` is an independent Bandit
+application with a browser page at `http://127.0.0.1:4100/`. It requires no Aiur
+application or agent CLI. Run `mix deps.get` and `mix run --no-halt` from that
+directory, then click **Converse**.
+
+The default fake provider is silent and
+uses no credentials; the example README documents real-provider setup.
+
+The host reads `briefing.md` and `notes.md`, writes confirmed instructions and
+queued questions to `outbox.ndjson`, reads replies from `inbox.ndjson`, and
+stores transcripts under `transcripts/`. It supplies credentials and expiring
+transport tokens through the core ports.
+
+Its own `config/runtime.exs` reads
+`VOICE_HOST_ROOT`, `VOICE_HOST_PORT`, `VOICE_HOST_PROVIDER`, `VOICE_HOST_MODEL`,
+`VOICE_HOST_CLOUD_ACCEPTED`, and `VOICE_HOST_ELEVENLABS_AGENT_ID`.
+
+Provider keys
+use `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`, and
+`ANTHROPIC_API_KEY`; only OpenAI and ElevenLabs transports are selectable in
+this example.
+
+Cloud sessions require explicit acceptance. Forks are optional;
+CommandSource is absent and stated as unavailable in context.

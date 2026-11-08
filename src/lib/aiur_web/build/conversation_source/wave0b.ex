@@ -103,7 +103,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
     case read_page(ref.workspace, cursor, direction, opts) do
       {:ok, page} ->
         state = state(ref)
-        entries = Entries.map_entries(page.entries, ref[:row] || %{}, direction == :tail and cursor == nil)
+        entries = Entries.map_entries(page.entries, ref[:row] || %{}, direction == :tail and cursor == nil, ref[:workspace])
         {:ok, Map.merge(state, %{entries: entries, before: page.first, last: page.last, more?: page.more?})}
 
       {:error, :enoent} ->
@@ -139,7 +139,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
           |> Enum.with_index()
           |> Enum.map(fn {message, index} -> Map.put(message, :id, "legacy:#{index}") end)
 
-        {:ok, Map.merge(view(:ended), %{entries: Entries.map_entries(messages, ref[:row] || %{}, true), note: "legacy_log"})}
+        {:ok, Map.merge(view(:ended), %{entries: Entries.map_entries(messages, ref[:row] || %{}, true, ref[:workspace]), note: "legacy_log"})}
 
       true ->
         {:ok, view(:not_retained)}
@@ -153,7 +153,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
   defp projection_view(ref, note) do
     projection = projection(ref)
     messages = if projection[:state] == :unavailable, do: [], else: Map.get(projection, :messages, [])
-    entries = Entries.projection(messages)
+    entries = Entries.projection(messages, ref[:workspace])
     note = if note == "live_window" and entries == [], do: nil, else: note
     {:ok, Map.merge(projection_state(ref, projection), %{entries: entries, note: note, evicted: Map.get(projection, :evicted_count, 0)})}
   end

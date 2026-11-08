@@ -48,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/executor" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Executor conversation</span></a>
               <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Talk to Executor</span></a>
             </div>
           </div>
@@ -59,6 +60,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         {render_slot(@status)}
         <span class={["ax-paused aiur-shell__paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
+      <nav class="standalone-recovery" data-dashboard-recovery aria-label="Dashboard recovery" hidden>
+        <a href="/" aria-label="Home">Home</a>
+        <button type="button" data-recovery-reload>Reload</button>
+      </nav>
       <div class="app-layout aiur-shell__body">
         <aside class="sidenav aiur-shell__sidebar">
           <div class="ax-drag aiur-shell__drag" id="ax-drag" phx-hook="NavToggle" data-nav-collapsed={to_string(@nav_collapsed)}
@@ -163,7 +168,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :patch}
       patch={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
@@ -173,7 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
       navigate={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>

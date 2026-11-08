@@ -2,6 +2,7 @@
 
 Choose a topic below. Existing section links lead to the same reference content.
 
+- [Changing config on a running daemon](#changing-config-on-a-running-daemon)
 - [Daemon configuration](./configuration-daemon)
 - [Tracker and polling configuration](./configuration-tracker)
 - [Integration configuration](./configuration-integrations)
@@ -22,6 +23,20 @@ Environment variables are declared once in `Aiur.Env.Schema`, which validates th
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
 - **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
 - **Dashboard credentials/key.** Set `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD` for machine Basic Auth and optional browser fallback. Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET` ([GUI](/guide/gui)). `AIUR_SECRET_KEY_BASE` (at least 64 bytes, e.g. `openssl rand -base64 48`) overrides the cookie key; otherwise Aiur persists a mode-0600 key per instance under `~/.aiur/instances/`.
+
+## Changing config on a running daemon
+
+The daemon checks `.aiur/config` once per second and reloads valid changes without restarting. Running agent turns continue.
+
+Settings read by live consumers, including `agent.max_concurrent_agents`, `agent.target_cpu_pressure`, and `agent.max_cpu_pressure`, apply live.
+
+Settings documented as **read once at daemon start** need a restart; examples include `instance.id`, `instance.mode`, and `instance.role`.
+
+`events.export.enabled` and `observability.telemetry_enabled` also require a restart. Changing the dashboard bind address or port (`server.host` or `server.port`) requires a restart to rebind the listener. Environment changes require a restart.
+
+If a file change fails parsing or validation, Aiur keeps the last good config and raises `system.config.reload_rejected`. Check `aiur status`: `CONFIG RELOAD REJECTED` remains until a corrected config loads.
+
+Deploy a build that recognizes a new config key before adding that key to `.aiur/config`. An older running build cannot apply a key it does not know, so keep the config compatible with the running build until the upgrade is deployed.
 
 ## Top-level
 
@@ -78,6 +93,10 @@ Environment variables are declared once in `Aiur.Env.Schema`, which validates th
 ## upgrade
 
 [Read this section](./configuration-daemon#upgrade).
+
+## toolchain
+
+[Read this section](./configuration-daemon#toolchain).
 
 ## alerts
 
@@ -156,6 +175,14 @@ the machine, independently of repository workflows.
 | `machine:transport.tls.advertise_host` | string | `null` | DNS name without scheme or port. |
 | `machine:transport.allow_cleartext_overlay` | boolean | `false` | Allows eligible overlay transport when consumed. |
 | `machine:transport.cleartext_overlay_cidrs` | CIDR array | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | IPv4 or IPv6 prefixes; catch-all `/0` ranges are rejected. |
+| `machine:projects` | list | `[]` | Repos this machine serves; duplicate `repo` (case-insensitive) or `config` is rejected. A write replaces the whole list. Nothing reads it yet. |
+| `machine:projects.repo` | string | required | `owner/name`. |
+| `machine:projects.config` | path | required | Absolute or `~/`-relative path to the project's `.aiur/config`; expanded on load, never printed in errors. |
+| `machine:projects.max_agents` | integer | `null` | At least 1; `null` means no project ceiling. |
+| `machine:projects.priority` | integer | `null` | At least 0; lower is served first, `null` last. |
+| `machine:capacity.max_agents` | integer | `null` | At least 1; `null` means no machine ceiling. |
+| `machine:coordination.database_url_env` | string | `AIUR_LEASE_DATABASE_URL` | Name of an environment variable, never a URL. |
+| `machine:coordination.offline_after_seconds` | integer | `180` | 30–86400 seconds. |
 
 Account registration, logout and settings writes preserve the other top-level
 sections. Malformed machine files cause account writes to return an error without

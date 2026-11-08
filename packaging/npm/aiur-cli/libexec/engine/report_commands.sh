@@ -49,12 +49,17 @@ cmd_units() {
 # second GitHub or API derivation. A root selector switches from catalog to the
 # selected-root graph view.
 cmd_build_orders() {
-  local json=0 root="" arg
+  local json=0 root="" contract="" arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=1 ;;
+      --contract)
+        contract="${2:-}"
+        shift
+        ;;
+      --contract=*) contract="${arg#*=}" ;;
       -*) echo "aiur: build-orders received an unknown option: $arg" >&2; exit 64 ;;
       *)
         if [ -n "$root" ]; then
@@ -69,6 +74,13 @@ cmd_build_orders() {
 
   local opts=""
   [ "$json" -eq 1 ] && opts="json: true"
+
+  if [ -n "$contract" ]; then
+    local encoded_contract
+    encoded_contract="$(printf '%s' "$contract" | base64 | tr -d '\n')"
+    [ -n "$opts" ] && opts="$opts, "
+    opts="${opts}contract: Base.decode64!(\"$encoded_contract\")"
+  fi
 
   if [ -n "$root" ]; then
     local encoded

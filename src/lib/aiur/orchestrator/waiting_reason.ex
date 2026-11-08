@@ -186,7 +186,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
-  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  # `inspect/1` reads a small printable-byte list as a charlist (`[10]` -> `~c"\n"`).
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids, charlists: :as_lists)}"
   defp render_pending_ids(_waiting), do: ""
 
   defp render_age(nil), do: "since unknown"

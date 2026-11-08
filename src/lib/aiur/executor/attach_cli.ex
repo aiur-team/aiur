@@ -1,7 +1,10 @@
 defmodule Aiur.Executor.AttachCLI do
   @moduledoc false
-  alias Aiur.Executor.{HookConfig, HookToken, Session, SessionCLI}
+  alias Aiur.Executor.{CheckCLI, HookConfig, HookToken, Session, SessionCLI}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
+
+  @spec check(keyword()) :: :ok
+  def check(opts), do: CheckCLI.rpc(opts)
 
   @spec attach(keyword()) :: :ok
   def attach(opts), do: guarded("executor-attach", fn -> opts |> run_attach() |> exit_marker() end)

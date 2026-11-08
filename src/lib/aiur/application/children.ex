@@ -6,6 +6,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Executor.Roster
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
@@ -234,6 +235,12 @@ defmodule Aiur.Application.Children do
       {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
+      # The repository's label descriptions, read once an hour and served locally to the
+      # build index's Features rows. A feature whose tickets have all merged wears no label
+      # an open-issue observation or a persisted history row can describe, so this is the
+      # only source that still names it. Refresh is off in tests via
+      # `:label_catalogue_refresh?`; the table is always there for tests to drive.
+      Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
       Aiur.Events.SubscriptionStoreSupervisor,
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
@@ -250,6 +257,8 @@ defmodule Aiur.Application.Children do
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
+      # Remote-write replay ledger; must be up before the endpoint takes control calls.
+      Aiur.ControlCall.ReplayStore,
       Aiur.TicketActivity,
       # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
       Aiur.CodingAgent.child_specs(),
@@ -325,12 +334,22 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         Aiur.VoiceConversation.child_specs() ++
+        [toolchain_child()] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
         BuildOrders.child_specs(:label_backfill, opts) ++
-        List.wrap(if(recording?, do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest]))
+        List.wrap(
+          if(recording?,
+            do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest]
+          )
+        )
     )
   end
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
@@ -352,9 +371,11 @@ defmodule Aiur.Application.Children do
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
     store_children =
-      if LeaseStore.configured?(),
-        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
-        else: []
+      [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+        if(LeaseStore.configured?(),
+          do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+          else: []
+        )
 
     services =
       []
@@ -383,6 +404,17 @@ defmodule Aiur.Application.Children do
     do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
 
   defp recording_children(false), do: []
+
+  @doc false
+  @spec heartbeat_metadata() :: map()
+  def heartbeat_metadata, do: InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0)
+
+  # Wired here because orchestration may not depend on the optional executor-attention component.
+  # record?: false — a heartbeat must not move the roster's stall evidence.
+  defp executor_present do
+    %{executors: executors} = Roster.build(record?: false)
+    Enum.any?(executors, &(&1.state in [:active, :idle]))
+  end
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil

@@ -28,6 +28,25 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     refute_received {:alert, _, _, _}
   end
 
+  test "assigned epic hues and names survive journal replay", %{dir: dir} do
+    pid = start_store(dir)
+
+    assert {:ok, _} =
+             Features.create(
+               "palette",
+               %{label: "Palette", epics: [%{key: "first", label: "First"}, %{key: "second", label: "Second"}]},
+               meta(pid)
+             )
+
+    assert {:ok, before_restart} = Features.snapshot(server: pid)
+    assert Enum.map(before_restart.features["palette"].epics, &{&1.color, &1.hue}) == [{"green", 120}, {"yellow", 55}]
+    GenServer.stop(pid)
+
+    replayed = start_store(dir)
+    assert {:ok, after_restart} = Features.snapshot(server: replayed)
+    assert after_restart.features["palette"].epics == before_restart.features["palette"].epics
+  end
+
   test "V-8 newer newline-terminated journal versions remain untouched", %{dir: dir} do
     pid = seeded(dir)
     GenServer.stop(pid)
@@ -121,6 +140,36 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     assert ProviderHealth.usable?(Features.health(server: replayed))
   end
 
+  test "a journal near its cap from repeated joins alerts, compacts on load and accepts writes again", %{dir: dir} do
+    pid = start_store(dir)
+    assert {:ok, _} = Features.create("a", %{label: "A", epics: [%{key: "x", label: "X"}, %{key: "y", label: "Y"}]}, meta(pid))
+    assert {:ok, _} = Features.add("a", [1, 2], meta(pid) ++ [epic: "x"])
+    for n <- 1..40, do: assert({:ok, _} = Features.add("a", [1, 2], meta(pid) ++ [epic: if(rem(n, 2) == 0, do: "x", else: "y")]))
+    assert {:ok, _} = Features.add("a", [1], meta(pid) ++ [epic: "y"])
+    assert {:ok, before} = Features.snapshot(server: pid)
+    GenServer.stop(pid)
+    path = Path.join(dir, "features.ndjson")
+    full = File.stat!(path).size
+    parent = self()
+    alerts = fn name, _message, _opts -> send(parent, {:alert, name}) end
+
+    # Compaction is the only way under this cap: the next create would not fit the full file.
+    replayed = start_store(dir, max_file_bytes: full + 200, alert_fun: alerts)
+    assert {:ok, compacted} = Features.snapshot(server: replayed)
+    assert Map.drop(compacted, [:health, :generation]) == Map.drop(before, [:health, :generation])
+    assert compacted.owners[1].epic == "y" and compacted.owners[2].epic == "x"
+    assert compacted.owners[1].joined_at == before.owners[1].joined_at
+    assert length(records(path)) < 10
+    assert File.stat!(path).size * 2 < full
+    assert {:ok, _} = Features.create("b", %{label: "B"}, meta(replayed))
+    refute_received {:alert, _}
+
+    GenServer.stop(replayed)
+    near = start_store(dir, max_file_bytes: File.stat!(path).size + 50, alert_fun: alerts)
+    assert_received {:alert, "build_features.near_limit"}
+    assert {:ok, %{features: %{"b" => _}}} = Features.snapshot(server: near)
+  end
+
   test "V-25 later general epic collisions do not corrupt existing history", %{dir: dir} do
     pid = start_store(dir)
     assert {:ok, _} = Features.create("a", %{label: "A", epics: [%{key: "f-api", label: "API"}]}, meta(pid))
@@ -128,7 +177,7 @@ defmodule Aiur.BuildOrder.FeaturesPersistenceTest do
     replayed = start_store(dir, general_epics: [%{key: "f-api", hue: 10}])
     assert ProviderHealth.usable?(Features.health(server: replayed))
     assert {:ok, snapshot} = Features.snapshot(server: replayed)
-    assert snapshot.features["a"].epics == [%{key: "f-api", label: "API"}]
+    assert Map.take(hd(snapshot.features["a"].epics), [:key, :label]) == %{key: "f-api", label: "API"}
     assert {:error, {:epic_key_taken, "f-api"}} = Features.create("b", %{label: "B", epics: [%{key: "f-api", label: "API"}]}, meta(replayed))
   end
 

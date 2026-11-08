@@ -73,6 +73,29 @@ defmodule VoiceConverse.ProviderCleanupTest do
     assert queue_records(root) == ["enqueue", "enqueue", "done"]
   end
 
+  test "pending deletions in no-transcript mode resume from cleanup_root", %{root: root} do
+    {:ok, cleanup} = start_cleanup(root, responses: [{:ok, 500, ""}], root_option: :cleanup_root)
+    assert :ok = ProviderCleanup.enqueue(cleanup, @provider_id, @conversation_id)
+    assert_receive {:scheduled, 0}
+    send(cleanup, :run_provider_cleanup)
+    assert_receive {:scheduled, 30_000}
+    assert_receive {:delete, _, _}
+    GenServer.stop(cleanup, :normal)
+
+    {:ok, restarted} =
+      start_cleanup(root,
+        responses: [{:ok, 204, ""}],
+        root_option: :cleanup_root,
+        clock: fn -> advance(@now, 30_000) end
+      )
+
+    assert_receive {:scheduled, 0}
+    send(restarted, :run_provider_cleanup)
+    assert_receive {:delete, "https://api.elevenlabs.io/v1/convai/conversations/#{@provider_id}", _}
+    sync(restarted)
+    assert queue_records(root) == ["enqueue", "enqueue", "done"]
+  end
+
   test "401 pauses the queue and emits one auth-failure event", %{root: root} do
     handler_id = {__MODULE__, System.unique_integer([:positive])}
 
@@ -368,17 +391,18 @@ defmodule VoiceConverse.ProviderCleanupTest do
 
     {:ok, cleanup} =
       ProviderCleanup.start_link(
-        name: nil,
-        transcript_root: root,
-        credentials: {StaticCredentials, :elevenlabs},
-        http: fn url, request_opts ->
-          send(parent, {:delete, url, Keyword.fetch!(request_opts, :headers)})
-          Agent.get_and_update(response_agent, fn [response | remaining] -> {response, remaining} end)
-        end,
-        scheduler: fn delay -> send(parent, {:scheduled, delay}) end,
-        clock: Keyword.get(opts, :clock, fn -> @now end),
-        retry_delays: Keyword.get(opts, :retry_delays),
-        writer: Keyword.get(opts, :writer)
+        Keyword.merge(
+          Keyword.put([name: nil], Keyword.get(opts, :root_option, :transcript_root), root),
+          credentials: {StaticCredentials, :elevenlabs},
+          http: fn url, request_opts ->
+            send(parent, {:delete, url, Keyword.fetch!(request_opts, :headers)})
+            Agent.get_and_update(response_agent, fn [response | remaining] -> {response, remaining} end)
+          end,
+          scheduler: fn delay -> send(parent, {:scheduled, delay}) end,
+          clock: Keyword.get(opts, :clock, fn -> @now end),
+          retry_delays: Keyword.get(opts, :retry_delays),
+          writer: Keyword.get(opts, :writer)
+        )
       )
 
     on_exit(fn -> if Process.alive?(cleanup), do: GenServer.stop(cleanup, :normal) end)

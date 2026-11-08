@@ -8,6 +8,28 @@
 export type VoiceConverseContract = VoiceConverseFrame;
 export type VoiceConverseFrame =
   | (Base & {
+      type?: "playback_state";
+      state: "playing" | "stopped";
+      turn_id?: string;
+      played_until_ms?: number;
+      [k: string]: unknown;
+    })
+  | (Base & {
+      type?: "agent_text_timing";
+      turn_id: string;
+      text: string;
+      audio_offset_ms: number;
+      estimated: boolean;
+      chars?:
+        | {
+            offset_ms: number;
+            length: number;
+            [k: string]: unknown;
+          }[]
+        | null;
+      [k: string]: unknown;
+    })
+  | (Base & {
       type?: "start";
       target: {
         [k: string]: unknown;

@@ -102,6 +102,15 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert NowRows.build(catalog([row()]), repository: {"other", "repo"}).rows == %{}
   end
 
+  test "a known open PR is part of running row facts" do
+    pr = %{num: 7280, state: "open", ci: "pr_opened"}
+
+    projected = NowRows.build(catalog([row()]), repository: @repo, pr_facts: %{"1" => pr})
+
+    assert projected.rows["1"].sec == "now"
+    assert projected.rows["1"].pr == pr
+  end
+
   test "unknown progress stays nil including absent field; numeric progress rounds only in range" do
     for input <- [row(%{progress: %{status: :unknown}}), Map.delete(row(), :progress)] do
       assert Map.fetch!(facts(input), :pct) == nil
@@ -114,7 +123,7 @@ defmodule AiurWeb.Build.NowRowsTest do
 
   test "unknown model has no fabricated label; registry families and product efforts survive" do
     assert facts(row(%{agent_family: nil, backend: nil, resolved_model: "claude-opus-5-1"})).agent ==
-             %{model: nil, name: nil, state: "active", pause: nil, resume_at: nil, effort: nil}
+             %{model: nil, name: nil, state: "active", native_hold: nil, pause: nil, resume_at: nil, effort: nil}
 
     assert facts(row(%{agent_family: "muse"})).agent.model == "muse"
     assert facts(row(%{agent_family: "muse"})).agent.name == "Muse"

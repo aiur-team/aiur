@@ -73,6 +73,10 @@ On `/voice`, the worker conversation drawer offers **Steer · interrupts**,
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
+The worker list includes conversations that are running or have stored history;
+unavailable tickets are omitted, with a count of how many were hidden. Use
+**Previous** and **Next** to page through large lists.
+
 The selector is disabled on read-only dashboards. Conversation input defaults to
 Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
@@ -109,8 +113,13 @@ List (`?view=list`) shows Live, Planned, Not queued and newest-first History as 
 Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
 
-The Now band shows active agents between history and the plan. It settles at
-the nearest viewport edge; **Live** returns to it. Minimize keeps state counts
+Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
+dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
+otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
+
+The Now band shows active agents between history and the plan, using the same
+card style as the other tickets. It scrolls with the board, so you can stop
+anywhere; **Live** scrolls to it. Minimize keeps state counts
 visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 
@@ -149,12 +158,13 @@ Each page renders a durable concept whose detail lives in Concepts.
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
 | Units | CLI fleet inspection; /units redirects to /. |
+| Executor | `/executor`: the attached Executor session, its history and message composer. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-A worker holding a native question raises a Command; open Commands to answer it.
+A worker holding a native question reads **Waiting for your answer** on its Build card, ticket header, Stream Deck key and `aiur units` output. The hold age appears alongside it; open the linked Command to answer. On the Stream Deck, focus the ticket and use **Open Command**. The waiting state clears when the answer is delivered or the hold is released.
 
 ### Read fleet and build pressure
 
@@ -174,6 +184,25 @@ build gate limits verification; they do not automatically change the agent cap.
 
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
+
+### Executor
+
+Open **Executor** in desktop or tablet navigation, or **Settings → Executor conversation**
+on a phone, to read the instance's one Executor
+conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
+or `aiur executor-attach --harness codex`.
+
+Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+
+The distinct Executor frame wraps the same paging, event jumps and live history
+as worker conversations; `/executor?pos=N` highlights a recorded position.
+
+Loading, unavailable history, an unreadable transcript and unsupported capture
+stay explicit. Ended or detached sessions keep their recorded history.
+
+A read-only dashboard shows history without a message form. Reasoning stays hidden
+and tool output starts collapsed. See [Conversations](/concepts/conversations)
+for retention and masking.
 
 ## Conversations
 
@@ -197,6 +226,16 @@ On a worker's full conversation page, writable dashboards offer a **Message to
 agent** composer. Its read-only mode indicator shows the effective listener
 mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
 means the specification cannot be used and conversation sends are refused.
+
+The Executor conversation reuses this composer and delivery list. Sending stays
+disabled with a reason when no session is attached, the binding is unreachable,
+or the listener delivery target lacks Executor support. An installed hook alone
+does not establish send support.
+
+Accepted Executor messages show **Waiting until
+the Executor’s next turn** until the matching journal entry arrives; acceptance
+does not wake an idle external session. Pending Executor sends are not retained
+across daemon restarts. The effective mode is read-only.
 
 **Accepted** means the message was accepted for processing. **Queued** means
 the harness queued it (Sync: next boundary), not that the agent read it.
@@ -301,6 +340,12 @@ Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DAS
 
 After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
 
+### iPhone Home Screen
+
+Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its icon. The HttpOnly, SameSite=Lax session cookie survives relaunches until sign-out or expiry; its default lifetime is 30 days, controlled by `dashboard_auth.session_max_age_days`.
+
+For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming cookie sign-in. Basic Auth remains available to CLI and API clients. Home and Reload controls stay visible in standalone mode and appear after a LiveView disconnect.
+
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` for all projects or the repository `.env` for one project.
@@ -388,9 +433,11 @@ It starts with the latest 50 entries. **Load older**, **Jump to start**,
 and **Load newer** browse earlier history; **Latest entries** returns to the
 live tail.
 
-Agent prose uses Markdown. Reasoning and command or tool output start collapsed;
-select a summary to expand it. File edits show diffs. Operator bubbles, session
-dividers and gap rows keep the source and continuity visible. See
+Agent prose uses Markdown. Executor reasoning rows are hidden; worker reasoning
+and command or tool output start collapsed. Select a summary to expand it.
+
+File edits show diffs. Operator bubbles, session dividers and gap rows keep the
+source and continuity visible. See
 [Reading entries](/concepts/conversations#reading-entries) for masking and
 truncation details.
 

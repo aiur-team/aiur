@@ -1,5 +1,12 @@
 defmodule Aiur.Handoff.Record do
-  @moduledoc "Durable, versioned daemon handoff records and their adoption outcomes."
+  @moduledoc """
+  Durable, versioned daemon handoff records and their adoption outcomes.
+
+  An in-daemon record carries the agent's serialized conversation — prompts,
+  tool output and the file contents it read — so the record and the directory
+  holding it are written owner-only. The archived `.consumed` outcome copy keeps
+  the adoption result and drops the conversation.
+  """
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
@@ -15,13 +22,20 @@ defmodule Aiur.Handoff.Record do
     Path.join([root, "handoff", "current.json"])
   end
 
+  # The record can carry a serialized in-daemon conversation: prompts, tool
+  # output and file contents the agent read. It is daemon-private state, so both
+  # the file and the directory holding it are owner-only.
+  @file_mode 0o600
+  @dir_mode 0o700
+
   @doc "Atomically writes a schema-validated record. Keys are normalized through JSON."
   @spec write(map(), keyword()) :: :ok | {:error, term()}
   def write(record, opts \\ []) do
     with {:ok, json} <- Jason.encode(record),
          {:ok, normalized} <- Jason.decode(json),
-         {:ok, valid} <- validate(normalized, opts) do
-      JsonStore.write!(path(opts), valid)
+         {:ok, valid} <- validate(normalized, opts),
+         :ok <- ensure_private_dir(Path.dirname(path(opts))) do
+      JsonStore.write!(path(opts), valid, mode: @file_mode)
     end
   rescue
     error in [File.Error, Jason.EncodeError, MatchError] -> {:error, error}
@@ -67,7 +81,13 @@ defmodule Aiur.Handoff.Record do
   defp consume_file(file, outcome) do
     with {:ok, record} when is_map(record) <- JsonStore.read(file),
          :ok <- File.rename(file, file <> ".consumed") do
-      JsonStore.write!(file <> ".consumed", Map.merge(record, %{"outcome" => outcome, "completed_at" => DateTime.to_iso8601(DateTime.utc_now())}))
+      JsonStore.write!(
+        file <> ".consumed",
+        record
+        |> Map.merge(%{"outcome" => outcome, "completed_at" => DateTime.to_iso8601(DateTime.utc_now())})
+        |> drop_saved_conversations(),
+        mode: @file_mode
+      )
     else
       {:ok, nil} -> {:error, :already_consumed}
       {:error, :enoent} -> {:error, :already_consumed}
@@ -76,6 +96,27 @@ defmodule Aiur.Handoff.Record do
     end
   rescue
     error in [File.Error, Jason.EncodeError, MatchError] -> {:error, error}
+  end
+
+  # The archived copy is the operator-facing outcome report; nothing reads a
+  # saved conversation back out of it. Dropping the serialized provider state
+  # keeps prompts and tool output from outliving the adoption that used them.
+  defp drop_saved_conversations(%{"agents" => agents} = record) when is_list(agents) do
+    Map.put(record, "agents", Enum.map(agents, &drop_saved_conversation/1))
+  end
+
+  defp drop_saved_conversations(record), do: record
+
+  defp drop_saved_conversation(%{"transport" => %{"provider_state" => _} = transport} = agent),
+    do: Map.put(agent, "transport", Map.drop(transport, ["provider_state"]))
+
+  defp drop_saved_conversation(agent), do: agent
+
+  defp ensure_private_dir(dir) do
+    case File.mkdir_p(dir) do
+      :ok -> File.chmod(dir, @dir_mode)
+      {:error, reason} -> {:error, File.Error.exception(action: "make directory", reason: reason, path: dir)}
+    end
   end
 
   defp orphan_timeout(opts) do

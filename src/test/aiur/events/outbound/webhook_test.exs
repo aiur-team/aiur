@@ -1,7 +1,13 @@
 defmodule Aiur.Events.Outbound.WebhookTest do
+  @moduledoc "Covers outbound webhook signing, delivery, and cursor behavior across event families."
+
   use ExUnit.Case, async: true
 
+  alias Aiur.Events.Envelope
   alias Aiur.Events.Outbound.Webhook
+  alias Aiur.TicketObservation
+
+  @decision_fixture Path.expand("../../../../../packages/aiur-contracts/fixtures/ticket-decision-event.v1.json", __DIR__)
 
   @signature_vector Path.expand(
                       "../../../../../packages/aiur-contracts/fixtures/webhook-signature-vector.v1.json",
@@ -45,6 +51,62 @@ defmodule Aiur.Events.Outbound.WebhookTest do
 
     assert headers["webhook-signature"] ==
              Webhook.sign(vector["secret"], vector["msg_id"], vector["timestamp"], body)
+  end
+
+  test "signs the decision envelope fixture and omits secrets and unapproved fields" do
+    test = self()
+    vector = signature_vector()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    decision = %{
+      id: 106,
+      topic: "ticket.5695.agent.decision.answered",
+      decision_id: "dec_123",
+      decision_version: 1,
+      question: "Should the change be deployed?",
+      options: [%{id: "deploy", label: "Deploy", description: nil, benefits: nil, drawbacks: nil, risk: nil, token: "never-export-this-token"}],
+      answer: %{selected_option_id: "deploy", custom_response: nil, rationale: "The checks passed.", token: "never-export-this-token"},
+      token: "never-export-this-token",
+      secret: "sk-abcdefghijklmnopqrstuvwxyz",
+      ticket_observation: %TicketObservation{
+        status: :joinable,
+        source: %{kind: :legacy},
+        event_id: 106,
+        provenance: %{},
+        occurred_at: now,
+        observed_at: DateTime.add(now, 1, :second),
+        attributes: %{}
+      }
+    }
+
+    assert {:ok, envelope} = Envelope.to_external(decision, instance: "host/default")
+    record = envelope |> Map.put("seq", 6) |> Map.put("type", "event")
+
+    state =
+      webhook_state(
+        request_fun: fn opts ->
+          send(test, {:request, opts})
+          {:ok, %Req.Response{status: 204}}
+        end
+      )
+
+    assert {:ok, ^state} = Webhook.handle_record(record, state)
+    assert_receive {:request, opts}, 1_000
+    body = Keyword.fetch!(opts, :body)
+
+    expected =
+      @decision_fixture
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.put("occurred_at", DateTime.to_iso8601(now))
+      |> Map.put("observed_at", DateTime.add(now, 1, :second) |> DateTime.to_iso8601())
+
+    assert Jason.decode!(body) == expected
+    refute body =~ "never-export-this-token"
+    refute body =~ "sk-abcdefghijklmnopqrstuvwxyz"
+
+    headers = Map.new(Keyword.fetch!(opts, :headers))
+    assert headers["webhook-signature"] == Webhook.sign(vector["secret"], headers["webhook-id"], vector["timestamp"], body)
   end
 
   test "holds the durable cursor on redirect, retryable HTTP, and transport failures" do

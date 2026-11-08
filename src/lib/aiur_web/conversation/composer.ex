@@ -10,6 +10,7 @@ defmodule AiurWeb.Conversation.Composer do
   attr(:draft, :string, required: true)
   attr(:overlay, :map, required: true)
   attr(:listener, :any, required: true)
+  attr(:capability, :any, default: {:unavailable, :executor_delivery_not_installed})
   attr(:voice_capabilities, :map, default: %{})
   attr(:instance_id, :string, default: nil)
 
@@ -20,11 +21,13 @@ defmodule AiurWeb.Conversation.Composer do
     assigns =
       assigns
       |> assign(:executor?, executor?)
-      |> assign(:voice_enabled?, executor? && assigns.writable && is_map(assigns.listener) && assigns.listener[:effective] in [:sync, :steer, :async])
+      |> assign(:text_enabled?, !executor? || assigns.capability == :available)
+      |> assign(:voice_enabled?, executor? && assigns.capability == :available && assigns.writable && is_map(assigns.listener) && assigns.listener[:effective] in [:sync, :steer, :async])
 
     ~H"""
     <section id="conversation-compose" aria-label="Send a message">
       <p :if={!@writable}>Read-only dashboard — messages cannot be sent.</p>
+      <p :if={@executor? && @capability != :available} role="status">{capability_label(@capability)}</p>
       <%= if @writable && @target do %>
         <p class="conversation-mode" role="status">
           {mode_label(@listener)}
@@ -33,28 +36,38 @@ defmodule AiurWeb.Conversation.Composer do
         <form id="conversation-composer" phx-submit="send" phx-change="draft" phx-hook={if @voice_enabled?, do: "VoiceInput"}>
           <label for="conversation-text">{if @executor?, do: "Message to Executor", else: "Message to agent"}</label>
           <textarea id="conversation-text" name="text" rows="3" required data-voice-input={if @voice_enabled?, do: ""}
-            disabled={@executor? && !@voice_enabled?}>{@draft}</textarea>
+            disabled={!@text_enabled?}>{@draft}</textarea>
           <VoiceInput.voice_input :if={@voice_enabled?} id="executor-composer-voice" surface="executor_composer"
             target={%{kind: "executor", instance_id: @instance_id || Aiur.Identity.instance_id()}}
             capabilities={@voice_capabilities} legacy_conversation={false} />
           <button type="submit" phx-disable-with="Sending…" data-voice-send={if @voice_enabled?, do: ""}
-            disabled={@executor? && !@voice_enabled?}>Send message</button>
+            disabled={!@text_enabled?}>Send message</button>
         </form>
       <% end %>
       <p :if={@writable && !@target}>Messaging is unavailable for this conversation.</p>
       <ul id="conversation-delivery" aria-live="polite" aria-label="Message delivery">
         <li :for={{id, item} <- Enum.sort_by(@overlay, fn {_id, item} -> item.started_at end)} id={"delivery-#{id}"} data-delivery-state={item.state}>
           <p class="conversation-body">{item.text}</p>
-          <p>{state_label(item.state, @listener)}<span :if={item.reason}> · {inspect(item.reason)}</span></p>
+          <p>{delivery_label(item.state, @listener, @executor?)}<span :if={item.reason}> · {inspect(item.reason)}</span></p>
         </li>
       </ul>
     </section>
     """
   end
 
+  defp capability_label({:unavailable, :not_attached}), do: "Executor not attached."
+  defp capability_label({:unavailable, :executor_unreachable}), do: "Executor unreachable; waiting for a live attached session."
+  defp capability_label({:unavailable, :executor_delivery_not_installed}), do: "Executor delivery not installed."
+  defp capability_label({:unavailable, :read_only}), do: "Read-only dashboard — messages cannot be sent."
+
   defp mode_label(%{routing: :unavailable}), do: "Listener unavailable · messages cannot be sent"
   defp mode_label(%{effective: mode}) when mode in [:steer, :sync, :async, :mute], do: ModeCopy.label(mode)
   defp mode_label(_), do: "mode unknown"
+  defp delivery_label(state, _listener, true) when state in [:accepted, :queued], do: "Waiting until the Executor’s next turn"
+  defp delivery_label(:held_async, _listener, true), do: "Saved; waiting until the Executor’s next turn"
+  defp delivery_label(:unknown, _listener, true), do: "Outcome unknown; check the Executor before retrying"
+  defp delivery_label(state, listener, _executor?), do: state_label(state, listener)
+
   defp state_label(:accepted, _), do: "Accepted; awaiting journal entry"
   defp state_label(:queued, %{effective: :sync}), do: "Queued for next boundary"
   defp state_label(:queued, _), do: "Queued by the harness; awaiting journal entry"

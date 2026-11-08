@@ -23,7 +23,7 @@ defmodule AiurWeb.ExecutorComposerVoiceTest do
       assert Floki.find(html, "[phx-hook=VoiceInput]") == []
     end
 
-    assert Floki.find(render(%{listener: %{effective: nil}}), "textarea[disabled]") != []
+    assert Floki.find(render(%{listener: %{effective: nil}, capability: {:unavailable, :executor_delivery_not_installed}}), "textarea[disabled]") != []
   end
 
   test "worker composer shows canonical async and mute copy while retaining its message form" do
@@ -46,6 +46,7 @@ defmodule AiurWeb.ExecutorComposerVoiceTest do
   defp render(attrs \\ %{}) do
     defaults = %{
       writable: true,
+      capability: :available,
       target: Ref.executor(),
       draft: "keep this text",
       overlay: %{},

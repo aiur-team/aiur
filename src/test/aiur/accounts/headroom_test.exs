@@ -28,8 +28,8 @@ defmodule Aiur.Accounts.HeadroomTest do
   end
 
   describe "issue #3960 acceptance" do
-    test "Codex 5% left, Claude/default 100%, Claude/everdred 64%: picks Claude/default" do
-      assert chosen(%{}) == @claude_default
+    test "unknown usage ranks ahead of known accounts so it can be observed" do
+      assert chosen(%{{"codex", nil} => nil}) == @codex
     end
 
     test "with Claude/default exhausted it picks Claude/everdred" do
@@ -62,12 +62,6 @@ defmodule Aiur.Accounts.HeadroomTest do
       assert first.status == :known
     end
 
-    test "unknown usage never beats a known candidate with more than 10% left" do
-      readings = readings(%{{"claude", "default"} => nil, {"claude", "everdred"} => used(%{"seven_day" => 89})})
-
-      assert {:ok, %{candidate: @claude_everdred}, _} = Headroom.select(@candidates, readings)
-    end
-
     test "unknown usage ranks above known usage at or below 10% left and above exhausted" do
       candidates = [@codex, @claude_default, @claude_everdred]
 
@@ -82,6 +76,21 @@ defmodule Aiur.Accounts.HeadroomTest do
                {@claude_default, :unknown},
                {@codex, :low},
                {@claude_everdred, :exhausted}
+             ]
+    end
+
+    test "a recently explored unknown account ranks below every healthy known account" do
+      ranked =
+        Headroom.rank(@candidates, %{
+          {"codex", nil} => %{limited: true},
+          {"claude", "default"} => %{explored: true},
+          {"claude", "everdred"} => used(%{"seven_day" => 74})
+        })
+
+      assert Enum.map(ranked, &{&1.candidate, &1.status}) == [
+               {@claude_everdred, :known},
+               {@claude_default, :unknown},
+               {@codex, :exhausted}
              ]
     end
 
@@ -111,7 +120,7 @@ defmodule Aiur.Accounts.HeadroomTest do
       {:ok, chosen, ranked} = Headroom.select(@candidates, readings(%{{"codex", nil} => nil}))
 
       assert Headroom.summary(chosen, ranked) ==
-               "headroom: claude/default=100%; alternatives claude/everdred=64%, codex=unknown"
+               "headroom: codex=unknown; alternatives claude/default=100%, claude/everdred=64%"
     end
 
     test "the summary for an all-exhausted claim lists every candidate" do

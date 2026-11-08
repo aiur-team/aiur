@@ -56,7 +56,7 @@ test('pack-only first wave is not ready and unavailable packs retain the marker'
   const { computeLayout } = await import('../../priv/static/build-home/layout.js');
   const { resetState, S } = await import('../../priv/static/build-home/state.js');
   resetState();
-  const D = {hist:[],now:[],plan:[{...pack,epic:null}],nq:[],epics:{},features:{},byId:{}};
+  const D = {hist:[],now:[],plan:[{...pack,epic:null}],nq:[],lanes:{},features:{},byId:{}};
   const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs:{state:'unavailable',observed_at:0,reason:'1 of 2 planning packs could not be read'}};
   const L = computeLayout(D,S,{vpW:1440,vpH:1000,gut:80},sources);
   assert.equal(L.secs.plan.labels[0].t, '1');
@@ -70,7 +70,7 @@ test('an empty planned list preserves escaped pack failures and observation time
   const { listHTML } = await import('../../priv/static/build-home/list.js');
   const { resetState, S } = await import('../../priv/static/build-home/state.js');
   resetState();
-  const D = {hist:[],now:[],plan:[],nq:[],epics:{},features:{},children:{}};
+  const D = {hist:[],now:[],plan:[],nq:[],lanes:{},features:{},children:{}};
   const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs:{state:'unavailable',observed_at:0,reason:'1 of 2 <broken> packs'}};
   const html = listHTML(D,S,{more:false},{sources},0);
   assert.match(html, /data-sec="plan"/);
@@ -82,7 +82,7 @@ test('planned list reports unknown pack failure cause and checked time honestly'
   const { listHTML } = await import('../../priv/static/build-home/list.js');
   const { resetState, S } = await import('../../priv/static/build-home/state.js');
   resetState();
-  const D = {hist:[],now:[],plan:[],nq:[],epics:{},features:{},children:{}};
+  const D = {hist:[],now:[],plan:[],nq:[],lanes:{},features:{},children:{}};
   for (const packs of [{state:'unavailable'}, {state:'unavailable',reason:null,observed_at:null}, {state:'unavailable',reason:'',observed_at:null}, {state:'unavailable',observed_at:NaN}]) {
     const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs};
     const html = listHTML(D,S,{more:false},{sources},123456789);
@@ -93,7 +93,7 @@ test('planned board reports unknown pack failure cause and checked time honestly
   const { computeLayout } = await import('../../priv/static/build-home/layout.js');
   const { resetState, S } = await import('../../priv/static/build-home/state.js');
   resetState();
-  const D = {hist:[],now:[],plan:[],nq:[],epics:{},features:{},byId:{}};
+  const D = {hist:[],now:[],plan:[],nq:[],lanes:{},features:{},byId:{}};
   for (const packs of [{state:'unavailable'}, {state:'unavailable',reason:null,observed_at:null}, {state:'unavailable',reason:'',observed_at:null}, {state:'unavailable',observed_at:NaN}]) {
     const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs};
     const mark = computeLayout(D,S,{vpW:1440,vpH:1000,gut:80},sources).secs.plan.marks.at(-1);

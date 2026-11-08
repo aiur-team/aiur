@@ -12,11 +12,17 @@ export async function mountConversation(page, info) {
   await page.goto('/build-fixture/live')
   await expect(page).toHaveURL(/\/build$/)
   await expect(page.locator('[data-phx-main]')).toHaveClass(/phx-connected/)
-  await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
+  // Evaluates stay synchronous: Chromium can garbage-collect an awaited evaluate promise
+  // ("Promise was collected"), which Playwright reports as a navigation (#7426).
+  await page.evaluate(() => {
+    Promise.all([import('/build-home/state.js'), import('/build-home/modal/frame.js')])
+      .then(([{ ctx }, { openModal }]) => { window.buildConversation = { ctx, openModal } })
+  })
+  await expect.poll(() => page.evaluate(() => !!window.buildConversation?.ctx.D?.now.length)).toBe(true)
 }
 export async function scenario(page, name, opts = {}) {
-  await page.evaluate(async ({ fixture, opts }) => {
-    const { ctx } = await import('/build-home/state.js'), { openModal } = await import('/build-home/modal/frame.js')
+  await page.evaluate(({ fixture, opts }) => {
+    const { ctx, openModal } = window.buildConversation
     const original = ctx.push
     window.conversationCalls = []; window.olderFailures = opts.failures || 0; window.olderHolds = opts.hold || 0
     const entries = fixture.entries

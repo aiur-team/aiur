@@ -9,8 +9,10 @@ defmodule Aiur.BuildQueue.Codec do
        id: :queue_id,
        name: :string,
        rank: {:default, {:nullable, :nonnegative}, nil},
-       kind: {:enum, [:list, :build_order]},
+       kind: {:enum, [:list, :build_order, :feature, :epic]},
        root: {:nullable, :positive},
+       feature: {:omit_nil, :string},
+       epic: {:omit_nil, :string},
        held: :boolean,
        start_trigger: {:default, {:enum, [nil | Aiur.StartTrigger.triggers()]}, nil},
        generation: :nonnegative,
@@ -26,7 +28,7 @@ defmodule Aiur.BuildQueue.Codec do
        promoted_at: {:nullable, :datetime},
        added_at: :datetime
      ]},
-    {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :native]}]},
+    {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :feature, :epic, :native]}]},
     {:intents, Intent,
      [
        id: :string,
@@ -50,9 +52,14 @@ defmodule Aiur.BuildQueue.Codec do
   end
 
   defp encode_record(record, fields) do
-    Map.new(fields, fn {field, type} -> {Atom.to_string(field), encode_value(Map.fetch!(record, field), type)} end)
+    fields
+    |> Enum.map(fn {field, type} -> {Atom.to_string(field), encode_value(Map.fetch!(record, field), type)} end)
+    |> Enum.reject(fn {_field, value} -> value == :omit end)
+    |> Map.new()
   end
 
+  defp encode_value(nil, {:omit_nil, _type}), do: :omit
+  defp encode_value(value, {:omit_nil, type}), do: encode_value(value, type)
   defp encode_value(nil, _type), do: nil
   defp encode_value(value, {:default, type, _}), do: encode_value(value, type)
   defp encode_value(value, {:nullable, type}), do: encode_value(value, type)
@@ -77,6 +84,7 @@ defmodule Aiur.BuildQueue.Codec do
       end
     end)
     |> assign_ranks()
+    |> validate_queues()
     |> validate_positions()
   end
 
@@ -91,6 +99,21 @@ defmodule Aiur.BuildQueue.Codec do
 
   defp assign_ranks(error), do: error
 
+  # A feature entry without a slug cannot resolve its registry members, so refuse it on load.
+  defp validate_queues({:ok, document}) do
+    document.queues
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, document}, fn {queue, index}, acc ->
+      cond do
+        queue.kind == :feature and not is_binary(queue.feature) -> {:halt, invalid(["queues", index, "feature"])}
+        queue.kind == :epic and not is_binary(queue.epic) -> {:halt, invalid(["queues", index, "epic"])}
+        true -> {:cont, acc}
+      end
+    end)
+  end
+
+  defp validate_queues(error), do: error
+
   defp validate_positions({:ok, document}) do
     kinds = Map.new(document.queues, &{&1.id, &1.kind})
 
@@ -99,7 +122,7 @@ defmodule Aiur.BuildQueue.Codec do
     |> Enum.reduce_while({:ok, document}, fn {item, index}, acc ->
       case {Map.get(kinds, item.queue_id), item.position} do
         {:list, position} when is_integer(position) -> {:cont, acc}
-        {:build_order, nil} -> {:cont, acc}
+        {kind, nil} when kind in [:build_order, :feature, :epic] -> {:cont, acc}
         {nil, _} -> {:halt, invalid(["items", index, "queue_id"])}
         _ -> {:halt, invalid(["items", index, "position"])}
       end
@@ -150,9 +173,12 @@ defmodule Aiur.BuildQueue.Codec do
 
   # Older latches predate retry tracking and represent already-open attentions.
   defp fetch_field(record, field, {:default, _, default}), do: {:ok, Map.get(record, Atom.to_string(field), default)}
+  defp fetch_field(record, field, {:omit_nil, _}), do: {:ok, Map.get(record, Atom.to_string(field))}
   defp fetch_field(record, field, _), do: Map.fetch(record, Atom.to_string(field))
 
   defp decode_value(value, {:default, type, _}), do: decode_value(value, type)
+  defp decode_value(nil, {:omit_nil, _type}), do: {:ok, nil}
+  defp decode_value(value, {:omit_nil, type}), do: decode_value(value, type)
 
   defp decode_value(nil, {:nullable, _}), do: {:ok, nil}
   defp decode_value(value, {:nullable, type}), do: decode_value(value, type)

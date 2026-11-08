@@ -1,22 +1,51 @@
 defmodule AiurWeb.Build.URLState do
-  @moduledoc "Validated, canonical build-home URL state shared by navigation and hook events."
+  @moduledoc """
+  Validated, canonical build-home URL state shared by navigation and hook events.
+
+  The address bar names technical columns `lane` and the lane list `list=lanes`.
+  The pre-rename `epic=` and `list=epics` parameters still load, and each logs one
+  deprecation notice naming the new form; the canonical query the LiveView pushes
+  back uses the new names, so the address bar is rewritten on load.
+  """
+  require Logger
   alias AiurWeb.OperatorControlCenter.UnitsURL
 
-  @views ~w(gantt list)
+  @views ~w(gantt list build-order)
   @spans [1, 2, 3, 5, 7, 10, 14, 21, 30]
   @tstates ["merged", "failed", "in progress", "queued", "held", "blocked", "open", "not planned"]
-  @astates ~w(active error retrying retries command paused parked merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off none)
+  @astates ~w(native_question active error retrying retries command paused parked merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off none)
   # ponytail: C5-T01/C6-T01 share this slug shape; widen together if their slugs change.
   @slug ~r/\A[A-Za-z0-9._-]{1,64}\z/
   @model_key ~r/\A[a-z0-9][a-z0-9._-]{0,31}\z/
   @agent_presets %{
     active: ["active"],
-    alert: ~w(error retries command),
+    alert: ~w(error retries command native_question),
     paused: ~w(paused parked),
-    stuck: ~w(error retries command)
+    stuck: ~w(error retries command native_question)
   }
-  @ticket_presets %{active: ["in progress"], alert: ["in progress"], paused: ["in progress"], stuck: ["in progress"], queued: ~w(queued held blocked), finished: ~w(merged failed)}
-  @defaults %{view: "graph", list: "tickets", span: 1, feature: nil, fmode: "focus", epic: [], model: [], tstate: [], astate: [], live_min: false, trees: false, ticket: nil}
+  @ticket_presets %{
+    active: ["in progress"],
+    alert: ["in progress"],
+    paused: ["in progress"],
+    stuck: ["in progress"],
+    queued: ~w(queued held blocked),
+    finished: ~w(merged failed)
+  }
+  @defaults %{
+    view: "graph",
+    list: "tickets",
+    span: 1,
+    feature: nil,
+    fmode: "focus",
+    fsort: "goal",
+    lane: [],
+    model: [],
+    tstate: [],
+    astate: [],
+    live_min: false,
+    trees: false,
+    ticket: nil
+  }
 
   @type t :: %{
           view: String.t(),
@@ -24,7 +53,8 @@ defmodule AiurWeb.Build.URLState do
           span: pos_integer(),
           feature: String.t() | nil,
           fmode: String.t(),
-          epic: [String.t()],
+          fsort: String.t(),
+          lane: [String.t()],
           model: [String.t()],
           tstate: [String.t()],
           astate: [String.t()],
@@ -42,11 +72,12 @@ defmodule AiurWeb.Build.URLState do
 
     %{
       view: if(params["view"] in @views, do: params["view"], else: "graph"),
-      list: if(params["list"] in ~w(features epics), do: params["list"], else: "tickets"),
+      list: list(params["list"]),
       span: span(params["span"]),
       feature: feature,
       fmode: if(feature && params["fmode"] == "compact", do: "compact", else: "focus"),
-      epic: items(params["epic"], &(valid_string(&1, @slug) != nil)),
+      fsort: if(params["fsort"] in ~w(pct left), do: params["fsort"], else: "goal"),
+      lane: lane_items(params),
       model: items(params["model"], &(&1 != "none" and valid_string(&1, @model_key) != nil)),
       tstate: items(params["tstate"], &(&1 in @tstates)),
       astate: items(params["astate"], &(&1 in @astates)),
@@ -61,12 +92,13 @@ defmodule AiurWeb.Build.URLState do
     [
       {"view", if(state.view != "graph", do: state.view)},
       {"list", if(state.list != "tickets", do: state.list)},
+      {"fsort", if(state.fsort != "goal", do: state.fsort)},
       {"trees", if(state.trees, do: "1")},
       {"live", if(state.live_min, do: "min")},
       {"span", if(state.span != 1, do: Integer.to_string(state.span))},
       {"feature", state.feature},
       {"fmode", if(state.feature && state.fmode == "compact", do: "compact")},
-      {"epic", Enum.join(state.epic, ",")},
+      {"lane", Enum.join(state.lane, ",")},
       {"model", Enum.join(state.model, ",")},
       {"tstate", Enum.join(state.tstate, ",")},
       {"astate", Enum.join(state.astate, ",")},
@@ -94,7 +126,13 @@ defmodule AiurWeb.Build.URLState do
       selected = Enum.flat_map(conditions, &Map.fetch!(@ticket_presets, &1))
       %{"tstate" => @tstates |> Enum.filter(&(&1 in selected)) |> Enum.join(",")}
     else
-      %{"astate" => conditions |> Enum.flat_map(&Map.fetch!(@agent_presets, &1)) |> Enum.uniq() |> Enum.join(",")}
+      %{
+        "astate" =>
+          conditions
+          |> Enum.flat_map(&Map.fetch!(@agent_presets, &1))
+          |> Enum.uniq()
+          |> Enum.join(",")
+      }
     end
   end
 
@@ -114,7 +152,10 @@ defmodule AiurWeb.Build.URLState do
   defp span(_value), do: 1
 
   defp ticket("pack:" <> _ = value) do
-    valid_string(value, ~r/\Apack:(?!\.{1,2}\/)[A-Za-z0-9._-]{1,64}\/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z/)
+    valid_string(
+      value,
+      ~r/\Apack:(?!\.{1,2}\/)[A-Za-z0-9._-]{1,64}\/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z/
+    )
   end
 
   defp ticket(value) do
@@ -124,6 +165,30 @@ defmodule AiurWeb.Build.URLState do
     else
       _ -> nil
     end
+  end
+
+  # Canonical list names, plus the pre-rename "epics" bookmark.
+  defp list("features"), do: "features"
+  defp list("lanes"), do: "lanes"
+  defp list("epics"), do: "lanes"
+  defp list(_value), do: "tickets"
+
+  # "lane" is canonical; "epic" is the pre-rename alias and keeps old bookmarks working.
+  defp lane_items(params) do
+    note_legacy(params)
+
+    [params["lane"], params["epic"]]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(",")
+    |> items(&(valid_string(&1, @slug) != nil))
+  end
+
+  defp note_legacy(params) do
+    if Map.has_key?(params, "epic"),
+      do: Logger.info("build URL epic= is deprecated; use lane= instead")
+
+    if params["list"] == "epics",
+      do: Logger.info("build URL list=epics is deprecated; use list=lanes instead")
   end
 
   defp items(value, valid?) when is_binary(value) do

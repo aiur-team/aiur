@@ -263,6 +263,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
       "Job: #{failure.job}",
       "Failing test: #{failure.module} :: #{failure.name}",
       cascade_line(failure),
+      module_line(failure),
       "Error excerpt: #{error_excerpt(failure)}",
       "PRs that passed this test in another merge group containing the PR: #{Enum.map_join(passed_prs, ", ", &"##{&1}")}"
     ]
@@ -274,6 +275,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     do: "Likely cascade modules (not quarantined): #{Enum.join(modules, ", ")}"
 
   defp cascade_line(_failure), do: nil
+
+  defp module_line(%{module_tests: [_ | _] = names}), do: "Also failed in this module in the same window: #{Enum.join(names, "; ")}"
+  defp module_line(_failure), do: nil
 
   defp error_excerpt(%{excerpt: excerpt}) when is_binary(excerpt) and byte_size(excerpt) > 0, do: excerpt
   defp error_excerpt(_failure), do: "No error excerpt was available in the GitHub check annotation."

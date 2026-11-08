@@ -1,6 +1,9 @@
 defmodule Aiur.LandingWatch.QuarantinePR do
   @moduledoc """
-  Opens an auto-merging one-line PR that quarantines a base-failing test with expiry metadata.
+  Opens an auto-merging PR that quarantines base-failing tests with expiry metadata.
+
+  A candidate may carry `identities` from one module (or one browser spec); they share one
+  branch, so a later failure in a module whose quarantine PR is still open is appended to it.
 
   Every step is safe to repeat, so a transient GitHub error on one poll is retried on the
   next: an existing branch is moved to the new commit and an existing PR is reused.
@@ -25,10 +28,16 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   def list_path(identity),
     do: if(String.starts_with?(identity, "BrowserSpec :: "), do: @browser_list, else: @exunit_list)
 
+  @doc "The key quarantine candidates are grouped by: the test module, or the browser spec file."
+  @spec module_key(String.t()) :: String.t()
+  def module_key("BrowserSpec :: " <> rest), do: "BrowserSpec :: " <> hd(String.split(rest, " :: ", parts: 2))
+  def module_key(identity), do: hd(String.split(identity, " :: ", parts: 2))
+
   @spec open(map(), pos_integer(), keyword()) ::
           {:ok, map() | :already_quarantined} | {:error, term()}
-  def open(%{identity: identity, observations: observations}, ticket, opts)
+  def open(%{identity: identity, observations: observations} = candidate, ticket, opts)
       when is_binary(identity) and is_list(observations) do
+    identities = Map.get(candidate, :identities, [identity])
     expiry_cap = Date.add(Date.utc_today(), 14)
 
     opts =
@@ -50,11 +59,13 @@ defmodule Aiur.LandingWatch.QuarantinePR do
          },
          {:ok, existing} <- list_contents(ctx),
          expires <- expiry(ctx, opts),
-         {:ok, contents} <- entry(identity, ticket, existing, expires),
+         tests_root <- Keyword.get_lazy(opts, :tests_root, &default_test_root/0),
+         build <- &entries(identities, ticket, &1, expires, tests_root),
+         {:ok, contents} <- build.(existing),
          {:ok, branch} <- branch_name(identity, base),
-         {:ok, base_sha, commit_sha} <- reuse_or_publish(ctx, branch, contents, identity),
+         {:ok, base_sha, commit_sha} <- reuse_or_publish(ctx, branch, contents, build, title(identities)),
          {:ok, pr} <-
-           pull_request(ctx, branch, identity, ticket, observations, base_sha, commit_sha),
+           pull_request(ctx, branch, identities, ticket, observations, base_sha, commit_sha),
          :ok <- enable_auto_merge(ctx, pr) do
       {:ok, pr}
     else
@@ -101,6 +112,18 @@ defmodule Aiur.LandingWatch.QuarantinePR do
       _ ->
         {:error, :invalid_quarantine_identity}
     end
+  end
+
+  defp entries(identities, ticket, contents, expires, tests_root) do
+    Enum.reduce_while(identities, {:error, :already_quarantined}, fn identity, acc ->
+      current = if match?({:ok, _}, acc), do: elem(acc, 1), else: contents
+
+      case entry(identity, ticket, current, expires, tests_root) do
+        {:ok, updated} -> {:cont, {:ok, updated}}
+        {:error, :already_quarantined} -> {:cont, acc}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp quarantine_identity(module, name, tests_root) do
@@ -166,13 +189,18 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   # An earlier attempt that already committed the entry is reused, so a retry after an
   # auto-merge or PR error never writes a new head (which would restart the PR's CI).
-  defp reuse_or_publish(ctx, branch, contents, identity) do
+  # A branch with an open PR gets the new entries appended, not a sibling commit on base.
+  defp reuse_or_publish(ctx, branch, contents, build, title) do
     case get(ctx, "git/ref/heads/#{branch}", "landing_watch_quarantine_branch") do
       {:ok, %{"object" => %{"sha" => head}}} ->
-        reuse_if_listed(ctx, branch, head, contents, identity)
+        case existing_pull_request(ctx, branch) do
+          {:ok, _open} -> append_or_reuse(ctx, branch, head, build, title)
+          {:error, :quarantine_pull_request_not_found} -> reuse_if_listed(ctx, branch, head, contents, build, title)
+          {:error, _} = error -> error
+        end
 
       {:error, {:github, _, %{status: 404}}} ->
-        publish_list_file(ctx, branch, contents, identity)
+        publish_list_file(ctx, branch, contents, title)
 
       {:ok, _} ->
         {:error, :invalid_quarantine_git_response}
@@ -182,15 +210,26 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     end
   end
 
-  defp reuse_if_listed(ctx, branch, head, contents, identity) do
+  defp reuse_if_listed(ctx, branch, head, contents, build, title) do
     case fetch_list_contents(%{ctx | base: branch}) do
       {:ok, existing} ->
-        if listed?(existing, identity),
+        if build.(existing) == {:error, :already_quarantined},
           do: reuse(ctx, head),
-          else: publish_list_file(ctx, branch, contents, identity)
+          else: publish_list_file(ctx, branch, contents, title)
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp append_or_reuse(ctx, branch, head, build, title) do
+    with {:ok, existing} <- fetch_list_contents(%{ctx | base: branch}),
+         {:ok, contents} <- build.(existing),
+         {:ok, commit} <- commit_list_file(ctx, branch, contents, title, head) do
+      reuse(ctx, commit)
+    else
+      {:error, :already_quarantined} -> reuse(ctx, head)
+      {:error, _} = error -> error
     end
   end
 
@@ -205,6 +244,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp branch_name(identity, base) do
     slug =
       identity
+      |> module_key()
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
       |> binary_part(0, 16)
@@ -239,11 +279,22 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     end
   end
 
-  defp publish_list_file(ctx, branch, contents, identity) do
-    with {:ok, %{"object" => %{"sha" => base_sha}}} <-
-           get(ctx, "git/ref/heads/#{ctx.base}", "quarantine_pr_base"),
-         {:ok, %{"tree" => %{"sha" => base_tree}}} <-
-           get(ctx, "git/commits/#{base_sha}", "quarantine_pr_base_tree"),
+  defp publish_list_file(ctx, branch, contents, title) do
+    case get(ctx, "git/ref/heads/#{ctx.base}", "quarantine_pr_base") do
+      {:ok, %{"object" => %{"sha" => base_sha}}} ->
+        with {:ok, commit} <- commit_list_file(ctx, branch, contents, title, base_sha), do: {:ok, base_sha, commit}
+
+      {:ok, _unexpected} ->
+        {:error, :invalid_quarantine_git_response}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp commit_list_file(ctx, branch, contents, title, parent) do
+    with {:ok, %{"tree" => %{"sha" => base_tree}}} <-
+           get(ctx, "git/commits/#{parent}", "quarantine_pr_base_tree"),
          {:ok, %{"sha" => blob}} <-
            write(ctx, :post, "git/blobs", %{"content" => contents, "encoding" => "utf-8"}),
          {:ok, %{"sha" => tree}} <-
@@ -255,12 +306,12 @@ defmodule Aiur.LandingWatch.QuarantinePR do
            }),
          {:ok, %{"sha" => commit}} <-
            write(ctx, :post, "git/commits", %{
-             "message" => "Quarantine flaky test #{identity}",
+             "message" => title,
              "tree" => tree,
-             "parents" => [base_sha]
+             "parents" => [parent]
            }),
          :ok <- point_branch(ctx, branch, commit) do
-      {:ok, base_sha, commit}
+      {:ok, commit}
     else
       {:ok, _unexpected} -> {:error, :invalid_quarantine_git_response}
       {:error, _} = error -> error
@@ -282,12 +333,15 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     end
   end
 
-  defp pull_request(ctx, branch, identity, ticket, observations, base_sha, commit_sha) do
+  defp title([identity]), do: "Quarantine flaky test #{identity}"
+  defp title([identity | _] = identities), do: "Quarantine #{length(identities)} flaky tests in #{module_key(identity)}"
+
+  defp pull_request(ctx, branch, identities, ticket, observations, base_sha, commit_sha) do
     body = %{
-      "title" => "Quarantine flaky test #{identity}",
+      "title" => title(identities),
       "head" => branch,
       "base" => ctx.base,
-      "body" => body(ctx, identity, ticket, observations, base_sha, commit_sha)
+      "body" => body(ctx, identities, ticket, observations, base_sha, commit_sha)
     }
 
     case write(ctx, :post, "pulls", body) do
@@ -308,8 +362,8 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   end
 
   @doc false
-  @spec body(map(), String.t(), pos_integer(), [map()], String.t(), String.t()) :: String.t()
-  def body(ctx, identity, ticket, observations, base_sha, commit_sha) do
+  @spec body(map(), [String.t()], pos_integer(), [map()], String.t(), String.t()) :: String.t()
+  def body(ctx, identities, ticket, observations, base_sha, commit_sha) do
     runs =
       observations |> Enum.map(& &1.run_url) |> Enum.uniq() |> Enum.map_join("\n", &"- #{&1}")
 
@@ -317,14 +371,14 @@ defmodule Aiur.LandingWatch.QuarantinePR do
     checked = Enum.map_join(checked_paths, "\n", &"- `#{&1}`")
 
     list = ctx.path
-    {skip, scope} = skip_scope(identity)
+    {skip, scope} = skip_scope(identities)
 
     """
     Refs ##{ticket}
 
     #### Context
 
-    `#{identity}` failed in base-branch CI, or in two merge groups whose PRs did not touch it, within 24 hours.
+    #{Enum.map_join(identities, ", ", &"`#{&1}`")} failed in base-branch CI, or in two merge groups whose PRs did not touch it, within 24 hours.
 
     #### TL;DR
 
@@ -332,7 +386,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
     #### Summary
 
-    - Adds one line to `#{list}`#{expiry_description(ctx)}; blocking CI skips #{scope} and the non-blocking quarantine job still runs it nightly.
+    - Adds #{if length(identities) == 1, do: "one line", else: "entries"} to `#{list}`#{expiry_description(ctx)}; blocking CI skips #{scope} and the non-blocking quarantine job still runs it nightly.
     - The landing watcher opened this PR. Failed runs:
     #{runs}
 
@@ -367,6 +421,9 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   defp expiry_description(%{path: @browser_list}), do: ""
   defp expiry_description(ctx), do: " through #{Keyword.fetch!(ctx.opts, :quarantine_expires_on)}"
+
+  defp skip_scope([_, _ | _] = identities), do: {"#{length(identities)} flaky tests", "those tests"}
+  defp skip_scope([identity]), do: skip_scope(identity)
 
   defp skip_scope("BrowserSpec :: " <> rest) do
     case Regex.run(~r/\A(.+\.spec\.mjs) :: (.+) :: (\d+)\z/, rest, capture: :all_but_first) do

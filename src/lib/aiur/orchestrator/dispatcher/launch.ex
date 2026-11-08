@@ -267,7 +267,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             optimistic_start: issue.optimistic_start,
             start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
-            workspace_path: nil,
+            workspace_path: Keyword.get(opts, :workspace_path),
             session_id: nil,
             session_execution: nil,
             last_codex_message: nil,
@@ -291,12 +291,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             stalled_alert_outstanding: Keyword.get(opts, :stalled_alert_outstanding, false),
             prior_work: Keyword.get(opts, :prior_work, false),
+            redispatch_safety: Keyword.get(opts, :redispatch_safety),
             rework_head_sha: rework_head_sha,
             pending_answered_decisions: Enum.map(runner_context.answered_decisions, & &1.action_id),
             decision_store: decision_store,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
+          |> Map.merge(redispatch_safety_fields(opts))
 
         running = Map.put(state.running, issue.id, running_entry)
         deliver_pending_answers(issue, opts)
@@ -437,6 +439,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   end
 
   defp inherit_redispatch_safety(entry, _previous), do: entry
+
+  defp redispatch_safety_fields(opts) do
+    case Keyword.get(opts, :redispatch_safety) do
+      safety when is_map(safety) -> safety
+      _ -> %{}
+    end
+  end
 
   defp maybe_put_redispatch_fence(entry, fence) when is_map(fence),
     do: Map.put(entry, :lifecycle_fence, fence)

@@ -122,6 +122,8 @@ defmodule Aiur.Events.EnvelopeTest do
   end
 
   defp topic_for("ticket.*.agent.decision.#"), do: "ticket.42.agent.decision.answered"
+  defp topic_for("ticket.*.agent.decision.requested"), do: "ticket.42.agent.decision.requested"
+  defp topic_for("ticket.*.agent.decision.answered"), do: "ticket.42.agent.decision.answered"
   defp topic_for("ticket.*.agent.attention.#"), do: "ticket.42.agent.attention.example"
   defp topic_for("system.#"), do: "system.dispatch.cycle_stalled"
   defp topic_for(pattern), do: pattern |> String.replace("*", "42") |> String.replace("#", "example")
@@ -158,4 +160,7 @@ defmodule Aiur.Events.EnvelopeTest do
   defp attr_value(:boolean), do: true
   defp attr_value(:id), do: "identifier-1"
   defp attr_value(:sha), do: "abc1234"
+  defp attr_value(:text), do: "question"
+  defp attr_value(:decision_options), do: [%{"id" => "yes", "label" => "Yes", "description" => nil, "benefits" => nil, "drawbacks" => nil, "risk" => nil}]
+  defp attr_value(:decision_answer), do: %{"selected_option_id" => "yes", "custom_response" => nil, "rationale" => nil}
 end

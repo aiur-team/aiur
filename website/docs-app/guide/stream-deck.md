@@ -8,13 +8,13 @@ Conversation dictation follows the ticket’s listener mode: default Sync waits 
 
 The Ticket strip shows category counts and backlog; provider meters are separate from this strip. See [Claude accounts](/guide/claude-accounts) for individual dashboard bars.
 
-The physical deck uses server-rendered Ticket, Feature, Epic and Fleet views.
+The physical deck uses server-rendered Ticket, Feature, Lane and Fleet views.
 Dial 4 cycles views, turns page by eight keys, and a 500 ms hold goes back or
 opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
 
 After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
 capture, and a short tap sends the settled transcript. Choose instances in Settings.
-The grid dial D turns pages and presses to cycle Ticket, Feature, Epic and Fleet; dial B scrolls the category chips.
+The grid dial D turns pages and presses to cycle Ticket, Feature, Lane and Fleet; dial B scrolls the category chips.
 
 ## Read provider accounts
 
@@ -71,7 +71,7 @@ badge.
 Missing closed or total counts show “—” with the source reason. Missing bar
 counts leave an empty bar while a known closed/total percentage stays visible.
 
-Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
+Each key represents a parent feature, summing its lane counts in snapshot order. Dial 4 pages eight keys;
 press a key to drill into the parent feature's tickets, then hold Dial 4 to return
 with the feature page preserved.
 
@@ -114,10 +114,12 @@ The strip shows daemon state and heartbeat age, capacity (including staleness),
 and global pause state. Unknown capacity shows `—`; a stale daemon stays
 labelled stale. Fleet only displays global pause.
 
+Fleet adds GitHub `core`/`gql` and configured ElevenLabs `credits` remaining bars. Each row shows its reading age (`Ns old` or `never`), taken at the once-a-minute cached refresh; stale or unknown rows show `—`, never a number. `⏸ until HH:MM` is UTC. Tips match Build. See [GitHub budgets](/apis/github-budgets).
+
 ## Read ticket conversation turns
 
-The keys and strip use the same conversation source, entry IDs and chronological
-order as the desktop Build modal, including retained messages after a daemon restart.
+The keys and strip share the Build modal's conversation source, IDs, order and
+retained messages. Each milestone is a selectable key that jumps the strip there.
 
 Press a ticket key to read its conversation.
 
@@ -174,18 +176,18 @@ Missing progress draws no bar and never becomes 0%. Tickets without an agent app
 only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.
 
-## Epic view
+## Lane view
 
-Epic keys show remaining open tickets, open/total, and the percentage closed.
-They use Build's `epic_progress`: most remaining first, then epic label;
+Lane keys show remaining open tickets, open/total, and the percentage closed.
+They use Build's `lane_progress`: most remaining first, then lane label;
 unknown counts show “—” with a reason and sort last. A ticket counts under every
-matching general epic, including tickets owned by a feature.
+matching general lane, including feature-owned tickets, in its stored lane colour.
 
-Press an epic key to list its matching tickets; hold dial 4 for 500 ms to go
-back. With `build_order.general_epics: []`, or when every configured epic has zero total tickets, the view says “No epics configured”
+Press a lane key to list its matching tickets; hold dial 4 for 500 ms to go
+back. With `build_order.lanes: []`, or when every configured lane has zero total tickets, the view says “No lanes configured”
 and names that setting, without showing a zero remaining count.
 
-Epic keys and the empty-state strip use the same shared SVG renderer in the
+Lane keys and the empty-state strip use the same shared SVG renderer in the
 browser emulator and on the physical deck.
 
 ## Physical sidecar status
@@ -323,7 +325,7 @@ Hold dial 4 at the root to open Settings.
 | --- | --- |
 | Navigation | Press a section key, turn dial 1 to scroll, then press it or a choice key to select; hold dial 4 to return. |
 | Mic and Speaker | Choose devices attached to the sidecar's PC; inventory refreshes after device changes. |
-| View and Sort | Set the default deck view and ordering. |
+| View and Sort | Set the default deck view (Ticket, Feature, Lane or Fleet) and ordering. A saved `default_view: "epic"` still opens Lane. |
 | Brightness | Save a value from 0 to 100; until saved, `STREAMDECK_BRIGHTNESS` supplies the default. |
 | Sleep | Dim after the chosen idle timeout; 0 disables dimming. Any input restores brightness. |
 | Instance | Choose which configured daemon instance the deck follows. |
