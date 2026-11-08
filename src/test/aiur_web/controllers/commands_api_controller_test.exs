@@ -25,6 +25,11 @@ defmodule AiurWeb.CommandsApiControllerTest do
       Process.get({__MODULE__, :answer}, {:error, :not_found})
     end
 
+    def reject(scope, decision_id, payload, opts) do
+      send(self(), {:host_api_called, :reject, [scope, decision_id, payload, opts]})
+      Process.get({__MODULE__, :reject}, {:error, :not_found})
+    end
+
     def media(scope, decision_id, attachment_id, opts) do
       send(self(), {:host_api_called, :media, [scope, decision_id, attachment_id, opts]})
       Process.get({__MODULE__, :media}, {:error, :not_found})
@@ -65,6 +70,20 @@ defmodule AiurWeb.CommandsApiControllerTest do
     assert Jason.decode!(conn.resp_body)["command"]["state"] == "answered"
     assert_receive {:host_api_called, :answer, [_scope, "dec_1", payload, _opts]}, 1_000
     assert payload["option_id"] == "approve"
+    refute Map.has_key?(payload, "decision_id")
+  end
+
+  test "reject passes the reason to the host API and an out-of-scope id is the same 404" do
+    conn = scoped_conn(:post) |> CommandsApiController.reject(%{"decision_id" => "dec_hidden", "reason" => "wrong"})
+    assert conn.status == 404
+    assert Jason.decode!(conn.resp_body)["error"]["code"] == "command_not_found"
+
+    Process.put({FakeHostApi, :reject}, {:ok, %{"command" => %{"state" => "rejected"}}})
+    conn = scoped_conn(:post) |> CommandsApiController.reject(%{"decision_id" => "dec_1", "reason" => "wrong"})
+
+    assert conn.status == 200
+    assert Jason.decode!(conn.resp_body)["command"]["state"] == "rejected"
+    assert_receive {:host_api_called, :reject, [_scope, "dec_1", %{"reason" => "wrong"} = payload, _opts]}, 1_000
     refute Map.has_key?(payload, "decision_id")
   end
 

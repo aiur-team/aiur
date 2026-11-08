@@ -8,6 +8,7 @@ defmodule Aiur.Alerts.Config do
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Workflow
 
+  alias Aiur.Project.Context
   @spec definitions() :: %{optional(String.t()) => Aiur.Alerts.definition()}
   def definitions do
     alerts_path()
@@ -75,7 +76,7 @@ defmodule Aiur.Alerts.Config do
   # it tracks the Executor’s `.aiur/` directory and resolves correctly inside an
   # assembled release/escript (a baked source path would not).
   defp default_alerts_path do
-    case Workflow.workflow_file_path() do
+    case Context.without(&Workflow.workflow_file_path/0) do
       path when is_binary(path) and path != "" -> Path.join(Path.dirname(path), "alerts")
       _ -> nil
     end

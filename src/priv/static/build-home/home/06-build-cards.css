@@ -77,8 +77,10 @@
   max-width: 46ch;
 }
 
-/* C:215 */ /* #7446: the band scrolls with the board instead of sticking to the viewport edges. */ .bd-now {
-  position: relative;
+/* C:215 */ /* #7758: the band scrolls with the board, then pins under the lane header or to the bottom edge instead of leaving view. */ .bd-now {
+  position: sticky;
+  top: 46px;
+  bottom: 0;
   z-index: 7;
   border-block: 1px solid var(--accent-line);
 }

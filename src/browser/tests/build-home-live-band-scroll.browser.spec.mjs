@@ -14,15 +14,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.clock.runFor(2000)
   const bandTop = () => page.evaluate(() => Math.round(m.ctx.bandEl.getBoundingClientRect().top - m.ctx.vp.getBoundingClientRect().top))
 
-  // Native scroll that leaves the band's top a third of the way down the viewport.
+  // Native scroll that leaves the band part-way down the viewport: a third, or as low as it fits whole (#7758 pins an overflowing band to the bottom).
   await page.evaluate(() => {
     const vp = m.ctx.vp
-    vp.scrollTop = m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - Math.round(vp.clientHeight / 3)
+    vp.scrollTop = m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - Math.round(Math.min(vp.clientHeight / 3, vp.clientHeight - m.ctx.bandEl.offsetHeight - 2))
     vp.dispatchEvent(new Event('scroll')) // Run the real handler now; the native event may land a frame later.
   })
   expect(await page.evaluate(() => m.ctx.isScrolling())).toBe(true)
   const stopped = await page.evaluate(() => m.ctx.vp.scrollTop), top = await bandTop()
-  expect(top).toBeGreaterThan(46 + 36); expect(top).toBeLessThan(viewport.height / 2)
+  expect(top).toBeGreaterThan(46 + 6); expect(top).toBeLessThan(viewport.height / 2)
 
   await page.clock.runFor(2000)
   expect(await page.evaluate(() => [m.ctx.vp.scrollTop, m.ctx.isScrolling(), m.ctx.snapping])).toEqual([stopped, false, false])
