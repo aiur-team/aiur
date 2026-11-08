@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
   test "heartbeat publishes per-instance ticket rows and capacity" do
     metadata =
       InstanceHeartbeatMetadata.metadata(
+        next_queue_fun: fn -> nil end,
+        pending_decisions_fun: fn -> nil end,
         statuses_fun: fn ->
           [
             %{identifier: "acme/widgets#42", title: "Roster ticket", state: :running},
@@ -48,6 +50,8 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
 
   test "heartbeat carries the gateway identity, null when unavailable" do
     opts = [
+      next_queue_fun: fn -> nil end,
+      pending_decisions_fun: fn -> nil end,
       statuses_fun: fn -> [] end,
       capacity_fun: fn -> 1 end,
       held_tickets_fun: fn -> [] end,
@@ -91,7 +95,9 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
             statuses_fun: fn -> rows end,
             capacity_fun: fn -> 4 end,
             held_tickets_fun: fn -> ["acme/widgets#1", "acme/widgets#2", "acme/api#9"] end,
-            executor_fun: fn -> true end
+            executor_fun: fn -> true end,
+            next_queue_fun: fn -> %{"acme/widgets" => 41, "acme/api" => nil} end,
+            pending_decisions_fun: fn -> %{"acme/widgets" => 3} end
           ]
       )["data"]
 
@@ -99,8 +105,8 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
     assert data["executor_present"] == true
 
     assert data["projects"] == [
-             %{"repo" => "acme/widgets", "running" => 2, "owned_tickets" => 2},
-             %{"repo" => "acme/api", "running" => 1, "owned_tickets" => 1}
+             %{"repo" => "acme/widgets", "running" => 2, "agents" => 2, "next_queue" => %{"number" => 41}, "pending_decisions" => 3, "owned_tickets" => 2},
+             %{"repo" => "acme/api", "running" => 1, "agents" => 1, "next_queue" => %{"number" => nil}, "pending_decisions" => 0, "owned_tickets" => 1}
            ]
   end
 
@@ -118,11 +124,14 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
             statuses_fun: fn -> [row.(7718), row.(7636)] end,
             capacity_fun: fn -> 2 end,
             held_tickets_fun: fn -> ["aiur-team/aiur#7718", "aiur-team/aiur#7636"] end,
-            executor_fun: fn -> true end
+            executor_fun: fn -> true end,
+            next_queue_fun: fn -> nil end,
+            pending_decisions_fun: fn -> nil end
           ]
       )["data"]
 
-    assert data["projects"] == [%{"repo" => "aiur-team/aiur", "running" => 2, "owned_tickets" => 2}]
+    # Unreadable queue and Decision stores omit their keys; they are never zero-filled.
+    assert data["projects"] == [%{"repo" => "aiur-team/aiur", "running" => 2, "agents" => 2, "owned_tickets" => 2}]
   end
 
   test "unreadable fields are omitted, not zero-filled, and the roster renders unknown" do
@@ -148,7 +157,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
 
   test "zero and false are facts and survive" do
     data =
-      InstanceHeartbeatMetadata.metadata(@base_opts ++ [statuses_fun: fn -> [] end, capacity_fun: fn -> 2 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> false end])["data"]
+      InstanceHeartbeatMetadata.metadata(@base_opts ++ [next_queue_fun: &__MODULE__.nil_fun/0, pending_decisions_fun: &__MODULE__.nil_fun/0, statuses_fun: fn -> [] end, capacity_fun: fn -> 2 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> false end])["data"]
 
     assert %{"agent_count" => 0, "held_tickets" => [], "executor_present" => false, "projects" => []} = data
   end
@@ -157,7 +166,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
     rows = for i <- 1..20, do: %{identifier: "acme/r#{rem(i, 3)}##{i}", title: String.duplicate("t", 300), state: :running}
     held = for i <- 1..200, do: "acme/r#{rem(i, 3)}##{i}"
 
-    opts = @base_opts ++ [statuses_fun: fn -> rows end, capacity_fun: fn -> 20 end, held_tickets_fun: fn -> held end, executor_fun: fn -> true end]
+    opts = @base_opts ++ [next_queue_fun: &__MODULE__.nil_fun/0, pending_decisions_fun: &__MODULE__.nil_fun/0, statuses_fun: fn -> rows end, capacity_fun: fn -> 20 end, held_tickets_fun: fn -> held end, executor_fun: fn -> true end]
 
     small = InstanceHeartbeatMetadata.metadata([max_bytes: 8_000] ++ opts)["data"]
     assert small["trimmed"] == ["agent_titles"]
@@ -204,6 +213,8 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
 
   defp metadata_with_ownership(data) do
     InstanceHeartbeatMetadata.metadata(
+      next_queue_fun: fn -> nil end,
+      pending_decisions_fun: fn -> nil end,
       statuses_fun: fn -> [] end,
       capacity_fun: fn -> 1 end,
       held_tickets_fun: fn -> [] end,
