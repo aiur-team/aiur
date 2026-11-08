@@ -156,6 +156,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/api/v1/conversations/:conversation_id/sessions", AiurWeb.ConversationApiController, :sessions, [:client_token_read], :debug},
     {:get, "/api/v1/conversations/:conversation_id/anchors", AiurWeb.ConversationApiController, :anchors, [:client_token_read], :debug},
     {:*, "/api/v1/conversations/*path", AiurWeb.ConversationApiController, :method_not_allowed_or_not_found, [:client_token_read], :debug},
+    {:get, "/api/v1/gateway/summary", AiurWeb.GatewaySummaryController, :show, [:gateway_summary], :debug},
+    {:*, "/api/v1/gateway/summary", AiurWeb.GatewaySummaryController, :method_not_allowed, [:gateway_summary], :debug},
     {:get, "/api/v1/events", AiurWeb.EventsController, :index, [:client_token_read], :debug},
     {:get, "/api/v1/events/catalog", AiurWeb.EventsController, :catalog, [:client_token_read], :debug},
     {:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed, [:client_token_read], :debug},
