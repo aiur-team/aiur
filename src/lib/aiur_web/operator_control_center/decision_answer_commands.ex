@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
   import Phoenix.Component, only: [assign: 3]
   alias Aiur.Commands.Answering
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionCommands, DecisionOutcomes, DecisionQuestionsForm}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionCommands, DecisionOutcomes, DecisionQuestionsForm, GatewayGrantCommands}
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -42,6 +42,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
       nil -> put_result(reload.(socket), id, %{status: :error, reason: :not_loaded})
       decision -> submit_loaded(socket, decision, form, reload, operation)
     end
+  end
+
+  # A gateway grant needs a signed-in human, not the generic answer path (the store refuses that).
+  defp submit_loaded(socket, %{kind: "gateway_grant"} = decision, form, reload, _operation) do
+    {key, text} = GatewayGrantCommands.confirm(socket, decision, normalize_form(form))
+    socket |> reload.() |> update_state(decision.decision_id, &(&1 |> Map.drop([:notice, :error]) |> Map.put(key, text)))
   end
 
   defp submit_loaded(socket, decision, form, reload, operation) do
