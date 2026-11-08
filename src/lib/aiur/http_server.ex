@@ -8,6 +8,7 @@ defmodule Aiur.HttpServer do
   alias Aiur.{Commands, Config, Orchestrator}
   alias Aiur.Config.Paths
   alias Aiur.Executor.HookConfig
+  alias Aiur.Gateway.Hello
   alias AiurWeb.DashboardAuth.Passkeys
   alias AiurWeb.Endpoint
 
@@ -145,6 +146,7 @@ defmodule Aiur.HttpServer do
       browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
       public_bind: not loopback?(ip),
+      gateway_hello: Hello.enabled?(settings.gateway_hello, ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
       decision_store: Keyword.get(opts, :decision_store, Commands.default_store()),

@@ -12,7 +12,7 @@ defmodule Aiur.Gateway.Cli do
 
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
-  alias Aiur.Gateway.{GrantRequest, Registry}
+  alias Aiur.Gateway.{Discovery, GrantRequest, Registry}
 
   @actor "cli_local"
 
@@ -28,6 +28,28 @@ defmodule Aiur.Gateway.Cli do
       code = if opts[:full] == true, do: do_grant(opts, Registry.categories()), else: fail("gateway trust requires --full", 64)
       exit_marker(code)
     end)
+  end
+
+  @doc "Lists registry entries and tailnet peers that answer hello. Read-only; `--json` rows carry `observed_at`, `age_ms: 0`, `freshness`."
+  @spec discover(keyword()) :: :ok
+  def discover(opts \\ []) do
+    guarded("gateway discover", fn ->
+      result = Discovery.discover(Keyword.take(opts, [:port, :http_get, :tailscale_executable, :tailscale_runner]))
+      print_discovery(result, opts[:json])
+      exit_marker(0)
+    end)
+  end
+
+  defp print_discovery(result, true) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+    rows = Enum.map(result.rows, &Map.merge(&1, %{observed_at: now, age_ms: 0, freshness: "current"}))
+    IO.puts(Jason.encode!(%{tailscale_found: result.tailscale_found, gateways: rows}))
+  end
+
+  defp print_discovery(result, _json) do
+    unless result.tailscale_found, do: IO.puts("Tailscale not found; showing registered gateways only")
+    IO.puts("name\tstatus\tgateway_id\turl")
+    Enum.each(result.rows, &IO.puts("#{&1.name}\t#{&1.status}\t#{&1.gateway_id || "-"}\t#{&1.url}"))
   end
 
   @spec revoke(keyword()) :: :ok

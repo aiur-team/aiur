@@ -3,7 +3,7 @@
 Split out of [MPG-301](MPG-301.md) §1b to keep that page under the file-size gate.
 
 The §1 grep found 27. The inventory test (`test/aiur/project/singleton_inventory_test.exs`) matches every
-`name: __MODULE__` / `Keyword.get(opts, :name, __MODULE__)` registration and found 143 more. They are classified here by
+`name: __MODULE__` / `Keyword.get(opts, :name, __MODULE__)` registration and found 144 more. They are classified here by
 the §1 rule. A `per-project` row with ticket `follow-up` is classified but not yet migrated: MPG-305 files one
 `needs-triage` ticket for them, and until it lands they keep their module name (correct for a single project). The
 classification is by module role, not a line-by-line audit; the follow-up ticket re-checks each row before migrating it.
@@ -154,3 +154,4 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 142 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 143 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |
 
+| 144 | `Aiur.Ownership.Fence` | machine | Answers the git and gh guards for every agent the daemon runs; one fence per daemon. | MPG-105 |

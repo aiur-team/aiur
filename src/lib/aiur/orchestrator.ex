@@ -22,15 +22,9 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, StaleOwner, State, StatusReport}
 
-  alias Aiur.Orchestrator.{
-    TokenAccounting,
-    TrackedSet,
-    TrackerHealth,
-    TrackerTasks,
-    WorkspaceCleanup
-  }
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
@@ -89,6 +83,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
     do: GlobalPause.fleet_pause_info(state)
+
+  def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
+    do: {:noreply, StaleOwner.handle(state, identifier, epoch)}
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.

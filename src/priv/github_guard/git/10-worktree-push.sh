@@ -147,9 +147,3 @@ if [ "$worktree_remove" -eq 1 ]; then
     fi
   fi
 fi
-
-GIT_TERMINAL_PROMPT=0
-GIT_CONFIG_PARAMETERS="'credential.https://github.com.helper=' 'credential.https://github.com.helper=$credential_helper' 'http.https://github.com/.extraheader='"
-export GIT_TERMINAL_PROMPT GIT_CONFIG_PARAMETERS
-
-exec "$real_git" "$@"

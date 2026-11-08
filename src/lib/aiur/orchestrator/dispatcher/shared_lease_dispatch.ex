@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Ownership.Fence
   alias Aiur.Signal
   alias Aiur.Toolchain
 
@@ -74,6 +75,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         with :admit <- admit.(selected_issue),
              owned when owned == :disabled or elem(owned, 0) == :ok <-
                Aiur.Ownership.ensure_owned(selected_issue, opts) do
+          register_fence(selected_issue, owned)
           dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
         else
           {:deny, reason} ->
@@ -104,6 +106,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         )
     end
   end
+
+  defp register_fence(issue, {:ok, record}), do: Fence.register(issue, record)
+  defp register_fence(_issue, :disabled), do: :ok
 
   defp ownership_eligibility(issue, opts) do
     live_instances_fun = Keyword.get(opts, :ownership_live_instances_fun, &LeaseStore.list_live/0)
@@ -156,9 +161,11 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         release_if_unstarted(next_state, selected_issue, opts)
 
       {:error, :shared_lease_held} ->
+        Fence.unregister(selected_issue.identifier)
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_held, false)
 
       {:error, {:shared_lease_unavailable, reason}} ->
+        Fence.unregister(selected_issue.identifier)
         Logger.warning("Shared ticket lease unavailable for #{State.issue_context(issue)}: #{inspect(reason)}; holding dispatch")
 
         Candidates.emit_dispatch_attempt_decline(state, issue, :shared_lease_unavailable, true)
@@ -169,6 +176,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     if MapSet.member?(state.claimed, issue.id) do
       state
     else
+      Fence.unregister(issue.identifier)
       release_fun = Keyword.get(opts, :lease_release_fun, &LeaseStore.release/1)
       _ = release_fun.(issue)
       state

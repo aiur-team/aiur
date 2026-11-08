@@ -12,16 +12,17 @@ ensure_gateway_grants_local() {
 }
 
 cmd_gateway() {
-  local verb="${1:-}" peer="" categories="" json=0 full=0 arg opts item list=""
+  local verb="${1:-}" peer="" port="" categories="" json=0 full=0 arg opts item list=""
   [ "$#" -gt 0 ] && shift
   case "$verb" in
-    permissions | grant | revoke | trust) ;;
-    *) gateway_usage_error 'gateway requires permissions, grant, revoke or trust' ;;
+    permissions | grant | revoke | trust | discover) ;;
+    *) gateway_usage_error 'gateway requires permissions, grant, revoke, trust or discover' ;;
   esac
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
-      --json) [ "$verb" = permissions ] || gateway_usage_error '--json requires gateway permissions'; json=1 ;;
+      --json) [ "$verb" = permissions ] || [ "$verb" = discover ] || gateway_usage_error '--json requires gateway permissions or discover'; json=1 ;;
+      --port) [ "$verb" = discover ] && [[ "${2:-}" =~ ^[0-9]{1,5}$ ]] || gateway_usage_error '--port requires gateway discover and a number'; port="$2"; shift ;;
       --full) [ "$verb" = trust ] || gateway_usage_error '--full requires gateway trust'; full=1 ;;
       -*) gateway_usage_error "unknown gateway option $arg" ;;
       *)
@@ -47,6 +48,7 @@ cmd_gateway() {
     opts="${opts:+$opts, }categories: [$list]"
   fi
   [ "$full" -eq 1 ] && opts="${opts:+$opts, }full: true"
+  [ -n "$port" ] && opts="${opts:+$opts, }port: $port"
   [ "$json" -eq 1 ] && opts="${opts:+$opts, }json: true"
   run_control_rpc "Aiur.Gateway.Cli.$verb([$opts])"
 }
