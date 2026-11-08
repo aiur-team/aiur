@@ -308,6 +308,8 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     end
   end
 
+  defp config_sandbox(state), do: Map.get(state.config, "command_sandbox", Map.get(state.config, :command_sandbox))
+
   defp execute_tools(state, calls, opts) do
     calls
     |> Enum.reduce({state, nil, []}, fn call, {current, pending_pause, deliveries} ->
@@ -323,7 +325,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
               call.name,
               arguments,
               %{workspace: current.workspace, tool_executor: Keyword.get(opts, :tool_executor)},
-              opts
+              Keyword.put(opts, :command_sandbox, config_sandbox(current))
             )
 
           {:error, reason} ->
