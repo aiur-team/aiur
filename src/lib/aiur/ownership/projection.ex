@@ -102,9 +102,7 @@ defmodule Aiur.Ownership.Projection do
     key = {__MODULE__, :ensured, issue.tracker_identity && {issue.tracker_identity.owner, issue.tracker_identity.repository}, slug}
 
     with false <- :persistent_term.get(key, false),
-         {:ok, {owner, repo}} <- Aiur.GitHub.Access.parse_repo(),
-         {:ok, token} <- Aiur.GitHub.Access.require_token(),
-         :ok <- Labels.ensure_with(owner, repo, token, [Labels.gateway_label(slug)]) do
+         :ok <- Labels.ensure_gateway_label(slug) do
       :persistent_term.put(key, true)
     else
       true -> :ok

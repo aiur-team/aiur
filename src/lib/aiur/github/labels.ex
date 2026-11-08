@@ -292,6 +292,15 @@ defmodule Aiur.GitHub.Labels do
   def gateway_label(slug),
     do: %{name: "gateway:" <> slug, color: @gateway_label_color, description: describe("gateway:" <> slug)}
 
+  @doc "Ensure `gateway:<slug>` exists in the configured repo (repo and token resolved here)."
+  @spec ensure_gateway_label(String.t()) :: :ok | {:error, term()}
+  def ensure_gateway_label(slug) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      ensure_with(owner, repo, token, [gateway_label(slug)])
+    end
+  end
+
   @doc "Like `ensure/5` for labels that need a colour and description."
   @spec ensure_with(String.t(), String.t(), String.t(), [map()], keyword()) :: :ok | {:error, term()}
   def ensure_with(owner, repo, token, specs, opts \\ []) do
