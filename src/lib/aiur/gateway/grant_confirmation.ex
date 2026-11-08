@@ -9,8 +9,8 @@ defmodule Aiur.Gateway.GrantConfirmation do
   """
 
   alias Aiur.Commands.Answering
-  alias Aiur.DecisionStore.HumanConfirmation
   alias Aiur.ControlCall.Audit
+  alias Aiur.DecisionStore.HumanConfirmation
   alias Aiur.Gateway.{GrantRequest, Identity, Registry}
 
   @fresh_seconds 900
