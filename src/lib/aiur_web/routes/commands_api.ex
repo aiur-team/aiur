@@ -28,6 +28,7 @@ defmodule AiurWeb.Routes.CommandsApi do
 
         post("/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :answer)
         post("/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :escalate)
+        post("/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :reject)
       end
 
       # Only the instance supervisor may mint a grant; the host swaps this
@@ -72,6 +73,10 @@ defmodule AiurWeb.Routes.CommandsApi do
         match(:put, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:patch, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:delete, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:get, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:put, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:patch, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:delete, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
 
         match(:post, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:put, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed)

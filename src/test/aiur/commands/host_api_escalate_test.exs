@@ -38,7 +38,7 @@ defmodule Aiur.Commands.HostApiEscalateTest do
 
     assert {:ok, %{"command" => command}} = HostApi.escalate(scope, decision.decision_id, payload, store: store)
     assert command["state"] == "escalated"
-    assert command["actions"] == %{"answer" => false, "revise" => false, "enrich" => false, "escalate" => false}
+    assert command["actions"] == %{"answer" => false, "revise" => false, "enrich" => false, "escalate" => false, "reject" => false}
 
     assert {:ok, %{decision: deferred}} = DecisionQuery.get(decision.decision_id, store: store)
     assert deferred.decision_status == :deferred

@@ -33,6 +33,7 @@ defmodule Aiur.Commands.HostApi do
   @maximum_limit 100
   @maximum_answer_key_bytes 200
   @note_max 2000
+  @answer_keys ~w(idempotency_key expected_version option_id custom_response question_answers rationale)
 
   @type scope :: Scope.t()
   @type read_error :: :not_found | :store_unavailable | {:invalid_query, term()}
@@ -121,10 +122,48 @@ defmodule Aiur.Commands.HostApi do
   @spec answer(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
   def answer(scope, decision_id, payload, opts \\ [])
 
-  def answer(%{subject: subject} = scope, decision_id, payload, opts) when is_map(payload) do
+  def answer(%{} = scope, decision_id, payload, opts) when is_map(payload),
+    do: submit(scope, decision_id, payload, opts, @answer_keys, &operation/1)
+
+  def answer(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+
+  @doc """
+  Rejects one scoped Command with a free-text `reason`, kept verbatim.
+
+  `payload` accepts `reason`, `expected_version` and `idempotency_key`. The
+  rejection is recorded as the Command's answer (flagged `rejected`), so a
+  blocking Command unblocks its agent, which receives the reason; the answer
+  event carries the same text. Version, idempotency and scope behave as for
+  `answer/4`.
+  """
+  @spec reject(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
+  def reject(scope, decision_id, payload, opts \\ [])
+
+  def reject(%{} = scope, decision_id, payload, opts) when is_map(payload) do
+    reason = Enum.find_value(payload, fn {key, value} -> if to_string(key) == "reason", do: value end)
+
+    if is_binary(reason) and String.trim(reason) != "" do
+      payload =
+        payload
+        |> Map.new(fn {key, value} -> {to_string(key), value} end)
+        |> Map.drop(["reason", "custom_response", "option_id", "question_answers", "replace"])
+        |> Map.merge(%{"custom_response" => reason, "rejected" => true})
+
+      submit(scope, decision_id, payload, opts, ["rejected" | @answer_keys], fn _payload -> :answer end)
+    else
+      with {:ok, _decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
+           do: {:error, {:invalid_answer, {:reason, :missing}}}
+    end
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  def reject(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+
+  defp submit(%{subject: subject} = scope, decision_id, payload, opts, keys, operation_fun) do
     with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
-         {:ok, answer_payload} <- normalize_answer(payload),
-         operation <- operation(payload) do
+         {:ok, answer_payload} <- normalize_answer(payload, keys),
+         operation <- operation_fun.(payload) do
       outcome =
         apply(Answering, operation, [
           decision.decision_id,
@@ -143,7 +182,7 @@ defmodule Aiur.Commands.HostApi do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
-  def answer(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+  defp submit(_scope, _decision_id, _payload, _opts, _keys, _operation_fun), do: {:error, {:invalid_answer, :payload}}
 
   @doc """
   Escalates one scoped Command to the Executor as its authenticated user.
@@ -244,18 +283,11 @@ defmodule Aiur.Commands.HostApi do
     end
   end
 
-  defp normalize_answer(payload) do
+  defp normalize_answer(payload, keys) do
     payload =
       payload
       |> Enum.reduce(%{}, fn {key, value}, acc -> Map.put(acc, to_string(key), value) end)
-      |> Map.take([
-        "idempotency_key",
-        "expected_version",
-        "option_id",
-        "custom_response",
-        "question_answers",
-        "rationale"
-      ])
+      |> Map.take(keys)
 
     with {:ok, key} <- required_binary(payload, "idempotency_key", :idempotency_key),
          {:ok, version} <- expected_version(payload) do

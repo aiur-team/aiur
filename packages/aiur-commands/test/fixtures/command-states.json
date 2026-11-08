@@ -57,6 +57,23 @@
       }
     },
     {
+      "name": "rejected",
+      "expected_state": "rejected",
+      "projection": {
+        "decision_id": "dec_rejected",
+        "version": 3,
+        "question": "Ship the build?",
+        "blocking": true,
+        "decision_status": "decided",
+        "revision_sequence": 0,
+        "options": [{"id": "approve", "label": "Approve"}],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": {"action_id": "act_r", "decision_version": 3, "custom_response": "Wrong question: the build is already shipped", "rejected": true},
+        "active_answer": {"action_id": "act_r", "decision_version": 3, "custom_response": "Wrong question: the build is already shipped", "rejected": true}
+      }
+    },
+    {
       "name": "revised",
       "expected_state": "revised",
       "projection": {

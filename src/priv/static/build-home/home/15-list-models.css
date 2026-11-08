@@ -123,6 +123,15 @@
   color: var(--faint);
 }
 
+/* #7758: the Live group never scrolls out of view. */ .lr-live {
+  position: sticky;
+  top: 36px;
+  bottom: 0;
+  z-index: 2;
+  background: var(--board-bg, var(--surface-2));
+}
+/* --faint misses 4.5:1 on the now-opaque Live background. */ .lr-live .lh em { color: var(--muted); }
+
 /* C:746 */ .lh {
   display: flex;
   align-items: baseline;

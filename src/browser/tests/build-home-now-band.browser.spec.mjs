@@ -278,20 +278,20 @@ test('focused band card survives live relayout', async ({ page }) => {
 })
 
 // Future-regression guard for the design's CSS-only re-pin; not counted as change coverage.
-// #7446: the band no longer sticks to the viewport bottom; a live pass keeps the reader's band anchor instead.
-test('future guard: added agents keep the band where the reader left it without a new scroll animation', async ({ page }) => {
+// #7758: the band pins to the viewport bottom again, so a growing fleet stays pinned there without scrolling.
+test('future guard: added agents stay pinned at the bottom without a new scroll animation', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.evaluate(() => m.fx.scrollVP(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h + m.ctx.L.band.h - m.ctx.vp.clientHeight, false))
   await settle(page)
   await page.evaluate(() => {
-    window.scrollFrames = []; window.bandTop = m.ctx.bandEl.getBoundingClientRect().top
+    window.scrollFrames = []
     const frame = m.ctx.life.frame
     m.ctx.life.frame = (key, fn) => { if (typeof key === 'string' && key.startsWith('scrollVP:')) scrollFrames.push(key); return frame(key, fn) }
   })
   expect((await page.request.get('/build-control/diff?name=add-four-agents')).ok()).toBe(true)
   await settle(page)
   await expect(page.locator('#bd-now .bd-card')).toHaveCount(12)
-  expect(await page.evaluate(() => Math.abs(m.ctx.bandEl.getBoundingClientRect().top - window.bandTop))).toBeLessThanOrEqual(1)
+  expect(await page.evaluate(() => Math.abs(m.ctx.bandEl.getBoundingClientRect().bottom - m.ctx.vp.getBoundingClientRect().bottom))).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => scrollFrames)).toEqual([])
 })
 
