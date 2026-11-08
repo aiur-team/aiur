@@ -136,7 +136,14 @@ defmodule Aiur.Commands.HostApi do
           ]
         ])
 
-      {:ok, %{"command" => ComponentState.from_outcome(outcome, decision_id: decision.decision_id), "scope" => Scope.to_public(scope)}}
+      case outcome do
+        # The store refused the answer itself: surface it as the 422 the docs promise.
+        %{status: :error, reason: {:answer_invalid, detail}} ->
+          {:error, {:invalid_answer, detail}}
+
+        _ ->
+          {:ok, %{"command" => ComponentState.from_outcome(outcome, decision_id: decision.decision_id), "scope" => Scope.to_public(scope)}}
+      end
     end
   catch
     :exit, _reason -> {:error, :store_unavailable}

@@ -132,8 +132,7 @@ defmodule Aiur.Commands.HostApiTest do
     other = request!(store, "42", "allowed-2")
     bad = Map.put(answer_payload(other.version, "approve"), "feedback", [%{"option_id" => "nope", "verdict" => "like"}])
 
-    assert {:ok, %{"command" => rejected}} = HostApi.answer(scope, other.decision_id, bad, store: store)
-    assert rejected["state"] != "answered"
+    assert {:error, {:invalid_answer, {:feedback, _}}} = HostApi.answer(scope, other.decision_id, bad, store: store)
   end
 
   test "a stale expected version is a conflict with the current version", %{store: store} do
@@ -187,11 +186,8 @@ defmodule Aiur.Commands.HostApiTest do
     decision = request!(store, "42", "allowed")
     scope = scope_for(["42"])
 
-    assert {:ok, %{"command" => command}} =
+    assert {:error, {:invalid_answer, {:option_id, :unknown}}} =
              HostApi.answer(scope, decision.decision_id, answer_payload(decision.version, "nope"), store: store)
-
-    assert command["state"] == "error"
-    assert command["reason"] == "validation_failed"
 
     assert {:ok, %{decision: unchanged}} = DecisionQuery.get(decision.decision_id, store: store)
     assert unchanged.answer == nil
