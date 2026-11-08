@@ -86,6 +86,9 @@ before_run: |
       exit 65
     fi
     rm -f logs/before-run-merge-conflict.md
+    # Local identity keeps this merge off the host's global git identity.
+    git config user.name "${AIUR_GIT_NAME:?AIUR_GIT_NAME is required}"
+    git config user.email "${AIUR_GIT_EMAIL:?AIUR_GIT_EMAIL is required}"
     if ! git merge --no-edit "origin/$base_branch"; then
       conflicted_files="$(git diff --name-only --diff-filter=U)"
       if [ -z "$conflicted_files" ]; then

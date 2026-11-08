@@ -198,6 +198,9 @@
   median completion-time regression. If no fixed interval meets both, leave pacing
   disabled and prefer load-aware admission rather than hiding the throughput loss.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
+  Hooks receive `AIUR_GIT_NAME` and `AIUR_GIT_EMAIL` (the `agent.git_identity`). Have
+  the bootstrap write them with `git config user.name` / `user.email` so a base-merge
+  commit made by a hook carries the agent identity, not the host's global git identity.
 - Optional alert sounds play when an agent gets stuck or needs input. Enable via the
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master
   switch; `use_os_default_sounds: true` plays built-in macOS/Linux system sounds out of the

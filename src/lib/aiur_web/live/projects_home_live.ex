@@ -24,6 +24,7 @@ defmodule AiurWeb.ProjectsHomeLive do
       |> assign(:tracker_kind, safe(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, safe(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> assign(:summary, local_summary())
+      |> assign(:peers, Peers.list())
       |> assign(:peers_json, Jason.encode!(Peers.list()))
 
     if connected?(socket), do: Process.send_after(self(), :projects_home_tick, @tick_ms)
@@ -56,6 +57,10 @@ defmodule AiurWeb.ProjectsHomeLive do
       <:banner><Overview.decisions_banner retained_counts={@retained_counts} navigate /></:banner>
       <section id="projects-home" class="section-card" aria-labelledby="projects-home-title">
         <h2 id="projects-home-title">Projects</h2>
+        <nav data-gateway-filter aria-label="Gateways">
+          <a href="/gateways">All gateways</a>
+          <a :for={peer <- @peers} href={"/gateways?gateway=" <> URI.encode_www_form(peer.name)} data-gateway-filter-link={peer.name}>{peer.label}</a>
+        </nav>
         <%= case @summary do %>
           <% {:ok, summary} -> %>
             <div id="projects-home-local" class="bo-state-card" data-gateway-card="local" data-connectivity="online" data-running={summary.capacity.running} data-max={summary.capacity.max}>
@@ -65,7 +70,8 @@ defmodule AiurWeb.ProjectsHomeLive do
               <p :if={summary.projects == []}>No projects reported.</p>
               <ul>
                 <li :for={project <- summary.projects} data-project-row={project.repo}>
-                  {project.repo} · running {count(project.running)} · ready {count(project.ready)}
+                  {project.repo} · running {count(project.running)} · ready {count(project.ready)} ·
+                  <span data-signals>{signals(project)}</span>
                   <a href="/build">Build ›</a>
                 </li>
               </ul>
@@ -81,7 +87,6 @@ defmodule AiurWeb.ProjectsHomeLive do
           <p data-totals></p>
           <div data-cards></div>
         </div>
-        <p data-section="agents">Current agents, queue and Decisions: not in this gateway's summary yet.</p>
       </section>
     </DashboardShell.dashboard_shell>
     """
@@ -94,6 +99,22 @@ defmodule AiurWeb.ProjectsHomeLive do
   catch
     :exit, _ -> :unavailable
   end
+
+  defp signals(project) do
+    [
+      signal("agents", project.agents, &count/1),
+      signal("next", project.next_queue, fn
+        %{"number" => n} when is_integer(n) -> "##{n}"
+        %{"number" => nil} -> "none ready"
+        _ -> "unknown"
+      end),
+      signal("decisions", project.pending_decisions, &count/1)
+    ]
+    |> Enum.join(" · ")
+  end
+
+  defp signal(label, %{state: "known", value: value, age_ms: age}, fmt), do: "#{label} #{fmt.(value)} (#{div(age, 1000)}s ago)"
+  defp signal(label, _, _), do: "#{label} unknown"
 
   defp count(value) when is_integer(value), do: Integer.to_string(value)
   defp count(_), do: "unknown"

@@ -5,13 +5,13 @@ defmodule Aiur.BuildOrder.TicketTimelineCache do
   @max_tickets 256
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
 
   @spec get(term()) :: map() | nil
-  def get(key), do: GenServer.call(__MODULE__, {:get, key})
+  def get(key), do: GenServer.call(Aiur.Project.whereis(__MODULE__), {:get, key})
 
   @spec put(term(), map()) :: :ok
-  def put(key, cache), do: GenServer.call(__MODULE__, {:put, key, cache})
+  def put(key, cache), do: GenServer.call(Aiur.Project.whereis(__MODULE__), {:put, key, cache})
 
   @impl true
   def init(_opts), do: {:ok, %{entries: %{}, order: []}}

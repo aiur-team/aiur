@@ -4,7 +4,12 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 
 const summary = (id, running, max) => ({
   gateway_id: id, observed_at: '2026-11-07T00:00:00Z', age_ms: 0, connectivity: 'online',
-  capacity: { running, max }, projects: [{ repo: `${id.toLowerCase()}/repo`, running }]
+  capacity: { running, max }, projects: [{
+    repo: `${id.toLowerCase()}/repo`, running,
+    agents: { state: 'known', value: running, age_ms: 3000 },
+    next_queue: { state: 'known', value: { number: 41 }, age_ms: 3000 },
+    pending_decisions: { state: 'unknown', value: null, age_ms: 0 }
+  }]
 })
 // Credentialed fetches need the exact origin echoed, as a listed server.dashboard_origins entry does.
 const cors = route => ({ 'access-control-allow-origin': route.request().headers().origin, 'access-control-allow-credentials': 'true' })
@@ -30,6 +35,7 @@ test('a peer that is down reads unreachable with its last-seen age, and the page
   await expect(card(page, 'lab').locator('[data-conn-text]')).toContainText('online')
   await expect(card(page, 'lab').locator('[data-project-row="lab/repo"] a')).toHaveAttribute('href', 'https://lab.test/build')
   await expect(card(page, 'lab').getByRole('link', { name: /Open/ })).toHaveAttribute('href', 'https://lab.test/build')
+  await expect(card(page, 'lab').locator('[data-project-row="lab/repo"] [data-signals]')).toHaveText('agents 2 (3s ago) · next #41 (3s ago) · decisions unknown')
   await expect(card(page, 'nook')).not.toContainText(/\b0 agents\b|idle/)
   await expect(page.locator('[data-totals]')).toHaveText('Running 2 of 4+ · 2 gateways unknown') // Lab 2 of 4; Nook down and the harness gateway's own count unreadable
 })
