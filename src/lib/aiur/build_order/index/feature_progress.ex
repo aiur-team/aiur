@@ -18,10 +18,12 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
     registry_known? = match?({:ok, _registry}, parts[:features])
     extras = if registry_known?, do: sum_extras(values)
+    grouped = FeatureBars.grouped(parts, now)
 
     %{
       features: values,
-      bars: FeatureBars.compute(parts, now),
+      bars: grouped && grouped.bars,
+      epics: grouped && grouped.epics,
       observed_at: now,
       plan_version: common_version(values),
       extras: extras,
