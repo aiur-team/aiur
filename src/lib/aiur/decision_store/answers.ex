@@ -12,6 +12,7 @@ defmodule Aiur.DecisionStore.Answers do
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
+  alias Aiur.DecisionStore.Claims
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Persistence
@@ -21,7 +22,8 @@ defmodule Aiur.DecisionStore.Answers do
   def handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts),
-         :ok <- require_relay_enabled(actor, state) do
+         :ok <- require_relay_enabled(actor, state),
+         :ok <- Claims.check_actor(decision, actor, DateTime.utc_now()) do
       accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}

@@ -118,8 +118,10 @@ dependency graph — through the `aiur-build-order` package. A `bo-<root>` featu
 otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
 
 The Now band shows active agents between history and the plan, using the same
-card style as the other tickets. It scrolls with the board, so you can stop
-anywhere; **Live** scrolls to it. Minimize keeps state counts
+card style as the other tickets. It scrolls with the board and pins to the top
+or bottom edge instead of leaving view.
+
+**Live** scrolls to its place. Minimize keeps state counts
 visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 
@@ -158,7 +160,7 @@ Each page renders a durable concept whose detail lives in Concepts.
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
 | Units | CLI fleet inspection; /units redirects to /. |
-| Executor | `/executor`: the attached Executor session, its history and message composer. |
+| Executor | A footer on every dashboard page: the Executor's state, latest events and conversation. `/executor` opens it. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
@@ -187,15 +189,27 @@ forward, so measuring the gate never perturbs a real build acquisition.
 
 ### Executor
 
-Open **Executor** in desktop or tablet navigation, or **Settings → Executor conversation**
-on a phone, to read the instance's one Executor
-conversation at `/executor`. Attach with `aiur executor-attach --harness claude`
-or `aiur executor-attach --harness codex`.
+Every dashboard page ends in an **Executor** footer. On the left it shows the
+Executor's state: `attached`, `idle`, `not attached`, `waiting for session` or
+`ended`. An unknown, stale or unavailable state carries its age (`stale 12m`,
+`unknown · age unknown`) and is never shown as `idle`. On a phone the footer sits
+above the bottom navigation.
 
-Before the first hook arrives, the view shows **Waiting for the Executor session** and an `aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+The circle button on the right expands the footer into a panel of about 38% of the
+viewport (at most 360px; half the screen on a phone). Press the button again or
+Esc to collapse it. Each browser remembers whether the panel was open.
 
-The distinct Executor frame wraps the same paging, event jumps and live history
-as worker conversations; `/executor?pos=N` highlights a recorded position.
+The panel lists the latest Executor events, then the conversation and its message
+form. **Open full history** opens the complete conversation page, with paging and event
+filters.
+
+Attach with `aiur executor-attach --harness claude` or
+`aiur executor-attach --harness codex`; until then the panel shows that command.
+Before the first hook arrives, it shows **Waiting for the Executor session** and an
+`aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+
+The old `/executor` address opens the footer expanded on Build;
+`/executor?pos=N` opens the full conversation at that recorded position.
 
 Loading, unavailable history, an unreadable transcript and unsupported capture
 stay explicit. Ended or detached sessions keep their recorded history.

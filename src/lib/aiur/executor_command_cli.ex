@@ -8,6 +8,12 @@ defmodule Aiur.ExecutorCommandCLI do
   @spec ack(keyword(), keyword()) :: 0 | 1 | 64
   def ack(params, deps \\ []), do: ExecutorCommandAck.ack(params, deps)
 
+  @spec claim(keyword(), keyword()) :: 0 | 1 | 64
+  def claim(params, deps \\ []), do: Aiur.ExecutorCommandClaim.claim(params, deps)
+
+  @spec release(keyword(), keyword()) :: 0 | 1 | 64
+  def release(params, deps \\ []), do: Aiur.ExecutorCommandClaim.release(params, deps)
+
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ [])
 
@@ -406,6 +412,11 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error("moot", {:moot_invalid, {field, reason}}, deps) do
     write_error(deps, "aiur: cannot moot Command: --#{field} is #{invalid_detail(reason)}; correct the flag and retry")
+    1
+  end
+
+  defp command_error(_action, {:claimed, executor, expires_at}, deps) do
+    write_error(deps, "aiur: Command is claimed by #{executor} until #{DateTime.to_iso8601(expires_at)}")
     1
   end
 

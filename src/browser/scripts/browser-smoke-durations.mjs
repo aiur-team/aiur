@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-11-01): completed tint matrix took 52.2s; rounded up for startup variance.
+  'test:browser-suite -- build-home-completed-tint': 60,
   // Governed local run (2026-10-30): 38.557s whole command including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-native-hold': 39,
   // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
@@ -54,6 +56,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
+  // #7686 local estimate: touch suite (three viewports plus pan/pinch cases) with fixture startup; refresh from the first CI shard log.
+  'test:browser-suite -- build-home-touch': 40,
   // Local estimate (loaded host ran 234s; CI hosts run the home suites about 2x faster); replace from its first shard log.
   'test:browser-suite -- build-home-performance': 150,
   // Local governed run: 11 cases in 139s including fixture startup; rounded up.
@@ -82,6 +86,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-live-top': 10,
   // #7446 local run (no CI shard log yet): 2 cases, 10 repeats took 108s wall incl. fixture boot.
   'test:browser-suite -- build-home-live-band-scroll': 30,
+  // #7758 local run (no CI shard log yet): 8 cases took about 40s with fixture boot.
+  'test:browser-suite -- build-home-live-band-pin': 45,
   // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
   // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
   'test:build-home-edges-unit': 0.2,

@@ -10,8 +10,12 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   @alerts [
     {"system.feature_supply_low", "orchestration"},
     {"system.feature_supply_low.resolved", "orchestration"},
+    {"system.gateway.*.offline", "executor-attention"},
+    {"system.gateway.*.offline.resolved", "executor-attention"},
     {"system.claude_account.*.usage_probe_failing", "executor-attention"},
     {"system.claude_account.*.usage_probe_failing.resolved", "executor-attention"},
+    # aiur/intent/sync.ex
+    {"system.intent.clock_skew", "config"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
     # aiur/coding_agent/usage_floor_gate.ex; #7504
@@ -113,6 +117,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.instance.ownership_unknown", "config"},
     # aiur/instance/lease_store.ex
     {"system.instance.ownership_unknown.resolved", "config"},
+    # aiur/intent/store.ex
+    {"system.intent.outbox_full", "config"},
     # aiur/landing_watch.ex
     {"system.main.ci.failed.resolved", "orchestration"},
     # aiur/usage/alerts.ex

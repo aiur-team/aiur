@@ -103,7 +103,9 @@ def rendered_tables() -> dict[str, list[str]]:
 
 def read_shell_cli_annotations() -> dict[str, list[str]]:
     annotation = re.compile(r"^\s*# @cli-reference ([^|]+)\|([^|]+)\|([^\n]+)$", re.M)
-    paths = [ROOT / "packaging/npm/aiur-cli/libexec/aiur-engine.sh", ROOT / "scripts/aiurdev"]
+    libexec = ROOT / "packaging/npm/aiur-cli/libexec"
+    # engine/ modules are opt-in: usage.sh and voice.sh annotations are documented by hand elsewhere.
+    paths = [libexec / "aiur-engine.sh", libexec / "engine/command_request.sh", ROOT / "scripts/aiurdev"]
     tables: dict[str, list[str]] = defaultdict(list)
     for path in paths:
         for match in annotation.finditer(path.read_text(encoding="utf-8")):

@@ -68,6 +68,8 @@ defmodule Aiur.ControlCall.Allowlist do
        search: :string,
        cursor: :string
      }},
+    {:commands_repair, 0, :write, [], %{}},
+    {:commands_repair, 1, :write, [:keyword], %{json: :boolean}},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
@@ -128,6 +130,7 @@ defmodule Aiur.ControlCall.Allowlist do
      %{
        question: :non_empty_string,
        options: :string_list,
+       media: :string_list,
        recommend: :non_empty_string,
        blocking: :boolean,
        urgency: {:enum, ["low", "normal", "high", "critical"]},
@@ -139,6 +142,8 @@ defmodule Aiur.ControlCall.Allowlist do
        json: :boolean
      }},
     {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_claim_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
+    {:executor_release_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -234,7 +239,8 @@ defmodule Aiur.ControlCall.Allowlist do
                   {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
                   {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
                   {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
-                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
+                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
+                  {{[:Aiur, :ControlReplayTestProbe], :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
                 ]
               else
                 []

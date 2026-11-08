@@ -210,6 +210,24 @@ A crash during sending can repeat an event ID; consumers must
 deduplicate it. Existing projections without these fields are upgraded without
 replaying historical notifications. Journal corruption still makes writes read-only.
 
+### Repairing a read-only journal
+
+A record fails verification when its content hash no longer matches. Aiur also
+accepts a record whose stored hash matches its data exactly as written, so an
+upgrade or rollback that changes how Commands are encoded leaves the journal valid.
+
+A record that still fails is damaged. Replay stops there, the store goes
+read-only, and an answer returns `{:store_unavailable, {:corrupt, line, reason}}`.
+
+Run `aiur commands repair` against the running daemon. It moves each record that
+fails, and any later record that depends on it, byte for byte into a sibling
+`decisions.quarantine-<UTC>.ndjson`. It keeps every valid record, rewrites the
+journal and reloads the store as writable, then lists each quarantined line.
+
+Afterwards you can answer open Commands and retire one whose ticket closed with
+[`aiur executor-moot`](/reference/cli-decisions). A Command whose `requested`
+record was quarantined is no longer listed; its line stays in the quarantine file.
+
 ## Operator answers relayed in conversation
 
 When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.
@@ -219,6 +237,16 @@ Command detail, history and `aiur commands <decision-id>` distinguish it as **an
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.
 
 <span id="who-can-replace-an-answer"></span>
+
+## Rejecting a Command
+
+A host can reject a Command with a free-text reason (`POST
+/api/v1/commands/:id/reject`, see [embedded Commands](../guide/embedded-commands.md)).
+Unlike dismissal, which delivers nothing and is refused for a blocking Command,
+a rejection is recorded as the answer.
+
+The reason is stored verbatim, the agent receives a message naming the
+rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
 
 ## Overriding an answer
 
@@ -427,7 +455,13 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 | Poster | A still frame for video or audio. |
 
 A worker sends media in the `decision.requested` payload that already carries
-its question and options; `aiur command request` itself stays text-only.
+its question and options. The Executor attaches media from the shell with
+`aiur command request --media <file|https-url>[,alt=…,caption=…,option=<id>]`,
+which goes through the same validation and storage.
+
+Every worker harness, including the OpenAI-compatible (OpenRouter, DeepSeek)
+one, sends media through its `emit_event` tool. A worker cannot run
+`aiur command request`, because its sandbox has no daemon control access.
 
 A local file is stored as an attachment reference, so a dashboard or API reader
 never receives a filesystem path. Media that would rot is refused: an expiring

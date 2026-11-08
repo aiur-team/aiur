@@ -65,6 +65,23 @@ test('partial obscuring accepts only card-over-lane provenance', () => {
   assert.throws(() => expectAuditClean(boardAudit(partial)))
 })
 
+test('scroller obscuring is exempt only when the node is tagged as scrolled out', () => {
+  const clipped = audit('elmPartiallyObscured')
+  clipped.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-vp'] }]
+  assert.throws(() => expectAuditClean(boardAudit(clipped)))
+  clipped.incomplete[0].nodes[0].any[0].scrolledOut = true
+  expectAuditClean(boardAudit(clipped))
+})
+
+test('obscuring without related nodes is exempt only on a card interior', () => {
+  const input = audit('elmPartiallyObscuring')
+  input.incomplete[0].nodes[0].target = ['div[data-id="1303"] > .bd-in > .bd-title']
+  expectAuditClean(boardAudit(input))
+  for (const target of ['.bd-cx', 'div[data-id="1303"] > .unrelated']) {
+    input.incomplete[0].nodes[0].target = [target]
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+})
 
 test('edge imgNode accepts card interiors and rejects unrelated related nodes', () => {
   const input = audit('imgNode')

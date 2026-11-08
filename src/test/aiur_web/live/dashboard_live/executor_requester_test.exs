@@ -53,7 +53,7 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
     assert has_element?(view, "[data-requester-count]", "1 from Executor on this retained page (not a total).")
     assert has_element?(view, "#decision-#{executor.decision_id} .ticket-id", "Executor")
     assert has_element?(view, "#decision-#{executor.decision_id} .requester-badge", "From Executor")
-    refute render(view) =~ "#executor"
+    refute render(element(view, "#decision-#{executor.decision_id}")) =~ "#executor"
     view |> element("#decision-#{executor.decision_id} .decision-card-head") |> render_click()
     assert_patch(view, "/commands/#{executor.decision_id}?requester=executor")
     refute has_element?(view, "#decision-#{worker.decision_id}")

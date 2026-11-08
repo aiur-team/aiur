@@ -8,10 +8,17 @@ Existing Build Orders retain their typed members, lanes, phases, dependencies,
 complexity, and optional icons as readable planning history. The pack and root
 commands below describe those legacy artifacts.
 
-Three words carry the hierarchy: an **Epic** holds features in order and may name
-one Build Order root; a **Feature** holds tickets; a **Lane** is a technical
-column. Epics are records in `build-features/epics.ndjson` beside
-`features.ndjson`; `aiur epic list` shows them.
+## Epics, features and lanes
+
+Three words carry the hierarchy. An **Epic** holds features in order and may name one Build Order root. A **Feature** holds tickets. A **Lane** is the technical column the work belongs to.
+
+Epics are records in `build-features/epics.ndjson` beside `features.ndjson`; `aiur epic list` shows them and `aiur epic show <slug>` lists an epic's member features. A feature sits in at most one epic. A Build Order root projects as an epic, and the root's build lanes stay lane assignments on the imported feature.
+
+Publication of a planning pack registers the same three levels. It creates one epic for the pack (`bo-<root number>`, the slug a Build Order root imports as) and one feature per `product_features` group inside that epic.
+
+Each feature carries its planned lanes and their workstream icons. Re-running publication reconciles those records and writes nothing new when they already match.
+
+A lane comes from a `lane:`, `area:` or `build-lane:` label suffix, or from a configured lane's label matchers. New packs label tickets `lane:<slug>`; `build-lane:` labels stay valid and keep their existing meaning. A lane is not an epic: an epic groups features, and a lane groups the tickets inside them.
 
 ## The published graph
 
@@ -225,17 +232,37 @@ Adoption brings pre-labelled blocked members under queue control: the queue hold
 
 Stale, partial or unavailable graph evidence makes that root's items unknown and suppresses writes, while independent lists continue reconciling. External dependencies remain unknown. A closed root stops writes.
 
+## Queueing a feature
+
+`aiur queue add --feature <slug> [--queue NAME] [--rank N] [--start-on TRIGGER]` queues a feature registry entry as one set. Its members are whatever the registry owns for that slug: a ticket filed into the feature later joins on the next reconcile with no Executor action, and a removed ticket is unmarked.
+
+The set stores no positions. Order inside it comes from `blocked_by`, then the critical path, then priority. Holds, set ranks, start triggers and `blocked_by` gating behave exactly as for lists and Build Order roots.
+
+A member another set already owns stays there. A list owns a ticket it already holds, so the queued feature lists that member as owned elsewhere with the set that owns it and the add still succeeds.
+
+A feature set has no declared order of its own, so `queue add --feature` warns when `build_queue.set_order` is `none` (the default). Set it to `ranked` to order sets by rank.
+
+The registry is a local read, so a feature set needs a fresh open-issue observation to tell a closed member from one that has not been polled. Without one the set's members stay unknown and no membership changes. An unavailable registry leaves membership untouched and marks the set's members unknown, while independent lists continue reconciling.
+
+## Queueing an epic
+
+`aiur queue add --epic <slug>` queues an epic as one set. Its members are the union of its features' registry members and, when the epic has a Build Order root, the root's open sub-issues, with no duplicates. A ticket filed into one of its features later joins on the next reconcile. Order is `blocked_by`, critical path, then priority.
+
+`--build-order <root>` adopts the root's epic when the registry has one; without an epic it adds a plain Build Order set, as before. A root whose projection is unavailable leaves the set's membership untouched.
+
+Ownership is ranked: a list owns over a feature, and a feature over an epic or Build Order set. A feature queued on its own keeps its tickets when its epic is also queued, in either order; the epic lists them as owned elsewhere.
+
 ### Feature sets
 
 A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
-`build_queue.set_order` selects `ranked` (default) or `none`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
+`build_queue.set_order` selects `none` (default) or `ranked`; `max_active_sets` caps unfinished sets, and `spill_reserve_slots` reserves slots for the earliest unfinished set. `aiur queue order` adjusts ranks; holds stop sets. `NEXT` marks dispatch's selected set.
 
 Queue summaries show ready and startable counts plus the largest blocker by downstream count. Cached GitHub blockers appear as `waiting on #N (github)`; cache misses do not fetch. `queue order` compares ranks with Build Order root dependency order.
 
-The queue read model reports each source under `sources["build_order:<root>"]` and whether the projection is available under `build_queue.build_order_source`.
+The queue read model reports each source under `sources["build_order:<root>"]` or `sources["feature:<slug>"]`, and whether the projection is available under `build_queue.build_order_source`.
 
 The instance capability report distinguishes queue availability from source availability:
 

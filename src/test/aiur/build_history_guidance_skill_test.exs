@@ -7,18 +7,29 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
   @filing ~w(aiur-agent/conventions.md aiur-run/references/run-contract.md aiur-run/references/executor.md aiur-meta/SKILL.md aiur-build/SKILL.md aiur-build/references/planning-contract.md)
   @full ~w(aiur-agent/conventions.md aiur-run/references/executor.md)
   @planning ~w(aiur-build/SKILL.md aiur-run/references/run-contract.md)
-  @fill %{"<epic>" => "infra", "<ids…>" => "101 102", "<id>" => "101", "<slug>" => "docs-site", "<hours>" => "7", "<cause>" => "needs review", "<old>" => "2", "<new>" => "7", "<why>" => "review done"}
+  @fill %{
+    "<lane>" => "infra",
+    "<epic>" => "infra",
+    "<ids…>" => "101 102",
+    "<id>" => "101",
+    "<slug>" => "docs-site",
+    "<hours>" => "7",
+    "<cause>" => "needs review",
+    "<old>" => "2",
+    "<new>" => "7",
+    "<why>" => "review done"
+  }
 
-  test "every filing doc states the home-page epic rule" do
-    for path <- @filing, do: assert(blocks(path, "home-page epic") != "", "#{path} no longer states the home-page epic rule")
-    assert blocks("aiur-run/references/executor.md", "home-page epic") =~ "--move"
-    assert blocks("aiur-build/SKILL.md", "home-page epic") =~ "feature"
+  test "every filing doc states the home-page lane rule" do
+    for path <- @filing, do: assert(blocks(path, "home-page lane") != "", "#{path} no longer states the home-page lane rule")
+    assert blocks("aiur-run/references/executor.md", "home-page lane") =~ "--move"
+    assert blocks("aiur-build/SKILL.md", "home-page lane") =~ "feature"
   end
 
   test "every documented build-history command is accepted by the real engine checks" do
-    text = Enum.map_join(@filing, &blocks(&1, "home-page epic")) <> Enum.map_join(@planning, &blocks(&1, "estimate override"))
-    commands = for [_, command] <- Regex.scan(~r/`(aiur (?:epic|feature|ticket estimate) [^`]+)`/, text), do: command
-    for family <- ~w(epic feature ticket), do: assert(Enum.any?(commands, &String.starts_with?(&1, "aiur #{family} ")), "no command found for #{family}")
+    text = Enum.map_join(@filing, &blocks(&1, "home-page lane")) <> Enum.map_join(@planning, &blocks(&1, "estimate override"))
+    commands = for [_, command] <- Regex.scan(~r/`(aiur (?:lane|epic|feature|ticket estimate) [^`]+)`/, text), do: command
+    for family <- ~w(lane feature ticket), do: assert(Enum.any?(commands, &String.starts_with?(&1, "aiur #{family} ")), "no command found for #{family}")
 
     for command <- commands do
       filled = Enum.reduce(@fill, command, fn {key, value}, acc -> String.replace(acc, key, value) end)
@@ -33,30 +44,30 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
     end
   end
 
-  test "no epic block teaches an epic label" do
+  test "no lane block teaches a lane label" do
     for path <- @full do
-      text = blocks(path, "home-page epic")
+      text = blocks(path, "home-page lane")
       assert text =~ ~r/Never[^.]*`epic:<name>`[^.]*parks[^.]*`epic`/s
       assert Regex.scan(~r/`(epic[^`]*)`/, text) |> Enum.map(&List.last/1) |> Enum.uniq() |> Enum.sort() == ["epic", "epic:<name>"]
     end
   end
 
-  test "the epic rule leaves an unknown category unset" do
-    for path <- @full, phrase <- ["Unsorted", "set none", "list of valid keys", "type label matches", "else Unsorted"], do: assert(blocks(path, "home-page epic") =~ phrase)
+  test "the lane rule leaves an unknown category unset" do
+    for path <- @full, phrase <- ["Unsorted", "set none", "list of valid keys", "type label matches", "else Unsorted"], do: assert(blocks(path, "home-page lane") =~ phrase)
   end
 
   test "Executor entry skills link to the full category rule concisely" do
     for {path, link} <- [{"aiur-run/references/run-contract.md", "executor.md"}, {"aiur-meta/SKILL.md", "../aiur-run/references/executor.md"}] do
-      text = blocks(path, "home-page epic")
+      text = blocks(path, "home-page lane")
       assert String.length(text) <= 500
       assert text =~ link
-      assert text =~ "aiur epic set"
+      assert text =~ "aiur lane set"
       assert text =~ "aiur feature add"
     end
   end
 
   test "the issue-worker rule uses real tools and never blocks filing" do
-    text = blocks("aiur-agent/conventions.md", "home-page epic")
+    text = blocks("aiur-agent/conventions.md", "home-page lane")
     assert text =~ "never block filing"
     assert text =~ "workpad"
     refute text =~ "aiur epic set"
@@ -88,7 +99,7 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
     text = File.read!(Path.join(@root, "website/docs-app/skills.md"))
     for name <- ["aiur_set_lane", "aiur lane set", "aiur ticket estimate"], do: assert(length(String.split(text, name)) == 2)
     [worker_notes, _executor_notes] = String.split(text, "## Executor skills", parts: 2)
-    assert worker_notes =~ "For a home-page epic"
+    assert worker_notes =~ "For a home-page lane"
   end
 
   defp blocks(path, marker) do
