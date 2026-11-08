@@ -15,6 +15,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.Voice
   alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.OperatorControlCenter.DecisionEvents
+  alias AiurWeb.OperatorControlCenter.GatewayGrantCommands
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -23,7 +24,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def mount(_params, session, socket) do
     {:ok, socket} = Session.mount(socket)
-    {:ok, assign(socket, :human_proof, AiurWeb.OperatorControlCenter.GatewayGrantCommands.proof(session))}
+    {:ok, assign(socket, :human_proof, GatewayGrantCommands.proof(session))}
   end
 
   @impl true

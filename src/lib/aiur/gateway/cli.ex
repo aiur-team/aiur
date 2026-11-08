@@ -91,13 +91,10 @@ defmodule Aiur.Gateway.Cli do
   end
 
   defp do_revoke(opts) do
-    with {:ok, peer} <- find(opts[:peer]) do
-      case Keyword.get(opts, :categories, []) do
-        [] -> revoke_peer(peer)
-        categories -> revoke_categories(peer, categories)
-      end
-    else
-      {:error, {code, message}} -> fail(message, code)
+    case {find(opts[:peer]), Keyword.get(opts, :categories, [])} do
+      {{:ok, peer}, []} -> revoke_peer(peer)
+      {{:ok, peer}, categories} -> revoke_categories(peer, categories)
+      {{:error, {code, message}}, _categories} -> fail(message, code)
     end
   end
 
@@ -115,17 +112,20 @@ defmodule Aiur.Gateway.Cli do
 
   # Blocking the peer first is fail-closed: a token that cannot be deleted still hits the empty category list.
   defp revoke_peer(peer) do
-    with :ok <- update(peer, fn _ -> [] end, @actor, clear_credentials: true) do
-      audit("grant_revoked", peer, %{categories: peer.categories, actor: @actor})
-      names = (token_names(peer) ++ peer.credentials) |> Enum.uniq()
-      failed = Enum.reject(names, &(ClientTokens.revoke(&1) in [:ok, {:error, :not_found}]))
-      Enum.each(names -- failed, &audit("token_revoked", peer, %{token: &1, actor: @actor}))
-      IO.puts("Revoked every grant from #{label(peer)} and #{length(names) - length(failed)} client token(s).")
-
-      if failed == [], do: 0, else: fail("could not revoke token(s): #{Enum.join(failed, ", ")}; the peer is already blocked", 1)
-    else
+    case update(peer, fn _ -> [] end, @actor, clear_credentials: true) do
+      :ok -> revoke_tokens(peer)
       {:error, reason} -> fail("could not write #{Registry.path()}: #{inspect(reason)}", 1)
     end
+  end
+
+  defp revoke_tokens(peer) do
+    audit("grant_revoked", peer, %{categories: peer.categories, actor: @actor})
+    names = (token_names(peer) ++ peer.credentials) |> Enum.uniq()
+    failed = Enum.reject(names, &(ClientTokens.revoke(&1) in [:ok, {:error, :not_found}]))
+    Enum.each(names -- failed, &audit("token_revoked", peer, %{token: &1, actor: @actor}))
+    IO.puts("Revoked every grant from #{label(peer)} and #{length(names) - length(failed)} client token(s).")
+
+    if failed == [], do: 0, else: fail("could not revoke token(s): #{Enum.join(failed, ", ")}; the peer is already blocked", 1)
   end
 
   defp token_names(peer) do
@@ -154,22 +154,23 @@ defmodule Aiur.Gateway.Cli do
   end
 
   defp find(selector) when is_binary(selector) do
-    with {:ok, %{peers: peers}} <- Registry.get() do
-      down = String.downcase(selector)
-      matches = peers |> Map.values() |> Enum.filter(&(&1.name == selector or String.downcase(&1.label || "") == down or String.downcase(&1.gateway_id || "") == down))
-
-      case matches do
-        [%{gateway_id: nil}] -> {:error, {64, "peer #{selector} has no gateway_id; pin one in #{Registry.path()} first"}}
-        [peer] -> {:ok, peer}
-        [] -> {:error, {66, "no such peer: #{selector}"}}
-        many -> {:error, {64, "peer #{selector} is ambiguous: #{Enum.map_join(many, ", ", & &1.name)}"}}
-      end
-    else
+    case Registry.get() do
+      {:ok, %{peers: peers}} -> peers |> Map.values() |> match(selector) |> pick(selector)
       {:error, reason} -> {:error, {1, "gateway registry unavailable: #{inspect(reason)}"}}
     end
   end
 
   defp find(_selector), do: {:error, {64, "a peer name, label or gateway id is required"}}
+
+  defp match(peers, selector) do
+    down = String.downcase(selector)
+    Enum.filter(peers, &(&1.name == selector or String.downcase(&1.label || "") == down or String.downcase(&1.gateway_id || "") == down))
+  end
+
+  defp pick([%{gateway_id: nil}], selector), do: {:error, {64, "peer #{selector} has no gateway_id; pin one in #{Registry.path()} first"}}
+  defp pick([peer], _selector), do: {:ok, peer}
+  defp pick([], selector), do: {:error, {66, "no such peer: #{selector}"}}
+  defp pick(many, selector), do: {:error, {64, "peer #{selector} is ambiguous: #{Enum.map_join(many, ", ", & &1.name)}"}}
 
   defp do_permissions(opts) do
     case Registry.get() do

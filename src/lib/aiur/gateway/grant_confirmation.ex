@@ -10,7 +10,7 @@ defmodule Aiur.Gateway.GrantConfirmation do
 
   alias Aiur.Commands.Answering
   alias Aiur.ControlCall.Audit
-  alias Aiur.Gateway.{GrantRequest, Registry}
+  alias Aiur.Gateway.{GrantRequest, Identity, Registry}
 
   @fresh_seconds 900
 
@@ -48,7 +48,7 @@ defmodule Aiur.Gateway.GrantConfirmation do
   # The digest is re-derived from this gateway's id and the registry as it is now.
   defp current(%{kind: "gateway_grant", decision_status: :open, source_id: source_id}) do
     with {:ok, peer_id, categories, digest} <- GrantRequest.parse(source_id),
-         %{gateway_id: gateway_id} when is_binary(gateway_id) <- Aiur.Gateway.Identity.current(),
+         %{gateway_id: gateway_id} when is_binary(gateway_id) <- Identity.current(),
          true <- digest == GrantRequest.digest(peer_id, categories, gateway_id),
          {:ok, %{peers: peers}} <- Registry.get(),
          true <- Enum.any?(Map.values(peers), &(&1.gateway_id == peer_id)) do

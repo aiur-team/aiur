@@ -100,7 +100,7 @@ defmodule Aiur.Gateway.RegistryTest do
     assert File.read!(path) == before
   end
 
-  test "two writers from separate processes both land" , %{path: path} do
+  test "two writers from separate processes both land", %{path: path} do
     File.write!(path, entry("nook", @id, "") <> entry_body("pc", @other, ""))
 
     tasks = [

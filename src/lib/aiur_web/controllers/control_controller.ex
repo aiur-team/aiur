@@ -58,10 +58,7 @@ defmodule AiurWeb.ControlController do
           not allowed_scope?(conn.assigns.token_scope, requested_scope, call.scope) ->
             refusal(conn, expression, call, :scope_denied, 403, started)
 
-          not category_granted?(conn, call) ->
-            refusal_code(conn, expression, call, 403, "category_not_granted: #{call.category}", started)
-
-          reason = peer_refusal(conn, call) ->
+          reason = category_refusal(conn, call) ->
             grant_refusal(conn, expression, call, reason, started)
 
           call.scope == :write and not dashboard_writable?() ->
@@ -71,16 +68,23 @@ defmodule AiurWeb.ControlController do
             execute_call(conn, params, expression, call, started)
         end
 
-      {:error, :grants_are_local} ->
-        grant_refusal(conn, expression, nil, :grants_are_local, started)
-
       {:error, reason} ->
-        status = if reason == :scope_exceeds_max, do: 403, else: 422
-        refusal(conn, expression, nil, reason, status, started)
+        parse_refusal(conn, expression, reason, started)
     end
   end
 
-  # A peer-bound token is also limited by what this gateway's registry lets that peer do.
+  defp parse_refusal(conn, expression, :grants_are_local, started), do: grant_refusal(conn, expression, nil, :grants_are_local, started)
+
+  defp parse_refusal(conn, expression, reason, started) do
+    status = if reason == :scope_exceeds_max, do: 403, else: 422
+    refusal(conn, expression, nil, reason, status, started)
+  end
+
+  # The token must hold the category; a peer-bound token is also limited by this gateway's registry.
+  defp category_refusal(conn, call) do
+    if category_granted?(conn, call), do: peer_refusal(conn, call), else: {:category_not_granted, to_string(call.category)}
+  end
+
   defp peer_refusal(%{assigns: %{token_peer: peer}} = conn, call) when is_binary(peer) do
     case Grants.allowed?(peer, conn.assigns[:token_name], call.category) do
       :ok -> nil

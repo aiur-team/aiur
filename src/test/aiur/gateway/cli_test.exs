@@ -3,7 +3,7 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.Gateway.CliTest do
   use Aiur.DecisionStoreCase, async: false
 
-  alias Aiur.Gateway.{Cli, Registry}
+  alias Aiur.Gateway.{Cli, GrantRequest, Registry}
   alias Aiur.Identity.Machine
 
   @peer "aaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -60,7 +60,7 @@ defmodule Aiur.Gateway.CliTest do
     assert exit_code(out) == 0
     assert categories() == ["read"]
     [decision] = DecisionStore.list(store)
-    assert {:ok, _peer, pending, _digest} = Aiur.Gateway.GrantRequest.parse(decision.source_id)
+    assert {:ok, _peer, pending, _digest} = GrantRequest.parse(decision.source_id)
     assert Enum.sort(pending ++ ["read"]) == Enum.sort(Registry.categories())
     refute "trust" in pending
   end

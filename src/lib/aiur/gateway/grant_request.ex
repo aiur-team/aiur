@@ -9,6 +9,7 @@ defmodule Aiur.Gateway.GrantRequest do
   """
 
   alias Aiur.Commands
+  alias Aiur.Gateway.Identity
 
   @prefix "gateway_grant:"
   @verbs %{
@@ -24,19 +25,22 @@ defmodule Aiur.Gateway.GrantRequest do
   def request(peer, categories, opts \\ []) do
     categories = Enum.sort(categories)
 
-    with %{gateway_id: gateway_id} when is_binary(gateway_id) <- Aiur.Gateway.Identity.current() do
-      source_id = source_id(peer.gateway_id, categories, gateway_id)
-      store = Keyword.get(opts, :store, Commands.default_store())
-
-      case Commands.request(payload(peer, categories, gateway_id, source_id), request_opts(source_id), store) do
-        {:ok, %{decision: decision}} -> {:ok, decision}
-        {:error, _reason} = error -> error
-      end
-    else
+    case Identity.current() do
+      %{gateway_id: gateway_id} when is_binary(gateway_id) -> submit(peer, categories, gateway_id, opts)
       _unavailable -> {:error, :gateway_identity_unavailable}
     end
   catch
     :exit, _reason -> {:error, :daemon_unavailable}
+  end
+
+  defp submit(peer, categories, gateway_id, opts) do
+    source_id = source_id(peer.gateway_id, categories, gateway_id)
+    store = Keyword.get(opts, :store, Commands.default_store())
+
+    case Commands.request(payload(peer, categories, gateway_id, source_id), request_opts(source_id), store) do
+      {:ok, %{decision: decision}} -> {:ok, decision}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc "`gateway_grant:<peer id>:<categories joined by +>:<digest>`; the digest binds it to this gateway."
@@ -60,7 +64,7 @@ defmodule Aiur.Gateway.GrantRequest do
 
   defp payload(peer, categories, gateway_id, source_id) do
     label = peer.label || peer.name
-    what = categories |> Enum.map(&Map.get(@verbs, &1, &1)) |> Enum.join(", ")
+    what = Enum.map_join(categories, ", ", &Map.get(@verbs, &1, &1))
 
     %{
       kind: "gateway_grant",

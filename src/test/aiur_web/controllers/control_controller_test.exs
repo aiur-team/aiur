@@ -39,6 +39,7 @@ defmodule AiurWeb.ControlControllerTest do
     previous_cap = Aiur.Orchestrator.max_concurrent_agents()
     Application.put_env(:aiur, :client_tokens_path, token_path)
     Application.put_env(:aiur, :control_audit_file, audit_path)
+    Application.put_env(:aiur, :gateway_registry_path, Path.join(root, "remote-instances.yaml"))
     assert {:ok, read_token} = Aiur.ClientTokens.create("control-read", "read")
     assert {:ok, write_token} = Aiur.ClientTokens.create("control-write", "write")
 
@@ -256,13 +257,7 @@ defmodule AiurWeb.ControlControllerTest do
 
   test "a token without the agents category is refused pause and the audit names category and peer", %{audit_path: path} do
     {:ok, token} = Aiur.ClientTokens.create("peer-token", "write", peer: "gw-peer", categories: ["read", "message"])
-    File.write!(Application.get_env(:aiur, :gateway_registry_path), "version: 1
-instances:
-  nook:
-    gateway_id: gw-peer
-    allows:
-      categories: [read, message]
-")
+    File.write!(Application.get_env(:aiur, :gateway_registry_path), "version: 1\ninstances:\n  nook:\n    gateway_id: gw-peer\n    allows:\n      categories: [read, message]\n")
 
     refused = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.pause([\"1\"])"}))
     assert refused.status == 403
