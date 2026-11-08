@@ -51,25 +51,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   end
 
   @doc false
-  @spec dispatch_prevalidated_issue(State.t(), Issue.t(), keyword()) ::
+  @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
           {{:ok, :started} | {:error, term()}, State.t()}
-  def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue, opts \\ []) do
-    # Operator-resume callers hand over an issue read without `blocked_by`, so
-    # the gate that the poll path runs must run here too (#7797). Fail closed.
-    hydrator = Keyword.get(opts, :blocked_by_hydrator, &Tracker.hydrate_blocked_by/1)
-
-    case hydrator.(issue) do
-      {:ok, %Issue{} = hydrated} ->
-        if DispatchPolicy.issue_held_by_dependency?(hydrated, DispatchPolicy.terminal_state_set()),
-          do: {{:error, :waiting_for_dependencies}, state},
-          else: start_prevalidated_issue(state, hydrated)
-
-      _unknown ->
-        {{:error, :dependency_hydration_failed}, state}
-    end
-  end
-
-  defp start_prevalidated_issue(state, issue) do
+  def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue) do
     next_state = do_dispatch_issue(state, issue, nil, nil)
 
     result =

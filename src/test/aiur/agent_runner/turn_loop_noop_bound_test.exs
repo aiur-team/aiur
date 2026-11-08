@@ -418,14 +418,12 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
       refute state == "human-review"
       log = File.read!(Path.join([ctx.workspace, "logs", "agent.ndjson"]))
-
       assert log =~ "ticket.#{ctx.issue.identifier}.agent.noop_turns_bounded"
       assert log =~ "\"needs_attention\":true"
       assert log =~ "consecutive turn(s) that changed nothing"
       assert log =~ "No new PR head was detected."
       refute log =~ "because this run had no pushed PR head"
-      # The record says what to do about it, so the stop is actionable rather
-      # than just observable.
+      # The record says what to do about it, so the stop is actionable.
       assert log =~ "Review the agent's result before redispatching"
     end
   end
