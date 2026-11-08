@@ -8,7 +8,7 @@ defmodule Aiur.AlertFeed.Backfill do
   alias Aiur.Orchestrator.Dispatcher
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
 
   @impl true
   def init(opts) do

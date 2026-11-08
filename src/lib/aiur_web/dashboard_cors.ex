@@ -1,6 +1,6 @@
 defmodule AiurWeb.DashboardCors do
   @moduledoc """
-  Cross-origin read access for the gateway summary route only.
+  Cross-origin access for the gateway summary read and the four gateway pause writes (`GatewayPause`).
 
   Answers an exact-match `Origin` listed in `server.dashboard_origins`; any other origin gets no CORS
   headers (the browser then fails the request). Never `*`: responses are credentialed.
@@ -32,8 +32,8 @@ defmodule AiurWeb.DashboardCors do
     conn
     |> put_resp_header("access-control-allow-origin", origin)
     |> put_resp_header("access-control-allow-credentials", "true")
-    |> put_resp_header("access-control-allow-methods", "GET")
-    |> put_resp_header("access-control-allow-headers", "content-type, x-aiur-request-id, authorization")
+    |> put_resp_header("access-control-allow-methods", "GET, POST")
+    |> put_resp_header("access-control-allow-headers", "content-type, x-aiur-request, x-aiur-request-id, authorization")
     |> put_resp_header("access-control-max-age", "600")
   end
 

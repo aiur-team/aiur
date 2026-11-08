@@ -57,6 +57,12 @@ defmodule Aiur.Gateway.LivenessTest do
     assert emits() == []
   end
 
+  test "offline_ids names silent peers for any observer, leader or not, by their freshest heartbeat" do
+    {:ok, roster} = view([row("me", 0, %{current?: true}), row("g1", 240_000), row("g1", 5_000), row("g2", 240_000), row("g3", 10_000)])
+    assert Liveness.offline_ids(roster, @threshold) == ["g2"]
+    assert Liveness.offline_ids(:unreadable, @threshold) == []
+  end
+
   test "freshest instance of a gateway wins" do
     run([[row("g1", 240_000), row("g1", 5_000)]])
     assert emits() == []

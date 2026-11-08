@@ -33,6 +33,21 @@
     return { connectivity: "unknown", reason: null };
   }
 
+  // A missing, unknown or malformed signal reads "unknown", never 0. Its age renders when the peer reports one.
+  function signalText(label, sig, pick) {
+    var v = sig && sig.state === "known" ? pick(sig.value) : null;
+    if (v === null || v === undefined) return label + " unknown";
+    return label + " " + v + (nonNegInt(sig.age_ms) ? " (" + age(sig.age_ms) + " ago)" : "");
+  }
+
+  function signalsText(p) {
+    return [
+      signalText("agents", p.agents, function (v) { return nonNegInt(v) ? v : null; }),
+      signalText("next", p.next_queue, function (v) { return v && v.number !== null && v.number !== undefined ? "#" + v.number : v ? "none ready" : null; }),
+      signalText("decisions", p.pending_decisions, function (v) { return nonNegInt(v) ? v : null; })
+    ].join(" · ");
+  }
+
   function workloadOf(summary) {
     return summary.capacity.running + " of " + summary.capacity.max + " agents";
   }
@@ -76,7 +91,7 @@
     try { storage.setItem(cacheKey(id), JSON.stringify({ observed_at_ms: now, summary: summary })); } catch (e) { /* no cache */ }
   }
 
-  var model = { classifyResult: classifyResult, displayState: displayState, totals: totals, readCache: readCache, writeCache: writeCache };
+  var model = { classifyResult: classifyResult, displayState: displayState, totals: totals, signalsText: signalsText, readCache: readCache, writeCache: writeCache };
   if (typeof module !== "undefined" && module.exports) module.exports = model;
   if (!root || !root.document) return;
 
@@ -147,7 +162,9 @@
         card.appendChild(el("p", d.workloadText));
         if (s.connectivity === "online") {
           s.summary.projects.forEach(function (p) {
-            var row = el("p", String(p.repo) + " · running " + (p.running === null ? "unknown" : p.running) + " ", { "data-project-row": String(p.repo) });
+            var row = el("p", String(p.repo) + " · running " + (p.running === null ? "unknown" : p.running) + " · ", { "data-project-row": String(p.repo) });
+            row.appendChild(el("span", signalsText(p), { "data-signals": "" }));
+            row.appendChild(el("span", " "));
             row.appendChild(el("a", "Build ›", { href: peer.url + "/build" }));
             card.appendChild(row);
           });
