@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.Index do
   use GenServer
   alias Aiur.BuildOrder.Index, as: Core
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
-  alias AiurWeb.Build.Index.RefreshState
+  alias AiurWeb.Build.Index.{Drain, RefreshState}
   require Logger
   @window 250
   @max_backoff 60_000
@@ -191,7 +191,7 @@ defmodule AiurWeb.Build.Index do
       do: {:noreply, state}
 
   def handle_info({tag, _payload}, state) when is_map_key(@signals, tag),
-    do: {:noreply, dirty(state, @signals[tag])}
+    do: {:noreply, dirty(state, Drain.keys(@signals, tag))}
 
   def handle_info(
         :fleet_changed,
@@ -200,7 +200,7 @@ defmodule AiurWeb.Build.Index do
       when map_size(subscribers) == 0,
       do: {:noreply, state}
 
-  def handle_info(:fleet_changed, state), do: {:noreply, dirty(state, [:capacity])}
+  def handle_info(:fleet_changed, state), do: {:noreply, dirty(state, Drain.keys(@signals, :poll_state_changed))}
   def handle_info(:flush, %{active?: false} = state), do: {:noreply, %{state | timer: nil}}
 
   def handle_info(:flush, %{task: nil} = state),
