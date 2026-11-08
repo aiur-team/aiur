@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.CommandDeliveryTarget do
 
   @impl true
   def send_correlated(server, ticket_identifier, payload),
-    do: OperatorMessages.send_correlated_operator_message(server || Aiur.Orchestrator, ticket_identifier, payload)
+    do: OperatorMessages.send_correlated_operator_message(server || Aiur.Project.whereis(Aiur.Orchestrator), ticket_identifier, payload)
 
   @impl true
   def revalidate_issue(issue, issue_fetcher, terminal_states),
@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.CommandDeliveryTarget do
 
   @impl true
   def active_identifiers do
-    {:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @active_identifiers_timeout)}
+    {:ok, GenServer.call(Aiur.Project.whereis(Aiur.Orchestrator), :list_active_identifiers, @active_identifiers_timeout)}
   catch
     :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
   end
@@ -51,7 +51,7 @@ defmodule Aiur.Orchestrator.CommandDeliveryTarget do
   defp pull_request(_ticket_identifier), do: :unknown
 
   defp worker_context(ticket_identifier) do
-    GenServer.call(Aiur.Orchestrator, {:command_override_context, ticket_identifier}, @active_identifiers_timeout)
+    GenServer.call(Aiur.Project.whereis(Aiur.Orchestrator), {:command_override_context, ticket_identifier}, @active_identifiers_timeout)
   catch
     :exit, _ -> %{worker: :unknown, capacity: :unknown}
   end

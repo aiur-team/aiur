@@ -380,17 +380,15 @@ Full log combines newest runs that fit its bounded projection with current telem
 
 The Build page usage strip shows API budgets and provider windows or credits. Bars and labels show what remains: full is 100% left, empty is unusable until reset, with warning colours near empty. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
+On desktop, while the navigation is expanded, an experimental compact copy of the same APIS and MODELS lines sits at the bottom of the left navigation; hover a row for its reset and details.
+
 Build cards keep agent pause causes distinct: provider usage limits read `Paused · usage limit` with a reset time when the runtime reports one, CI handoffs read `Waiting for CI`, and `Parked` identifies other non-reserving pauses.
 
 Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
 
 ### Read an experiment
 
-Open **Experiments** below Analytics and select an experiment. The shareable
-`/experiments/:id` URL shows its design, windows, hypothesis and registered
-metrics. On a phone, **All experiments** returns to the index. Existing
-experiments remain visible when capture is off; unavailable evidence and store
-errors are shown explicitly.
+Open **Experiments** below Analytics and select an experiment. The shareable `/experiments/:id` URL shows its design, windows, hypothesis and registered metrics. On a phone, **All experiments** returns to the index. Existing experiments remain visible when capture is off; unavailable evidence and store errors are shown explicitly.
 
 Frozen baseline details include the revision, capture time, Aiur version and
 SHA-256 hash. A warning identifies metric packs that changed since the freeze.

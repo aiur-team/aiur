@@ -115,3 +115,26 @@ html .lr.completed :is(.c-id, .c-tt, .c-ep, .lr-mu, .c-ag) { color: var(--fg) !i
 .bd-card .bd-status > span:has(.bd-hold) { white-space: normal; overflow: visible; }
 .bd-hold { color: inherit; text-decoration: underline; }
 .ax-ln.acct { margin-top: 3px; }
+
+/* #7763 experiment: compact APIS / MODELS meters pinned under the desktop nav links. */
+.aiur-shell__rail { display: contents; }
+.aiur-shell__meters { display: none; }
+@media (min-width: 961px) {
+  .aiur-shell__rail.has-meters { display: flex; flex-direction: column; position: sticky; top: calc(56px + .6rem); height: calc(100vh - 56px - 1.4rem); min-height: 0; }
+  .aiur-shell__rail.has-meters > .aiur-shell__nav { position: static; flex: none; }
+  .aiur-shell__rail.has-meters > .aiur-shell__meters { display: block; margin-top: auto; flex: 0 1 auto; min-height: 0; overflow: hidden auto; padding: .5rem 0 0 .8rem; }
+  html.nav-collapsed .aiur-shell__meters { display: none; }
+  /* #7774's fixed Executor footer spans the nav too; keep the meters above it. */
+  body:has(#executor-footer) .aiur-shell__rail.has-meters { height: calc(100vh - 56px - 1.4rem - var(--executor-footer-bar, 44px)); }
+}
+.ax-nu:empty { display: none; }
+.ax-nc + .ax-nc { margin-top: .55rem; }
+.ax-nh { font: 600 .58rem/1.6 "JetBrains Mono", monospace; letter-spacing: .08em; color: var(--faint); }
+.ax-nl { display: grid; grid-template-columns: 16px minmax(0, 1fr) 4.6em; align-items: center; gap: .4rem; height: 18px; }
+.ax-nl.stale { opacity: .55; }
+.ax-nw .ax-who { gap: 0; }
+.ax-nw .ax-who b, .ax-nw .ax-x { display: none; }
+.ax-nw img, .ax-nw .ax-mono, .ax-nw .ax-ic { width: 14px; height: 14px; font-size: .5rem; }
+.ax-nl .ax-bar { height: 4px; border-radius: 2px; }
+.ax-np { font: .6rem "JetBrains Mono", monospace; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-np.hi { color: var(--attn-ink); } .ax-np.max { color: var(--block-ink); }

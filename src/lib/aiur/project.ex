@@ -19,6 +19,19 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc """
+  Name a project-scoped process registers under: `module` itself with no project,
+  else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.
+  """
+  @spec name(module(), id() | nil) :: GenServer.server()
+  def name(module, project_id \\ Context.current_id())
+  def name(module, nil), do: module
+  def name(module, id), do: {:via, Registry, {Aiur.ProjectRegistry, {String.downcase(id), module}}}
+
+  @doc "Lookup side of `name/2`; a function-head default evaluates it per call, so it follows the caller's project."
+  @spec whereis(module(), id() | nil) :: GenServer.server()
+  def whereis(module, project_id \\ Context.current_id()), do: name(module, project_id)
+
   @doc "Project-owned state root: the current project's, else the machine's `decision_state_dir/0`."
   @spec state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def state_dir do
@@ -36,13 +49,8 @@ defmodule Aiur.Project do
   The GenServer name for `module` in the current project: a `Registry` via-tuple
   with a project context, the bare module (today's `name: __MODULE__`) without.
   """
-  @spec via(module()) :: module() | {:via, Registry, {atom(), {id(), module()}}}
-  def via(module) do
-    case Context.current_id() do
-      nil -> module
-      id -> {:via, Registry, {Aiur.ProjectRegistry, {id, module}}}
-    end
-  end
+  @spec via(module()) :: GenServer.server()
+  def via(module), do: name(module)
 
   @doc "Adds the caller's project to start options, for a server that must work for it."
   @spec carry(keyword()) :: keyword()

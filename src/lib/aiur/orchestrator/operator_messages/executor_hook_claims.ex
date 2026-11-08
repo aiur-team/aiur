@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
   @moduledoc "Serialized Executor hook batches; rendering and persistence precede the returned envelope."
 
-  alias Aiur.{AgentQueueStore, Orchestrator}
+  alias Aiur.AgentQueueStore
   alias Aiur.AgentQueueStore.Items
   alias Aiur.Conversation.Ref
   alias Aiur.Executor.Session
@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
 
   @spec claim_executor_hook_batch(String.t(), atom(), keyword()) :: {:ok, String.t()} | :none
   def claim_executor_hook_batch(binding_id, boundary, limits) do
-    server = Keyword.get(limits, :server, Orchestrator)
+    server = Keyword.get(limits, :server, Aiur.Project.whereis(Aiur.Orchestrator))
     remaining = limits[:deadline] - System.monotonic_time(:millisecond)
 
     if remaining > 0 do
@@ -109,5 +109,5 @@ defmodule Aiur.Orchestrator.OperatorMessages.ExecutorHookClaims do
 
   defp persist(store, opts), do: Keyword.get(opts, :persist, &PendingStore.save/1).(store)
   defp before_deadline?(opts), do: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end).() < opts[:deadline]
-  defp server_for(opts), do: Keyword.get(opts, :server, Orchestrator)
+  defp server_for(opts), do: Keyword.get(opts, :server, Aiur.Project.whereis(Aiur.Orchestrator))
 end
