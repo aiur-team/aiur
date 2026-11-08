@@ -156,7 +156,7 @@ defmodule Aiur.OpenAICompat.Config do
   # attacker-supplied config key cannot exhaust the atom table.
   @known_keys Map.new(
                 ~w(base_url api_key_env model default_model transport quirks management_api_key_env
-                   model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata
+                   model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata openrouter_trace
                    local_concurrency_limit provider provider_preferences routes models order only ignore
                    allow_fallbacks sort max_price quantizations data_collection require_parameters
                    prompt completion max_output_tokens),

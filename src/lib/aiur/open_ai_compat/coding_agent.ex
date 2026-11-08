@@ -13,6 +13,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     Conversation,
     LiveTurn,
     MeterAdapter,
+    OpenRouterTrace,
     Session,
     ToolCallParser,
     Tools,
@@ -45,7 +46,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
              config.backend,
              Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
            ),
-         thread_id <- "openai-compat-#{System.unique_integer([:positive, :monotonic])}",
+         thread_id <- "openai-compat-#{Ecto.UUID.generate()}",
          {:ok, pid} <-
            Session.start_link(%{
              account_generation: account_generation,
@@ -71,10 +72,10 @@ defmodule Aiur.OpenAICompat.CodingAgent do
   end
 
   @impl true
-  def run_turn(%{session_pid: pid} = session, prompt, _issue, opts)
+  def run_turn(%{session_pid: pid} = session, prompt, issue, opts)
       when is_pid(pid) and is_binary(prompt) and is_list(opts) do
     if Process.alive?(pid) do
-      state = pid |> Session.get() |> begin_turn(prompt)
+      state = pid |> Session.get() |> begin_turn(prompt) |> OpenRouterTrace.start_turn(session, issue)
       emit(opts, LiveTurn.started(LiveTurn.identity(state)))
 
       run_loop(session, state, opts, 0) |> commit_turn(pid, session)
@@ -99,7 +100,7 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       state = Session.get(pid)
       emit(opts, LiveTurn.started(LiveTurn.identity(state)))
 
-      run_loop(session, state, opts, 0) |> commit_turn(pid, session)
+      run_loop(session, state, opts, Map.get(state.config, :trace_round, 1) - 1) |> commit_turn(pid, session)
     else
       {:error, :session_closed}
     end
@@ -176,6 +177,8 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     do: {:error, state, :tool_round_limit_exceeded}
 
   defp run_loop(session, state, opts, rounds) do
+    state = %{state | config: OpenRouterTrace.request_config(state, rounds)}
+
     with :continue <- handoff_checkpoint(session, state),
          :continue <- pause_state(),
          {:ok, completion} <- provider_request(session, state) do

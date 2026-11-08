@@ -96,7 +96,7 @@ defmodule Aiur.OpenAICompat.Registry do
             # are forwarded; every other OpenAI-compatible backend would reject
             # them. See `Aiur.Config.Schema.OpenRouterBackend`.
             provider_preferences: true,
-            quirks: %{openrouter_metadata: true}
+            quirks: %{openrouter_metadata: true, openrouter_trace: true}
           },
           presentation:
             presentation(

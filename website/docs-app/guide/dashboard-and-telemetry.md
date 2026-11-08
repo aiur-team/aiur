@@ -498,3 +498,5 @@ boots for a daily report. No observations means unavailable, not zero.
 
 The daemon records intervals between successful dispatch observations;
 transitions between polls have poll-cadence precision.
+
+OpenRouter agents can also send [Langfuse traces through Broadcast](./claude-accounts#langfuse-via-openrouter-broadcast).
