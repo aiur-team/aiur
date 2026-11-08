@@ -307,12 +307,10 @@ defmodule Aiur.Commands.ComponentState do
       rejected?(projection) -> {:rejected, rejection_reason(projection)}
       conflict?(projection) -> {:conflict, "stale_version"}
       answered?(projection) -> if revised?(projection), do: {:revised, "superseded_answer"}, else: {:answered, nil}
-      deferred?(projection) -> {:escalated, nil}
+      projection["decision_status"] in [:deferred, "deferred"] -> {:escalated, nil}
       true -> {:pending, nil}
     end
   end
-
-  defp deferred?(projection), do: projection["decision_status"] in [:deferred, "deferred"]
 
   defp terminal_state(projection) do
     case projection["decision_status"] do
@@ -358,7 +356,6 @@ defmodule Aiur.Commands.ComponentState do
   defp actions(state, writable?, projection) do
     %{
       "answer" => writable? and state == :pending,
-      # Mirrors Routing.Policy.deferrable?/1's authority rule; the store still decides.
       "escalate" => writable? and state == :pending and projection["authority"] not in [:human_required, "human_required"],
       "reject" => writable? and state == :pending,
       "revise" => writable? and state in [:answered, :revised],
