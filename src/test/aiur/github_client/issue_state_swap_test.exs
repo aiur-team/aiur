@@ -65,6 +65,10 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
           {:delete, 4} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
+
+          {:get, 5} ->
+            assert req.url =~ "/issues/42"
+            open_issue_response(["sym:paused", "sym:rework", "sym:watch"])
         end
       end
 
@@ -135,6 +139,10 @@ defmodule Aiur.GitHub.Client.IssueStateSwapTest do
           {:delete, 7} ->
             assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
+
+          {:get, 8} ->
+            assert req.url =~ "/issues/42"
+            open_issue_response(["sym:human-review"])
         end
       end
 

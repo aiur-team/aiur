@@ -6,6 +6,7 @@ defmodule Aiur.StatusContractsGoldenTest do
   alias Aiur.ExtensionsTestSupport
   alias Aiur.ExtensionsTestSupport.StaticOrchestrator
   alias Aiur.Handoff.CLI, as: HandoffCLI
+  alias Aiur.Orchestrator.Cancellation
   alias Aiur.TestSupport.GroupedScopes, as: GS
   alias Aiur.TrackerIdentity
   alias AiurWeb.Api.Usage.TicketUsage
@@ -13,16 +14,24 @@ defmodule Aiur.StatusContractsGoldenTest do
   alias AiurWeb.Presenter
 
   @fixtures Path.expand("../../../packages/aiur-contracts/fixtures", __DIR__)
-  @now ~U[2026-10-23 12:00:00Z]
+  @now @fixtures
+       |> Path.join("status.v1.json")
+       |> File.read!()
+       |> Jason.decode!()
+       |> Map.fetch!("generated_at")
+       |> DateTime.from_iso8601()
+       |> then(fn {:ok, now, 0} -> now end)
 
   test "live JSON encoders match the TypeScript package golden fixtures" do
     orchestrator = Module.concat(__MODULE__, :StaticOrchestrator)
     snapshot = status_snapshot()
+    capabilities = :ets.new(:status_contracts_golden_capabilities, [:set])
+    :ets.insert(capabilities, {:report, {%{capabilities: %{}}, System.monotonic_time(:millisecond), nil}})
     start_supervised!({StaticOrchestrator, name: orchestrator, snapshot: snapshot})
 
     status =
       orchestrator
-      |> Presenter.state_payload(1_000, status_opts())
+      |> Presenter.state_payload(1_000, status_opts(capabilities))
       |> Map.put(:generated_at, DateTime.to_iso8601(@now))
       |> stabilize_snapshot_freshness()
 
@@ -34,6 +43,14 @@ defmodule Aiur.StatusContractsGoldenTest do
       "agents.v1.json" => agents_payload(),
       "status.v1.json" => status,
       "ticket.v1.json" => ticket,
+      "ticket-cancel.v1.json" =>
+        Cancellation.result(
+          "5698",
+          "5698:attempt-1",
+          :exited,
+          :killed,
+          @now
+        ),
       "ticket-usage.v1.json" => usage,
       "ticket-progress.v1.json" => progress
     }
@@ -90,8 +107,9 @@ defmodule Aiur.StatusContractsGoldenTest do
     })
   end
 
-  defp status_opts do
+  defp status_opts(capabilities) do
     [
+      table: capabilities,
       decision_history_fun: fn -> [] end,
       recent_merge_snapshot_fun: fn ->
         %{

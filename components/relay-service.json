@@ -3,7 +3,9 @@
   "name": "Notification relay service",
   "layer": 5,
   "kind": "repository",
-  "paths": [],
+  "paths": [
+    "packages/aiur-push-relay/**"
+  ],
   "facades": [
     "*"
   ],
@@ -18,8 +20,8 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Delivers encrypted notification payloads to mobile push providers.",
-  "status": "planned",
+  "summary": "Provides a standalone encrypted notification relay with persistent handles and asynchronous provider delivery.",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
@@ -27,5 +29,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N4"
+  "added_by": "MP-N4",
+  "goal": "notify"
 }

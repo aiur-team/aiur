@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     DispatchPolicy,
     EnvelopeResume,
     GlobalPauseStore,
+    OperatorMessages.PendingStore,
     OrphanedWorkers,
     PauseResume,
     RemoteControlMode,
@@ -109,6 +110,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     snapshot_key = Keyword.get(opts, :name) || self()
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
+    Application.put_env(:aiur, :instance_globally_paused, global_pause.globally_paused)
 
     # The dispatch tick's base is the `:dispatch` poll class, not the raw
     # `interval_seconds` scalar: since #2309 an operator can give the tracker
@@ -155,7 +157,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
         |> Map.put(:parked_ready_alerts, nil),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
-      control_lifecycle: control_lifecycle
+      control_lifecycle: control_lifecycle,
+      queue_store: PendingStore.load()
     }
 
     :ok =
@@ -171,7 +174,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     state = state |> Adopter.adopt() |> OrphanedWorkers.stop_untracked_runners()
     state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
-    TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
+    TrackedSet.refresh(state)
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)

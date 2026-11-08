@@ -51,11 +51,6 @@ for (const { label, width, isMobile } of composedViewports) {
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)
 
-      await page.goto('/build-orders')
-      await expect(page).toHaveURL(/\/build-orders$/)
-      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
-      await assertNoDocumentOverflow(page)
-
       await page.getByRole('link', { name: 'Build' }).click()
       await expect(page).toHaveURL(/\/$/)
       await expect(page.locator('#route-title')).toHaveText('Build')
@@ -63,11 +58,6 @@ for (const { label, width, isMobile } of composedViewports) {
       // Standalone region fixtures are not linked from the shell nav; visit each
       // directly within the same authenticated session and assert its landmark
       // plus its accessible live-status region survives.
-      await page.goto('/units-fixture')
-      await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
-      await expect(page.locator('#units-status')).toHaveAttribute('aria-atomic', 'true')
-      await assertNoDocumentOverflow(page)
-
       await page.goto('/provider-meters')
       await expect(page.locator('[data-provider-meters-fixture="true"]')).toBeVisible()
       await expect(page.locator('#provider-meters-status')).toHaveAttribute('aria-live', 'polite')

@@ -48,7 +48,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         issue_facts: issue_source(status)
       })
 
-    startup_elapsed_ms = Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+    startup_elapsed_ms =
+      case Keyword.get(opts, :startup_elapsed_ms_fun) do
+        fun when is_function(fun, 0) -> fun.()
+        _missing -> Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+      end
 
     status =
       cond do
@@ -58,6 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       end
 
     %{
+      command_counts: Map.get(payload, :retained_counts, %{}),
       status: status,
       message: catalog_message(status, membership, snapshot),
       truncated?: snapshot.truncated?,
@@ -238,6 +243,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     with %TrackerIdentity{} = identity <- Sources.identity(public_row),
          internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
       public_row
+      |> Map.put(:listener, Map.get(internal_row, :listener, :unavailable))
+      |> Map.put(:native_hold, Map.get(internal_row, :native_hold))
       |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
       |> Map.put(:usage_limit_reset_at, Map.get(internal_row, :usage_limit_reset_at))
       |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))

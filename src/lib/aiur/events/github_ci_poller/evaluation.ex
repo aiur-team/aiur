@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   map. It makes no request and writes no state.
   """
 
-  alias Aiur.Events.GithubCIPoller.RequiredVerdict
+  alias Aiur.Events.GithubCIPoller.{CancelledRun, RequiredVerdict}
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
@@ -103,10 +103,17 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
       ) do
     runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
 
-    result
-    |> RequiredVerdict.settle(runs, head_sha, opts)
-    |> enforce_queue_state(pr)
-    |> enforce_passed(runs, commit_status, pr, opts)
+    settled = RequiredVerdict.settle(result, runs, head_sha, opts)
+
+    cancelled_run? = CancelledRun.cancelled?(%{"event" => "pull_request"}, runs)
+
+    if cancelled_run? do
+      settled
+    else
+      settled
+      |> enforce_queue_state(pr)
+      |> enforce_passed(runs, commit_status, pr, opts)
+    end
   end
 
   # A skipped draft job satisfies GitHub's check state but never proves the full suite ran.

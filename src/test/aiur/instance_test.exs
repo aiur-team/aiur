@@ -2,6 +2,7 @@ defmodule Aiur.InstanceTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.Instance
   alias Aiur.Config.Schema.Instance.Ignore
   alias Aiur.Instance
   alias Aiur.Instance.Identity
@@ -30,6 +31,66 @@ defmodule Aiur.InstanceTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{"instance" => %{"ignore" => %{"tickets" => ["x"]}}})
+  end
+
+  test "ownership config accepts label and ticket rules and rejects malformed rules" do
+    assert {:ok, defaults} = Schema.parse(%{})
+    assert defaults.instance.owns == []
+    assert defaults.instance.pool
+
+    assert {:ok, parsed} =
+             Schema.parse(%{"instance" => %{"owns" => [%{"label" => "build-lane:voice"}, %{"ticket" => 4121}], "pool" => false}})
+
+    assert parsed.instance.owns == [%{"label" => "build-lane:voice"}, %{"ticket" => 4121}]
+    refute parsed.instance.pool
+
+    for invalid <- [[%{"ticket" => 0}], [%{"ticket" => "4121"}], [%{"label" => " "}], [%{"label" => "a", "ticket" => 4}]] do
+      assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"instance" => %{"owns" => invalid}})
+    end
+  end
+
+  test "live ownership reserves matches, shares unmatched tickets, and releases on pause or expiry" do
+    roster = [
+      %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}, %{"ticket" => 73}], "pool" => true, "dispatching" => true}}},
+      %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+    ]
+
+    voice = %Aiur.Issue{id: "41", labels: ["build-lane:voice"]}
+    other = %Aiur.Issue{id: "42", labels: ["build-lane:docs"]}
+    ticket = %Aiur.Issue{id: "73", identifier: "73", labels: []}
+
+    assert :eligible = Instance.eligible?(voice, "nuc", roster)
+    assert {:ineligible, :peer_owns_ticket} = Instance.eligible?(voice, "pc", roster)
+    assert :eligible = Instance.eligible?(other, "pc", roster)
+    assert :eligible = Instance.eligible?(ticket, "nuc", roster)
+
+    paused_roster = put_in(roster, [Access.at(0), :metadata, "data", "dispatching"], false)
+    assert :eligible = Instance.eligible?(voice, "pc", paused_roster)
+
+    ownerless_roster = Enum.drop(roster, 1)
+    assert :eligible = Instance.eligible?(voice, "pc", ownerless_roster)
+
+    closed_pool = put_in(roster, [Access.at(1), :metadata, "data", "pool"], false)
+    assert {:ineligible, :pool_closed} = Instance.eligible?(other, "pc", closed_pool)
+    assert {:unavailable, :labels_unknown} = Instance.eligible?(%Aiur.Issue{id: "44", labels: nil}, "pc", roster)
+    assert {:unavailable, :self_missing_from_roster} = Instance.eligible?(voice, "nuc", ownerless_roster)
+  end
+
+  test "heartbeat metadata stops ownership reservations while the workflow is paused" do
+    previous = Application.fetch_env(:aiur, :instance_globally_paused)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, paused?} -> Application.put_env(:aiur, :instance_globally_paused, paused?)
+        :error -> Application.delete_env(:aiur, :instance_globally_paused)
+      end
+    end)
+
+    Application.put_env(:aiur, :instance_globally_paused, true)
+    assert %{"version" => 1, "data" => %{"dispatching" => false}} = Instance.heartbeat_metadata()
+
+    Application.put_env(:aiur, :instance_globally_paused, false)
+    assert %{"version" => 1, "data" => %{"dispatching" => true}} = Instance.heartbeat_metadata()
   end
 
   test "configured instance id is optional and derived ids are stable per host and state directory" do
@@ -145,7 +206,7 @@ defmodule Aiur.InstanceTest do
   test "the Executor sweep drops another instance's unreviewed PR and merge group" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4430]\n")
-    now = ~U[2026-10-15 18:20:00Z]
+    now = DateTime.utc_now()
 
     pr = fn number, ticket ->
       %{
@@ -164,7 +225,7 @@ defmodule Aiur.InstanceTest do
         name: "run #{number}",
         head_branch: "gh-readonly-queue/main/pr-#{number}-abc",
         state: "queued",
-        started_at: ~U[2026-10-15 17:00:00Z]
+        started_at: DateTime.add(now, -80, :minute)
       }
     end
 
@@ -173,13 +234,17 @@ defmodule Aiur.InstanceTest do
         %{number: 4429, labels: ["agent:human-review"]},
         %{number: 4430, labels: ["agent:human-review"]}
       ],
-      decisions: [%{ticket: 4430, blocking: true}, %{ticket: 4429, blocking: true}],
+      decisions: [
+        %{ticket: 4430, blocking: true, created_at: DateTime.add(now, -20, :minute)},
+        %{ticket: 4429, blocking: true, created_at: DateTime.add(now, -20, :minute)}
+      ],
       pull_requests: [pr.(4447, 4429), pr.(4448, 4430)],
       merge_groups: [group.(4447), group.(4448)]
     }
 
     findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: now)
     assert Enum.map(SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
+    assert [%{queued_runs: 1, running_runs: 0, age_ms: 4_800_000}] = Enum.filter(findings, &(&1.kind == "runner_starvation"))
 
     assert for(
              %{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings,
@@ -196,16 +261,18 @@ defmodule Aiur.InstanceTest do
              tickets: [4121],
              labels: ["lane:nuc"],
              label_prefixes: [],
+             owns: [],
+             pool: true,
+             live_instances: :disabled,
              ignored_since_boot: 3
            }) ==
-             "INSTANCE IGNORE tickets=[4121] labels=[lane:nuc] label_prefixes=[] ignored_since_boot=3"
+             "INSTANCE IGNORE tickets=[4121] labels=[lane:nuc] label_prefixes=[] owns=[] pool=true live=[disabled] ignored_since_boot=3"
 
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4121]\n")
     Instance.ignored(4121, :test)
 
-    assert Instance.status_line() =~
-             "tickets=[4121] labels=[] label_prefixes=[] ignored_since_boot=#{Instance.ignored_count()}"
+    assert Instance.status_line() =~ "tickets=[4121] labels=[] label_prefixes=[] owns=[] pool=true"
 
     assert Instance.ignored_count() > 0
   end

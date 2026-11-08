@@ -153,6 +153,15 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   def public_health({:unavailable, reason}) when reason in [:terminal_verification_marker_invalid, :terminal_verification_marker_too_large], do: {:unavailable, reason}
   def public_health({:unavailable, _}), do: {:unavailable, :recovery_unavailable}
 
+  @doc false
+  @spec persist_batch([Event.t()], Projection.t(), map()) :: {:reply, term(), map()}
+  def persist_batch(events, projection, state) do
+    case state.append_many_fun.(state.journal_path, Enum.map(events, &Event.to_record/1)) do
+      :ok -> persist_appended_event(events, projection, state)
+      {:error, reason} -> persist_failed(%{state | writable?: false}, {:append_failed, reason})
+    end
+  end
+
   defp persist(event, projection, state) do
     case state.append_fun.(state.journal_path, Event.to_record(event)) do
       :ok -> persist_appended_event(event, projection, state)
@@ -161,7 +170,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
   end
 
   defp persist_appended_event(event, projection, state) do
-    state = %{state | journal_event_count: state.journal_event_count + 1}
+    state = %{state | journal_event_count: state.journal_event_count + length(List.wrap(event))}
 
     if state.journal_event_count >= state.checkpoint_interval do
       persist_checkpoint(event, projection, state)
@@ -172,7 +181,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp finish_journal_append(event, projection, state) do
     state = %{state | projection: projection}
-    notify(state, event)
+    publish_events(state, event)
     {:reply, {:ok, %{status: :accepted, generation: projection.generation}}, state}
   end
 
@@ -197,7 +206,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
     case state.clear_journal_fun.(state.journal_path) do
       :ok ->
         state = %{state | journal_event_count: 0}
-        notify(state, event)
+        publish_events(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
 
       {:error, reason} ->
@@ -207,7 +216,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
             writable?: false
         }
 
-        notify(state, event)
+        publish_events(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
     end
   end
@@ -309,6 +318,24 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp persistence_reason(_), do: :persistence_failure
   defp persistence_failure_reason({:degraded, reason}), do: reason
+
+  defp publish_events(state, events) do
+    state = if is_list(events), do: cache_members(state), else: state
+
+    Enum.each(List.wrap(events), fn event ->
+      publish_event(state, event)
+      notify(state, event)
+    end)
+  end
+
+  defp publish_event(state, %Event{} = event) do
+    _ = state.event_publish_fun.(event, state.projection.generation)
+    :ok
+  rescue
+    error -> Logger.warning("aiur_current_run_membership phase=event_publish_failed error=#{Exception.message(error)}")
+  catch
+    _kind, _reason -> Logger.warning("aiur_current_run_membership phase=event_publish_failed error=publication_failed")
+  end
 
   @spec notify(map(), Event.t() | nil) :: :ok
   def notify(state, event) do

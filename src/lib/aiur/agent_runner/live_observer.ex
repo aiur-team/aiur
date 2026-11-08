@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.LiveObserver do
 
   require Logger
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.AgentRunner.WorkerJournal
   alias Aiur.{Issue, LiveConversation, TrackerIdentity}
   alias Aiur.Signal
 
@@ -101,6 +102,8 @@ defmodule Aiur.AgentRunner.LiveObserver do
   defp observe_operator_text(_issue, _request_id, "", _backend, _opts), do: :ok
 
   defp observe_operator_text(issue, request_id, text, backend, opts) do
+    WorkerJournal.append(issue, %{role: :user, msg_id: "operator:#{request_id}", body: text, timestamp: opts[:occurred_at], payload: %{delivery_id: to_string(request_id)}}, backend, opts)
+
     with_live_source(issue, backend, opts, :observe_operator, fn source ->
       observe_operator_text_for_source(issue, source, request_id, text, opts)
     end)
@@ -161,10 +164,15 @@ defmodule Aiur.AgentRunner.LiveObserver do
   @doc false
   @spec finish_live_conversation(Issue.t(), String.t(), term(), keyword()) ::
           :ok | {:error, term()}
-  def finish_live_conversation(issue, backend, {:error, _reason}, opts),
+  def finish_live_conversation(issue, backend, result, opts) do
+    WorkerJournal.finish(issue, result, opts)
+    finish_projection(issue, backend, result, opts)
+  end
+
+  defp finish_projection(issue, backend, {:error, _reason}, opts),
     do: mark_live_conversation_degraded(issue, backend, opts)
 
-  def finish_live_conversation(issue, backend, _result, opts),
+  defp finish_projection(issue, backend, _result, opts),
     do: end_live_conversation(issue, backend, opts)
 
   @doc false

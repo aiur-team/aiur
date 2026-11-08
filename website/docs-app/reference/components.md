@@ -1,19 +1,14 @@
 ---
-title: Components
-search: false
-head:
-  - - meta
-    - name: robots
-      content: noindex
+title: Component directory
 ---
 
 <script setup>
 import { data } from './components.data'
-import ComponentList from '../.vitepress/theme/components/ComponentList.vue'
+import ComponentDirectory from '../.vitepress/theme/components/ComponentDirectory.vue'
 </script>
 
-# Components
+# Component directory
 
-Config sections have one owner. An explicit dotted `owns.config` field overrides that section owner; for example, `github` owns `events.codeowners_refresh_seconds` while `event-bus` owns the rest of `events`.
+Explore what Aiur includes, what you can add, and what each component needs. Choose an operator goal or show only optional components.
 
-<ComponentList :data="data" />
+<ComponentDirectory :data="data" />

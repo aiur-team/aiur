@@ -1,0 +1,43 @@
+# Migration merge evidence
+
+Every listed merged commit is an ancestor of the refreshed main target.
+
+| Ticket | State | Merge commit / PR |
+| --- | --- | --- |
+| #3260 | CLOSED | `6322b166cdacbe88632619e08344128846e4f48e` (#3527) |
+| #3267 | CLOSED | `65b03d62475b4a3569b4f137f156472bf074e778` (#3732) |
+| #3273 | CLOSED | `dd7fc3f5769500c39f17531663ed8e9089d09d6f` (#3531) |
+| #3280 | CLOSED | `797fb5087fe21f8b93502854eeefc80a42cdfd98` (#3702) |
+| #3281 | CLOSED | `2ac4ea24fb639ecfc33a6a4e57f951beedf13d4e` (#3574) |
+| #3282 | CLOSED | `f903e71ac82ecfd1fb8993838a6a3246bfa35fe4` (#6275) |
+| #3283 | CLOSED | `276ddac93751624365a74163373fca43e47f774b` (#3989) |
+| #3284 | CLOSED | `a1a67b9f9a6ba057f67661d82aa8ed3ee714aaca` (#3993) |
+| #3286 | CLOSED | `e777b37e011551800b81f84cd489bab5c0174f54` (#3735) |
+| #3312 | CLOSED | `71295e0c73ced6ed75cd97b2d9636f33cc12f7b3` (#3721) |
+| #3313 | CLOSED | `9487f665cd776183c45ece259d84a8037a8dd49b` (#4018) |
+| #3317 | CLOSED | `9bc040958846b2614d5e6d21bfad8536c00aeeef` (#3737) |
+| #3318 | CLOSED | `81f1a92450f43e5e8c8853ecf6ead9a26e898a1b` (#3729) |
+| #3319 | CLOSED | `d2a022fadda5b1844b11b114c5abc18863c62ce1` (#3743) |
+| #3320 | CLOSED | `3eed1d161d0ca9fcfe95070ac03bae8341992bd1` (#4015) |
+| #3325 | CLOSED | `145929316e4a13a7d30afb3814d3c826778f33cd` (#5035) |
+| #3326 | CLOSED | `ae846c79ddb81592d99b6ca7ad74c5f497e76fd9` (#5161) |
+| #3327 | CLOSED | `437cb5e3182d6fca72e00e993b43dd33142949ad` (#5202) |
+| #3328 | CLOSED | `26af25b6ed5b58b272eb14070b492a9ddd3960e7` (#5437) |
+| #3329 | CLOSED | `54d40ac90ab61c92ebf42511ea429937c4a7e15f` (#3733) |
+| #3330 | CLOSED | `ae1ba07f64dec17eb0fc608adc124569da860048` (#3742) |
+| #3331 | CLOSED | `d30bfc88bb2231c4d4d20cd44b07797c7b6f5a90` (#3739) |
+| #3332 | CLOSED | `2c69042f98c90809c2b500780b26f710ce8684d0` (#4422) |
+| #3333 | CLOSED | `f46c8bcedf5b84a5f8c4e105be79b4864b3f2163` (#3744) |
+| #3334 | CLOSED | `e91b997f6d32d4cb8eaf3c0afc641079c353c3c7` (#4021) |
+| #3335 | CLOSED | `74dc7a1b592c732a5057413f1cb3469eaeec5776` (#4409) |
+| #3336 | CLOSED | `93eff8275b32006aae40131a9b365839416da1d6` (#4460) |
+| #3337 | CLOSED | `c96025161f1688888de4159d8c31fb117a989b6a` (#5026) |
+| #3344 | CLOSED | `f97b4c5854294e097404f55805d3cacaa18aef5c` (#3554) |
+| #3366 | CLOSED | `77aaab71b8562431d7a03903ffa9fd23686b0fcf` (#5875) |
+| #3406 | CLOSED | `8222adb5f416e2804f4e709534165ab1d69acaa8` (#3525) |
+| #3456 | OPEN | not merged |
+| #3460 | CLOSED | `6d5a552c066b349ee959f8d4d99c75c1ced699f2` (#4216) |
+| #3470 | CLOSED | `b75fd0461b168f3d72fd259b3679844f8a30b303` (#4426) |
+| #3477 | CLOSED | `bce1f876bb87b1b758899d14cfe4ac79efaf0b74` (#5475) |
+| #3478 | OPEN | not merged |
+| #3479 | OPEN | not merged |

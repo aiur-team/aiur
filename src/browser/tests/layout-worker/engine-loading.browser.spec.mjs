@@ -76,11 +76,9 @@ test('worker rejects malformed engine identities and denied subresources with re
 
   try {
     await openFixture(recoveryPage)
-    // The recovery block below exercises the standalone worker client module; it
-    // only needs the fixture rendered. The graph itself is the synchronous grid
-    // (no layout worker adapter), so assert the grid is present rather than a
-    // removed `data-layout-health` state.
-    await expect(recoveryPage.locator('#fixture-build-order-graph[data-bo-grid]')).toBeVisible()
+    // The recovery block exercises the standalone worker client module; it only
+    // needs the shared fixture rendered.
+    await expect(recoveryPage.locator('#fixture-root')).toBeVisible()
 
     await recoveryContext.route(urls.engine, (route) => {
       engineRequests += 1

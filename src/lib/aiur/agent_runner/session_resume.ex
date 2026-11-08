@@ -211,10 +211,10 @@ defmodule Aiur.AgentRunner.SessionResume do
   # failure a restart away from its cause (issue #1621).
   @doc false
   @spec session_handle_to_save(map(), worker_host()) :: {:ok, map()} | :skip
-  def session_handle_to_save(%{thread_id: thread_id, backend: backend}, nil)
+  def session_handle_to_save(%{thread_id: thread_id, backend: backend} = session, nil)
       when is_binary(thread_id) and is_binary(backend) do
     if CodingAgent.resumable?(backend) do
-      {:ok, %{backend: backend, thread_id: thread_id}}
+      {:ok, Map.merge(%{backend: backend, thread_id: thread_id}, Map.take(session, [:pull_tool_installed]))}
     else
       :skip
     end

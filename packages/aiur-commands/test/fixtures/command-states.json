@@ -1,0 +1,176 @@
+{
+  "description": "Fixtures shared by the Elixir contract test and the @aiur/commands renderer test. Each entry is one Command projection as the ticket-scoped API returns it, plus the component state both surfaces must derive.",
+  "fixtures": [
+    {
+      "name": "pending with options and a recommendation",
+      "expected_state": "pending",
+      "projection": {
+        "decision_id": "dec_pending",
+        "version": 2,
+        "question": "Ship the build?",
+        "ticket": {"identifier": "42", "title": "Game", "url": "https://example.test/42"},
+        "blocking": true,
+        "decision_status": "open",
+        "revision_sequence": 0,
+        "options": [
+          {"id": "approve", "label": "Approve", "description": "Ship it"},
+          {"id": "hold", "label": "Hold", "description": null}
+        ],
+        "recommendation": {"option_id": "approve"},
+        "artifacts": [{"kind": "url", "value": "https://github.com/aiur-team/aiur/issues/42"}],
+        "answer": null,
+        "active_answer": null
+      }
+    },
+    {
+      "name": "free response only",
+      "expected_state": "pending",
+      "projection": {
+        "decision_id": "dec_free",
+        "version": 1,
+        "question": "What should the next milestone be?",
+        "blocking": false,
+        "decision_status": "open",
+        "revision_sequence": 0,
+        "options": [],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": null,
+        "active_answer": null
+      }
+    },
+    {
+      "name": "answered",
+      "expected_state": "answered",
+      "projection": {
+        "decision_id": "dec_answered",
+        "version": 3,
+        "question": "Ship the build?",
+        "blocking": true,
+        "decision_status": "decided",
+        "revision_sequence": 0,
+        "options": [{"id": "approve", "label": "Approve"}],
+        "recommendation": {"option_id": "approve"},
+        "artifacts": [],
+        "answer": {"action_id": "act_1", "decision_version": 3, "selected_option_id": "approve"},
+        "active_answer": {"action_id": "act_1", "decision_version": 3, "selected_option_id": "approve"}
+      }
+    },
+    {
+      "name": "rejected",
+      "expected_state": "rejected",
+      "projection": {
+        "decision_id": "dec_rejected",
+        "version": 3,
+        "question": "Ship the build?",
+        "blocking": true,
+        "decision_status": "decided",
+        "revision_sequence": 0,
+        "options": [{"id": "approve", "label": "Approve"}],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": {"action_id": "act_r", "decision_version": 3, "custom_response": "Wrong question: the build is already shipped", "rejected": true},
+        "active_answer": {"action_id": "act_r", "decision_version": 3, "custom_response": "Wrong question: the build is already shipped", "rejected": true}
+      }
+    },
+    {
+      "name": "revised",
+      "expected_state": "revised",
+      "projection": {
+        "decision_id": "dec_revised",
+        "version": 5,
+        "question": "Ship the build?",
+        "blocking": true,
+        "decision_status": "decided",
+        "revision_sequence": 2,
+        "options": [{"id": "approve", "label": "Approve"}],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": {"action_id": "act_2", "decision_version": 5, "custom_response": "After the tests"},
+        "active_answer": {"action_id": "act_2", "decision_version": 5, "custom_response": "After the tests"}
+      }
+    },
+    {
+      "name": "expired",
+      "expected_state": "expired",
+      "projection": {
+        "decision_id": "dec_expired",
+        "version": 1,
+        "question": "Ship the build?",
+        "blocking": false,
+        "decision_status": "expired",
+        "revision_sequence": 0,
+        "options": [],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": null,
+        "active_answer": null
+      }
+    },
+    {
+      "name": "unavailable store",
+      "expected_state": "unavailable",
+      "projection": {
+        "decision_id": "dec_partial",
+        "version": 1,
+        "question": "Ship the build?",
+        "blocking": false,
+        "decision_status": "open",
+        "revision_sequence": 0,
+        "options": [],
+        "recommendation": null,
+        "artifacts": [],
+        "answer": null,
+        "active_answer": null,
+        "health": {"status": "partial", "partial": true, "reason": "retained_store_partial"}
+      }
+    },
+    {
+      "name": "pending with typed prompt and option media",
+      "expected_state": "pending",
+      "projection": {
+        "decision_id": "dec_media",
+        "version": 1,
+        "question": "Which cover art?",
+        "ticket": {"identifier": "42", "title": "Game", "url": "https://example.test/42"},
+        "blocking": false,
+        "decision_status": "open",
+        "revision_sequence": 0,
+        "options": [
+          {
+            "id": "cover-a",
+            "label": "Cover A",
+            "description": "Brighter palette",
+            "media": [
+              {
+                "kind": "image",
+                "mime_type": "image/png",
+                "attachment_id": "med_cover_a",
+                "alt_text": "Cover A: bright meadow",
+                "caption": "Cover A",
+                "width": 1200,
+                "height": 630,
+                "locator": {"kind": "attachment", "attachment_id": "med_cover_a"}
+              }
+            ]
+          },
+          {"id": "cover-b", "label": "Cover B", "description": null}
+        ],
+        "recommendation": {"option_id": "cover-a"},
+        "media": [
+          {
+            "kind": "animated_image",
+            "mime_type": "image/gif",
+            "attachment_id": "med_walkthrough",
+            "alt_text": "Walkthrough of the opening scene",
+            "caption": "Opening scene walkthrough",
+            "locator": {"kind": "attachment", "attachment_id": "med_walkthrough"}
+          }
+        ],
+        "artifacts": [{"kind": "url", "value": "https://example.test/design-notes"}],
+        "answer": null,
+        "active_answer": null
+      }
+    }
+  ]
+}

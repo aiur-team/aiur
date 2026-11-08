@@ -258,10 +258,10 @@ defmodule Aiur.AgentRunnerTest do
       assert AgentRunner.transient_run_error?(:prompt_not_delivered)
     end
 
-    test "a retired app-server port is transient so a fresh generation can replace it" do
-      assert AgentRunner.transient_run_error?(:port_closed)
+    test "an exited app-server port is transient so a fresh generation can replace it" do
       assert AgentRunner.transient_run_error?({:port_exit, 9})
-      assert AgentRunner.transient_run_error?(:port_closed, "codex")
+      refute AgentRunner.transient_run_error?(:port_closed)
+      refute AgentRunner.transient_run_error?(:port_closed, "codex")
       refute AgentRunner.transient_run_error?(:port_closed, "claude")
       assert AgentRunner.transient_run_error?({:port_exit, 9}, "codex")
       refute AgentRunner.transient_run_error?({:port_exit, 9}, "claude")
@@ -285,6 +285,10 @@ defmodule Aiur.AgentRunnerTest do
                {:turn_interrupt_failed, :port_closed},
                "claude"
              )
+    end
+
+    test "fresh-session relay closure uses bounded failure retries instead of continuation dispatches" do
+      refute AgentRunner.transient_run_error?(:port_closed, "codex")
     end
 
     test "Muse re-dispatches only a pre-write closed turn/start, not an uncertain native outcome" do

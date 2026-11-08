@@ -20,10 +20,11 @@ defmodule Aiur.Instance.Heartbeat do
       ttl_ms: Keyword.get(opts, :ttl_ms, @ttl_ms),
       metadata_fun:
         Keyword.get(opts, :metadata_fun, fn ->
-          Application.get_env(:aiur, :instance_heartbeat_metadata, %{
-            "version" => 1,
-            "data" => %{}
-          })
+          case Application.get_env(:aiur, :instance_heartbeat_metadata) do
+            metadata when is_map(metadata) -> metadata
+            metadata_fun when is_function(metadata_fun, 0) -> metadata_fun.()
+            _ -> Aiur.Instance.heartbeat_metadata()
+          end
         end),
       version: Keyword.get(opts, :build_version, Application.spec(:aiur, :vsn) |> to_string())
     }

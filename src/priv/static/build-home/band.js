@@ -6,9 +6,8 @@ import { etaLabel } from './estimate.js';
 import { fmtT } from './util.js';
 import { writeURL } from './url.js';
 import './band-scroll.js';
-export { SNAP_T, guardTarget, settleTarget } from './band-scroll.js';
 
-const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
+const groups = [['ok', 'nr', 'active', 'running'], ['queued', 'nt', 'retrying', 'retrying'], ['bad', 'ns', 'error,retries,command,native_question', 'stuck'], ['idle', 'ni', 'paused,parked', 'paused']];
 const AGENTS_STALE_MAX_AGE_MS = 120_000;
 export function bandCounts(rows) {
   const result = { nr: 0, nt: 0, ns: 0, ni: 0, nu: 0 };
@@ -46,7 +45,10 @@ export function bandAgentsFreshness(D, now = nowMs()) {
   if (!bandAgentsUsable(D, now) || source?.state === 'ok' || age === null) return null;
   const minutes = Math.floor(age / 60_000);
   const ageLabel = minutes === 0 ? 'under 1m ago' : `${minutes}m ago`;
-  return { text: `Stale · ${ageLabel}`, title: `Last agent observation ${fmtT(source.observed_at)}; ${ageLabel}` };
+  if (source?.state === 'unavailable') return { text: `Last read failed · ${ageLabel}`, title: `Last read failed at ${fmtT(source.observed_at)}; ${ageLabel}` };
+  const staleAfter = Number.isFinite(source?.stale_after_ms) ? source.stale_after_ms : 60_000;
+  const freshness = age <= staleAfter ? 'Fresh' : 'Stale';
+  return { text: `${freshness} · ${ageLabel}`, title: `Last agent observation ${fmtT(source.observed_at)}; ${ageLabel}` };
 }
 function paintClock() {
   if (!ctx.life || ctx.life.disposed) return;

@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.RunnerQueue do
   @moduledoc "Reports queued pull request CI and its age."
 
   alias Aiur.Alerts
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.Access
   alias Aiur.LandingWatch.Classifier
 
   @spec report([map()], keyword()) :: :ok | {:error, term()}
@@ -36,9 +36,9 @@ defmodule Aiur.LandingWatch.RunnerQueue do
 
   defp queued_runs(opts) do
     with {:ok, {owner, repo}} <- parse_repo(opts),
-         {:ok, token} <- Transport.require_token(opts) do
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Keyword.get(opts, :base_url, Transport.base_url())}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{event: "pull_request", status: "queued", per_page: 100})
+         {:ok, token} <- Access.require_token(opts) do
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Keyword.get(opts, :base_url, Access.base_url())}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{event: "pull_request", status: "queued", per_page: 100})
 
       fetch_run_pages(request, token, url, [], 0)
     end
@@ -49,14 +49,14 @@ defmodule Aiur.LandingWatch.RunnerQueue do
   defp fetch_run_pages(request, token, url, acc, page) do
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_runner_queue"}) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
-        next = Transport.parse_next_page_url(Map.get(response, :headers, []))
+        next = Access.parse_next_page_url(Map.get(response, :headers, []))
         if is_nil(next), do: {:ok, acc ++ runs}, else: fetch_run_pages(request, token, next, acc ++ runs, page + 1)
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _ ->
         {:error, :invalid_runner_queue_response}
@@ -66,7 +66,7 @@ defmodule Aiur.LandingWatch.RunnerQueue do
   defp parse_repo(opts) do
     case Keyword.get(opts, :parse_repo_fun) do
       fun when is_function(fun, 0) -> fun.()
-      nil -> Transport.parse_repo()
+      nil -> Access.parse_repo()
     end
   end
 

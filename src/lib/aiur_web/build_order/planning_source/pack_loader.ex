@@ -1,11 +1,12 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   @moduledoc "Pack discovery, loading, duplicate reconciliation and pack-derived identities for the planning source."
-
   require Logger
 
   alias Aiur.BuildOrder.PackPaths
   alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader.TicketAttributes
 
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
@@ -13,21 +14,43 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
 
   @doc false
+  @spec feature_metadata() :: map()
+  def feature_metadata do
+    %{
+      "workstreams" =>
+        Enum.flat_map(load_packs(), fn pack ->
+          pack.metadata
+          |> Map.get("workstreams", [])
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(&Map.put(&1, "root_number", pack.root_number))
+        end)
+    }
+  end
+
+  @doc false
   @spec load_packs(keyword()) :: [map()]
   def load_packs(options \\ []) do
-    include_drafts? = Keyword.get(options, :include_drafts?, false)
+    load_pack_results(options).packs
+  end
 
-    pack_paths()
-    |> Enum.map(&load_pack(&1, include_drafts?))
-    |> Enum.flat_map(fn
-      {:ok, pack} -> [pack]
-      {:error, _reason} -> []
-    end)
+  @doc false
+  @spec load_pack_results(keyword()) :: map()
+  def load_pack_results(options \\ []) do
+    paths = pack_paths()
+    results = Enum.map(paths, fn entry -> {entry, load_pack(entry, Keyword.get(options, :include_drafts?, false))} end)
+    failed = for {{source, path}, {:error, _reason}} <- results, do: %{source: source, path: path}
+    packs = for {_entry, {:ok, pack}} <- results, do: pack
+    %{configured: length(paths), failed: failed, packs: prepare_packs(packs)}
+  end
+
+  defp prepare_packs(packs) do
+    packs
     |> filter_for_tracked_repository()
     |> reconcile_duplicate_packs()
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
+    |> Enum.map(&FeatureIconGuard.sanitize/1)
   end
 
   # A single explicit pack is a test/demo override. Every normal catalog source,
@@ -122,7 +145,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
           completed: declared_completed? or status_completed?(status),
           completed_at: status_completed_at(status),
           status: status,
-          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
+          metadata:
+            Map.take(json, [
+              "workstreams",
+              "phases",
+              "external_gates",
+              "label_projection",
+              "build_order_id",
+              "ticket_prefix",
+              "plan_version",
+              "researched_at_commit"
+            ]),
           materialized?: Enum.any?(tickets, &is_integer(&1.number)),
           tickets: tickets
         }
@@ -137,7 +170,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
       error -> pack_error(absolute, error)
     end
   rescue
-    error -> pack_error(absolute_path(path), {:exception, error.__struct__, Exception.message(error)})
+    error -> pack_error(inspect(path), {:exception, error.__struct__, Exception.message(error)})
   end
 
   defp pack_object(json) when is_map(json), do: :ok
@@ -272,6 +305,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
          number: number,
          node_id: ticket_node_id(attributes),
          depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
+         feature: TicketAttributes.feature(attributes),
+         kind: TicketAttributes.kind(attributes),
+         provenance: TicketAttributes.provenance(attributes),
+         serializes_with: TicketAttributes.references(attributes, "serializes_with"),
+         suggested_after: TicketAttributes.references(attributes, "suggested_after"),
+         contains: TicketAttributes.references(attributes, "contains"),
+         external_gates: TicketAttributes.references(attributes, "external_gates"),
          document_url: nil,
          document_path: document_path,
          draft_body: if(include_drafts? and is_nil(number), do: draft_body(document_path, pack_dir)),

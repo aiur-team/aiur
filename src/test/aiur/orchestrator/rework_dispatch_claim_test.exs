@@ -439,27 +439,33 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
   # change, so the mutation check below counts only the dispatch tests above.
   test "regression guard: promoting rework preserves the independent agent:paused marker" do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["agent:rework", "agent:paused"] end)
 
     request_fun = fn request ->
       send(parent, {:request, request})
 
       case request.method do
         :get ->
+          current_labels = Agent.get(labels, & &1)
+
           {:ok,
            %{
              status: 200,
              body: %{
                "state" => "open",
-               "labels" => [%{"name" => "agent:rework"}, %{"name" => "agent:paused"}]
+               "labels" => Enum.map(current_labels, &%{"name" => &1})
              }
            }}
 
         :post ->
           assert request.body == %{"labels" => ["agent:in-progress"]}
+          Agent.update(labels, &Enum.uniq(request.body["labels"] ++ &1))
           {:ok, %{status: 200}}
 
         :delete ->
           refute String.ends_with?(request.url, "/agent:paused")
+          label = request.url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(labels, &List.delete(&1, label))
           {:ok, %{status: 200}}
       end
     end
@@ -473,5 +479,6 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
     assert_received {:request, %{method: :post}}
     assert_received {:request, %{method: :delete, url: url}}
     assert String.ends_with?(url, "/agent:rework")
+    assert_received {:request, %{method: :get}}
   end
 end

@@ -60,6 +60,26 @@ defmodule Aiur.Orchestrator.TodoDispatchClaimTest do
   def handle_transition(event, measurements, meta, pid),
     do: send(pid, {:ticket_transition, event, measurements, meta})
 
+  test "a seeded memory issue can be dispatched to the configured runner" do
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+    on_exit(fn -> if is_nil(previous_issues), do: Application.delete_env(:aiur, :memory_tracker_issues), else: Application.put_env(:aiur, :memory_tracker_issues, previous_issues) end)
+    seeded = %Issue{id: "seed-dispatch", identifier: "DEMO-SEED", title: "Seed dispatch", state: "todo", labels: []}
+    assert :ok = Aiur.Memory.Tracker.add_issue(seeded)
+    assert {:ok, [candidate]} = Tracker.fetch_candidate_issues()
+    parent = self()
+
+    Dispatcher.dispatch_issue(dispatch_state(), candidate, nil, nil,
+      blocked_by_hydrator: &{:ok, &1},
+      runner: fn dispatched, _recipient, _opts ->
+        send(parent, {:seeded_runner_issue, dispatched})
+        :ok
+      end
+    )
+
+    assert_receive {:seeded_runner_issue, %Issue{id: "seed-dispatch", identifier: "DEMO-SEED"}}, 1_000
+  end
+
   test "dispatch claims todo in-progress before a runner that never transitions state" do
     candidate = issue("todo-dispatch-claim")
     Application.put_env(:aiur, :memory_tracker_issues, [candidate])

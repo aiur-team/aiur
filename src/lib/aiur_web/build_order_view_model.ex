@@ -187,6 +187,7 @@ defmodule AiurWeb.BuildOrderViewModel do
           | :empty
           | :structurally_invalid
           | :provider_stale
+          | :unknown
           | :provider_unavailable
 
   @type t :: %__MODULE__{

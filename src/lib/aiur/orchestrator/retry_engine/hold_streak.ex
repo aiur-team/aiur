@@ -14,8 +14,8 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @alert_after_ms 30 * 60 * 1_000
 
@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
   def clear(%State{} = state, issue_id) do
     case Map.get(state.budget_hold_streaks, issue_id) do
       %{alerted?: true, identifier: identifier} ->
-        case Alerts.emit_system("#{topic(identifier)}.resolved",
+        case Signal.alert("#{topic(identifier)}.resolved",
                issue: identifier,
                reason: "Ticket #{identifier} is no longer held: the local GitHub budget hold lifted or its claim was released.",
                needs_attention: false,
@@ -74,7 +74,7 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
 
     Logger.warning(message)
 
-    Alerts.emit_system(topic(identifier),
+    Signal.alert(topic(identifier),
       issue: identifier,
       message: message,
       reason: message,

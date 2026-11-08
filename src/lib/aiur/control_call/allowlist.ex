@@ -5,6 +5,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @agent [:Aiur, :AgentControlCLI]
   @handoff [:Aiur, :Handoff, :CLI]
   @session [:Aiur, :HarnessSessionCLI]
+  @usage [:Aiur, :Usage, :CLI]
   @ticket_usage [:Aiur, :TicketUsageCLI]
   @sweep [:Aiur, :ExecutorSweep, :CLI]
   @pr_merge [:Aiur, :PrMerge, :Record]
@@ -23,10 +24,19 @@ defmodule Aiur.ControlCall.Allowlist do
     source: {:enum, ["backfill-agent"]},
     epics: :epic_list,
     add_epics: :epic_list,
+    epic_hues: :epic_hue_map,
+    json: :boolean
+  }
+  @lane_options %{
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
+    epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
+    ids: :feature_ids,
+    who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    source: {:enum, [:cli, :"backfill-agent"]},
     json: :boolean
   }
   @epic_options %{
-    action: {:enum, [:set, :clear, :show, :list]},
+    action: {:enum, [:set, :clear, :confirm, :show, :list]},
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
@@ -48,15 +58,28 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_sweep, 1, &__MODULE__.sweep_scope/1, [:keyword], %{apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
-     %{filter: {:enum, [:all, :open, :blocking, :resolved]}, blocking: :boolean, json: :boolean, limit: :positive, decision_id: :string, ticket: :string, search: :string, cursor: :string}},
+     %{
+       filter: {:enum, [:all, :open, :blocking, :resolved, :"needs-you", :"with-executor", :"from-executor"]},
+       blocking: :boolean,
+       json: :boolean,
+       limit: :positive,
+       decision_id: :string,
+       ticket: :string,
+       search: :string,
+       cursor: :string
+     }},
+    {:commands_repair, 0, :write, [], %{}},
+    {:commands_repair, 1, :write, [:keyword], %{json: :boolean}},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
     {:feature, 0, &__MODULE__.feature_scope/1, [], %{}},
+    {:lane, 1, &__MODULE__.lane_scope/1, [:keyword], @lane_options},
+    {:lane, 0, &__MODULE__.lane_scope/1, [], %{}},
     {:epic, 1, &__MODULE__.epic_scope/1, [:keyword], @epic_options},
     {:epic, 0, &__MODULE__.epic_scope/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
-    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean}},
+    {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
     {:queue, 0, &__MODULE__.queue_scope/1, [], %{}},
     {:queue, 1, &__MODULE__.queue_scope/1, [:keyword],
      %{
@@ -77,6 +100,8 @@ defmodule Aiur.ControlCall.Allowlist do
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
+    {:history_label_writes, 1, &__MODULE__.history_label_scope/1, [:keyword],
+     %{action: {:enum, [:plan, :start, :pause, :resume, :status]}, expect: :non_negative, per_hour: :non_negative, epic_labels: :boolean, json: :boolean}},
     {:github_cost, 0, :read, [], %{}},
     {:github_cost, 1, :read, [:keyword], %{budget: {:enum, ["graphql", "core", "all"]}, format: {:enum, [:auto, :table, :records]}, json: :boolean}},
     {:experiments, 0, &__MODULE__.experiment_scope/1, [],
@@ -89,6 +114,36 @@ defmodule Aiur.ControlCall.Allowlist do
     {:github_usage, 1, :read, [:keyword], %{json: :boolean}},
     {:ticket_estimate, 0, &__MODULE__.estimate_scope/1, [], %{}},
     {:ticket_estimate, 1, &__MODULE__.estimate_scope/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
+    {:operator_relay_answer, 1, :write, [:keyword],
+     %{
+       decision_id: :non_empty_string,
+       option_id: :non_empty_string,
+       custom_response: :non_empty_string,
+       expected_version: :positive,
+       quote: :non_empty_string,
+       relayed_by: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       auto_current: :boolean,
+       supersede: :boolean
+     }},
+    {:command_request, 1, :write, [:keyword],
+     %{
+       question: :non_empty_string,
+       options: :string_list,
+       media: :string_list,
+       recommend: :non_empty_string,
+       blocking: :boolean,
+       urgency: {:enum, ["low", "normal", "high", "critical"]},
+       ticket: :non_empty_string,
+       long_context_markdown: :string,
+       short_summary: :string,
+       executor_id: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       json: :boolean
+     }},
+    {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_claim_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
+    {:executor_release_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -119,6 +174,10 @@ defmodule Aiur.ControlCall.Allowlist do
        env: :executor_env
      }},
     {:executor_wait, 0, :write, [], %{}},
+    {:executor_check, 1, :deny, [:keyword], %{json: :boolean, repo_root: :non_empty_string}},
+    {:executor_attach, 1, :deny, [:keyword], %{harness: {:enum, ["claude", "codex"]}, takeover?: :boolean, print_config: :boolean, repo_root: :non_empty_string}},
+    {:executor_detach, 1, :deny, [:keyword], %{repo_root: :non_empty_string}},
+    {:executor_session, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_roster, 0, :read, [], %{}},
     {:executor_roster, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_fast_forward, 1, :write, [:positive], %{}},
@@ -136,6 +195,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_listen_validate, 1, :read, [:string], %{}},
     {:todo, 1, :write, [:string_list], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
     {:todo, 2, :write, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
+    {:redispatch, 2, :write, [:string_list, {:nullable, :string}], %{}},
     {:reset_budget, 1, :write, [:string_list], %{}},
     {:pause_global, 0, :write, [], %{}},
     {:resume_global, 0, :write, [], %{}},
@@ -155,11 +215,11 @@ defmodule Aiur.ControlCall.Allowlist do
     {:take, 2, :write, [:string_list, :string], %{}},
     {:release, 2, :write, [:string_list, :string], %{}},
     {:recover_workspace, 2, :write, [:string, :positive], %{}},
-    {:usage, 0, :read, [], %{}},
+    {:usage, 0, :deny, [], %{}},
     {:usage, 1, :deny, [:atom], %{}},
     {:usage, 2, :deny, [:atom, :keyword], %{}},
-    {:accounts, 1, :read, [:boolean], %{}},
-    {:accounts, 2, :read, [:boolean, {:nullable, :string}], %{}},
+    {:accounts, 1, :deny, [:boolean], %{}},
+    {:accounts, 2, :deny, [:boolean, {:nullable, :string}], %{}},
     {:usage_bar, 1, :deny, [:integer], %{}},
     {:prepare_handoff, 0, :deny, [], %{}},
     {:prepare_handoff, 1, :deny, [:keyword], %{}},
@@ -171,12 +231,16 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @test_rows (if Mix.env() == :test do
                 test_probe = [:Aiur, :ControlCallTestProbe]
+                controller_probe = [:Aiur, :ControlControllerTestProbe]
 
                 [
                   {{test_probe, :actor, 0}, %{class: :read, positional: [], options: %{}}},
-                  {{test_probe, :read_wait, 0}, %{class: :read, positional: [], options: %{}}},
-                  {{test_probe, :write_wait, 0}, %{class: :write, positional: [], options: %{}}},
-                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}}
+                  {{test_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
+                  {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
+                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
+                  {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
+                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
+                  {{[:Aiur, :ControlReplayTestProbe], :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
                 ]
               else
                 []
@@ -184,17 +248,29 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @rows Enum.map(@agent_rows, fn {function, arity, class, positional, options} -> {{@agent, function, arity}, %{class: class, positional: positional, options: options}} end) ++
           [
+            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_scope/1, positional: [:non_empty_string, :string_list], options: %{}}},
             {{@handoff, :report, 0}, %{class: :read, positional: [], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :report, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@handoff, :agents, 0}, %{class: :read, positional: [], options: %{}}},
             {{@session, :rpc, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean}}},
+            {{@usage, :rpc, 2}, %{class: :read, positional: [{:nullable, :string}, :boolean], options: %{}}},
+            {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},
             {{@sweep, :rpc, 1}, %{class: &__MODULE__.sweep_scope/1, positional: [:keyword], options: %{argv: :literal_list, json: :boolean}}},
             {{@pr_merge, :print_watcher_state, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
   @table Map.new(@rows)
+  @spec history_label_scope(list()) :: :read | :write | :deny
+  def history_label_scope([opts]) do
+    case Keyword.get(opts, :action, :status) do
+      action when action in [:plan, :status] -> :read
+      :pause -> :write
+      _ -> :deny
+    end
+  end
+
   @spec fetch([atom()], atom(), non_neg_integer()) :: {:ok, map()} | :error
   def fetch(segments, function, arity), do: Map.fetch(@table, {segments, function, arity})
 
@@ -203,6 +279,9 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @spec facade_functions() :: [{atom(), non_neg_integer()}]
   def facade_functions, do: Facade.functions()
+
+  @spec listen_mode_scope(list()) :: :read | :write
+  def listen_mode_scope([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :write)
 
   @spec watch_scope(list()) :: :read | :write
   def watch_scope(args), do: if(option(args, :mode) == :full, do: :read, else: :write)
@@ -216,8 +295,11 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec feature_scope(list()) :: :read | :write
   def feature_scope(args), do: if(option(args, :op) == :show, do: :read, else: :write)
 
+  @spec lane_scope(list()) :: :read | :write
+  def lane_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+
   @spec epic_scope(list()) :: :read | :write
-  def epic_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+  def epic_scope(args), do: lane_scope(args)
 
   @spec queue_scope(list()) :: :read | :write | :deny
   def queue_scope(args) do

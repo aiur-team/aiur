@@ -15,13 +15,16 @@ defmodule Aiur.IssueLogTranscriptTest do
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
     identifier = "transcript-#{System.unique_integer([:positive])}"
     tmp = Aiur.TestSupport.tmp_root!("aiur-transcript")
     File.mkdir_p!(Path.join(tmp, "log"))
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp, "state"))
 
     on_exit(fn ->
       if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
+      if original_runtime_state_dir, do: Application.put_env(:aiur, :runtime_state_dir, original_runtime_state_dir), else: Application.delete_env(:aiur, :runtime_state_dir)
       Aiur.TestCleanup.rm_rf!(tmp)
     end)
 

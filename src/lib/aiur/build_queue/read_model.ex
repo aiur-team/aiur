@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.ReadModel do
   @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
+  alias Aiur.BuildQueue.ReadModel.{Eligibility, SetSources}
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -29,8 +30,7 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     unavailable =
       for q <- document.queues,
-          context.tracker_source.freshness != :current or
-            (q.kind == :build_order and build_orders[q.root].source.freshness != :current),
+          context.tracker_source.freshness != :current or SetSources.unavailable?(q, build_orders, state),
           do: q.id
 
     native_blockers = Map.get(state, :native_blockers, %{})
@@ -53,6 +53,7 @@ defmodule Aiur.BuildQueue.ReadModel do
         document.queues |> Enum.filter(&(&1.kind == :build_order)),
         &{"build_order:#{&1.root}", build_orders[&1.root].source}
       )
+      |> Map.merge(SetSources.feature(document, state, now))
 
     %{
       schema_version: 1,
@@ -100,12 +101,11 @@ defmodule Aiur.BuildQueue.ReadModel do
     projection_by_id = Map.new(projections, &{&1.issue_id, &1})
     focus = List.first(queues)
     focus_members = if focus, do: queue_projections(document.items, focus.id, projection_by_id), else: []
+    members = Map.new(document.items, &{&1.issue_id, &1})
+    observations = Map.get(state, :observations, %{})
+    settings = Map.get(state, :settings)
 
-    startable =
-      Enum.filter(focus_members, fn projection ->
-        projection.state in [:ready, :promoted, :overridden] and projection.verdict == :ready and
-          not blocked_by_github?(Map.get(state, :native_blockers) || %{}, projection.issue_id)
-      end)
+    startable = Enum.filter(focus_members, &Eligibility.focus_startable?(&1, members, observations, settings, state))
 
     lower_claimed? =
       queues
@@ -126,14 +126,6 @@ defmodule Aiur.BuildQueue.ReadModel do
         projection = projection_by_id[id],
         not is_nil(projection),
         do: projection
-  end
-
-  defp blocked_by_github?(native_blockers, id) do
-    case Map.get(native_blockers, id) do
-      {:ok, blockers} -> Enum.any?(blockers, & &1.open?)
-      {:unknown, _reason} -> true
-      _ -> false
-    end
   end
 
   defp order_summary(queues, state) do
@@ -210,7 +202,8 @@ defmodule Aiur.BuildQueue.ReadModel do
 
     case cached_blocker_fetch(issue, tracker) do
       {:ok, hydrated} -> {:ok, Enum.map(hydrated.blocked_by, &cached_blocker(&1, observations, terminal_states))}
-      {:error, reason} when reason in [:cache_miss, :unsupported] -> :skip
+      {:error, :cache_miss} -> {:unknown, :blockers_not_observed}
+      {:error, :unsupported} -> :skip
       {:error, reason} -> {:unknown, reason}
       :skip -> :skip
     end
@@ -348,6 +341,8 @@ defmodule Aiur.BuildQueue.ReadModel do
       set_rank: queue.rank,
       kind: queue.kind,
       root: queue.root,
+      feature: queue.feature,
+      epic: queue.epic,
       name: queue.name,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
@@ -356,7 +351,8 @@ defmodule Aiur.BuildQueue.ReadModel do
       progress: progress,
       progress_reasons: Progress.reasons(queue, items, progress, context.build_orders[queue.root]),
       edges: context.summary_edges,
-      items: items
+      items: items,
+      elsewhere: SetSources.elsewhere(queue, context.state)
     }
   end
 
@@ -367,7 +363,14 @@ defmodule Aiur.BuildQueue.ReadModel do
     projection = fresh_projection(projection, context)
 
     prerequisites = prerequisites(member.issue_id, context) ++ native_prerequisites(member.issue_id, context)
-    {state, verdict, reason} = native_readiness(projection, prerequisites)
+
+    {state, verdict, reason} =
+      if projection.state != :unknown and
+           Eligibility.stale_manual_override?(member, context.observations[member.issue_id], context.state.settings) do
+        {:held, verdict(projection.verdict), :parked_marker}
+      else
+        native_readiness(projection, prerequisites)
+      end
 
     %{
       number: String.to_integer(member.issue_id),

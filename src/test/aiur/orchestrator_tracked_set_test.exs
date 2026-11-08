@@ -3,6 +3,51 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.Orchestrator.TrackerIdentityStore
+
+  test "tracked snapshot retains the validated issue identity for publishers" do
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "NODE-681", "number" => 681}, {"acme", "repo"}, {"acme", "repo"})
+    issue = %Aiur.Issue{id: "issue-681", identifier: "681", tracker_identity: identity}
+    state = %Aiur.Orchestrator.State{running: %{"issue-681" => %{identifier: "681", issue: issue}}}
+    on_exit(fn -> TrackedSet.reset([]) end)
+
+    assert state == TrackedSet.refresh(state)
+    assert Orchestrator.issue_tracked?(681)
+    assert TrackedSet.tracker_identity("681") == identity
+    assert TrackedSet.tracker_identity("682") == nil
+  end
+
+  test "validated identity survives deactivation and is durably reloadable" do
+    root = Aiur.TestSupport.tmp_root!("tracker-identities")
+    path = Path.join(root, "identities.json")
+    previous_path = Application.get_env(:aiur, :tracker_identity_store_path)
+    Application.put_env(:aiur, :tracker_identity_store_path, path)
+
+    on_exit(fn ->
+      TrackedSet.reset([])
+      if previous_path, do: Application.put_env(:aiur, :tracker_identity_store_path, previous_path), else: Application.delete_env(:aiur, :tracker_identity_store_path)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "NODE-7142", "number" => 7142}, {"acme", "repo"}, {"acme", "repo"})
+    issue = %Aiur.Issue{id: "issue-7142", identifier: "7142", tracker_identity: identity}
+    running = %Aiur.Orchestrator.State{running: %{"issue-7142" => %{identifier: "7142", issue: issue}}}
+
+    assert running == TrackedSet.refresh(running)
+    deactivated = %Aiur.Orchestrator.State{running: %{"issue-7142" => %{identifier: "7142", issue: issue, control: %{status: :deactivated}}}}
+    assert deactivated == TrackedSet.refresh(deactivated)
+
+    refute Orchestrator.issue_tracked?(7142)
+    assert TrackedSet.tracker_identity(7142) == identity
+    assert TrackerIdentityStore.load()["7142"] == identity
+
+    previous_owner = Process.whereis(TrackedSet)
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, TrackedSet)
+    assert {:ok, restarted_owner} = Supervisor.restart_child(Aiur.Supervisor, TrackedSet)
+    refute restarted_owner == previous_owner
+    assert TrackedSet.tracker_identity(7142) == identity
+    refute Orchestrator.issue_tracked?(7142)
+  end
 
   test "tracked set table is owned outside the orchestrator process" do
     tracked_set_owner = Process.whereis(TrackedSet)

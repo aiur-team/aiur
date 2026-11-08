@@ -36,8 +36,7 @@ defmodule Aiur.DaemonHeartbeatTest do
       File.write!(heartbeat_path, DateTime.to_iso8601(old_time) <> "\n")
 
       name = {:global, {:heartbeat_writer_tick, System.unique_integer()}}
-      {:ok, pid} = DaemonHeartbeatWriter.start_link(name: name, start_paused?: true)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid, :shutdown) end)
+      pid = start_supervised!({DaemonHeartbeatWriter, name: name, start_paused?: true})
 
       send(pid, :tick)
       _state = :sys.get_state(pid)

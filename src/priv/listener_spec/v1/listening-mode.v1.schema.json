@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "command": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "v": {
+          "const": 1
+        }
+      },
+      "required": [
+        "v",
+        "agent",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "control": {
+      "additionalProperties": false,
+      "properties": {
+        "backlog_on_leave_async": {
+          "description": "skip advances past unread backlog (Khala); notice keeps bodies pull-only and shows a notice.",
+          "enum": [
+            "skip",
+            "notice"
+          ],
+          "type": "string"
+        },
+        "effective": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/mode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effective_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requested": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/mode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "effective_reason",
+        "version"
+      ],
+      "type": "object"
+    },
+    "hookGolden": {
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "const": "<frame/>"
+        },
+        "harness": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "parsed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/parsedHook"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stdin": {
+          "type": "string"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stop_context": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "harness",
+        "stdin",
+        "parsed",
+        "frame",
+        "stdout",
+        "stop_context"
+      ],
+      "type": "object"
+    },
+    "mode": {
+      "enum": [
+        "steer",
+        "sync",
+        "async",
+        "mute"
+      ],
+      "type": "string"
+    },
+    "parsedHook": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "type": "boolean"
+        },
+        "event": {
+          "enum": [
+            "start",
+            "prompt",
+            "tool",
+            "stop",
+            "limit"
+          ]
+        },
+        "promptText": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "transcriptPath": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "event",
+        "continuation"
+      ],
+      "type": "object"
+    },
+    "steerSupportEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "proven",
+            "experimental",
+            "blocked_without_wrapper",
+            "unsupported",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "steer_carrier": {
+          "description": "Renderers must read this carrier: emulated_interrupt must display steer (interrupts current turn).",
+          "enum": [
+            "native",
+            "emulated_interrupt"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "support": {
+      "additionalProperties": false,
+      "properties": {
+        "async": {
+          "$ref": "#/$defs/supportEntry"
+        },
+        "steer": {
+          "$ref": "#/$defs/steerSupportEntry"
+        },
+        "sync": {
+          "$ref": "#/$defs/supportEntry"
+        }
+      },
+      "required": [
+        "steer",
+        "sync",
+        "async"
+      ],
+      "type": "object"
+    },
+    "supportEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "proven",
+            "experimental",
+            "blocked_without_wrapper",
+            "unsupported",
+            "unknown"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/aiur-team/khala/packages/listener/spec/v1/listening-mode.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/mode"
+    },
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/control"
+    },
+    {
+      "$ref": "#/$defs/support"
+    },
+    {
+      "$ref": "#/$defs/hookGolden"
+    }
+  ],
+  "title": "Shared listener v1 projections and hook codec fixtures"
+}

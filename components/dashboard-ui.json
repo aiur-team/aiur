@@ -9,7 +9,8 @@
     "src/lib/aiur/post_deploy_checklist.ex",
     "src/lib/aiur_web/**",
     "src/lib/aiur_web/routes/dashboard_pages.ex",
-    "src/lib/aiur_web/sockets/live_view.ex"
+    "src/lib/aiur_web/sockets/live_view.ex",
+    "src/lib/aiur_web/voice_conversation_events.ex"
   ],
   "facades": [
     "*"
@@ -20,6 +21,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "listener-modes",
     "orchestration",
     "projections",
     "signal",
@@ -33,11 +35,14 @@
     "build-queue",
     "commands",
     "conversations",
+    "executor-attention",
+    "experiments-page",
     "github",
     "github-access",
     "streamdeck-server",
     "telemetry",
     "ticket-context",
+    "voice-conversation",
     "voice-stt"
   ],
   "owns": {
@@ -50,7 +55,7 @@
     "WEB"
   ],
   "dependency_kind": "optional",
-  "summary": "Shows run status, agent conversations, Commands and usage in a browser.",
+  "summary": "Shows run status, worker and Executor conversations, Commands and usage in a browser.",
   "status": "optional",
   "install": {
     "type": "included"
@@ -60,5 +65,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

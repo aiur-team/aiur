@@ -38,7 +38,6 @@ defmodule Aiur.GitHub.BrokerTimeout do
   use GenServer
 
   alias Aiur.GitHub.Access.Settings
-  alias Aiur.Signal
 
   @retry_topic "system.github.budget_broker_retry"
   @degraded_topic "system.github.budget_broker_degraded"
@@ -48,7 +47,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
   # dwell itself is config; this is only the granularity at which it is checked.
   @check_interval_ms 30_000
 
-  defstruct events: [], since_ms: nil, alert_active: false, alert_cause: nil, checkpoint_stale: false, check_interval_ms: @check_interval_ms, emit_fun: &Signal.alert/2
+  defstruct events: [], since_ms: nil, alert_active: false, alert_cause: nil, checkpoint_stale: false, check_interval_ms: @check_interval_ms, emit_fun: &Settings.alert/2
 
   @type state :: %__MODULE__{}
 

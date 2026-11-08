@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
   """
 
   require Logger
-  alias Aiur.GitHub.{BotIdentity, ReviewThreads, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, BotIdentity, ReviewThreads, WriteThrough}
   alias Aiur.GitHub.ReviewThreads.{Reply, ResolutionPolicy}
 
   @resolve_review_thread_mutation """
@@ -41,8 +41,8 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
     with {:ok, thread_id} <- Reply.normalize_review_thread_id(review_thread_id),
          {:ok, terminal_reply_body} <-
            normalize_review_thread_terminal_reply_body(Keyword.get(opts, :terminal_reply_body)),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       do_resolve_review_thread(request_fun, token, thread_id, terminal_reply_body, opts)
     end
   end
@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @spec resolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def resolve_review_thread_mutation(request_fun, token, thread_id) do
-    case Transport.github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_resolve) do
+    case Access.github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_resolve) do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 
@@ -116,7 +116,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @spec unresolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def unresolve_review_thread_mutation(request_fun, token, thread_id) do
-    case Transport.github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_unresolve) do
+    case Access.github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_unresolve) do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 

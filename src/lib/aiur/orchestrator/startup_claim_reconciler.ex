@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
@@ -243,7 +243,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     )
 
     if alert_release_failed?(state, issue, reason, attempts, deferred?) do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         failure_topic(issue),
@@ -286,7 +286,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   end
 
   defp emit_released_alert(%Issue{} = issue, target, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue.identifier}.agent.attention.startup_orphan_claim_released",
@@ -311,7 +311,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         %{state | startup_claim_reconciliation_failures: failures}
 
       {_entry, failures} ->
-        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
         emit_alert_fun.(
           failure_topic(issue) <> ".resolved",
@@ -361,7 +361,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp alert_persistent(entry, _issue, _opts), do: entry
 
   defp alert_persistent_hold(entry, issue, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
     minutes = div(@hold_persistent_ms, 60_000)
 
     emit_alert_fun.(
@@ -382,7 +382,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   defp alert_persistent_ancestry(%{since: since} = entry, issue, opts) do
     if now_ms(opts) - since >= @ancestry_persistent_ms do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         failure_topic(issue),

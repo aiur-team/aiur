@@ -78,13 +78,13 @@ defmodule Aiur.DecisionStore.WithdrawalsTest do
     assert answerable.decision_status == :decided
   end
 
-  test "operator dismissal closes a deferred legacy blocker durably", %{dir: dir} do
+  test "operator dismissal closes a legacy blocker durably", %{dir: dir} do
     pid = start_store!(dir)
 
     assert {:ok, %{decision: decision}} = project_attention(pid, minimal_attention("Still blocked?"))
     opts = [actor: %{kind: :operator, id: "dashboard"}]
-    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
-    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(deferred.decision_id, opts, pid)
+    assert {:error, {:conflict, :not_deferrable}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(decision.decision_id, opts, pid)
     assert dismissed.decision_status == :dismissed
 
     GenServer.stop(pid)

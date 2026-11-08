@@ -14,7 +14,7 @@ defmodule AiurWeb.Build.ConversationSource do
   @optional_callbacks prepare: 2, events: 2, events_subscribe: 2, events_unsubscribe: 2
 
   @spec source() :: module() | {module(), keyword()}
-  def source, do: Application.get_env(:aiur, :build_conversation_source, AiurWeb.Build.ConversationSource.Wave0b)
+  def source, do: Application.get_env(:aiur, :build_conversation_source, AiurWeb.Build.ConversationSource.Journal)
 
   @spec call(module() | {module(), keyword()}, atom(), list()) :: term()
   def call({module, opts}, function, args), do: safe_apply(module, function, args ++ [opts])

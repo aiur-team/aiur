@@ -74,7 +74,7 @@ defmodule Aiur.GitHub.WriteThrough do
 
   require Logger
 
-  alias Aiur.GitHub.{PollSnapshots, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, PollSnapshots}
 
   @doc """
   Deposits an issue comment from a `POST .../issues/:number/comments` response.
@@ -170,10 +170,10 @@ defmodule Aiur.GitHub.WriteThrough do
     guarded(fn ->
       with true <- is_list(labels),
            {:ok, owner, repo} <- repo_identity(nil, opts),
-           key when not is_nil(key) <- ResourceStore.key(:issue_labels, owner, repo, issue_number) do
-        issue_key = ResourceStore.key(:issue, owner, repo, issue_number)
+           key when not is_nil(key) <- Access.key(:issue_labels, owner, repo, issue_number) do
+        issue_key = Access.key(:issue, owner, repo, issue_number)
 
-        ResourceStore.deposit_unless_older(key, labels,
+        Access.deposit_unless_older(key, labels,
           source: source(opts),
           version: held_issue_version(issue_key)
         )
@@ -230,7 +230,7 @@ defmodule Aiur.GitHub.WriteThrough do
         # A mark with no version suppresses on identity alone, which would
         # swallow the resource's next genuine change for the whole retention
         # window.
-        ResourceStore.deposit_unless_older(ResourceStore.key(type, owner, repo, id), data,
+        Access.deposit_unless_older(Access.key(type, owner, repo, id), data,
           source: source(opts),
           version: version,
           processed: is_binary(version)
@@ -245,7 +245,7 @@ defmodule Aiur.GitHub.WriteThrough do
   # the store holds no issue — in which case nothing is being blinded, because
   # there is no held version for a guard to have compared against.
   defp held_issue_version(key) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{version: version}} -> version
       :miss -> nil
     end
@@ -259,7 +259,7 @@ defmodule Aiur.GitHub.WriteThrough do
     # cached — on every label the orchestrator applies. If a body lands between
     # this check and the merge, skipping is exactly what the pre-store behaviour
     # was, and that delivery carried its own authoritative labels anyway.
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: %{}}} -> atomically_merge_labels(key, labels, opts)
       _other -> :ok
     end
@@ -276,7 +276,7 @@ defmodule Aiur.GitHub.WriteThrough do
   #
   # The fun is pure because a swap collision re-runs it against the new body.
   defp atomically_merge_labels(key, labels, opts) do
-    ResourceStore.update_resource(
+    Access.update_resource(
       key,
       fn
         %{} = issue -> Map.put(issue, "labels", labels)
@@ -326,7 +326,7 @@ defmodule Aiur.GitHub.WriteThrough do
   end
 
   defp configured_repo do
-    case Transport.parse_repo() do
+    case Access.parse_repo() do
       {:ok, {owner, repo}} -> {:ok, owner, repo}
       _other -> :error
     end

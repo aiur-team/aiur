@@ -24,7 +24,7 @@ defmodule Aiur.BuildOrder.EpicOverrides.Batch do
   @spec catalog((-> term())) :: {:ok, [map()]} | {:error, :epic_config_unavailable}
   def catalog(settings_fun) do
     case settings_fun.() do
-      {:ok, %{build_order: %{general_epics: epics}}} when is_list(epics) -> {:ok, Enum.map(epics, &Map.take(&1, [:key, :label]))}
+      {:ok, %{build_order: %{lanes: epics}}} when is_list(epics) -> {:ok, Enum.map(epics, &Map.take(&1, [:key, :label]))}
       _ -> {:error, :epic_config_unavailable}
     end
   rescue
@@ -56,8 +56,17 @@ defmodule Aiur.BuildOrder.EpicOverrides.Batch do
       previous = current.overrides[n]
       value = if op == "set", do: struct!(Override, Map.merge(provenance, %{number: n, epic: epic, confirmed: provenance.source != "backfill-agent", at: at, seq: current.generation + 1})), else: nil
       same = same?(previous, value)
-      result = %{number: n, status: if(same, do: :unchanged, else: :changed), previous: previous}
-      if same, do: {current, results ++ [result], changed}, else: {append(current, op, n, value, provenance, at), results ++ [result], changed ++ [n]}
+      kept = provenance.source == "backfill-agent" and not is_nil(previous) and previous.source != "backfill-agent"
+
+      status =
+        cond do
+          kept -> :kept_existing
+          same -> :unchanged
+          true -> :changed
+        end
+
+      result = %{number: n, status: status, previous: previous}
+      if same or kept, do: {current, results ++ [result], changed}, else: {append(current, op, n, value, provenance, at), results ++ [result], changed ++ [n]}
     end)
   end
 

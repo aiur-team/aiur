@@ -8,5 +8,6 @@ def nested_config_keys(root):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     keys = {}
-    module.collect(module.load_modules(root), module.ROOT_MODULE, '', set(), keys)
+    schema = module.Root(root / 'src/lib/aiur/config/schema.ex', 'Aiur.Config.Schema')
+    module.collect(module.load_modules(schema), schema.module, '', set(), keys, schema)
     return {key for key in keys if '.' in key}

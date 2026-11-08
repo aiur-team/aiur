@@ -38,10 +38,12 @@ defmodule Aiur.SessionHandle do
 
   @type attrs :: %{
           required(:backend) => String.t(),
-          required(:thread_id) => String.t()
+          required(:thread_id) => String.t(),
+          optional(:pull_tool_installed) => boolean()
         }
 
   @type handle :: %{
+          optional(:pull_tool_installed) => boolean(),
           backend: String.t(),
           thread_id: String.t(),
           hostname: String.t(),
@@ -54,14 +56,15 @@ defmodule Aiur.SessionHandle do
   (defaults to this host) — both injectable for tests.
   """
   @spec save(String.t(), attrs(), keyword()) :: :ok
-  def save(identifier, %{backend: backend, thread_id: thread_id}, opts \\ [])
+  def save(identifier, %{backend: backend, thread_id: thread_id} = attrs, opts \\ [])
       when is_binary(backend) and is_binary(thread_id) do
     payload = %{
       "schema_version" => @schema_version,
       "backend" => backend,
       "thread_id" => thread_id,
       "hostname" => hostname(opts),
-      "updated_at" => timestamp()
+      "updated_at" => timestamp(),
+      "pull_tool_installed" => Map.get(attrs, :pull_tool_installed, false)
     }
 
     :global.trans({{__MODULE__, identifier}, self()}, fn ->
@@ -228,7 +231,8 @@ defmodule Aiur.SessionHandle do
          backend: expected_backend,
          thread_id: thread_id,
          hostname: host,
-         updated_at: Map.get(raw, "updated_at")
+         updated_at: Map.get(raw, "updated_at"),
+         pull_tool_installed: Map.get(raw, "pull_tool_installed", false) == true
        }}
     else
       _ ->

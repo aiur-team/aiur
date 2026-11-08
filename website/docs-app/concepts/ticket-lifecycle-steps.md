@@ -1,6 +1,6 @@
 # How a ticket flows: steps 0–8
 
-Continues [How a ticket flows](/concepts/ticket-lifecycle), which holds the label lifecycle and state diagram. Covers every step from taking the Executor role to merge, and where tickets get stuck.
+Continues [How a ticket flows](/concepts/ticket-lifecycle), which holds the label lifecycle and state diagram. Covers every step from taking the Executor role to merge, and where tickets get stuck. For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle).
 
 ## Step 0 — Take the Executor role
 
@@ -308,6 +308,7 @@ Grouped by channel:
 | `system.dispatch.todo_capacity_exceeded` | `dispatch:auto` |
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
 | `system.toolchain.erlang_missing` / `.resolved` | `dispatch:auto` |
+| `system.toolchain.below_minimum` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
 | `system.queue.attention.#` (including `.resolved`) | `dispatch:auto` |
@@ -368,6 +369,10 @@ unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
+
+In `single_account` mode, an operator's blocking `COMMENTED` review routes to
+rework like other trusted blocking reviews. Merge or close cleanup removes stale
+lifecycle labels afterward.
 
 A trusted `CHANGES_REQUESTED` review also takes
 the PR out of the merge queue, turns its auto-merge off, and records both on the
@@ -454,6 +459,7 @@ when their condition clears, teardown runs (except `blocked`), or CI transitions
 | `agent:done` | Ticket work is complete | Merge lifecycle completes |
 | `agent:error` | Automated work stopped after an unrecoverable failure | Retry exhaustion or terminal dispatch failure |
 | `agent:cancelled` / `agent:canceled` | Ticket was explicitly cancelled | Tracker records cancellation |
+| `agent:budget-exhausted` | Ticket reached its configured spend cap and stopped | Durable spend-cap enforcement completes |
 | `agent:paused` | Existing workflow state is suppressed from dispatch | Operator adds or removes the pause override |
 | `agent:parked` | Ticket is deliberately held outside normal dispatch | Operator parks the ticket |
 | `agent:queued` | Ticket is waiting in an explicit build queue | Build queue adds or removes the queue marker |

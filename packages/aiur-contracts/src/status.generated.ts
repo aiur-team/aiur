@@ -5,7 +5,7 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type StatusContract = AgentsStatus | FleetStatus | TicketStatus | TicketUsage | TicketProgress;
+export type StatusContract = AgentsStatus | FleetStatus | TicketStatus | TicketCancel | TicketUsage | TicketProgress;
 export type FleetStatus = {
   contract: "aiur.status";
   contract_version: 1;
@@ -345,6 +345,50 @@ export interface TicketStatusRecentEvent {
   event: string;
   message: string | null;
   at: string | null;
+  [k: string]: unknown;
+}
+export interface TicketCancel {
+  contract: "aiur.ticket_cancel";
+  contract_version: 1;
+  issue_identifier: string;
+  tracker_state: "cancelled";
+  process:
+    | TicketCancelExitedProcess
+    | TicketCancelStillRunningProcess
+    | TicketCancelKillFailedProcess
+    | TicketCancelGenerationChangedProcess;
+  [k: string]: unknown;
+}
+export interface TicketCancelExitedProcess {
+  handle: string;
+  status: "exited";
+  exit_status: "normal" | "shutdown" | "killed" | "noproc" | "unknown";
+  exited_at: string;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelStillRunningProcess {
+  handle: string;
+  status: "still_running";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelKillFailedProcess {
+  handle: string;
+  status: "kill_failed";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelGenerationChangedProcess {
+  handle: string;
+  status: "generation_changed";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
   [k: string]: unknown;
 }
 export interface TicketUsage {

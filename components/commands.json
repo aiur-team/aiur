@@ -19,29 +19,41 @@
     "src/lib/aiur/decision_query/**",
     "src/lib/aiur/decision_store/**",
     "src/lib/aiur/decision_validation/**",
+    "src/lib/aiur/operator_relay.ex",
     "src/lib/aiur/supervisor_token.ex",
     "src/lib/aiur/supervisor_token/**",
+    "src/lib/aiur_web/command_media_response.ex",
     "src/lib/aiur_web/controllers/decision*.ex",
     "src/lib/aiur_web/routes/decisions.ex"
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.Media",
+    "Aiur.Commands.NativeCapture",
+    "Aiur.Commands.NativeCapture.Claude",
+    "Aiur.Commands.NativeCapture.Codex",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
     "Aiur.DecisionEvent",
     "Aiur.DecisionRevision",
+    "AiurWeb.CommandMediaResponse",
     "AiurWeb.DecisionApiController",
+    "AiurWeb.DecisionMediaController",
     "AiurWeb.Routes.Decisions"
   ],
   "facade_pending": null,
   "requires": [
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
     "signal",
+    "tracker",
     "web-kit"
   ],
   "optional": [],
@@ -78,5 +90,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

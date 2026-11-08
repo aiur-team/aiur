@@ -1,7 +1,7 @@
 defmodule Aiur.TestReset.Tickets do
   @moduledoc false
 
-  alias Aiur.GitHub.{HostCommand, Labels}
+  alias Aiur.GitHub.{Access, Labels}
   alias Aiur.TestReset
 
   @type gh_runner :: Aiur.TestReset.gh_runner()
@@ -166,7 +166,7 @@ defmodule Aiur.TestReset.Tickets do
   @spec reset_labels(integer() | String.t()) :: :ok | {:error, {:label_reset_failed, integer() | String.t(), String.t()}}
   def reset_labels(id) do
     [remove_argv, add_argv] = reset_labels_command_args(id)
-    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
+    runner = fn argv -> Access.host_command(argv, stderr_to_stdout: true, bot_token: true) end
 
     case apply_label_reset(remove_argv, add_argv, runner, @label_reset_attempts, @label_reset_backoff_ms) do
       :ok ->

@@ -41,7 +41,7 @@ defmodule Aiur.GitHub.LabelsTest do
       labels = Labels.label_set("agent", ["codex"])
 
       assert Labels.state_suffixes() ==
-               ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
+               ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled budget-exhausted)
 
       assert Enum.all?(expected_modifiers, &(("agent:" <> &1) in Labels.reason_modifier_labels("agent")))
       assert Enum.all?(expected_modifiers, &(("agent:" <> &1) in labels))

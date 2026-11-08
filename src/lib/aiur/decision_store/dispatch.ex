@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Dispatch do
 
   require Logger
 
+  alias Aiur.Commands.Overrides, as: CommandOverrides
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionDispatchTasks
@@ -303,6 +304,8 @@ defmodule Aiur.DecisionStore.Dispatch do
         attempt_id: attempt_id
       }
 
+      correlation = if decision.overrides == [], do: correlation, else: Map.put(correlation, :target_ticket_identifier, CommandOverrides.target_ticket(decision).identifier)
+
       operation = fn ->
         safe_dispatch(dispatcher, dispatch_decision, store, attempt_id, retry_failed?)
       end
@@ -350,6 +353,24 @@ defmodule Aiur.DecisionStore.Dispatch do
     case Map.get(state.dispatching, action_id) do
       ^correlation -> {:ok, %{state | dispatching: Map.delete(state.dispatching, action_id)}}
       _other -> :stale
+    end
+  end
+
+  @spec target_current?(map(), map()) :: boolean()
+  def target_current?(state, %{decision_id: id, target_ticket_identifier: target}) do
+    case Map.get(state.current, id) do
+      %Decision{} = decision -> CommandOverrides.target_ticket(decision).identifier == target
+      _missing -> false
+    end
+  end
+
+  def target_current?(_state, _legacy_correlation), do: true
+
+  @spec maybe_schedule_current(map(), String.t()) :: map()
+  def maybe_schedule_current(state, id) do
+    case Map.get(state.current, id) do
+      %Decision{} = decision -> maybe_schedule_after_answer(state, decision, false)
+      _missing -> state
     end
   end
 

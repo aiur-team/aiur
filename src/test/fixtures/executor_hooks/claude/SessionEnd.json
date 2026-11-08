@@ -1,0 +1,18 @@
+{
+  "session_id": "session",
+  "hook_event_name": "SessionEnd",
+  "transcript_path": null,
+  "cwd": "/workspace",
+  "reason": "clear",
+  "turn_id": null,
+  "agent_id": null,
+  "agent_type": null,
+  "agent_transcript_path": null,
+  "last_assistant_message": null,
+  "notification_type": null,
+  "tool_name": null,
+  "stop_hook_active": false,
+  "model": "example",
+  "permission_mode": "default",
+  "unknown": "discard"
+}

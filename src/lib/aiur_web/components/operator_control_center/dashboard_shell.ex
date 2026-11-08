@@ -10,8 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
   attr(:title, :string, default: nil)
-  attr(:back_path, :string, default: nil)
-  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -26,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:global_pause_error, :string, default: nil)
   attr(:pause_state, :map, default: nil)
   # Notices precede page content.
+  slot(:status)
   slot(:banner)
   slot(:inner_block, required: true)
 
@@ -39,7 +38,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <div class="ax-frame aiur-shell aiur-shell--dashboard" id="ax-frame">
       <header class="ax-top aiur-shell__topbar">
         <div class="ax-brand aiur-shell__brand">
-          <img class="brand-logo aiur-shell__logo" src="/aiur-logo.png" alt="Aiur" />
+          <img class="brand-logo aiur-shell__logo" src="/aiur-style/assets/aiur-logo.png" alt="Aiur" />
           <span class="wm aiur-shell__wordmark">aiur</span>
           <div class="ax-set aiur-shell__settings" id="ax-set" phx-hook="AxMenu"
             phx-mounted={JS.ignore_attributes(["class"]) |> JS.ignore_attributes(["aria-expanded"], to: "#ax-cog") |> JS.ignore_attributes(["inert"], to: "#ax-menu")}>
@@ -49,18 +48,21 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Talk to Executor</span></a>
             </div>
           </div>
         </div>
         <div class="ax-title aiur-page__header" id="ax-title">
-          <.link :if={@back_path} patch={@back_path} class="ax-back aiur-page__back" aria-label={@back_label}>
-            <span aria-hidden="true">{nav_icon(@route.id)}</span>
-          </.link>
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>
+        {render_slot(@status)}
         <span class={["ax-paused aiur-shell__paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
+      <nav class="standalone-recovery" data-dashboard-recovery aria-label="Dashboard recovery" hidden>
+        <a href="/" aria-label="Home">Home</a>
+        <button type="button" data-recovery-reload>Reload</button>
+      </nav>
       <div class="app-layout aiur-shell__body">
         <aside class="sidenav aiur-shell__sidebar">
           <div class="ax-drag aiur-shell__drag" id="ax-drag" phx-hook="NavToggle" data-nav-collapsed={to_string(@nav_collapsed)}
@@ -165,7 +167,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :patch}
       patch={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
@@ -175,7 +177,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
       navigate={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
@@ -234,10 +236,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   defp nav_icon(:commands) do
     Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>))
-  end
-
-  defp nav_icon(:build_order) do
-    Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="8" r="3"/><path d="M6 9v6"/><path d="M18 11a9 9 0 0 1-9 9"/></svg>))
   end
 
   defp nav_icon(:analytics) do

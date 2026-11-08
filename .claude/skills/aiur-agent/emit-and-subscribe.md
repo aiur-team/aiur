@@ -123,14 +123,20 @@ unchanged and still refuses human-required or non-reversible Commands.
 When the ticket's acceptance criteria settle a purely engineering question, keep
 it within the Executor floor; reserve human authority for an explicit boundary.
 
-If the question has two to five bounded alternatives, you **must** encode them
-as `options` before emitting an `attention.*` or `pause.request` event. If you
-can phrase the question as “A or B?”, A and B belong in `options` so the
-Executor can answer with one click. An attention or operator-decision pause
-does not replace `decision.requested`; never leave the alternatives only in an
-attention message, pause question, workpad, or recommendation payload. Use a
-free-text-only Decision only when predefined choices would genuinely be
-misleading.
+Author `decision.requested` Commands with **2–3 suggested responses** in
+`options`, putting the recommended option first and pointing
+`recommendation.option_id` at its `id`. Keep labels short and describe each
+choice's consequence so phone and watch users can answer with one tap. Group
+larger choice sets into meaningful alternatives; do not add dummy choices.
+
+Encode bounded alternatives before emitting an `attention.*` or `pause.request`.
+Neither event replaces `decision.requested`; never leave choices only in prose.
+Use free text alone only when predefined choices would genuinely mislead. The
+current default `decisions.require_suggested_responses: false` accepts a
+nonconforming request with an informational warning. When enabled, it rejects
+that request with `{:decision_invalid, {:suggested_responses, reason}}`; revise
+the options and retry. Native questions and legacy attention projections are
+exempt from this rule and retain their own option constraints.
 
 ```jsonc
 {
@@ -250,6 +256,33 @@ Or, on failure:
 ```jsonc
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
+
+#### Attaching media (images, clips)
+
+Put typed media on the prompt (`media`) or on an option (`options[].media`) in
+the same `decision.requested` payload. Every harness, including the
+OpenAI-compatible (OpenRouter, DeepSeek) worker, calls it as the `emit_event`
+tool:
+
+```jsonc
+emit_event({
+  "name": "decision.requested",
+  "message": "Which prototype should ship?",
+  "payload": {
+    "blocking": false,
+    "media": [{"kind": "image", "mime_type": "image/png", "locator": "/abs/path/in/workspace/shot.png", "alt_text": "Prototype A title screen"}],
+    "options": [
+      {"id": "a", "label": "Keep A"},
+      {"id": "b", "label": "Use B", "media": [{"kind": "video", "mime_type": "video/mp4", "locator": "https://github.com/…/b.mp4", "caption": "B gameplay"}]}
+    ]
+  }
+})
+```
+
+Use an absolute local path under the workspace, or an allowlisted `https` URL;
+expiring (signed) URLs are refused. Images need `alt_text`. Do not shell out to
+`aiur command request`: that is the Executor's CLI and a worker sandbox cannot
+reach the daemon. See [Media on a Command](../../../website/docs-app/concepts/commands.md#media-on-a-command).
 
 ### Acknowledging a delivered Decision answer
 

@@ -3,12 +3,16 @@
   "name": "Mobile app",
   "layer": 5,
   "kind": "client",
-  "paths": [],
+  "paths": [
+    "packages/aiur-mobile/**"
+  ],
   "facades": [
     "*"
   ],
   "facade_pending": "MP-R1-C1-T02",
-  "requires": [],
+  "requires": [
+    "aiur-contracts"
+  ],
   "optional": [],
   "owns": {
     "config": [],
@@ -18,14 +22,18 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Brings instance status, conversations and Command responses to a phone.",
-  "status": "planned",
+  "summary": "Provides the local Expo scaffold for the iOS and Android phone app.",
+  "status": "optional",
   "install": {
-    "type": "included"
+    "type": "setup",
+    "docs": "guide/mobile.md"
   },
-  "docs": [],
+  "docs": [
+    "guide/mobile.md"
+  ],
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N1"
+  "added_by": "MP-N1",
+  "goal": "hardware"
 }

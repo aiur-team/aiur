@@ -96,8 +96,8 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
       source = Aiur.EngineSource.text()
 
-      assert source =~ ~r/trap 'session_cleanup' EXIT\b/,
-             "EXIT trap must register session_cleanup on its own."
+      assert source =~ ~S|trap 'session_cleanup; exit "$?"' EXIT|,
+             "EXIT trap must preserve the status returned by session_cleanup."
 
       for signal <- ["INT", "TERM", "HUP"] do
         assert source =~ ~r/trap '[^']*session_cleanup[^']*' #{signal}\b/,

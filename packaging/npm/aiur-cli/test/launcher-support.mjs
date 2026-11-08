@@ -125,7 +125,7 @@ export function setupRealLauncher() {
   mkdirSync(path.join(root, "libexec"), { recursive: true });
   const launcher = path.join(root, "libexec", "aiur-engine.sh");
   copyFileSync(launcherSrc, launcher);
-  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-feature.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "aiur-executor-session.sh", "engine"])
+  for (const name of ["aiur-daemon-supervisor.sh", "aiur-queue.sh", "aiur-epic.sh", "aiur-lane.sh", "aiur-feature.sh", "aiur-capabilities.sh", "aiur-experiments.sh", "aiur-executor-session.sh", "engine"])
     cpSync(path.join(path.dirname(launcherSrc), name), path.join(root, "libexec", name), { recursive: true });
   const releaseDir = path.join(root, "release");
   const vsn = "0.1.1";
@@ -146,6 +146,8 @@ export function setupRealLauncher() {
     [
       "#!/usr/bin/env bash",
       'echo "ELIXIR_ARGS:$*" >>"$AIUR_TEST_OUT"',
+      'echo "AIUR_INSTANCE_KEY:${AIUR_INSTANCE_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "AIUR_BG_STATE_DIR:${AIUR_BG_STATE_DIR:-}" >>"$AIUR_TEST_OUT"',
       'echo "ARGV_FILE:$(cat "$AIUR_ARGV_FILE")" >>"$AIUR_TEST_OUT"',
       'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',

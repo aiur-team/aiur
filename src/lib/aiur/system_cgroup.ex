@@ -57,7 +57,25 @@ defmodule Aiur.SystemCgroup do
   end
 
   defp read(name) do
-    File.read(Path.join(cgroup_root(), name))
+    case :file.open(Path.join(cgroup_root(), name), [:read, :binary, :raw]) do
+      {:ok, fd} ->
+        try do
+          read_chunks(fd, [])
+        after
+          :file.close(fd)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp read_chunks(fd, chunks) do
+    case :file.read(fd, 4_096) do
+      {:ok, chunk} -> read_chunks(fd, [chunk | chunks])
+      :eof -> {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
+      error -> error
+    end
   end
 
   defp cgroup_root do
@@ -67,7 +85,25 @@ defmodule Aiur.SystemCgroup do
     end
   end
 
-  defp current_root do
+  defp current_root, do: root(&discover_root/0)
+
+  @doc false
+  @spec root((-> Path.t())) :: Path.t()
+  def root(discover) do
+    key = {__MODULE__, :root}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        root = discover.()
+        :persistent_term.put(key, root)
+        root
+
+      root ->
+        root
+    end
+  end
+
+  defp discover_root do
     with {:ok, contents} <- File.read("/proc/self/cgroup"),
          path when is_binary(path) <- unified_path(contents),
          true <- String.starts_with?(path, "/"),

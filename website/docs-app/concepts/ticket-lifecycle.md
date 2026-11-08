@@ -1,5 +1,7 @@
 # How a ticket flows
 
+For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle). This page remains the label and lifecycle reference.
+
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at
@@ -15,10 +17,10 @@ signal trustworthy.
 
 ### State labels
 
-There are exactly **ten** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
+There are exactly **eleven** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
 
 ```text
-todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled
+todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled  budget-exhausted
 ```
 | Label | Meaning |
 | --- | --- |
@@ -30,9 +32,10 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
 | `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
+| `agent:budget-exhausted` | The ticket reached its configured USD spend cap. Aiur persisted the exhaustion fence, stopped its agent, and closed the ticket. This is terminal and distinct from failure or cancellation. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
-The terminal states are exactly `done | cancelled | canceled`
+The built-in terminal states are `done | cancelled | canceled | budget-exhausted`
 (`src/lib/aiur/github/state_policy.ex:23,31`). The two `@no_agent_work_states`
 — `merging` and `ci-wait` — stay active for polling and fence purposes but are
 never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:27,63`).
@@ -84,8 +87,11 @@ leaves the state unchanged when no PR head moved.
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
-push starts fresh checks. A rework handback without a push leaves those runs
-cancelled, and CI recovery raises an attention for that head.
+push starts fresh checks.
+
+A rework handback without a push leaves those runs cancelled: an approved head's
+runs are rerun once so auto-merge can queue, and otherwise CI recovery raises an
+attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -156,9 +162,12 @@ state, or `todo` if only a released claim survives. Parked or untriaged tickets
 without it are alerted and left alone. An open workflow ticket with no live
 agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+Agents use `aiur_set_lane` for local lane overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
-marks an unconfirmed guess. See [epic commands](../reference/cli.md#build-history-epic-commands).
+marks an unconfirmed guess.
+
+`aiur_history_export` gives only `history-backfill`
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [lane commands](../reference/build-history-commands#lanes).
 
 ### Model labels
 
@@ -253,11 +262,14 @@ stateDiagram-v2
     done --> [*]
 
     inprogress --> error: retry exhausted
+    inprogress --> budgetexhausted: ticket spend cap reached
     rework --> error: retry exhausted
     error --> todo: latch reset
+    budgetexhausted --> [*]
 
     todo: agent:todo
     inprogress: agent:in-progress
+    budgetexhausted: agent:budget-exhausted
     ciwait: agent:ci-wait
     humanreview: agent:human-review
     rework: agent:rework

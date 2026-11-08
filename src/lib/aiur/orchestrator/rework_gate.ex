@@ -24,11 +24,11 @@ defmodule Aiur.Orchestrator.ReworkGate do
   one.
   """
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
   alias Aiur.Orchestrator.{OperatorMessages, ReworkHandoffChecks, State}
   alias Aiur.PRLifecycle.PostAgentRouting
+  alias Aiur.Signal
 
   @doc false
   @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()
@@ -359,13 +359,14 @@ defmodule Aiur.Orchestrator.ReworkGate do
   end
 
   @doc "Returns a handoff only when a completed turn pushed a new open-PR head."
-  @spec completed_agent_handoff(String.t(), term(), keyword()) :: :none | {:handoff, String.t()}
+  @spec completed_agent_handoff(String.t(), term(), keyword()) :: :none | {:handoff, String.t()} | {:handoff, String.t(), map()}
   def completed_agent_handoff(issue_key, original_head, opts \\ []) do
     with original when is_binary(original) and original != "" <- original_head,
          {:ok, pr} <- open_pr(issue_key, opts),
          head when is_binary(head) and head != "" <- head_sha(pr),
          true <- head != original do
-      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(head, opts), opts)}
+      target = post_agent_handoff_target(pr, ci_handoff_state(head, opts), opts)
+      if Keyword.get(opts, :include_pr, false), do: {:handoff, target, pr}, else: {:handoff, target}
     else
       _ -> :none
     end
@@ -463,7 +464,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   defp raise_rework_attempt_attention(%State{} = state, issue_id, head_sha, opts) do
     if is_binary(head_sha) and not State.rework_attempt_alerted?(state, issue_id, head_sha) do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
       limit = State.rework_attempt_limit()
 
       emit_alert_fun.(

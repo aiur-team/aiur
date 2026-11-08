@@ -2,7 +2,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   @moduledoc false
 
   alias Aiur.{AgentBuildGuard, AgentEnvironment, AgentGitHubGuard, BuildGate}
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
 
   @timeout_ms 300_000
   @sandbox_real_gh "/opt/aiur-real-gh"
@@ -154,7 +154,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   # broker database must be mounted explicitly rather than relying on `~`.
   # This is intentionally the narrow state directory, not the operator's
   # broader home or .aiur tree.
-  defp budget_mount_args, do: bind_if_present(Budget.state_dir(), :writable)
+  defp budget_mount_args, do: bind_if_present(Access.budget_state_dir(), :writable)
 
   # PATH prepending is not sufficient: an agent can invoke `/usr/bin/gh`
   # directly. Keep the actual executable at a private sandbox path and overlay
@@ -215,7 +215,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   end
 
   defp ensure_budget_state do
-    if Budget.enabled?(), do: Budget.ensure_state_dir(), else: :ok
+    if Access.budget_enabled?(), do: Access.ensure_budget_state_dir(), else: :ok
   end
 
   defp sandbox_path do

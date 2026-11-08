@@ -75,7 +75,7 @@ async function answer(card, button) {
   pending = null;
   if (reply?.status === 'accepted') {
     $('#bd-cmd')?.remove();
-    fx.appendEntries([{ id: 'answer:' + (reply.action_id || card.decision_id), k: 'op', text: reply.text, at: reply.at_ms }]);
+    fx.appendItem({ id: 'answer:' + (reply.action_id || card.decision_id), k: 'op', text: reply.text, at: reply.at_ms });
     latest = { ticket, card: reply.card || null }; place();
     ($('#cv-in textarea') || $('#bd-tk-close'))?.focus();
   } else if (reply?.status === 'settled') {

@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,10 +17,11 @@ SRC = ROOT / "src"
 LOCK = SRC / "mix.lock"
 MIX_EXS = SRC / "mix.exs"
 ALLOWLIST = ROOT / "docs/security/hex-advisories-allowlist.json"
-FINDING = re.compile(r"^\s+(\S+)\s+(\S+)\s+-\s+(\S+)\s+\((HIGH|MEDIUM|LOW)\)$", re.M)
+FINDING = re.compile(r"^\s+(\S+)\s+(\S+)\s+-\s+(\S+)\s+\((CRITICAL|HIGH|MEDIUM|LOW)\)$", re.M)
 ADVISORY_ROW = re.compile(r"^ {2}\S+\s+\S+\s+-\s+\S+.*$", re.M)
 OSV_LINK = re.compile(r"^ {4}https://osv\.dev/vulnerability/(\S+)\s*$", re.M)
 FETCH_FAILURE = re.compile(r"Failed to fetch (?:record|retired|advisory).*?(?:registry|cache)", re.I)
+FETCH_RETRY_DELAYS = (5, 20)
 ADVISORIES_HEADER = "Advisories:"
 ADVISORIES_FOUND = "Found packages with security advisories"
 NO_ADVISORIES = "No retired or security advisory packages found"
@@ -58,6 +60,9 @@ def evaluate(base: set[tuple[str, str, str, str]], head: set[tuple[str, str, str
     for package, version, advisory, severity in sorted(head):
         newly_introduced = advisory not in base_ids
         entry = allowed.get(advisory)
+        if severity == "CRITICAL":
+            errors.append(f"{package} {version}: CRITICAL advisory {advisory} cannot be allow-listed")
+            continue
         if entry is not None:
             if severity != "HIGH" or entry.get("accept_high") is True:
                 continue
@@ -75,10 +80,14 @@ def evaluate(base: set[tuple[str, str, str, str]], head: set[tuple[str, str, str
 def run(command: list[str], *, cwd: Path, allow_advisories: bool = False) -> str:
     if "HEX_OFFLINE" in os.environ:
         raise RuntimeError("HEX_OFFLINE is set; refusing to audit potentially stale cached advisories")
-    result = subprocess.run(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    output = result.stdout
-    if FETCH_FAILURE.search(output):
-        raise RuntimeError(f"Hex registry fetch failed; refusing to use cached results:\n{output}")
+    for attempt in range(len(FETCH_RETRY_DELAYS) + 1):
+        result = subprocess.run(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        output = result.stdout
+        if not FETCH_FAILURE.search(output):
+            break
+        if attempt == len(FETCH_RETRY_DELAYS):
+            raise RuntimeError(f"Hex registry fetch failed; refusing to use cached results:\n{output}")
+        time.sleep(FETCH_RETRY_DELAYS[attempt])
     if "Failed to fetch" in output:
         raise RuntimeError(f"Hex registry fetch failed; refusing to use cached results:\n{output}")
     if result.returncode and not (allow_advisories and "Found packages with security advisories" in output):
@@ -96,7 +105,18 @@ def audit_lock(lock_bytes: bytes, label: str, runner=run, *, mix_exs_bytes: byte
             MIX_EXS.write_bytes(mix_exs_bytes)
 
         LOCK.write_bytes(lock_bytes)
-        runner(["mise", "exec", "--", "mix", "deps.get"], cwd=SRC)
+        runner(
+            [
+                "bash",
+                str(ROOT / "scripts/retry-mix-deps-get.sh"),
+                "mise",
+                "exec",
+                "--",
+                "mix",
+                "deps.get",
+            ],
+            cwd=SRC,
+        )
         if LOCK.read_bytes() != lock_bytes:
             raise RuntimeError(f"{label} dependency resolution changed the lock; refusing to audit a different snapshot")
         output = runner(["mise", "exec", "--", "mix", "hex.audit"], cwd=SRC, allow_advisories=True)

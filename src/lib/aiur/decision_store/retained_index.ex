@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.RetainedIndex do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
 
   @lifecycle_statuses [:open, :deferred, :expired, :dismissed, :moot, :decided, :acknowledged, :resolved]
@@ -94,7 +95,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   # other.
   def canonical_counts(index) do
     index.counts
-    |> Map.take([:open, :blocking, :deferred])
+    |> Map.take([:open, :blocking, :deferred, :needs_you, :needs_you_blocking, :with_executor, :from_executor, :needs_you_by_ticket])
     |> Map.merge(%{
       total: :gb_sets.size(index.all),
       awaiting: index.counts.open - index.counts.deferred,
@@ -113,7 +114,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       searches: %{},
       audit_keys: %{},
       current: empty_entries(),
-      counts: %{open: 0, blocking: 0, deferred: 0, deferred_blocking: 0}
+      counts: %{open: 0, blocking: 0, deferred: 0, deferred_blocking: 0, needs_you: 0, needs_you_blocking: 0, with_executor: 0, from_executor: 0, needs_you_by_ticket: %{}}
     }
   end
 
@@ -265,9 +266,34 @@ defmodule Aiur.DecisionStore.RetainedIndex do
         deferred: counts.deferred + deferred_delta,
         deferred_blocking: counts.deferred_blocking + deferred_blocking_delta
     }
+    |> adjust_routing_counts(decision, delta)
   end
 
   defp adjust_counts(counts, %Decision{}, _delta), do: counts
+
+  defp adjust_routing_counts(counts, decision, delta) do
+    %{
+      counts
+      | needs_you_by_ticket: adjust_ticket_count(counts.needs_you_by_ticket, decision, delta),
+        needs_you: counts.needs_you + if(Policy.needs_you?(decision), do: delta, else: 0),
+        needs_you_blocking: counts.needs_you_blocking + if(Policy.needs_you?(decision) and decision.blocking, do: delta, else: 0),
+        with_executor: counts.with_executor + if(Policy.matches_route?(decision, :with_executor), do: delta, else: 0),
+        from_executor: counts.from_executor + if(Policy.matches_route?(decision, :from_executor), do: delta, else: 0)
+    }
+  end
+
+  defp adjust_ticket_count(counts, decision, delta) do
+    ticket = ticket_identifier(decision)
+
+    if Policy.needs_you?(decision) and is_binary(ticket) do
+      case Map.get(counts, ticket, 0) + delta do
+        0 -> Map.delete(counts, ticket)
+        count -> Map.put(counts, ticket, count)
+      end
+    else
+      counts
+    end
+  end
 
   # The one `open` rule: `aiur status`, `aiur commands --filter open` and the
   # dashboard Open count all read it, so they cannot disagree (#5109).

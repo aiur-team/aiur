@@ -35,6 +35,7 @@ defmodule Aiur.HttpServerPortCollisionTest do
     test "start_link degrades to :ignore and logs an explicit, actionable startup message" do
       {listen, port} = occupy_loopback_port()
       on_exit(fn -> :gen_tcp.close(listen) end)
+      previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
 
       log =
         capture_log(fn ->
@@ -47,6 +48,7 @@ defmodule Aiur.HttpServerPortCollisionTest do
       assert log =~ "Dashboard disabled for this instance"
       assert log =~ "agents still run"
       assert log =~ "server.port"
+      assert Application.get_env(:aiur, AiurWeb.Endpoint) == previous_endpoint_config
     end
 
     # Characterization (also passes on pre-fix `main`): the `:one_for_one`
@@ -134,17 +136,11 @@ defmodule Aiur.HttpServerPortCollisionTest do
       ]
 
       capture_log(fn ->
-        assert {:ok, supervisor} = Supervisor.start_link(specs, strategy: :one_for_one)
-
-        on_exit(fn ->
-          if Process.alive?(supervisor) do
-            try do
-              Supervisor.stop(supervisor)
-            catch
-              :exit, _reason -> :ok
-            end
-          end
-        end)
+        supervisor =
+          start_supervised!(%{
+            id: make_ref(),
+            start: {Supervisor, :start_link, [specs, [strategy: :one_for_one]]}
+          })
 
         assert {:ok, health} =
                  SupervisionHealth.start_link(

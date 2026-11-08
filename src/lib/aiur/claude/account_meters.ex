@@ -8,7 +8,8 @@ defmodule Aiur.Claude.AccountMeters do
 
   @redacted_method "provider_account/rate_limits_changed"
 
-  @spec handle_notification(map(), map(), keyword()) :: :ok | {:error, atom()}
+  @spec handle_notification(map(), map(), keyword()) ::
+          :ok | {:error, atom() | Aiur.Config.HostedAuthPolicy.refusal()}
   def handle_notification(session, payload, opts \\ [])
 
   def handle_notification(session, payload, opts) when is_map(session) and is_map(payload) do
@@ -19,11 +20,14 @@ defmodule Aiur.Claude.AccountMeters do
          {:ok, ^binding} <- AccountGeneration.observe(session, update.auth_mode) do
       ingest(session, update, observed_at)
     else
+      {:error, {:unsafe_hosted_authentication, _provider, _class} = reason} ->
+        {:error, reason}
+
       {:error, reason} ->
-        fail(session, reason, observed_at)
+        fail_or_refuse_unknown(session, reason, observed_at)
 
       _other ->
-        fail(session, :malformed, observed_at)
+        fail_or_refuse_unknown(session, :malformed, observed_at)
     end
   end
 
@@ -56,6 +60,17 @@ defmodule Aiur.Claude.AccountMeters do
         Logger.error("Claude provider-meter failure could not be recorded: #{reason}")
 
         {:error, :provider_meter_failure_unrecorded}
+    end
+  end
+
+  defp fail_or_refuse_unknown(session, reason, observed_at) do
+    if Map.get(session, :instance_mode, "local") == "hosted" do
+      case AccountGeneration.observe(session, :unknown) do
+        {:error, {:unsafe_hosted_authentication, _provider, _class} = refusal} -> {:error, refusal}
+        _unexpected -> fail(session, reason, observed_at)
+      end
+    else
+      fail(session, reason, observed_at)
     end
   end
 

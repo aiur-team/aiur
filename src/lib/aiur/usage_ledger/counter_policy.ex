@@ -4,6 +4,10 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   alias Aiur.{UsageEnvelope, UsageLedger.Record}
 
   @token_fields UsageEnvelope.token_dimensions() ++ [:provider_reported_total]
+  # The raw segment remains the authoritative idempotency source at recovery.
+  # Keep only a small deterministic witness in the checkpoint so its size does
+  # not grow with the number of historical appends.
+  @checkpoint_idempotency_limit 128
 
   defstruct idempotency: MapSet.new(),
             absolute: %{},
@@ -60,6 +64,22 @@ defmodule Aiur.UsageLedger.CounterPolicy do
         "status" => Atom.to_string(state.coverage.status)
       }
     }
+  end
+
+  @doc false
+  @spec checkpoint_dump(state(), keyword()) :: map()
+  def checkpoint_dump(%__MODULE__{} = state, opts \\ []) do
+    limit = Keyword.get(opts, :idempotency_limit, @checkpoint_idempotency_limit)
+    idempotency = state.idempotency |> MapSet.to_list() |> Enum.sort()
+    idempotency = if is_integer(limit), do: Enum.take(idempotency, limit), else: idempotency
+    state |> dump() |> Map.put("idempotency", idempotency)
+  end
+
+  @doc false
+  @spec checkpoint_matches?(state(), state()) :: boolean()
+  def checkpoint_matches?(%__MODULE__{} = checkpoint, %__MODULE__{} = replayed) do
+    checkpoint_dump(checkpoint) == checkpoint_dump(replayed) and
+      MapSet.subset?(checkpoint.idempotency, replayed.idempotency)
   end
 
   @spec load(map()) :: {:ok, state()} | {:error, atom()}

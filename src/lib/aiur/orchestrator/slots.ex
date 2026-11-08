@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -293,7 +293,7 @@ defmodule Aiur.Orchestrator.Slots do
   def used_slots(%State{} = state), do: used_slots(state, state.running)
 
   defp used_slots(state, running) do
-    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running)
+    State.active_running_count(running) + pending_rework_claims(state) + State.reserved_paused_running_count(running) + pending_resume_slots(state, running)
   end
 
   # Active agents plus rework claims whose tracker write is still in flight.
@@ -302,6 +302,16 @@ defmodule Aiur.Orchestrator.Slots do
   @spec active_slots(State.t()) :: non_neg_integer()
   def active_slots(%State{} = state) do
     State.active_running_count(state.running) + pending_rework_claims(state)
+  end
+
+  # Correlated resumes can be accepted before the worker confirms :working.
+  # Reserve admission capacity without counting the still-paused worker as active.
+  defp pending_resume_slots(state, running) do
+    Enum.count(running, fn {id, entry} ->
+      State.paused_running_entry?(entry) and
+        match?(%{action: :resume}, ControlLifecycle.current_pending(state.control_lifecycle, id)) and
+        State.reserved_paused_running_count(%{id => entry}) == 0
+    end)
   end
 
   defp pending_rework_claims(%State{tracker_tasks: tasks}) when is_map(tasks),
@@ -321,9 +331,19 @@ defmodule Aiur.Orchestrator.Slots do
   # workers plus every *other* paused entry still reserving a slot (#4694).
   @spec resume_fleet_slot_available?(State.t(), map()) :: boolean()
   def resume_fleet_slot_available?(%State{} = state, running_entry) do
-    others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
-    used_slots(state, others) < effective_concurrent_agent_limit(state)
+    if holds_paused_reservation?(running_entry) do
+      active_slots(state) < effective_concurrent_agent_limit(state)
+    else
+      others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
+      used_slots(state, others) < effective_concurrent_agent_limit(state)
+    end
   end
+
+  defp holds_paused_reservation?(%{issue: %{id: issue_id}} = running_entry) do
+    State.reserved_paused_running_count(%{issue_id => running_entry}) > 0
+  end
+
+  defp holds_paused_reservation?(_running_entry), do: false
 
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0

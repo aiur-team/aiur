@@ -1,9 +1,10 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
   alias Aiur.Alerts
-  alias Aiur.GitHub.{CIRecovery, Errors, Transport}
+  alias Aiur.Config.TrackerSettings
+  alias Aiur.GitHub.{Access, CIRecovery}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
+  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupFailureTimeline, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
 
   require Logger
 
@@ -35,6 +36,22 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
       result = process_claimed_failed_group(run, runs, observations, base, opts)
       if first_error == :ok, do: result, else: first_error
     end)
+  end
+
+  @spec emit_runner_degraded(pos_integer() | nil, keyword()) :: :ok
+  def emit_runner_degraded(run_id, opts) do
+    message = "Run #{TrackerSettings.base_branch(opts)} workflow #{run_id || "unknown"} was skipped as a degraded runner."
+
+    Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2).(
+      "system.pr.landing.runner_degraded",
+      central: true,
+      durable: true,
+      needs_attention: false,
+      message: message,
+      reason: "runner_degraded"
+    )
+
+    :ok
   end
 
   defp prepare_failure_evidence(opts, base) do
@@ -85,7 +102,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   # Budget holds and GitHub rate limits throttle every run, not this one, so they retry uncounted.
   defp throttled?({:job_log, _job_id, reason}), do: throttled?(reason)
   defp throttled?({:github, :rate_limited, _}), do: true
-  defp throttled?(reason), do: Errors.outcome({:error, reason}) == :held
+  defp throttled?(reason), do: Access.outcome({:error, reason}) == :held
 
   defp release_counted_failure(run, base, reason, error, opts) do
     case MergeGroupJournal.release_failed_merge_group_run(run["id"], @lasting_failure_polls, opts) do
@@ -137,6 +154,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
 
   defp route_classification(:infra, _failure, run, observations, prs, _blame_opts, opts),
     do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "infrastructure failure", opts)
+
+  defp route_classification(:cancelled, _failure, run, observations, prs, _blame_opts, opts),
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "cancelled merge-group run", opts)
 
   defp route_classification(:inherited, _failure, run, observations, prs, _blame_opts, opts),
     do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "inherited merge-group failure", opts)
@@ -260,7 +280,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     prs
     |> Enum.map(&Enum.find(observations, fn observation -> observation.number == &1 end))
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(:ok, &rework_if_ok(&1, &2, failures, run_link, opts))
+    |> Enum.reduce(:ok, fn observation, result ->
+      MergeGroupFailureTimeline.publish(observation.number, observations, failure, run, opts)
+      rework_if_ok(observation, result, failures, run_link, opts)
+    end)
   end
 
   defp blamed_pr(%{log: log, blame_complete: true}, prs, opts) when is_binary(log) do
@@ -443,7 +466,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     }
 
   defp run_url(run_id, opts) do
-    case Keyword.get(opts, :repo_fun, &Transport.parse_repo/0).() do
+    case Keyword.get(opts, :repo_fun, &Access.parse_repo/0).() do
       {:ok, {owner, repo}} -> "https://github.com/#{owner}/#{repo}/actions/runs/#{run_id}"
       _ -> "https://github.com/actions/runs/#{run_id}"
     end

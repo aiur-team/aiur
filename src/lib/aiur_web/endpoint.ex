@@ -3,7 +3,7 @@ defmodule AiurWeb.Endpoint do
   Phoenix endpoint for Aiur's optional observability UI and API.
   """
 
-  alias AiurWeb.Sockets.{LiveView, Streamdeck, Voice}
+  alias AiurWeb.Sockets.{Events, LiveView, Streamdeck, Voice}
 
   use Phoenix.Endpoint, otp_app: :aiur
 
@@ -16,6 +16,7 @@ defmodule AiurWeb.Endpoint do
     max_age: 31_536_000
   ]
 
+  require Events
   require LiveView
   require Streamdeck
   require Voice
@@ -23,11 +24,13 @@ defmodule AiurWeb.Endpoint do
   @before_compile AiurWeb.EndpointCallGuard
 
   LiveView.mount(@session_options)
+  Events.mount(@session_options)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 
   plug(AiurWeb.Session, @session_options)
   plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,
@@ -68,6 +71,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(AiurWeb.ControlBodyLimit)
 
   # The custom body reader caches the raw request bytes for GitHub webhook
   # deliveries. HMAC is computed over exactly what GitHub sent, and re-encoding
@@ -76,7 +80,7 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    body_reader: {AiurWeb.GithubWebhook.BodyReader, :read_body, []},
+    body_reader: {AiurWeb.ControlBodyReader, :read_body, []},
     json_decoder: Jason
   )
 

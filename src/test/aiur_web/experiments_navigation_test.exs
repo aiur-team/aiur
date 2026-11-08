@@ -24,13 +24,13 @@ defmodule AiurWeb.ExperimentsNavigationTest do
     assert {:ok, _route} = RouteRegistry.route(:experiments, payload.analytics)
   end
 
-  test "experiment routes use their own session with the dashboard gate and authentication" do
+  test "experiment routes use dashboard session with experiment access and authentication" do
     for {path, action} <- [{"/experiments", :experiments}, {"/experiments/:id", :experiment}] do
       route = Enum.find(AiurWeb.Router.__routes__(), &(&1.path == path))
       assert route.plug == Phoenix.LiveView.Plug
       assert route.plug_opts == action
       {AiurWeb.ExperimentsLive, ^action, _, session} = route.metadata.phoenix_live_view
-      assert session.name == :experiments
+      assert session.name == :dashboard
       assert Enum.map(session.extra.on_mount, &elem(&1.id, 0)) == [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess]
       info = Phoenix.Router.route_info(AiurWeb.Router, "GET", String.replace(path, ":id", "example"), "localhost")
       assert info.pipe_through == [:browser_dashboard_auth, :dashboard_pages, :browser]

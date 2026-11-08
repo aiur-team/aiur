@@ -7,9 +7,22 @@ const P = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/live.j
 resetState();
 const state = structuredClone(S);
 const row = (sec, patch = {}) => ({ ...P.sections[sec][0], ...patch });
-const data = sections => ({ epics: P.epics, features: P.features, children: {}, now: [], plan: [], nq: [], hist: [], ...sections });
+const data = sections => ({ lanes: P.lanes, features: P.features, children: {}, now: [], plan: [], nq: [], hist: [], ...sections });
 const html = (sections, sources = P.sources, history = { more: false }) => listHTML(data(sections), state, history, { sources }, P.now);
 const cell = (t, key) => html({ [t.sec]: [t] }).match(new RegExp('class="c-' + key + '" role="cell"[^>]*>(.*?)</span>(?=<span class="c-|</div>)'))?.[1];
+
+test('list renders lane and feature icons from the compact icon catalog', () => {
+  const icon = '<svg data-icon="catalog"/>';
+  const t = row('now', { epic: 'bugs', feature: 'khala' });
+  const D = {
+    ...data({ now: [t] }),
+    icons: { custom: icon },
+    lanes: { ...P.lanes, bugs: { ...P.lanes.bugs, icon: 'custom' } },
+    features: { ...P.features, khala: { ...P.features.khala, icon: 'custom' } },
+  };
+  const rendered = listHTML(D, state, { more: false }, { sources: P.sources }, P.now);
+  assert.equal((rendered.match(/data-icon="catalog"/g) || []).length, 2);
+});
 
 test('U1 unknown pct has no progress hue, bar or percentage', () => {
   assert.equal(cell(row('now', { pct: null }), 'pg'), '<span class=\"lr-mu\">—</span>');
@@ -57,7 +70,7 @@ test('U8 payload strings cannot create markup or styles', () => {
   const text = '<img src=x onerror="x">\'&';
   const out = html({ now: [row('now', { id: text, title: text, num: text, agent: { model: 'muse', name: text } })] }, { ...P.sources, queue: { state: 'unavailable', reason: text } });
   assert.ok(!out.includes(text)); assert.ok(!out.includes('<img')); assert.match(out, /&lt;img/); assert.match(out, /&#39;/);
-  const d = data({ now: [row('now')] }); d.epics = { ...P.epics, [row('now').epic]: { label: text, hue: Infinity, icon: 'missing' } };
+  const d = data({ now: [row('now')] }); d.lanes = { ...P.lanes, [row('now').epic]: { label: text, hue: Infinity, icon: 'missing' } };
   assert.ok(!listHTML(d, state, {}, P, P.now).includes('Infinity'));
 });
 test('U9 missing metadata uses Unsorted without a feature diamond', () => {
@@ -101,7 +114,7 @@ test('U12 history newest first (future regression guard matching design)', () =>
   assert.deepEqual([...out.matchAll(/data-id="([abc])"/g)].map(m => m[1]), ['b', 'c', 'a']);
 });
 test('builders use passed filter state independently of global S', () => {
-  const d = data({ nq: [row('nq')] }), own = { ...state, f: { ...state.f, epic: ['gone'] } };
+  const d = data({ nq: [row('nq')] }), own = { ...state, f: { ...state.f, lane: ['gone'] } };
   assert.ok(!listHTML(d, own, {}, P, P.now).includes('class="lr nq"'));
 });
 
@@ -113,4 +126,10 @@ test('unsupported tracker retains its known cause and age; unknown tags remain u
 test('loading history button stays disabled across list renders', () => {
   assert.match(html({}, P.sources, { more: true, state: 'loading' }), /id="lr-more" disabled aria-busy="true"/);
   assert.ok(!html({}, P.sources, { more: true, state: 'idle' }).includes('aria-busy'));
+});
+test('feature icon SVG from the shared resolver is rendered directly', () => {
+  const features = { ...P.features, pag: { ...P.features.pag, svg: '<svg class="heroicon-outline"></svg>' } };
+  const payload = { ...data({ hist: [row('hist', { feature: 'pag' })] }), features };
+  const rendered = listHTML(payload, state, { more: false }, { sources: P.sources }, P.now);
+  assert.match(rendered, /<svg class="heroicon-outline"><\/svg>/);
 });

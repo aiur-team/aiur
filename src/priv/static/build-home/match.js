@@ -9,7 +9,7 @@ export const astate = t => t.sec === 'now' ? (Object.hasOwn(AST, t.agent?.state)
 export function match(t, state = S) {
   for (const k of FKEYS) {
     const sel = state.f[k]; if (!sel.length) continue;
-    const v = k === 'type' ? t.type : k === 'model' ? (t.agent ? t.agent.model : 'none') : k === 'feature' ? t.feature : k === 'epic' ? colKey(t) : k === 'tstate' ? tstate(t) : astate(t);
+    const v = k === 'type' ? t.type : k === 'model' ? (t.agent ? t.agent.model : 'none') : k === 'feature' ? t.feature : k === 'lane' ? colKey(t) : k === 'tstate' ? tstate(t) : astate(t);
     if (Array.isArray(v) ? !v.some(x => sel.includes(x)) : !sel.includes(v)) return false;
   }
   return true;

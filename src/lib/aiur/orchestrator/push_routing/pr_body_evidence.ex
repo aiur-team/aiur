@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, Issue}
+  alias Aiur.{AlertFeed, Issue, Signal}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{State, TicketTransition, TrackerTasks}
 
@@ -67,7 +67,7 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
     if condition_state.(topic) == :firing do
       state
     else
-      emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+      emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
       _ =
         emitter.(topic,
@@ -88,7 +88,7 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
     condition_state = Keyword.get(opts, :condition_state, &AlertFeed.condition_state/1)
 
     if condition_state.(condition) == :firing do
-      emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+      emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
       _ =
         emitter.(condition <> ".resolved",

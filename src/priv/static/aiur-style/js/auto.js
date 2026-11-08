@@ -1,8 +1,10 @@
+import { initCommand } from './command.js';
 import { initBanner } from './banner.js';
 import { initScrollCue } from './scrollcue.js';
 import { initBrandReveal, initTopbarPin } from './brand-reveal.js';
 import { initThemeToggle } from './theme.js';
 function init() {
+    document.querySelectorAll('[data-aiur="command"]').forEach(el => initCommand(el));
     document.querySelectorAll('[data-aiur="banner"]').forEach(el => initBanner(el));
     document.querySelectorAll('[data-aiur="scrollcue"]').forEach(el => initScrollCue(el));
     document.querySelectorAll('[data-aiur="topbar"]').forEach(el => {

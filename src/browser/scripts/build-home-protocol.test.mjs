@@ -49,7 +49,8 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     snapshot.sections.hist = days.slice(0, initialDays).flatMap(key => pages.get(key));
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
-    assert.deepEqual(actual.epics, raw.epics);
+    // The design source still calls its columns epics; the payload names them lanes.
+    assert.deepEqual(actual.lanes, raw.epics);
     const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => {
       const ends = raw.hist.filter(t => (t.feature === key || t.also.includes(key)) && t.end != null).map(t => t.end);
       return [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), oldest: ends.length ? Math.trunc(Math.min(...ends)) : null, stats: snapshot.features[key].stats }];
@@ -83,10 +84,12 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
 
 test('intake sorts by ord then num without mutating the snapshot', () => {
   const snapshot = fixture('live');
+  snapshot.icons = { 'squares-2x2': '<svg/>' };
   const [a, b] = snapshot.sections.now;
   snapshot.sections.now = [{ ...b, ord: 1 }, { ...a, ord: 1 }];
   const original = structuredClone(snapshot);
   assert.deepEqual(intake(snapshot).now.map(r => r.num), [a.num, b.num].sort((x, y) => x - y));
+  assert.deepEqual(intake(snapshot).icons, snapshot.icons);
   assert.deepEqual(snapshot, original);
 });
 

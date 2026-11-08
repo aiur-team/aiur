@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Workspace.BeforeRemove do
+  alias Aiur.GitHub.Access
   use Mix.Task
 
   @shortdoc "Close open GitHub PRs for the current branch before workspace removal"
@@ -14,8 +15,6 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       mix workspace.before_remove --branch feature/my-branch
       mix workspace.before_remove --repo openai/aiur
   """
-
-  alias Aiur.GitHub.HostCommand
 
   @default_repo "openai/aiur"
 
@@ -55,7 +54,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp gh_available? do
-    not is_nil(HostCommand.find_executable())
+    not is_nil(Access.host_executable())
   end
 
   defp gh_authenticated? do
@@ -128,7 +127,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp run_gh(args) do
-    case HostCommand.run(args, stderr_to_stdout: true, bot_token: true) do
+    case Access.host_command(args, stderr_to_stdout: true, bot_token: true) do
       {output, 0} -> {:ok, output}
       {output, status} -> {:error, {status, output}}
     end

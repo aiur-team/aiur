@@ -18,22 +18,60 @@ defmodule AiurWeb.Router do
 
   pipeline :auth_session do
     plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
   end
 
   pipeline :auth_post do
     plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
     plug(:protect_from_forgery)
   end
 
   pipeline :dashboard_auth_required do
     plug(:fetch_session)
-    plug(:dashboard_basic_auth, required?: true)
+    plug(AiurWeb.ClientTokenAuth, write?: true, required?: true)
+  end
+
+  pipeline :client_token_write do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth, write?: true)
+  end
+
+  pipeline :client_token_read do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth)
+  end
+
+  # CORS runs first so the 401 for a signed-out page still carries CORS headers.
+  pipeline :gateway_summary do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth)
+  end
+
+  pipeline :control_token do
+    plug(:fetch_session)
+    plug(AiurWeb.ControlTokenAuth)
+  end
+
+  pipeline :executor_hook_delivery_auth do
+    plug(AiurWeb.ExecutorHookAuth, delivery: true)
+  end
+
+  pipeline :executor_hook_auth do
+    plug(AiurWeb.ExecutorHookAuth)
   end
 
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
+  end
+
+  # Ticket-scoped Commands API: the caller carries a short-lived grant minted
+  # by a host server, never the instance supervisor credential.
+  pipeline :commands_scope_auth do
+    plug(AiurWeb.CommandsScopeAuth)
   end
 
   # GitHub webhook deliveries carry no bearer token and no browser session:
@@ -83,14 +121,28 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewaySummary, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewaySummary, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_delivery_auth)
+    post("/api/v1/executor/hook/deliver", ExecutorHookDeliveryController, :create)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_auth)
+    post("/api/v1/executor/hook", ExecutorHookController, :create)
+    match(:*, "/api/v1/executor/hook", ExecutorHookController, :method_not_allowed)
+  end
+
+  get("/healthz", AiurWeb.PublicHealthController, :live)
+  get("/readyz", AiurWeb.PublicHealthController, :live)
 
   scope "/auth" do
     pipe_through(:auth_session)
@@ -109,28 +161,57 @@ defmodule AiurWeb.Router do
   end
 
   # Decision routes and catches must precede generic issue reads.
+  CommandsApi.reads()
+  CommandsApi.mutations()
+  CommandsApi.method_catches()
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
+  Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
+    end
+  end
+
   DashboardPages.static_assets()
   DashboardPages.pages()
-  Experiments.pages()
   Api.agent_writes()
   Api.machine_writes()
+  Events.session()
   Streamdeck.session()
   Capabilities.reads()
   # Per-ticket usage read (#5692).
   alias AiurWeb.Routes.Usage
   require Usage
+  Usage.mutations()
   Usage.reads()
   UsageProgressRoutes.reads()
 
   # Account and rate-limit snapshot (#5697).
   scope "/" do
-    pipe_through(:dashboard_auth)
+    pipe_through(:client_token_read)
     get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
     match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage", AiurWeb.UsageApiController, :index)
+    match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
+    get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
+    match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
+
+  scope "/", AiurWeb do
+    pipe_through(:client_token_read)
+    get("/api/v1/conversations/resolve", ConversationApiController, :resolve)
+    get("/api/v1/conversations/:conversation_id/entries", ConversationApiController, :entries)
+    get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)
+    get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
+    match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
+  end
+
+  GatewaySummary.reads()
 
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
@@ -162,10 +243,11 @@ defmodule AiurWeb.Router do
 
   # Rejects agent-write requests while the dashboard is read-only. Sources the
   # flag from the endpoint config (set by `Aiur.HttpServer`, overridable in
-  # tests) and fails closed: a missing/false value keeps the dashboard
-  # observe-only.
+  # tests). The control endpoint defers this decision until after parsing the
+  # allowlisted call so it can audit write-call refusals while still allowing
+  # read-scope calls.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?() do
+    if dashboard_writable?() or conn.path_info == ["api", "v1", "control"] do
       conn
     else
       conn
@@ -221,24 +303,21 @@ defmodule AiurWeb.Router do
   defp allowed_origins(conn) do
     endpoint_origin = safe_endpoint_origin()
 
-    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
+    [trusted_request_origin(conn), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(&expand_loopback_aliases/1)
     |> Enum.uniq()
   end
 
-  defp trusted_request_origin(conn, endpoint_origin) do
+  defp trusted_request_origin(conn) do
     case request_origin(conn) do
       {_scheme, host, _port} = origin ->
-        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+        if loopback_host?(host), do: origin
 
       nil ->
         nil
     end
   end
-
-  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
-  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
 
   defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
        when scheme in [:http, :https] and is_binary(host) and is_integer(port) do

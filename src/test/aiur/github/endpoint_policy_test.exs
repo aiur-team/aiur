@@ -14,7 +14,12 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
     {"issues", "/repos/owner/repo/issues/1477/comments", "core", true},
     {"actions", "/repos/owner/repo/actions/runs/123", "core", true},
     {"labels", "/repos/owner/repo/labels/bug", "core", true},
-    {"rest", "/repos/owner/repo", "core", true}
+    {"repository", "/repos/owner/repo", "core", true},
+    {"user", "/user", "core", true},
+    {"users", "/users/octocat", "core", true},
+    {"orgs", "/orgs/aiur-team/members", "core", true},
+    {"app", "/app/installations/123", "core", true},
+    {"installation", "/installation", "core", true}
   ]
 
   test "every enumerated family has a resource and a billable decision" do
@@ -25,7 +30,25 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
     for {family, resource, billable} <- EndpointPolicy.families() do
       # A family added without a decision fails here: resource must be a known
       # pool (or `none`), and billable must be an explicit boolean.
-      assert family in ["rate_limit", "graphql", "search", "pulls", "issues", "actions", "labels", "comments", "reviews", "rest"]
+      assert family in [
+               "rate_limit",
+               "graphql",
+               "search",
+               "pulls",
+               "issues",
+               "actions",
+               "labels",
+               "comments",
+               "reviews",
+               "repository",
+               "user",
+               "users",
+               "orgs",
+               "app",
+               "installation",
+               "rest"
+             ]
+
       assert resource in EndpointPolicy.known_resources()
       assert is_boolean(billable)
 
@@ -48,11 +71,18 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
     end
   end
 
-  test "a family outside the table falls back to billable rest/core" do
-    assert EndpointPolicy.endpoint_family("/not/a/known/path") == "rest"
-    assert EndpointPolicy.resource("/not/a/known/path") == "core"
-    assert EndpointPolicy.billable?("/not/a/known/path")
-    refute EndpointPolicy.free_endpoint?("/not/a/known/path")
+  test "unlisted root routes retain their own billable family" do
+    assert EndpointPolicy.endpoint_family("/notifications") == "notifications"
+    assert EndpointPolicy.resource("/notifications") == "core"
+    assert EndpointPolicy.billable?("/notifications")
+    refute EndpointPolicy.free_endpoint?("/notifications")
+  end
+
+  test "a URL without a path falls back to billable rest/core" do
+    assert EndpointPolicy.endpoint_family("https://api.github.com") == "rest"
+    assert EndpointPolicy.resource("https://api.github.com") == "core"
+    assert EndpointPolicy.billable?("https://api.github.com")
+    refute EndpointPolicy.free_endpoint?("https://api.github.com")
   end
 
   test "rate_limit is the one endpoint free in both subsystems" do

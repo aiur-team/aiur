@@ -43,7 +43,7 @@ check_workflow() {
   local path="$1"
   local quarantine_job
   local action_path="${2:-$quarantine_action}"
-  quarantine_job="$(sed -n '/^  quarantine:$/,/^  home-css:$/p' "$path")"
+  quarantine_job="$(sed -n '/^  quarantine:$/,/^  analytics:$/p' "$path")"
 
   if [[ -z "$quarantine_job" ]]; then
     violation "workflow $path has no quarantine job to guard"
@@ -101,7 +101,7 @@ check_workflow() {
 check_workflow "$workflow"
 
 # The guard must actually run in CI, not just exist on disk.
-workflow_security_job="$(sed -n '/^  workflow-security:$/,/^  merge-ruleset-drift:$/p' "$workflow")"
+workflow_security_job="$(sed -n '/^  workflow-security:$/,/^  build:$/p' "$workflow")"
 grep -Fq 'Test quarantine _build cache invariants' <<<"$workflow_security_job" ||
   fail "the workflow-security job must run scripts/test-quarantine-build-cache.sh"
 grep -Fq 'bash scripts/test-quarantine-build-cache.sh' <<<"$workflow_security_job" ||

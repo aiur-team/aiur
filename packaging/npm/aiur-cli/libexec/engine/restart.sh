@@ -44,31 +44,33 @@ aiur_write_restart_diagnostic() {
 # Keep the failure trap armed through confirmed start so a failed rebuild,
 # missing tmux, boot failure or interruption cannot sound harmless.
 aiur_restart_report_state() {
-  [ "$aiur_restart_daemon_state" = "stopped" ] || return 0
-  aiur_write_restart_diagnostic
+  if [ "$aiur_restart_daemon_state" = "stopped" ]; then
+    aiur_write_restart_diagnostic
 
-  # release_dir is resolved by the stop; fall back to the caller's declared dir
-  # for the paths that fail before that.
-  local dir="${release_dir:-${AIUR_RELEASE_DIR:-}}"
+    # release_dir is resolved by the stop; fall back to the caller's declared dir
+    # for the paths that fail before that.
+    local dir="${release_dir:-${AIUR_RELEASE_DIR:-}}"
 
-  echo "aiur: the daemon is STOPPED and was NOT restarted" >&2
-  if [ -n "${AIUR_RESTART_HANDOFF_ID:-}" ]; then
-    if [ "${aiur_restart_start_attempted:-0}" -eq 1 ]; then
-      echo "aiur: handoff $AIUR_RESTART_HANDOFF_ID; startup was attempted, so provider survival is unknown. Inspect 'aiur status --handoff --json' after recovery." >&2
+    echo "aiur: the daemon is STOPPED and was NOT restarted" >&2
+    if [ -n "${AIUR_RESTART_HANDOFF_ID:-}" ]; then
+      if [ "${aiur_restart_start_attempted:-0}" -eq 1 ]; then
+        echo "aiur: handoff $AIUR_RESTART_HANDOFF_ID; startup was attempted, so provider survival is unknown. Inspect 'aiur status --handoff --json' after recovery." >&2
+      else
+        echo "aiur: handoff $AIUR_RESTART_HANDOFF_ID and providers retained until the configured relay orphan timeout (default 30 minutes); start aiur to adopt." >&2
+      fi
+    fi
+    if [ -n "$dir" ] && [ -x "$dir/bin/aiur" ]; then
+      echo "aiur: fix the cause and run 'aiur restart' again, or 'aiur restart --no-build' to start" >&2
+      echo "      on the release already on disk" >&2
     else
-      echo "aiur: handoff $AIUR_RESTART_HANDOFF_ID and providers retained until the configured relay orphan timeout (default 30 minutes); start aiur to adopt." >&2
+      # The dev builder removes an incomplete release, so after a failed rebuild
+      # there is nothing for --no-build to start. Advertising it anyway would cost
+      # the operator a second failed cycle while the fleet stays down.
+      echo "aiur: no complete release is left on disk, so --no-build has nothing to start —" >&2
+      echo "      fix the build and run 'aiur restart' again" >&2
     fi
   fi
-  if [ -n "$dir" ] && [ -x "$dir/bin/aiur" ]; then
-    echo "aiur: fix the cause and run 'aiur restart' again, or 'aiur restart --no-build' to start" >&2
-    echo "      on the release already on disk" >&2
-  else
-    # The dev builder removes an incomplete release, so after a failed rebuild
-    # there is nothing for --no-build to start. Advertising it anyway would cost
-    # the operator a second failed cycle while the fleet stays down.
-    echo "aiur: no complete release is left on disk, so --no-build has nothing to start —" >&2
-    echo "      fix the build and run 'aiur restart' again" >&2
-  fi
+  aiur_restart_cleanup_artifacts
 }
 
 # The rebuild runs in a process this command cannot see into, so "the builder
@@ -172,6 +174,13 @@ cmd_restart() {
     aiur_write_restart_diagnostic
   fi
 
+  trap aiur_restart_report_state EXIT INT TERM
+  local previous_sha="unknown" snapshot_dir=""
+  if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
+    restart_release_snapshot "${AIUR_RELEASE_DIR:-}" || die "restart aborted before stop: could not preserve the previous release"
+    previous_sha="${RESTART_PREVIOUS_SHA:-unknown}"
+    snapshot_dir="${RESTART_SNAPSHOT_DIR:-}"
+  fi
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
   # get. Any OTHER stop failure is fatal — building and starting on top of a
@@ -199,7 +208,6 @@ cmd_restart() {
   aiur_restart_phase="daemon_stopped"
   aiur_restart_reason="stop_completed"
   aiur_write_restart_diagnostic
-  trap aiur_restart_report_state EXIT INT TERM
 
   # TERM can end the BEAM process just before epmd releases its node name.
   # Wait here before an in-place release rebuild or a new distribution boot.
@@ -269,21 +277,30 @@ cmd_restart() {
   aiur_restart_phase="startup"
   aiur_restart_reason="startup_started"
   aiur_write_restart_diagnostic
-  local start_status=0
-  aiur_restart_start_with_retry || start_status=$?
+  aiur_restart_startup_capture_file="$(mktemp "${TMPDIR:-/tmp}/aiur-restart-startup.XXXXXX")" || die "restart aborted before start: could not preserve startup output"
+  aiur_restart_alert_path_capture_file="$(mktemp "${TMPDIR:-/tmp}/aiur-restart-alert-path.XXXXXX")" || die "restart aborted before start: could not preserve alert path"
+  AIUR_RESTART_STARTUP_CAPTURE="$aiur_restart_startup_capture_file"
+  AIUR_RESTART_ALERT_PATH_CAPTURE="$aiur_restart_alert_path_capture_file"
+  export AIUR_RESTART_STARTUP_CAPTURE AIUR_RESTART_ALERT_PATH_CAPTURE
+  local boot_status=0 start_status=0
+  aiur_restart_start_with_retry || boot_status=$?
+  restart_after_start_attempt "$boot_status" "$aiur_restart_startup_capture_file" "$previous_sha" "$snapshot_dir" "$keep_agents" || start_status=$?
   if [ "$start_status" -ne 0 ]; then
     aiur_restart_phase="startup_failed"
     aiur_restart_reason="startup_failed_exit_${start_status}"
     report_restart_handoff_failure
-    trap - EXIT INT TERM
     aiur_restart_report_state
+    trap - EXIT INT TERM
     exit "$start_status"
   fi
 
   aiur_restart_daemon_state="running"
-  aiur_restart_phase="complete"
-  aiur_restart_reason="restart_succeeded"
+  if [ "$boot_status" -ne 0 ]; then
+    aiur_restart_phase="rollback_complete"
+    aiur_restart_reason="new_release_failed_rolled_back"
+  else
+    aiur_restart_phase="complete"
+    aiur_restart_reason="restart_succeeded"
+  fi
   aiur_write_restart_diagnostic
-  trap - EXIT INT TERM
-  [ "$keep_agents" -eq 0 ] || report_restart_handoff
 }

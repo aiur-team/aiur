@@ -4,14 +4,17 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.AgentRunner.DispatchSelectionEvent
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.AgentRunner.ModelLabelRefresh
+  alias Aiur.AgentRunner.PullToolInstallation
   alias Aiur.AgentRunner.SessionContainment
   alias Aiur.AgentRunner.SessionDisplay
   alias Aiur.AgentRunner.SessionIdentity
   alias Aiur.AgentRunner.SessionOptions
   alias Aiur.AgentRunner.SessionResume
   alias Aiur.AgentRunner.SessionStartup
+  alias Aiur.AgentRunner.SkillPreloadEvent
   alias Aiur.AgentRunner.TurnBudget
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.AgentSkills.Preload
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Signal
@@ -37,25 +40,29 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @type worker_host :: String.t() | nil
 
   @doc false
-  @spec report_session_execution(pid() | nil, Issue.t(), map()) :: :ok
-  def report_session_execution(recipient, %Issue{id: issue_id}, session)
+  @spec report_session_execution(pid() | nil, Issue.t(), map(), Preload.t() | nil) :: :ok
+  def report_session_execution(recipient, issue, session, skill_preload \\ nil)
+
+  def report_session_execution(recipient, %Issue{id: issue_id}, session, skill_preload)
       when is_binary(issue_id) and is_pid(recipient) and is_map(session) do
     send(
       recipient,
       {:session_execution_info, issue_id,
        %{
          backend: session_backend_label(session),
+         pull_tool_installed: Map.get(session, :pull_tool_installed, false),
          requested_model: Map.get(session, :model),
          effort: Map.get(session, :effort),
          account: Map.get(session, :account_name),
-         account_selection_reason: Map.get(session, :account_selection_reason)
+         account_selection_reason: Map.get(session, :account_selection_reason),
+         skills: skill_preload && Preload.summary(skill_preload)
        }}
     )
 
     :ok
   end
 
-  def report_session_execution(_recipient, _issue, _session), do: :ok
+  def report_session_execution(_recipient, _issue, _session, _skill_preload), do: :ok
 
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
@@ -69,6 +76,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     session_opts =
       session_opts
+      |> Keyword.put(:journal_workspace, if(is_nil(worker_host), do: workspace))
       |> Keyword.put(
         :on_process_group_started,
         workspace_process_group_tracker(Keyword.get(opts, :workspace_ownership))
@@ -244,9 +252,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
-    report_session_execution(codex_update_recipient, issue, session)
-    DispatchSelectionEvent.write(workspace, worker_host, issue)
     handle_opts = Keyword.get(opts, :session_handle_opts, [])
+    # Stamp before reporting or saving; a resumed session reads its previous handle.
+    session = PullToolInstallation.stamp(session, issue.identifier, handle_opts)
+    skill_preload = Preload.resolve(issue, workspace)
+    report_session_execution(codex_update_recipient, issue, session, skill_preload)
+    DispatchSelectionEvent.write(workspace, worker_host, issue)
+    SkillPreloadEvent.write(workspace, worker_host, skill_preload)
     SessionResume.persist_session_handle(session, issue.identifier, worker_host, handle_opts)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
     report_repl_session(codex_update_recipient, issue, session)

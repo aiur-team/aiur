@@ -168,3 +168,19 @@ critical-path capacity, or prevent completion.
   separately still open and does not become deferred through this entry.
 - Future disposition: compare mode positions using #5181's captures and add
   the requested browser layout assertion when correcting the alignment.
+
+## DF-015 — MP-R4 research fact-sheet links lost
+
+- Severity: P2 research continuity finding, observed 2026-10-29 in #3449.
+- Evidence: at `747e862971c29f28eec311fb6cdb52154f47b092`, the research pack
+  lacks `bucket-1-refactor/MP-R4/plan.md` and `context-and-decisions.md`.
+  The current MP-N4 plan contains only its later post-refactor refresh, with
+  no link to MP-R4 §4. The historical MP-R4 acceptance criterion 4 is unproven.
+- Affected component: mobile/platform research pack, coordinator handoff.
+- Why deferred: the shipped ingress documentation is present; this gap affects
+  research traceability rather than runtime behavior. No live acceptance pass
+  is inferred from that distinction.
+- Future disposition: the research coordinator should restore stable links
+  to the fact sheet at revision
+  `6732f5f9f448b1857a9643993849635f85321e19`, or explicitly supersede that
+  handoff in the current MP-N4 plan. See the dated MP-R4 acceptance report.

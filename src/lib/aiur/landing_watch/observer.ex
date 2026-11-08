@@ -1,15 +1,15 @@
 defmodule Aiur.LandingWatch.Observer do
   @moduledoc "Governed GraphQL observation for open PR approval, CI and queue state."
 
-  alias Aiur.GitHub.{Client, Transport}
+  alias Aiur.GitHub.{Access, Client}
   alias Aiur.LandingWatch.Classifier
 
   @spec observe(keyword()) :: {:ok, [map()]} | {:error, term()}
   def observe(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, prs} <- Client.fetch_open_pull_requests(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       observe_chunks(prs, owner, repo, token, request_fun)
     end
   end
@@ -19,9 +19,9 @@ defmodule Aiur.LandingWatch.Observer do
   def refresh_queue(observations, opts) when is_list(observations) do
     candidates = Enum.filter(observations, &queue_candidate?/1)
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       observe_chunks(Enum.map(candidates, &Map.get(&1, :rest)), owner, repo, token, request_fun)
     end
   end
@@ -32,11 +32,11 @@ defmodule Aiur.LandingWatch.Observer do
   @spec prs_ahead(map(), keyword()) :: {:ok, [pos_integer()]} | {:error, term()}
   def prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}}, opts)
       when is_integer(number) and is_integer(position) and position > 1 do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeQueue" => %{"entries" => %{"nodes" => nodes}}}}}}} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              "query($owner:String!,$repo:String!,$number:Int!,$limit:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){mergeQueue{entries(first:$limit){nodes{position pullRequest{number}}}}}}}",
              %{owner: owner, repo: repo, number: number, limit: position - 1},
@@ -54,11 +54,11 @@ defmodule Aiur.LandingWatch.Observer do
   @doc false
   @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:hold, term()} | {:error, term()}
   def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
              %{owner: owner, repo: repo, number: number},
@@ -111,7 +111,7 @@ defmodule Aiur.LandingWatch.Observer do
     query = "query AiurLandingWatch($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { #{aliases} } }"
 
     with {:ok, %{"data" => %{"repository" => repository}}} <-
-           Transport.github_graphql(request_fun, token, query, %{"owner" => owner, "repo" => repo}, caller: "landing_watch_observation"),
+           Access.github_graphql(request_fun, token, query, %{"owner" => owner, "repo" => repo}, caller: "landing_watch_observation"),
          true <- is_map(repository) do
       observations = prs |> Enum.with_index() |> Enum.map(fn {rest, i} -> normalize(rest, Map.get(repository, "pr_#{i}")) end)
       if Enum.all?(observations, &is_map/1), do: {:ok, observations}, else: {:error, :incomplete_landing_observation}

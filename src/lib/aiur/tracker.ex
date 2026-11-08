@@ -17,7 +17,9 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :format_preflight_error, 1), do: tracker.format_preflight_error(reason), else: inspect(reason)
   end
 
-  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_label_map :: %{
+          String.t() => %{optional(:labels) => [String.t()], optional(:updated_at) => DateTime.t() | nil, optional(:label_descriptions) => %{optional(String.t()) => String.t()}}
+        }
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
   @type ticket_pull_request_result ::
           {:ok,
@@ -29,6 +31,7 @@ defmodule Aiur.Tracker do
                optional(:version) => String.t() | nil,
                optional(:head_ref) => String.t() | nil,
                optional(:head_sha) => String.t() | nil,
+               optional(:head_updated_at) => String.t() | nil,
                optional(:base_ref) => String.t() | nil,
                optional(:merge_commit_sha) => String.t() | nil
              }}
@@ -85,6 +88,13 @@ defmodule Aiur.Tracker do
   def ticket_pull_request(issue_id) do
     tracker = adapter()
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1), do: tracker.ticket_pull_request(issue_id), else: {:ok, nil}
+  end
+
+  @doc "Resolves a closed ticket's merged PR remotely; callers must keep this off dispatch paths."
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: ticket_pull_request_result()
+  def resolve_ticket_pull_request(issue_id, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :resolve_ticket_pull_request, 2), do: tracker.resolve_ticket_pull_request(issue_id, opts), else: {:error, :unsupported}
   end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}

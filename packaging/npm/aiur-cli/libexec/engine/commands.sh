@@ -74,55 +74,6 @@ cmd_status() {
   fi
 }
 
-# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
-# projection, each value carrying the age of its observation.
-cmd_usage() {
-  [ "$#" -eq 0 ] || die "usage does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.usage()"
-}
-
-cmd_accounts() {
-  local json_arg=false harness="" arg encoded expression
-  for arg in "$@"; do
-    case "$arg" in
-      --json)
-        [ "$json_arg" = false ] || die "accounts accepts --json only once"
-        json_arg=true
-        ;;
-      --all)
-        ;;
-      -*)
-        die "accounts accepts an optional harness and --json"
-        ;;
-      *)
-        [ -z "$harness" ] || die "accounts accepts only one harness"
-        harness="$arg"
-        ;;
-    esac
-  done
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
-    resolve_release || return $?
-    prepare_distribution || die "distribution setup failed; cannot contact aiur"
-    resolve_control_identity_from_records
-  fi
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
-    # The local one-shot CLI renders the identity and marks usage unavailable.
-    # It never makes a provider request.
-    run_local_cli accounts "$@"
-    return
-  fi
-
-  if [ -n "$harness" ]; then
-    encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-    expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
-  else
-    expression="Aiur.AgentControlCLI.accounts($json_arg)"
-  fi
-  run_control_rpc "$expression"
-}
-
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -148,6 +99,39 @@ cmd_pause_resume() {
   fi
 
   run_control_rpc "$expression"
+}
+
+cmd_redispatch() {
+  local backend=""
+  local backend_seen=0
+  local targets=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --backend)
+        [ "$backend_seen" -eq 0 ] || { echo "aiur: --backend may be specified once" >&2; exit 64; }
+        [ "$#" -ge 2 ] || { echo "aiur: --backend requires a configured backend name" >&2; exit 64; }
+        backend="$2"
+        backend_seen=1
+        shift 2
+        ;;
+      *) targets+=("$1"); shift ;;
+    esac
+  done
+  if [ "${#targets[@]}" -eq 0 ] || ! parse_issue_targets "${targets[@]}" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: redispatch expects explicit issue IDs (e.g. aiur redispatch 44 45 --backend codex)" >&2
+    exit 64
+  fi
+  if [ "$backend_seen" -eq 1 ] && [[ ! "$backend" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    echo "aiur: --backend expects a backend name using letters, digits, dots, or dashes" >&2
+    exit 64
+  fi
+  local literal
+  literal="$(elixir_list_literal "${parsed_targets[@]}")"
+  if [ "$backend_seen" -eq 1 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, \"$backend\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.redispatch($literal, nil)"
+  fi
 }
 
 cmd_executor_ownership() {
@@ -269,10 +253,25 @@ cmd_agents() {
   fi
 }
 
+# `aiur commands repair` — the one mutation under `commands`: quarantine journal
+# records that fail verification and restore write access (#7577).
+cmd_commands_repair() {
+  case "$*" in
+    "") run_control_rpc "Aiur.AgentControlCLI.commands_repair([])" ;;
+    --json) run_control_rpc "Aiur.AgentControlCLI.commands_repair([json: true])" ;;
+    *) echo "aiur: commands repair only accepts --json" >&2; exit 64 ;;
+  esac
+}
+
 # `aiur commands` — read the dashboard's retained Decision projection without
 # exposing any dispatch or answer mutation path.
 cmd_commands() {
-  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  local filter="open" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+  if [ "${1:-}" = "repair" ]; then
+    shift
+    cmd_commands_repair "$@"
+    return
+  fi
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -301,12 +300,13 @@ cmd_commands() {
     shift
   done
 
-  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
-  [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
+  case "$filter" in all|open|blocking|resolved|needs-you|with-executor|from-executor) ;; *) echo "aiur: commands --filter accepts all, open, blocking, resolved, needs-you, with-executor, or from-executor" >&2; exit 64 ;; esac
+  [ -z "$limit" ] || { [[ "$limit" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$limit" -le 100 ]; } || { echo "aiur: commands --limit must be between 1 and 100" >&2; exit 64; }
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
   local opts="filter: :$filter"
+  case "$filter" in needs-you|with-executor|from-executor) opts="filter: :\"$filter\"" ;; esac
   [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   [ -n "$limit" ] && opts="$opts, limit: $limit"
@@ -354,6 +354,22 @@ cmd_set() {
   encoded_caller_agent_workspace_env="$(printf '%s' "$caller_agent_workspace_env" | base64 | tr -d '\n')"
 
   case "$key" in
+    --help)
+      cat <<'EOF'
+Usage: aiur set <key> <json> | --list [--json] | --unset <key>
+       aiur set max-agents <n>
+
+Store or remove an allowlisted runtime setting for this Aiur instance.
+Runtime settings persist across restarts and apply live. `max-agents` is a
+session-only concurrent-agent cap and resets when the daemon restarts.
+
+To change `.aiur/config`, edit the file directly. The running daemon checks it
+about once a second and reloads valid changes without a restart. Confirm with
+`aiur status`; rejected changes keep the last good config and show
+`CONFIG RELOAD REJECTED` until a corrected file reloads.
+EOF
+      exit 0
+      ;;
     max-agents)
       local n="${1:-}"
       if [ -z "$n" ] || [[ ! "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ]; then
@@ -396,4 +412,16 @@ cmd_set() {
       run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
       ;;
   esac
+}
+
+cmd_listen_mode() {
+  local ticket="${1:-}" encoded_args="" arg
+  [ -n "$ticket" ] || { echo 'aiur: listen-mode requires a ticket' >&2; exit 64; }
+  shift
+  for arg in "$@"; do
+    [ -z "$encoded_args" ] || encoded_args+=", "
+    encoded_args+="Base.decode64!(\"$(encode_control_value "$arg")\")"
+  done
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
+  run_control_rpc "Aiur.ListenModeCli.run(Base.decode64!(\"$(encode_control_value "$ticket")\"), [$encoded_args])"
 }

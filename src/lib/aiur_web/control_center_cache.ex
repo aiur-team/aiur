@@ -172,10 +172,8 @@ defmodule AiurWeb.ControlCenterCache do
       (dashboard_cache_key?(key) and match?(%{error: {:cache_unavailable, _reason}}, payload))
   end
 
-  defp dashboard_cache_key?(
-         {%{fleet: _fleet, membership: _membership, activity: _activity, tickets: _tickets}, _orchestrator, _decision_store, _decision_metrics, _recent_merge_store, _snapshot_timeout_ms}
-       ),
-       do: true
+  defp dashboard_cache_key?({%{fleet: _fleet, membership: _membership, activity: _activity}, _orchestrator, _decision_store, _decision_metrics, _recent_merge_store, _snapshot_timeout_ms}),
+    do: true
 
   defp dashboard_cache_key?(_key), do: false
 

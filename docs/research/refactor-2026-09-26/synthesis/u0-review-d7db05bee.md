@@ -15,7 +15,7 @@ Inherited decisions use `high-priority-disposition-fc8270bb.json`, all three `p2
 
 ## Finding review
 
-[Disposition overlay](u0-review-d7db05bee-dispositions.json) contains **986 canonical rows and 1,033 source IDs**, with the original source-ID-to-canonical mapping preserved exactly and zero orphans.
+[Disposition index](u0-review-d7db05bee-dispositions.json) points to 30 bounded JSON shards containing **986 canonical rows and 1,033 source IDs**. The original source-ID-to-canonical mapping is preserved exactly, with zero orphans; each shard is at most 450 physical lines.
 
 - Rechecked all 97 P0/P1 findings and 527 P2/P3 findings with a cited path changed in `git diff --stat 465aca643527ea94a4d0d6d7c178c5d23d2aaf57 d7db05bee6ef712100340c2fd1b3c57d82d79621`. The join uses the equivalent `--name-only` path set and every `source_claims[].claim.locations[].path`.
 - Of 362 remaining P2/P3 findings, 360 retain their inherited disposition with `status: unchanged` and the note `path unchanged`. Two citations already absent at both comparison pins are `stale`: `web-rest-23` and `github-a-34`; their anchors point to the owner ledger's deletion evidence. Neither is a new repair.
@@ -69,8 +69,10 @@ corpus = json.loads(subprocess.check_output([
     'git', '-C', workspace, 'show',
     '6732f5f9f448b1857a9643993849635f85321e19:docs/research/refactor-2026-09-26/review/findings.json'
 ]))
-overlay = json.loads(Path('docs/research/refactor-2026-09-26/synthesis/u0-review-d7db05bee-dispositions.json').read_text())
-rows = overlay['findings']
+index_path = Path('docs/research/refactor-2026-09-26/synthesis/u0-review-d7db05bee-dispositions.json')
+overlay = json.loads(index_path.read_text())
+rows = [row for shard in overlay['shards']
+        for row in json.loads((index_path.parent / shard['path']).read_text())['findings']]
 assert len(rows) == 986
 assert len({row['id'] for row in rows}) == 986
 assert {row['id'] for row in rows} == {row['id'] for row in corpus['findings']}

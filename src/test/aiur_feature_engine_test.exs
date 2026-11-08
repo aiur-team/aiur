@@ -17,11 +17,50 @@ defmodule Aiur.FeatureEngineTest do
     )
   end
 
+  # The deprecated flag spellings print a notice on stderr; the merged stream
+  # keeps the RPC expression on its own lines for comparison.
   defp opts(args) do
     {output, 0} = shell(args)
-    expression = output |> String.trim() |> String.replace_prefix("Aiur.AgentControlCLI.feature(", "") |> String.trim_trailing(")")
+
+    expression =
+      output
+      |> String.split("\n")
+      |> Enum.reject(&String.starts_with?(&1, "aiur: "))
+      |> Enum.join("\n")
+      |> String.trim()
+      |> String.replace_prefix("Aiur.AgentControlCLI.feature(", "")
+      |> String.trim_trailing(")")
+
     {opts, []} = Code.eval_string(expression)
     opts
+  end
+
+  test "confirm dispatches deduplicated IDs and filtered show with and without a slug" do
+    assert shell(["confirm", "a", "12", "12"]) ==
+             {"Aiur.AgentControlCLI.feature([op: :confirm, slug: Base.decode64!(\"YQ==\"), ids: [12], who: Base.decode64!(\"dGVzdGVy\")])\n", 0}
+
+    assert opts(["show", "--unconfirmed", "--json"]) == [op: :show, unconfirmed: true, json: true]
+    assert opts(["show", "a", "--unconfirmed"]) == [op: :show, slug: "a", unconfirmed: true]
+  end
+
+  @tag :future_regression
+  test "future regression guard: confirm rejects absent slug, IDs and unsupported flags before dispatch" do
+    for args <- [
+          ["confirm"],
+          ["confirm", "a"],
+          ["confirm", "a", "0"],
+          ["confirm", "a", "12", "--source", "backfill-agent"],
+          ["confirm", "a", "12", "--unconfirmed"],
+          ["confirm", "a", "12", "--epic", "f-a"],
+          ["confirm", "a", "12", "--as", "a b"],
+          ["confirm", "a"] ++ Enum.map(1..201, &to_string/1)
+        ] do
+      assert {output, 64} = shell(args)
+      refute output =~ "Aiur.AgentControlCLI"
+    end
+
+    assert {output, 64} = shell(["confirm", "a", "12"], [{"USER", ""}])
+    refute output =~ "Aiur.AgentControlCLI"
   end
 
   test "feature add encodes slug and actor, strips hashes and collapses duplicates" do
@@ -30,6 +69,20 @@ defmodule Aiur.FeatureEngineTest do
 
     assert opts(["add", "s", "1", "--epic", "phase-1", "--move", "--source", "backfill-agent"]) ==
              [op: :add, slug: "s", ids: [1], who: "tester", epic: "phase-1", move: true, source: "backfill-agent"]
+  end
+
+  test "the deprecated epic flags still define lanes and print the lane deprecation" do
+    {notice, 0} = shell(["create", "s", "--label", "S", "--epic", "a=First"])
+    assert notice =~ "aiur: feature --epic is deprecated; use --lane"
+    assert notice =~ "epics: [%{key: Base.decode64!(\"YQ==\"), label: Base.decode64!(\"Rmlyc3Q=\")}]"
+
+    {lane_notice, 0} = shell(["create", "s", "--label", "S", "--lane", "a=First"])
+    refute lane_notice =~ "deprecated"
+    assert lane_notice =~ "epics: [%{key: Base.decode64!(\"YQ==\")"
+
+    {add_notice, 0} = shell(["add", "s", "1", "--epic", "phase-1"])
+    assert add_notice =~ "aiur: feature --epic is deprecated; use --lane"
+    assert add_notice =~ "epic: Base.decode64!(\"cGhhc2UtMQ==\")"
   end
 
   test "create and edit preserve arbitrary text and repeated epics through RPC encoding" do
@@ -76,7 +129,7 @@ defmodule Aiur.FeatureEngineTest do
           {["add", "s"], "requires ticket ids"},
           {["add"], "requires a slug"},
           {["add", "s", "1", "--wat"], "unknown feature option"},
-          {["confirm", "s"], "feature requires"},
+          {["confirm", "s"], "feature confirm requires ticket ids"},
           {["add", "s" | Enum.map(1..201, &to_string/1)], "at most 200"}
         ] do
       assert {output, 64} = shell(args), "expected usage error for #{inspect(args)}"

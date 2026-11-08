@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     issue = %{issue("5216", "in-progress") | tracker_identity: %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "5216"}}
     repo = "its-everdred/aiur"
     sha = String.duplicate("a", 40)
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, issue.id)
-    :ok = ResourceStore.put_resource(key, %{"number" => 5216, "head" => %{"sha" => sha}})
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, repo, "open")
+    :ok = ResourceStore.put_resource(key, [%{"number" => 5216, "head" => %{"ref" => "aiur/5216", "sha" => sha}}])
     parent = self()
 
     opts = [

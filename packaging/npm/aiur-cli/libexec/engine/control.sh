@@ -175,6 +175,9 @@ print_not_running_message() {
 }
 
 print_control_down_message() {
+  if [ "${AIUR_CONTROL_COMMAND:-}" = ask ]; then
+    echo "aiur ask now raises a Command and needs the running daemon" >&2
+  fi
   local crash_marker
   crash_marker="$(aiur_crash_marker_path)"
   if [ -f "$crash_marker" ]; then

@@ -62,6 +62,10 @@ alerts:
     message: Fleet dispatch capacity is constrained
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "system.conversation.subject_index.unreadable":
+    message: Conversation index skipped unreadable subject files
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "system.dispatch.capacity_starved.resolved":
     message: Fleet dispatch capacity recovered
     sound:

@@ -23,6 +23,52 @@ defmodule Aiur.ExecutorWakeProjection do
 
   def project(_event), do: :ignore
 
+  defp project("system.newsletter.ready" = topic, event, pr, head_sha, review_sha) do
+    {:ok, record} = project("newsletter.ready", event, pr, head_sha, review_sha)
+    {:ok, Map.merge(record, %{"topic" => topic, "topic_class" => topic, "report_path" => value(event, :report_path), "pdf_path" => value(event, :pdf_path)})}
+  end
+
+  defp project("executor.newsletter.failed" = topic, event, pr, head_sha, review_sha) do
+    {:ok, record} = project("newsletter.failed", event, pr, head_sha, review_sha)
+    fields = Map.new([:repo, :date, :stage, :reason, :log_path], &{Atom.to_string(&1), value(event, &1)})
+    {:ok, Map.merge(record, Map.merge(fields, %{"topic" => topic, "topic_class" => topic}))}
+  end
+
+  defp project("executor.voice.session_ended" = topic, event, _pr, _head_sha, _last_review_sha) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok,
+     %{
+       "wake_id" => typed_id(value(event, :id)),
+       "event_id" => typed_id(value(event, :id)),
+       "topic" => topic,
+       "topic_class" => "executor.voice",
+       "ticket" => nil,
+       "action" => "session_ended",
+       "count" => 1,
+       "first_seen_at" => now,
+       "last_seen_at" => now
+     }}
+  end
+
+  defp project("executor.decision.answered" = topic, event, _pr, _head_sha, _last_review_sha) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok,
+     %{
+       "wake_id" => typed_id(value(event, :id)),
+       "event_id" => typed_id(value(event, :id)),
+       "topic" => topic,
+       "topic_class" => "executor.decision",
+       "decision_id" => value(event, :decision_id),
+       "ticket" => nil,
+       "action" => "answered",
+       "count" => 1,
+       "first_seen_at" => now,
+       "last_seen_at" => now
+     }}
+  end
+
   defp project(topic, event, pr, head_sha, last_review_sha) do
     if is_binary(topic) and not String.starts_with?(topic, "executor.") do
       now = DateTime.utc_now() |> DateTime.to_iso8601()
@@ -38,6 +84,8 @@ defmodule Aiur.ExecutorWakeProjection do
          "head_sha" => head_sha,
          "last_review_sha" => last_review_sha,
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
+         "observed_state" => value(event, :observed_state),
+         "observed_updated_at" => value(event, :observed_updated_at),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
          "author_trusted?" => trusted_github_author?(event),
          "author_id" => positive_integer(value(event, :author_id)),

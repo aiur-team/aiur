@@ -27,5 +27,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N7"
+  "added_by": "MP-N7",
+  "goal": "hardware"
 }

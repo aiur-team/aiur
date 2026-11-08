@@ -4,11 +4,11 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1]
 
-  alias Aiur.{Commands, CurrentRunMembership, OpenTicketSource, TicketActivity}
+  alias Aiur.{Commands, CurrentRunMembership, TicketActivity}
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, EndpointConfig}
-  alias AiurWeb.OperatorControlCenter.{DecisionProvider, LoadBudget, TicketsPresenter, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{DecisionProvider, LoadBudget, UnitsPresenter}
 
   @reload_debounce_ms 50
   # Left of the cache's load timeout for the projection itself.
@@ -227,7 +227,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
     |> then(fn payload -> Map.put(payload, :units, UnitsPresenter.load(payload, units_options(bound, funs))) end)
-    |> Map.put(:tickets, TicketsPresenter.load(tickets_options(bound, funs)))
     |> Map.delete(:units_status_snapshot)
   end
 
@@ -240,8 +239,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       budget_ms: EndpointConfig.get(:control_center_provider_budget_ms) || ControlCenterCache.load_timeout_ms() - @provider_budget_margin_ms,
       fleet: EndpointConfig.get(:units_fleet_fun),
       membership: EndpointConfig.get(:units_membership_fun) || (&CurrentRunMembership.snapshot/0),
-      activity: EndpointConfig.get(:units_activity_fun) || (&TicketActivity.snapshots/0),
-      tickets: EndpointConfig.get(:open_tickets_fun) || (&OpenTicketSource.snapshot/0)
+      activity: EndpointConfig.get(:units_activity_fun) || (&TicketActivity.snapshots/0)
     }
   end
 
@@ -289,9 +287,11 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     }
   end
 
-  defp units_options(bound, funs), do: [membership_fun: bound.(funs.membership), activity_fun: bound.(funs.activity)]
+  defp units_options(bound, funs) do
+    opts = [membership_fun: bound.(funs.membership), activity_fun: bound.(funs.activity)]
 
-  defp tickets_options(bound, funs), do: [tickets_fun: bound.(funs.tickets)]
+    maybe_put_option(opts, :startup_elapsed_ms_fun, EndpointConfig.get(:units_startup_elapsed_ms_fun))
+  end
 
   defp maybe_put_option(opts, _key, nil), do: opts
   defp maybe_put_option(opts, key, value), do: Keyword.put(opts, key, value)

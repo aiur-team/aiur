@@ -70,7 +70,6 @@ defmodule Aiur.GitHub.ResourceStore.Types do
     # mapping never goes stale.
     :pr_review_comment_thread,
     # Conditional validator for the page-one listing, separate from the PR-body key.
-    :branch_pull_request_listing,
     :branch_pull_request_listing_all
   ]
 

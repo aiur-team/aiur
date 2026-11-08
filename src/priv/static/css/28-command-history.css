@@ -144,7 +144,6 @@
   white-space: nowrap;
 }
 
-
 .history-more {
   display: flex;
   justify-content: center;
@@ -169,9 +168,6 @@
   transition: transform 120ms ease;
 }
 
-.decision-card.open .expand-chevron {
-  transform: rotate(180deg);
-}
 
 .decision-age {
   color: var(--muted);
@@ -211,3 +207,5 @@
   font-size: 0.84rem;
 }
 
+/* Expanded details must fit the viewport even when their table scrolls. */
+.history-detail-row .decision-detail { max-width: calc(100vw - 6rem); box-sizing: border-box; }

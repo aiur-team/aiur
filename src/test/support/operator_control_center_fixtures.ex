@@ -4,33 +4,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.BuildOrder.Icon
-  alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
 
-  alias AiurWeb.OperatorControlCenter.{BuildOrderSelected, DecisionInbox, History}
-
-  def render_selected(model) do
-    {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
-
-    render_component(&BuildOrderSelected.build_order_selected/1, %{
-      route_state: route_state,
-      model: model,
-      now: ~U[2026-08-10 12:00:00Z],
-      analytics_scope: %{state: :none},
-      usage_scope: %{state: :none}
-    })
-  end
-
-  def unresolved_model(status) do
-    %BuildOrderViewModel{status: status, summary: unresolved_summary()}
-  end
-
-  def unresolved_summary, do: %{resolved_summary() | resolved?: false}
-
-  def resolved_summary do
-    %{resolved?: true, members: 0, edges: 0, external_edges: 0, lanes: %{}, phases: %{}}
-  end
+  alias AiurWeb.OperatorControlCenter.{DecisionInbox, History}
 
   def action_decision(attrs) do
     defaults = %{

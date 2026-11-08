@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-progress-event.v1.schema.json",
+  "title": "TicketProgressChangedEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.agent\\.progress(?:\\.(?:checkin|phase))?$"
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "job_id": { "type": ["string", "null"] }
+          },
+          "required": ["ticket", "job_id"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "progress_source": { "enum": ["progress", "progress.checkin", "progress.phase"] }
+          },
+          "required": ["percent", "progress_source"]
+        }
+      },
+      "required": ["topic", "refs", "attrs"]
+    }
+  ]
+}

@@ -20,13 +20,17 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Provides consistent styles and UI elements for Aiur sites and clients.",
+  "summary": "Provides shared styles, accessible command tabs and clipboard controls for Aiur sites and clients.",
   "status": "optional",
   "install": {
     "type": "included"
   },
-  "docs": [],
+  "docs": [
+    "archon/index.md",
+    "khala/index.md"
+  ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

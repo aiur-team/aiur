@@ -5,7 +5,7 @@ defmodule AiurEnginePrePrTest do
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
   @shim Path.expand("../../scripts/aiurdev", __DIR__)
 
-  test "conflicting origin main reports the file, aborts, and leaves the checkout clean" do
+  test "pre-pr snapshots origin main without merging it into the checkout" do
     fixture = fixture("conflict")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -16,17 +16,49 @@ defmodule AiurEnginePrePrTest do
     File.write!(Path.join(repo, "collision.txt"), "main\n")
     git!(repo, ["commit", "-am", "main"])
     git!(repo, ["switch", "feature"])
+    feature_head = git_output!(repo, ["rev-parse", "HEAD"])
 
     {output, status} = run_pre_pr(fixture, repo)
 
     assert status == 1
-    assert output =~ "FAIL merge conflict: collision.txt"
+    assert output =~ "PASS base origin/main"
+    assert output =~ "Base SHA:"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
-    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
+    assert output =~ "--- end aiur pre-pr result ---\n"
     assert git_output!(repo, ["status", "--porcelain"]) == ""
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == feature_head
+    assert File.read!(Path.join(repo, "collision.txt")) == "feature\n"
     refute File.exists?(Path.join(fixture, "home/.aiur"))
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
+  end
+
+  test "pre-pr does not merge main after two non-conflicting base moves" do
+    fixture = fixture("two-base-moves")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.write!(Path.join(repo, "feature.txt"), "feature\n")
+    git!(repo, ["add", "feature.txt"])
+    git!(repo, ["commit", "-m", "feature change"])
+    git!(repo, ["switch", "main"])
+
+    for name <- ["main-one.txt", "main-two.txt"] do
+      File.write!(Path.join(repo, name), "#{name}\n")
+      git!(repo, ["add", name])
+      git!(repo, ["commit", "-m", "move main #{name}"])
+    end
+
+    git!(repo, ["switch", "feature"])
+    head = git_output!(repo, ["rev-parse", "HEAD"])
+    commit_count = git_output!(repo, ["rev-list", "--count", "HEAD"])
+    tree = git_output!(repo, ["rev-parse", "HEAD^{tree}"])
+
+    {_output, _status} = run_pre_pr(fixture, repo)
+
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == head
+    assert git_output!(repo, ["rev-list", "--count", "HEAD"]) == commit_count
+    assert git_output!(repo, ["rev-parse", "HEAD^{tree}"]) == tree
+    assert git_output!(repo, ["status", "--porcelain"]) == ""
   end
 
   test "PR body refresh fixes stale head and writes plain base evidence" do
@@ -133,7 +165,7 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
   end
 
-  test "full-suite fallback is reported and matching reader tests run" do
+  test "full selection defers coverage partitions to CI and runs matching reader tests" do
     fixture = fixture("gate")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -157,23 +189,15 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL mix format --check-formatted"
 
     assert output =~
-             "NOTE full selection (fixture requires full suite); running CI coverage partitions locally; full CI suite runs in merge queue"
+             "NOTE full selection (fixture requires full suite); running discovered reader tests locally; CI owns the full coverage partitions"
 
-    assert length(
-             Regex.scan(
-               ~r/aiur pre-pr gate complete: PASS coverage partition \([1-4]\/4\)/,
-               output
-             )
-           ) == 4
-
-    assert File.read!(Path.join(fixture, "coverage-partitions")) ==
-             "1:--max-cases 4\n2:--max-cases 4\n3:--max-cases 4\n4:--max-cases 4\n"
+    refute File.exists?(Path.join(fixture, "coverage-partitions"))
 
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
     refute File.read!(Path.join(fixture, "reader-tests")) =~ "changed_mention_test.exs"
     refute File.exists?(Path.join(fixture, "make-ci-ran"))
-    assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\n"
 
     temp_dirs =
       fixture
@@ -181,7 +205,7 @@ defmodule AiurEnginePrePrTest do
       |> File.read!()
       |> String.split("\n", trim: true)
 
-    assert length(temp_dirs) == 2
+    assert length(temp_dirs) == 1
     assert Enum.all?(temp_dirs, &String.starts_with?(&1, Path.join(fixture, "aiur-pre-pr.")))
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
@@ -323,8 +347,24 @@ defmodule AiurEnginePrePrTest do
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
     assert status == 0
+    assert output =~ "PASS pinned layout assets"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "ci --ignore-scripts"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "run vendor:elk -- --check"
     assert output =~ "Result: PASS (full CI suite not run)"
     assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
+  end
+
+  test "missing Node and npm reports an actionable pinned-layout prerequisite" do
+    fixture = fixture("missing-npm")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    {output, status} = run_pre_pr(fixture, repo, missing_tool: "npm")
+
+    assert status == 1
+    assert output =~ "FAIL pinned layout assets"
+    assert output =~ "Node/npm required"
+    assert output =~ "npm ci --ignore-scripts"
+    assert output =~ "Result: FAIL"
   end
 
   # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
@@ -343,6 +383,7 @@ defmodule AiurEnginePrePrTest do
           {"AIUR_SKIP_BUILD", "1"},
           {"AIUR_AGENT_WORKSPACE", repo},
           {"AIUR_BASE_BRANCH", "main"},
+          {"PRE_PR_SELECTOR_MODE", "scoped"},
           {"HOME", Path.join(fixture, "home")},
           {"TMPDIR", fixture},
           {"TMUX", nil},

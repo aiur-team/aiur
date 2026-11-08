@@ -1,5 +1,6 @@
 defmodule Aiur.Claude.Repl.HookTurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.AgentRunner.Handoff
   alias Aiur.Claude.HookEvents
@@ -76,6 +77,74 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
         metadata
     after
       1_000 -> flunk("provider delivery acknowledgement did not arrive")
+    end
+  end
+
+  test "steer wake types mid-turn while false wake leaves input held", %{tmux: tmux} do
+    identifier = "HT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+
+    on_operator = fn ->
+      send(parent, :operator_claimed)
+      {:deliver_text, "native steer", fn _ -> send(parent, :operator_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10, on_steer_claim: on_operator, on_operator_message: fn -> flunk("steer must not claim a held sync item") end) end)
+    expect_prompt_submit(tmux)
+    # False-wake behavior is an intentional existing-behavior guard.
+    send(task.pid, {:agent_queue_updated, "test", 1, false})
+    send(task.pid, {:agent_queue_updated, "test", 2, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:operator_claimed)
+    receive_barrier(:operator_delivered)
+    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+    refute_received :operator_claimed
+    refute_received {:delivery_failed, _}
+  end
+
+  @tag timeout: 5_000
+  test "adopted turn types steer input through the selective claim", %{tmux: tmux} do
+    identifier = "HT-ADOPT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+    state = %{repl_acc: %{session_id: nil, message: nil, provider_delivered?: false}}
+
+    on_steer_claim = fn ->
+      {:deliver_text, "native steer", fn _ -> send(parent, :adopted_steer_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task =
+      Task.async(fn ->
+        HookTurn.adopt(session, state, 0,
+          poll_interval_ms: 10,
+          on_steer_claim: on_steer_claim,
+          on_operator_message: fn -> flunk("adopted steer must use its selective claim") end
+        )
+      end)
+
+    send(task.pid, {:agent_queue_updated, identifier, 1, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:adopted_steer_delivered)
+    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "session_id" => "adopted-session", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed, thread_id: "adopted-session"}} = drain_pane_pid(tmux, task)
+    refute_received {:delivery_failed, _}
+    refute_received {:tmux_mock_out, "load-buffer " <> _}
+  end
+
+  defp expect_steer_input(tmux) do
+    receive_barrier({:tmux_mock_out, command})
+
+    case command do
+      "display-message" <> _ ->
+        respond(tmux, "4242\n")
+        expect_steer_input(tmux)
+
+      "send-keys -t %50 -l native steer" ->
+        respond(tmux, "")
+        receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
+        respond(tmux, "")
     end
   end
 

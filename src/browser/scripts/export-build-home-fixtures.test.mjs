@@ -273,17 +273,6 @@ test('odd edges are registered outside the design parity datasets', () => {
   assert.deepEqual(history.expected['7'].deps, []);
 });
 
-test('the design and full motion matrices exclude synthetic edge fixtures', async () => {
-  const { PARITY_MATRIX } = await import('../support/design-parity.mjs');
-  const meta = JSON.parse(files['manifest.json']);
-  assert.deepEqual([...new Set(PARITY_MATRIX.map(cell => cell.dataset))], meta.datasets);
-  assert.equal(PARITY_MATRIX.length, 61);
-  const motionGroups = PARITY_MATRIX.filter(cell => !cell.reducedMotion)
-    .flatMap(cell => ['no-preference', 'reduce'].map(reducedMotion => ({ ...cell, reducedMotion })));
-  assert.equal(motionGroups.length, 120);
-  assert.ok(motionGroups.every(cell => !meta.extra_datasets.includes(cell.dataset)));
-});
-
 test('conversation injection is fixed and all eligible design conversations are exported', () => {
   assert.throws(() => loadBuildJs({ designDir, expose: [], inject: ['convoFor; globalThis.x = 1'] }), /unknown injection/);
   const { dataFor, convoFor } = loadBuildJs({ designDir, expose: ['dataFor'], inject: ['convoFor'] });

@@ -12,8 +12,53 @@ from validation_documents import validate_document
 
 
 class SchemaTests(ValidatorCase):
+
+    def test_workstreams_accept_valid_icon_summary_and_wave_metadata(self) -> None:
+        data = example()
+        data["workstreams"][0].update(icon="queue-list", summary="Queue planning work", wave="0b")
+        report = report_for(data)
+        self.assertFalse(any("document heading" in item for item in report.errors))
+
+    def test_workstream_icon_must_exist_be_unique_and_summary_bounded(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "made-up-icon"
+        self.assert_error(data, "workstreams[0].icon must name")
+        data = example()
+        data["workstreams"][1]["icon"] = data["workstreams"][0]["icon"] = "queue-list"
+        self.assert_error(data, "workstream icons must be unique")
+        data = example()
+        data["workstreams"][0]["summary"] = "x" * 101
+        self.assert_error(data, "summary must be at most 100")
+
+    def test_matching_epic_icon_collision_names_ticket_feature_and_epic(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "bug-ant"
+        report = report_for(data, general_epics=[
+            {"key": "bugs", "labels": [data["label_projection"]["workstreams"]["platform"]], "icon": "bug"}
+        ])
+        self.assertTrue(any("BO-001: feature platform icon collides with matching epic bugs" in error for error in report.errors))
+
+    def test_nonmatching_epic_icon_does_not_collide(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "bug-ant"
+        report = report_for(data, general_epics=[
+            {"key": "bugs", "labels": ["unrelated"], "icon": "bug"}
+        ])
+        self.assertFalse(any("icon collides" in error for error in report.errors))
+
     def test_canonical_example_is_clean(self) -> None:
         self.assert_clean(example())
+
+    def test_product_features_partition_all_tickets(self) -> None:
+        data = example()
+        ticket_ids = [ticket["id"] for ticket in data["tickets"]]
+        data["product_features"] = [
+            {"slug": "first", "label": "First", "ticket_ids": ticket_ids[:-1]},
+            {"slug": "second", "label": "Second", "ticket_ids": [ticket_ids[-1]]},
+        ]
+        self.assert_clean(data)
+        data["product_features"][1]["ticket_ids"] = ticket_ids[:-1]
+        self.assert_error(data, "each ticket must belong to exactly one product feature")
 
     def test_non_object_root_is_reported(self) -> None:
         self.assert_error([], "top level must be")
@@ -111,13 +156,14 @@ class SchemaTests(ValidatorCase):
         self.assert_error(data, "invalid kind")
         self.assert_error(data, "provenance must be")
 
-    def test_document_must_exist_and_match_ticket(self) -> None:
+    def test_document_must_exist_and_have_a_title(self) -> None:
         data = example()
         data["tickets"][0]["document"] = "example-tickets/missing.md"
         self.assert_error(data, "document does not exist")
         data = example()
         data["tickets"][0]["document"] = data["tickets"][1]["document"]
-        self.assert_error(data, "document heading")
+        report = report_for(data)
+        self.assertFalse(any("document heading" in item for item in report.errors))
 
     def test_deferred_requirements_need_reason_and_no_ticket(self) -> None:
         data = example()
@@ -166,6 +212,7 @@ class SchemaTests(ValidatorCase):
                 report,
             )
             self.assertTrue(any("missing section: Outcome" in item for item in report.errors))
+            self.assertTrue(any("must not start with a logical ID" in item for item in report.errors))
 
     def test_mutating_fixture_does_not_leak(self) -> None:
         first = example()

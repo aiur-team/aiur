@@ -1,17 +1,20 @@
 defmodule VoiceConverse.Provider.ElevenLabsAgents do
   @moduledoc """
-  Connection-only ElevenLabs Agents adapter.
+  ElevenLabs Agents websocket and normalized event adapter.
 
   The provider process owns the websocket. Credentials and the one-time signed
   URL are used while connecting and are never retained in its state.
+
+  `spec.agent_id` is the hosted Agent the conversation runs on. It is an
+  account-visible identifier, not a credential, and it is required: without one
+  the signed-URL request would fall back to the account's default agent, so
+  `open/1` refuses before any transport opens.
   """
 
   use GenServer
 
-  require Logger
-
   alias VoiceConverse.Events
-  alias VoiceConverse.Provider.ElevenLabsAgents.{HTTP, MintTransport}
+  alias VoiceConverse.Provider.ElevenLabsAgents.{Decoder, HTTP, MintTransport}
 
   @signed_url_endpoint "https://api.elevenlabs.io/v1/convai/conversation/get-signed-url"
   @max_backlog_bytes 426_668
@@ -34,18 +37,29 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   @spec capabilities() :: VoiceConverse.Provider.capabilities()
   def capabilities do
     %{
-      events: [Events.ProviderConversationId, Events.Closed, Events.Error],
+      events: Events.all(),
       text_only?: false
     }
   end
+
+  @doc "Renders PCM speech and character alignment using ElevenLabs' timestamped TTS endpoint."
+  @spec render_speech(VoiceConverse.Provider.render_spec()) ::
+          {:ok, VoiceConverse.Provider.render_result()} | {:error, Events.Error.t()}
+  defdelegate render_speech(spec), to: VoiceConverse.Provider.ElevenLabsNarration
 
   @doc "Opens an unlinked daemon-held provider connection."
   @spec open(VoiceConverse.Provider.session_spec()) :: {:ok, pid()} | {:error, Events.Error.t()}
   def open(%{owner: owner, credentials: {credentials, provider_id}} = spec)
       when is_pid(owner) and is_atom(credentials) and is_atom(provider_id) do
-    case credential_present?(credentials, provider_id) do
-      :present -> GenServer.start(__MODULE__, spec)
-      :missing -> {:error, Events.Error.new(:unconfigured, "ElevenLabs is not configured.")}
+    cond do
+      credential_present?(credentials, provider_id) != :present ->
+        {:error, Events.Error.new(:unconfigured, "ElevenLabs is not configured.")}
+
+      not valid_agent_id?(spec) ->
+        {:error, Events.Error.new(:unconfigured, "No ElevenLabs agent is configured.")}
+
+      true ->
+        GenServer.start(__MODULE__, Map.put(spec, :agent_id, String.trim(spec.agent_id)))
     end
   end
 
@@ -59,6 +73,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   @spec send_user_text(pid(), String.t()) :: :ok
   def send_user_text(provider, text) when is_binary(text), do: cast(provider, {:send_user_text, text})
+
+  @spec tool_result(pid(), String.t(), %{text: String.t(), is_error: boolean()}) :: :ok
+  def tool_result(provider, call_id, result), do: cast(provider, {:tool_result, call_id, result})
 
   @spec close(pid()) :: :ok
   def close(provider), do: cast(provider, :close)
@@ -81,6 +98,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
        transport: Map.get(spec, :transport, MintTransport),
        conn: nil,
        ready?: false,
+       latest_user_text: nil,
+       turn_id: nil,
+       pending_tools: %{},
        backlog: [],
        backlog_bytes: 0,
        metadata_timer: nil,
@@ -100,7 +120,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   @impl true
   def handle_cast({:push_audio, base64_pcm}, %{ready?: true} = state) do
-    case send_json(state, %{type: "user_audio_chunk", audio_base_64: base64_pcm}) do
+    case send_json(state, user_audio_chunk_frame(base64_pcm)) do
       {:ok, state} -> {:noreply, state}
       {:error, _reason} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
     end
@@ -122,6 +142,19 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     end
   end
 
+  def handle_cast({:tool_result, call_id, result}, state) do
+    case Map.pop(state.pending_tools, call_id) do
+      {true, pending} ->
+        case send_json(state, Decoder.tool_result(call_id, result)) do
+          {:ok, state} -> {:noreply, %{state | pending_tools: pending}}
+          {:error, _reason} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
+        end
+
+      {_no_response, pending} ->
+        {:noreply, %{state | pending_tools: pending}}
+    end
+  end
+
   def handle_cast(:close, state) do
     close_transport(state)
     {:stop, :normal, state}
@@ -131,7 +164,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   def handle_info({@transport_message, :text, text}, state) when is_binary(text) do
     case Jason.decode(text) do
       {:ok, frame} -> handle_frame(frame, state)
-      {:error, _reason} -> {:noreply, state}
+      {:error, _reason} -> ignored_event(state, :malformed_event, nil)
     end
   end
 
@@ -174,7 +207,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   end
 
   defp handle_frame(%{"type" => "ping"} = frame, state) do
-    pong = %{type: "pong"} |> maybe_put(:event_id, Map.get(frame, "event_id"))
+    pong =
+      %{type: "pong"} |> maybe_put(:event_id, get_in(frame, ["ping_event", "event_id"]) || Map.get(frame, "event_id"))
 
     case send_json(state, pong) do
       {:ok, state} -> {:noreply, state}
@@ -182,12 +216,44 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     end
   end
 
-  defp handle_frame(%{"type" => type}, state) when is_binary(type) do
-    Logger.debug("Ignoring ElevenLabs connection event #{inspect(type)}")
+  defp handle_frame(frame, state) do
+    case Decoder.decode(frame, state) do
+      {:ok, event} -> forward_event(event, frame, state)
+      {:ignore, type} -> ignored_event(state, :unknown_event, type)
+      {:error, :malformed_event} -> ignored_event(state, :malformed_event, nil)
+    end
+  end
+
+  defp forward_event(%Events.UserTranscript{text: text} = event, _frame, state) do
+    emit(state, event)
+    {:noreply, %{state | latest_user_text: text}}
+  end
+
+  defp forward_event(%Events.ToolCall{call_id: id} = event, frame, state) do
+    expects_response = get_in(frame, ["client_tool_call", "expects_response"]) != false
+    emit(state, event)
+    {:noreply, %{state | pending_tools: Map.put(state.pending_tools, id, expects_response)}}
+  end
+
+  defp forward_event(%kind{turn_id: turn_id} = event, _frame, state)
+       when kind in [Events.AgentText, Events.AgentAudio] do
+    if state.latest_user_text != nil,
+      do: emit(state, %Events.UserTranscript{text: state.latest_user_text, final?: true})
+
+    emit(state, event)
+    {:noreply, %{state | latest_user_text: nil, turn_id: turn_id}}
+  end
+
+  defp forward_event(event, _frame, state) do
+    emit(state, event)
     {:noreply, state}
   end
 
-  defp handle_frame(_frame, state), do: {:noreply, state}
+  defp ignored_event(state, reason, type) do
+    metadata = if is_binary(type), do: %{type: type}, else: %{}
+    :telemetry.execute([:voice_converse, :provider, reason], %{count: 1}, metadata)
+    {:noreply, state}
+  end
 
   defp queue_audio(state, base64_pcm) do
     bytes = state.backlog_bytes + byte_size(base64_pcm)
@@ -204,7 +270,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     state = %{state | ready?: true, backlog: [], backlog_bytes: 0}
 
     Enum.reduce_while(backlog, {:ok, state}, fn audio, {:ok, state} ->
-      case send_json(state, %{type: "user_audio_chunk", audio_base_64: audio}) do
+      case send_json(state, user_audio_chunk_frame(audio)) do
         {:ok, state} -> {:cont, {:ok, state}}
         {:error, _reason} -> {:halt, {:error, state}}
       end
@@ -214,6 +280,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
       {:error, state} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
     end
   end
+
+  defp user_audio_chunk_frame(base64_pcm), do: %{user_audio_chunk: base64_pcm}
 
   defp close_from_provider(state, close_code \\ nil) do
     reason = close_reason(state.ready?, close_code)
@@ -317,8 +385,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   defp atom_format(format) when is_atom(format), do: Atom.to_string(format)
   defp atom_format(format), do: format
 
-  defp signed_url_endpoint(nil), do: @signed_url_endpoint
-  defp signed_url_endpoint(agent_id), do: @signed_url_endpoint <> "?" <> URI.encode_query(%{"agent_id" => agent_id})
+  defp signed_url_endpoint(agent_id) when is_binary(agent_id),
+    do: @signed_url_endpoint <> "?" <> URI.encode_query(%{"agent_id" => agent_id})
 
   defp http_error_code(status) when status in [401, 403], do: :provider_auth
   defp http_error_code(429), do: :provider_quota
@@ -346,6 +414,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   catch
     _kind, _reason -> :missing
   end
+
+  defp valid_agent_id?(%{agent_id: agent_id}) when is_binary(agent_id), do: String.trim(agent_id) != ""
+  defp valid_agent_id?(_spec), do: false
 
   defp error_message(:provider_auth), do: "ElevenLabs authentication failed."
   defp error_message(:provider_quota), do: "ElevenLabs quota is unavailable."

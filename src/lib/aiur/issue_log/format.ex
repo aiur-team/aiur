@@ -2,6 +2,7 @@ defmodule Aiur.IssueLog.Format do
   @moduledoc false
 
   alias Aiur.AgentEvents
+  alias Aiur.Events.Catalog
 
   @spec format_transcript(term(), term(), map()) :: String.t()
   def format_transcript(role, body, event) do
@@ -33,11 +34,94 @@ defmodule Aiur.IssueLog.Format do
 
   @spec format_event_marker(atom(), map()) :: String.t()
   def format_event_marker(kind, event) do
-    "#{timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
-      flag_segment(event) <>
+    "#{event_timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
+      event_segments(kind, event) <>
       " #{event_field(event, :topic, "")}" <>
       message_suffix(event) <>
       "\n"
+  end
+
+  defp event_timestamp(event) do
+    case event_field(event, :observed_at, nil) do
+      %DateTime{} = ts -> DateTime.to_iso8601(ts)
+      _ -> timestamp(event)
+    end
+  end
+
+  defp event_segments(:command, event), do: " cmd=#{Base.url_encode64(to_string(event_field(event, :message, "")), padding: false)}"
+
+  defp event_segments(_kind, event) do
+    progress =
+      if String.ends_with?(event_field(event, :topic, ""), ".progress") or String.ends_with?(event_field(event, :topic, ""), ".progress.checkin"),
+        do: append_flag([], "pct", event_field(event, :percent, nil)) |> Enum.join(" "),
+        else: ""
+
+    flag_segment(event) <> actor_segment(event) <> if(progress == "", do: "", else: " " <> progress) <> review_state_segment(event) <> ci_checks_segment(event)
+  end
+
+  defp review_state_segment(event) do
+    topic = event_field(event, :topic, "")
+    comment = event_field(event, :comment, %{})
+    state = if is_map(comment), do: Map.get(comment, "state") || Map.get(comment, :state), else: nil
+    state = if is_binary(state), do: String.upcase(state), else: nil
+
+    if String.ends_with?(topic, ".pr.review_comment") and state in ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"],
+      do: " review=#{state}",
+      else: ""
+  end
+
+  defp ci_checks_segment(event) do
+    if String.ends_with?(event_field(event, :topic, ""), ".ci.failed") or
+         String.ends_with?(event_field(event, :topic, ""), ".ci.merge_group.failed") do
+      case safe_ci_checks(event_field(event, :checks, [])) do
+        [] -> ""
+        checks -> " ci=#{checks |> Jason.encode!() |> Base.url_encode64(padding: false)}"
+      end
+    else
+      ""
+    end
+  end
+
+  defp safe_ci_checks(checks) when is_list(checks) do
+    checks
+    |> Enum.take(30)
+    |> Enum.flat_map(fn check ->
+      name = check_field(check, :name)
+      url = check_field(check, :url) || check_field(check, :html_url)
+      name = if is_binary(name), do: name |> Aiur.SecretRedactor.redact() |> String.slice(0, 160), else: nil
+
+      case {name, safe_check_url(url)} do
+        {name, url} when is_binary(name) and name != "" -> [%{"name" => name, "url" => url}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp safe_ci_checks(_), do: []
+  defp check_field(check, key) when is_map(check), do: Map.get(check, key) || Map.get(check, Atom.to_string(key))
+  defp check_field(_check, _key), do: nil
+
+  defp safe_check_url(url) when is_binary(url) do
+    uri = URI.parse(url)
+
+    if uri.scheme == "https" and uri.host in ["github.com", "www.github.com"] and is_nil(uri.userinfo) and
+         is_binary(uri.path) and String.contains?(uri.path, ["/actions/runs/", "/check-runs/"]) do
+      URI.to_string(%{uri | query: nil, fragment: nil})
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp safe_check_url(_url), do: nil
+
+  defp actor_segment(event) do
+    topic = event_field(event, :topic, "")
+
+    if Catalog.lookup(topic).attribution == :payload_actor do
+      " actor=#{event_field(event, :actor, :unknown)}"
+    else
+      ""
+    end
   end
 
   defp event_field(event, key, default) do

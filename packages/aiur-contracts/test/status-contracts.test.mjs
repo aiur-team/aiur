@@ -1,28 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { contractCases } from '../scripts/validate.mjs';
+import { contractCases, validateVoiceConverse, voiceConverse } from '../scripts/validate.mjs';
 
-for (const { name, fixture, validate } of contractCases) {
+for (const { name, fixture, validate, marker = 'contract', version = 'contract_version', additive = true } of contractCases) {
   test(`${name} golden fixture validates`, () => {
     assert.equal(validate(fixture), true, JSON.stringify(validate.errors));
   });
 
   test(`${name} requires its contract marker`, () => {
     const missing = structuredClone(fixture);
-    delete missing.contract;
+    delete missing[marker];
     assert.equal(validate(missing), false);
   });
 
   test(`${name} rejects another contract version`, () => {
     const wrongVersion = structuredClone(fixture);
-    wrongVersion.contract_version = 2;
+    wrongVersion[version] = 2;
     assert.equal(validate(wrongVersion), false);
   });
 
-  test(`${name} permits additive fields within v1`, () => {
-    assert.equal(validate({ ...fixture, future_field: true }), true, JSON.stringify(validate.errors));
+  test(`${name} ${additive ? 'permits' : 'rejects'} additive fields within v1`, () => {
+    assert.equal(validate({ ...fixture, future_field: true }), additive, JSON.stringify(validate.errors));
   });
 }
+
+test('voice converse v1 golden frames validate and accept additive fields', () => {
+  assert.equal(validateVoiceConverse(voiceConverse), true);
+  assert.equal(validateVoiceConverse(voiceConverse.map((frame) => ({ ...frame, future_field: true }))), true);
+  assert.equal(validateVoiceConverse([{ ...voiceConverse[0], v: 2 }]), false);
+});
 
 test('ticket progress preserves explicitly unknown readings', () => {
   const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket progress');
@@ -38,6 +44,40 @@ test('ticket usage accepts stale and known-empty states', () => {
   knownEmpty.totals.api_equivalent.coverage.status = 'none';
   assert.equal(validate(stale), true, JSON.stringify(validate.errors));
   assert.equal(validate(knownEmpty), true, JSON.stringify(validate.errors));
+});
+
+test('spend-cap reached event requires the distinct budget_exhausted end state', () => {
+  const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket spend cap reached');
+  for (const wrong of ['failed', 'cancelled', null]) {
+    assert.equal(validate({ ...fixture, end_state: wrong }), false);
+  }
+});
+
+test('ticket cancel reserves exit evidence for an observed process exit', () => {
+  const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket cancel');
+
+  for (const status of ['still_running', 'kill_failed', 'generation_changed']) {
+    const nonExit = structuredClone(fixture);
+    nonExit.process = {
+      ...nonExit.process,
+      status,
+      exit_status: null,
+      exited_at: null,
+    };
+    assert.equal(validate(nonExit), true, JSON.stringify(validate.errors));
+  }
+
+  const falseSuccess = structuredClone(fixture);
+  falseSuccess.process.status = 'still_running';
+  assert.equal(validate(falseSuccess), false);
+
+  const invented = structuredClone(fixture);
+  invented.process.status = 'queued';
+  assert.equal(validate(invented), false);
+
+  const unboundedReason = structuredClone(fixture);
+  unboundedReason.process.exit_status = 'arbitrary_runtime_term';
+  assert.equal(validate(unboundedReason), false);
 });
 
 test('status accepts nullable polling and structured CI results emitted by the presenter', () => {

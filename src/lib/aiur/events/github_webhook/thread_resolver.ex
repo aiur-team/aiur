@@ -1,4 +1,6 @@
 defmodule Aiur.Events.GithubWebhook.ThreadResolver do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   Resolves the GitHub review-thread node id a `pull_request_review_comment`
   delivery belongs to.
@@ -24,8 +26,6 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolver do
   module existed. A duplicate wake is recoverable; a dropped delivery is not, so
   a failure must cost a possible extra wake, never a lost comment.
   """
-
-  alias Aiur.GitHub.{ResourceStore, Transport}
 
   @resolve_query """
   query AiurReviewThreadForComment($id: ID!) {
@@ -77,8 +77,8 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolver do
          when is_integer(comment_id) or (is_binary(comment_id) and comment_id != "") <-
            Keyword.get(opts, :comment_id),
          repo when is_binary(repo) and repo != "" <- Keyword.get(opts, :repo),
-         key when not is_nil(key) <- ResourceStore.key_for_repo(:pr_review_comment_thread, repo, comment_id),
-         {:ok, %{data: thread_id}} when is_binary(thread_id) and thread_id != "" <- ResourceStore.fetch(key) do
+         key when not is_nil(key) <- Access.key_for_repo(:pr_review_comment_thread, repo, comment_id),
+         {:ok, %{data: thread_id}} when is_binary(thread_id) and thread_id != "" <- Access.fetch_resource(key) do
       {:ok, thread_id}
     else
       _other -> :not_resolvable
@@ -86,11 +86,11 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolver do
   end
 
   defp do_resolve(node_id, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
-    with {:ok, token} <- Transport.require_token(opts),
+    with {:ok, token} <- Access.require_token(opts),
          {:ok, body} <-
-           Transport.github_graphql(
+           Access.github_graphql(
              request_fun,
              token,
              @resolve_query,

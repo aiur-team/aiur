@@ -56,6 +56,23 @@ case "${1:-}" in
     [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; exit 64; }
     shift
     ;;
+  # The engine resolves the selector (it owns the registry); `local` stays local.
+  # @cli-reference aiur --gateway NAME | Must be the first argument. Selects a registry gateway by name, label or `gateway_id` like `--instance`, or `all` or `local`; see [Selecting by `--gateway`](#selecting-by-gateway). | aiur --gateway nook status
+  --gateway | --gateway=*)
+    if [ "$1" = --gateway ]; then gateway_sel="${2:-}"; else gateway_sel="${1#--gateway=}"; fi
+    [ -n "$gateway_sel" ] || { echo "aiur: --gateway requires a name" >&2; exit 64; }
+    if [ "$gateway_sel" != local ]; then
+      export AIUR_RELEASE_DIR="$release_dir"
+      exec "$engine" "$@"
+    fi
+    if [ "$1" = --gateway ]; then shift 2; else shift; fi
+    case "${1:-}" in
+      --instance | --instance=* | --gateway | --gateway=*)
+        echo "aiur: use one of --gateway or --instance" >&2
+        exit 64
+        ;;
+    esac
+    ;;
 esac
 AIUR_JS_RUNTIME="${AIUR_JS_RUNTIME:-$(command -v node 2>/dev/null || true)}"
 export AIUR_JS_RUNTIME
@@ -134,11 +151,11 @@ effective_command() {
 targets_release_deliberately() {
   case "${1:-}" in
     build | restart) return 0 ;;
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | pre-pr) return 1 ;;
+    voice | doctor | agents | alerts | status | set | pause | resume | stop | message | listen-mode | cleanup-stale | reset-budget | pre-pr) return 1 ;;
     watch | init | findings | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | history | epic | feature | ticket | queue | analytics | github-cost | github-usage | experiments | capabilities) return 1 ;;
-    executor-*) return 1 ;;
+    ask | asks | usage | command | commands | units | build-orders | history | epic | feature | ticket | queue | analytics | github-cost | github-usage | experiments | capabilities) return 1 ;;
+    executor-* | operator-relay-answer) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -401,7 +418,8 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | experiments | capabilities | epic | feature | ticket | pre-pr) return 0 ;;
+    executor-attach | executor-detach | executor-session) return 0 ;;
+    voice | doctor | agents | alerts | status | set | pause | resume | stop | message | listen-mode | cleanup-stale | reset-budget | command | github-cost | github-usage | experiments | capabilities | epic | feature | ticket | pre-pr) return 0 ;;
     *) return 1 ;;
   esac
 }

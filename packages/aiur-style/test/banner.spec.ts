@@ -5,7 +5,9 @@ for (const theme of ['light', 'dark']) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(`./?theme=${theme}`);
     const banner = page.locator('.aiur-banner');
+    await expect(banner).toHaveCSS('line-height', 'normal');
     await expect(banner.locator('.aiur-banner__text')).toHaveCSS('font-size', '13px');
+    await expect(banner.locator('.aiur-banner__text')).toHaveCSS('line-height', '19.5px');
     const close = banner.getByRole('button', { name: 'Dismiss announcement' });
     await expect(close).toHaveCSS('width', '26px');
     await expect(close).toHaveCSS('height', '26px');

@@ -59,7 +59,7 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
 
   test "schema exposes the default and rejects negative resume lifetime" do
     assert {:ok, settings} = Schema.parse(%{})
-    assert settings.agent.load_resume_max_age_seconds == 21_600
+    assert settings.agent.load_resume_max_age_seconds == 3_600
     assert {:ok, disabled} = Schema.parse(%{"agent" => %{"load_resume_max_age_seconds" => 0}})
     assert disabled.agent.load_resume_max_age_seconds == 0
     assert {:error, _reason} = Schema.parse(%{"agent" => %{"load_resume_max_age_seconds" => -1}})

@@ -5,6 +5,7 @@ defmodule Aiur.Codex.Notifications do
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, TurnState}
   alias Aiur.Codex.{AccountGeneration, NotificationPolicy, TurnEvents}
+  alias Aiur.Commands.NativeCapture
 
   @spec handle_account(map(), map(), String.t(), map()) :: {:continue, map()} | term()
   def handle_account(session, state, method, payload) do
@@ -18,6 +19,16 @@ defmodule Aiur.Codex.Notifications do
         )
 
         continue_after_account_notification(session, state, details.payload["method"])
+
+      {:refused, reason, details} ->
+        Messages.emit_message(
+          state.on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        {:error, {:turn_unretryable, reason}}
 
       :ignore ->
         {:continue, state}
@@ -45,6 +56,16 @@ defmodule Aiur.Codex.Notifications do
         )
 
         continue_after_account_notification(session, state, details.payload["method"])
+
+      {:refused, reason, details} ->
+        Messages.emit_message(
+          on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        {:error, {:turn_unretryable, reason}}
 
       :ignore ->
         Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)
@@ -80,6 +101,7 @@ defmodule Aiur.Codex.Notifications do
         {:continue, next_state}
 
       idle_after_turn_started?(state, method, payload) ->
+        state = NativeCapture.release_held(session, state, :turn_ended)
         handle_idle_notification(state, method, payload)
 
       NotificationPolicy.codex_error_method?(method) ->

@@ -9,6 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionEvents do
   @events [
     "decision-action-change",
     "answer-decision",
+    "begin-replace-decision",
+    "replace-decision",
     "defer-decision",
     "dismiss-decision",
     "retry-decision",
@@ -29,6 +31,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionEvents do
 
   def handle("answer-decision", %{"decision_id" => decision_id, "answer" => form}, socket, reload_fun) do
     DecisionCommands.record_answer(socket, decision_id, form, reload_fun)
+  end
+
+  def handle("begin-replace-decision", %{"decision-id" => id}, socket, _reload_fun) do
+    DecisionCommands.begin_replace(socket, id)
+  end
+
+  def handle("replace-decision", %{"decision_id" => id, "answer" => form}, socket, reload_fun) do
+    DecisionCommands.replace(socket, id, form, reload_fun)
   end
 
   def handle("answer-decision", _params, socket, _reload_fun) do

@@ -11,10 +11,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Commands
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
@@ -25,7 +28,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.Orchestrator.TodoDispatchClaim
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
   alias Aiur.Tracker
 
@@ -216,7 +218,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         do: Enum.map(issue.optimistic_start.blockers, & &1.identifier),
         else: []
 
-    if TelemetryLifecycle.enabled?() do
+    if Signal.lifecycle_enabled?() do
       TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
@@ -232,13 +234,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
     OptimisticDispatch.record(issue, lifecycle_attempt_id, optimistic_blockers)
     rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     runner_context = %{
       attempt: attempt,
       worker_host: worker_host,
       worker_generation: worker_generation,
       lifecycle_attempt_id: lifecycle_attempt_id,
-      rework_head_sha: rework_head_sha
+      rework_head_sha: rework_head_sha,
+      answered_decisions: AnsweredDecisions.for_ticket(issue.identifier, decision_store, Keyword.get(opts, :decision_store_read_timeout, 5_000))
     }
 
     start_runner_task_fun = Keyword.get(opts, :start_runner_task_fun, &start_runner_task/5)
@@ -263,7 +267,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             optimistic_start: issue.optimistic_start,
             start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
-            workspace_path: nil,
+            workspace_path: Keyword.get(opts, :workspace_path),
             session_id: nil,
             session_execution: nil,
             last_codex_message: nil,
@@ -287,10 +291,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             stalled_alert_outstanding: Keyword.get(opts, :stalled_alert_outstanding, false),
             prior_work: Keyword.get(opts, :prior_work, false),
+            redispatch_safety: Keyword.get(opts, :redispatch_safety),
             rework_head_sha: rework_head_sha,
+            pending_answered_decisions: Enum.map(runner_context.answered_decisions, & &1.action_id),
+            decision_store: decision_store,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
+          |> Map.merge(redispatch_safety_fields(opts))
 
         running = Map.put(state.running, issue.id, running_entry)
         deliver_pending_answers(issue, opts)
@@ -302,6 +310,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempts: Map.delete(state.retry_attempts, issue.id),
             released_claims: Map.delete(state.released_claims, issue.id)
         }
+        |> ListenerModes.on_session_execution(issue.id, nil)
 
       {:error, reason} ->
         Logger.error("Unable to spawn agent for #{State.issue_context(issue)}: #{inspect(reason)}")
@@ -340,13 +349,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
       runner.(issue, recipient,
         attempt: context.attempt,
         prior_work: Keyword.get(opts, :prior_work, false),
+        fresh_session: Keyword.get(opts, :fresh_session, false),
         account_name: Keyword.get(opts, :account_name),
         resume_thread_id: Keyword.get(opts, :resume_thread_id),
         telemetry_attempt_id: context.lifecycle_attempt_id,
         worker_host: context.worker_host,
         orchestrator: recipient,
         worker_generation: context.worker_generation,
-        rework_head_sha: rework_head_sha
+        rework_head_sha: rework_head_sha,
+        answered_decisions: context.answered_decisions
       )
     end)
   end
@@ -429,6 +440,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp inherit_redispatch_safety(entry, _previous), do: entry
 
+  defp redispatch_safety_fields(opts) do
+    case Keyword.get(opts, :redispatch_safety) do
+      safety when is_map(safety) -> safety
+      _ -> %{}
+    end
+  end
+
   defp maybe_put_redispatch_fence(entry, fence) when is_map(fence),
     do: Map.put(entry, :lifecycle_fence, fence)
 
@@ -461,16 +479,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp default_running_control(%Issue{} = issue, worker_generation)
        when is_integer(worker_generation) do
-    backend = CodingAgent.backend_for(issue)
-
-    %{
-      can_interrupt: CodingAgent.can_interrupt?(backend),
-      safe_checkpoints: CodingAgent.safe_checkpoints(backend),
-      immediate_delivery: CodingAgent.immediate_delivery?(backend),
-      application_confirmation: CodingAgent.control_application_confirmation(backend),
-      generation: worker_generation,
-      version: 0,
-      status: :working
-    }
+    issue
+    |> CodingAgent.backend_for()
+    |> Capabilities.backend_control_flags()
+    |> Map.merge(%{generation: worker_generation, version: 0, status: :working})
   end
 end

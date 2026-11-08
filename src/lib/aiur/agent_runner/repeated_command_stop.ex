@@ -23,6 +23,19 @@ defmodule Aiur.AgentRunner.RepeatedCommandStop do
     pause_repeated_turn(turn_context, message, "turn-#{cap}-cap", :turn_cap)
   end
 
+  @doc false
+  @spec stop_on_green_ci_local_gate_wait(map(), String.t(), integer() | nil, non_neg_integer()) :: term()
+  def stop_on_green_ci_local_gate_wait(turn_context, head_sha, pr_number, elapsed_minutes) do
+    pr = if is_integer(pr_number), do: "PR ##{pr_number}", else: "the current PR"
+
+    message =
+      "Stopped #{turn_context.issue.identifier}: required CI is green for #{pr} at #{head_sha}, " <>
+        "but local test/gate polling continued for #{elapsed_minutes} minutes. " <>
+        "Refresh the PR body and mark the PR ready before resuming."
+
+    pause_repeated_turn(turn_context, message, "green-ci-local-gate-wait", :green_ci_local_gate_wait)
+  end
+
   defp pause_repeated_turn(turn_context, message, alert_name, pause_kind) do
     %{
       issue: issue,

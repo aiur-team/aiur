@@ -3,10 +3,12 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Handoff
+  alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
+  alias Aiur.Instance.Identity
   alias Aiur.Instance.LeaseStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -15,12 +17,23 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
+  alias Aiur.Toolchain
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
     case prepare_for_dispatch(state, issue, opts) do
       {:ready, prepared_state, selected_issue} ->
-        ready_dispatch(state, issue, prepared_state, selected_issue, attempt, worker_host, opts, dispatch_to_worker)
+        ready_dispatch(
+          state,
+          issue,
+          prepared_state,
+          selected_issue,
+          attempt,
+          worker_host,
+          opts,
+          dispatch_to_worker
+        )
 
       {:hold, held_state} ->
         held_state
@@ -30,7 +43,16 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     end
   end
 
-  defp ready_dispatch(state, issue, prepared_state, selected_issue, attempt, worker_host, opts, dispatch_to_worker) do
+  defp ready_dispatch(
+         state,
+         issue,
+         prepared_state,
+         selected_issue,
+         attempt,
+         worker_host,
+         opts,
+         dispatch_to_worker
+       ) do
     dispatch = fn ->
       dispatch_after_workspace_wait_or_thrash_check(
         prepared_state,
@@ -42,9 +64,47 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
       )
     end
 
-    if is_binary(issue.pr_head_ref),
-      do: dispatch.(),
-      else: dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+    case ownership_eligibility(selected_issue, opts) do
+      :eligible ->
+        if is_binary(issue.pr_head_ref) do
+          dispatch.()
+        else
+          dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+        end
+
+      {:ineligible, _reason} ->
+        Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
+
+      {:unavailable, reason} ->
+        Logger.warning("Instance ownership unavailable (#{reason}) for #{State.issue_context(issue)}; holding dispatch")
+
+        Candidates.emit_dispatch_attempt_decline(
+          state,
+          issue,
+          :instance_ownership_unavailable,
+          true
+        )
+    end
+  end
+
+  defp ownership_eligibility(issue, opts) do
+    live_instances_fun = Keyword.get(opts, :ownership_live_instances_fun, &LeaseStore.list_live/0)
+
+    case live_instances_fun.() do
+      {:ok, live_instances} when is_list(live_instances) ->
+        instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
+        Instance.eligible?(issue, instance_id, live_instances)
+
+      {:error, :store_not_configured} ->
+        if Instance.ownership_configured?(),
+          do: {:unavailable, :store_not_configured},
+          else: :eligible
+
+      _ ->
+        {:unavailable, :live_roster_unknown}
+    end
+  rescue
+    _ -> {:unavailable, :live_roster_unknown}
   end
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do
@@ -77,11 +137,24 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     end
   end
 
+  # A hold at the usage floor is not an exhausted provider, and the operator
+  # who set the floor needs the difference in the alert text (#7504).
+  defp all_limited_reason(candidates) do
+    case UsageFloorGate.hold_reason(candidates) do
+      nil ->
+        "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying."
+
+      floor_reason ->
+        "Dispatch held: #{floor_reason}. It clears when a rate window resets; no running agent is affected."
+    end
+  end
+
   defp prepare_for_dispatch(state, issue, opts) do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
-         {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
+         {:ok, selected_issue} <-
+           Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)
@@ -99,9 +172,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           {:hold, state}
         else
-          Alerts.emit_system("ticket.#{issue.identifier}.agent.model_fallback_waiting",
+          Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
-            reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
+            reason: all_limited_reason(candidates),
             needs_attention: true,
             severity: "warning"
           )
@@ -109,6 +182,20 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
           {:hold, %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}}
         end
     end
+  end
+
+  defp force_backend(issue, nil), do: issue
+
+  defp force_backend(issue, backend) when is_binary(backend) do
+    labels =
+      Enum.reject(issue.labels, fn label ->
+        spec = label |> to_string() |> String.downcase() |> String.replace_prefix("model:", "")
+
+        spec in CodingAgent.known_backends() or
+          Enum.any?(CodingAgent.known_backends(), &String.starts_with?(spec, &1 <> "-"))
+      end)
+
+    %{issue | labels: labels ++ ["model:#{backend}"]}
   end
 
   defp dispatch_after_workspace_wait_or_thrash_check(
@@ -138,7 +225,15 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         envelope_host = Map.get(envelope, :worker_host, worker_host) || worker_host
 
         envelope_opts =
-          Keyword.put(opts, :prior_work, Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false)))
+          Keyword.put(
+            opts,
+            :prior_work,
+            Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false))
+          )
+          |> Keyword.put(
+            :forced_backend,
+            Map.get(envelope, :forced_backend, Keyword.get(opts, :forced_backend))
+          )
           |> Keyword.put(
             :stalled_alert_outstanding,
             Map.get(
@@ -146,6 +241,14 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
               :stalled_alert_outstanding,
               Keyword.get(opts, :stalled_alert_outstanding, false)
             )
+          )
+          |> Keyword.put(
+            :workspace_path,
+            Map.get(envelope, :workspace_path, Keyword.get(opts, :workspace_path))
+          )
+          |> Keyword.put(
+            :redispatch_safety,
+            Map.get(envelope, :redispatch_safety, Keyword.get(opts, :redispatch_safety))
           )
 
         dispatch_to_worker.(state, issue, envelope_attempt, envelope_host, envelope_opts)

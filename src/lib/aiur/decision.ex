@@ -1,5 +1,8 @@
 defmodule Aiur.Decision do
   @moduledoc """
+  Optional v2 request attribution (`requester`, `origin`, `native`, `questions`,
+  `short_label`) is projected from a separate fact, never the v1 snapshot.
+
   Canonical, versioned Decision representation. `Aiur.DecisionValidation`
   normalizes an untrusted `decision.requested` payload into this struct;
   `Aiur.DecisionStore` is the only writer of accepted values.
@@ -27,6 +30,10 @@ defmodule Aiur.Decision do
     * `recommendation` — `%{option_id, reason}` or `nil`.
     * `consequence_of_delay` — bounded text or `nil`.
     * `artifacts` — list of `%{kind: :path | :url, value: String.t()}`.
+    * `media` — typed prompt media (`Aiur.Commands.Media` item maps); empty for
+      every text-only Command, so its content hash is unchanged.
+    * option `media` — the same typed items per option, omitted when empty for
+      the same hash-compatibility reason.
     * `created_at` — canonical acceptance time, stamped by the store.
     * `source_created_at` — optional agent-reported time, provenance only;
       never controls audit order or notification age.
@@ -63,6 +70,7 @@ defmodule Aiur.Decision do
         }
 
   @type artifact :: %{kind: :path | :url, value: String.t()}
+  @type media_item :: Aiur.Commands.Media.item()
   @type legacy_attention :: %{slug: String.t(), topic: String.t()}
   @type decision_status :: :open | :deferred | :expired | :dismissed | :moot | :decided | :acknowledged | :resolved
   @type delivery_status :: :not_dispatched | :pending | :queued | :delivered | :consumed | :failed
@@ -126,13 +134,30 @@ defmodule Aiur.Decision do
           recommendation: %{option_id: String.t(), reason: String.t() | nil} | nil,
           consequence_of_delay: String.t() | nil,
           artifacts: [artifact()],
+          media: [media_item()],
           created_at: DateTime.t(),
           source_created_at: DateTime.t() | nil,
           legacy_attention: legacy_attention() | nil,
           provenance: Aiur.DecisionProvenance.t() | nil,
+          requester: map() | nil,
+          origin: atom() | nil,
+          native: map() | nil,
+          questions: [map()],
+          short_label: String.t() | nil,
+          route_policy: atom() | nil,
+          route_state: atom() | nil,
+          routed_at: DateTime.t() | nil,
+          human_visible_at: DateTime.t() | nil,
+          escalations: [map()],
+          executor_acknowledged_at: DateTime.t() | nil,
+          executor_claim: map() | nil,
+          human_needed_at: DateTime.t() | nil,
+          requester_notified_at: DateTime.t() | nil,
           content_hash: String.t(),
           decision_status: decision_status(),
           delivery_status: delivery_status(),
+          pending_for_session?: boolean(),
+          ticket_comment_status: :pending | :published | nil,
           answer: Aiur.DecisionAnswer.t() | nil,
           active_action_id: String.t() | nil,
           revision_sequence: non_neg_integer(),
@@ -144,7 +169,8 @@ defmodule Aiur.Decision do
           acknowledgement: map() | nil,
           resolution: map() | nil,
           acknowledgements: %{String.t() => map()},
-          resolutions: %{String.t() => map()}
+          resolutions: %{String.t() => map()},
+          overrides: [map()]
         }
 
   @schema_version 1
@@ -169,14 +195,31 @@ defmodule Aiur.Decision do
               [
                 schema_version: @schema_version,
                 source_id: nil,
+                media: [],
                 kind: nil,
                 recommendation: nil,
                 consequence_of_delay: nil,
                 source_created_at: nil,
                 legacy_attention: nil,
                 provenance: nil,
+                requester: nil,
+                origin: nil,
+                native: nil,
+                questions: [],
+                short_label: nil,
+                route_policy: nil,
+                route_state: nil,
+                routed_at: nil,
+                human_visible_at: nil,
+                escalations: [],
+                executor_acknowledged_at: nil,
+                executor_claim: nil,
+                human_needed_at: nil,
+                requester_notified_at: nil,
                 decision_status: :open,
                 delivery_status: :not_dispatched,
+                pending_for_session?: false,
+                ticket_comment_status: nil,
                 answer: nil,
                 active_action_id: nil,
                 revision_sequence: 0,
@@ -188,7 +231,8 @@ defmodule Aiur.Decision do
                 acknowledgement: nil,
                 resolution: nil,
                 acknowledgements: %{},
-                resolutions: %{}
+                resolutions: %{},
+                overrides: []
               ]
 
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]
@@ -235,7 +279,8 @@ defmodule Aiur.Decision do
   def delivered?(%__MODULE__{decision_status: status}) when status in [:acknowledged, :resolved], do: true
 
   def delivered?(%__MODULE__{} = decision) do
-    map_size(decision.acknowledgements) > 0 or
+    not is_nil(decision.requester_notified_at) or map_size(decision.acknowledgements) > 0 or
+      Enum.any?(decision.overrides, &(not is_nil(&1.delivered_at))) or
       Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
   end
 

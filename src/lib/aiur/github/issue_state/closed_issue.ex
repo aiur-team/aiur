@@ -15,8 +15,16 @@ defmodule Aiur.GitHub.IssueState.ClosedIssue do
   defp transition(context, issue) do
     with :ok <- ensure_terminal_label(context, issue),
          :ok <-
-           IssueState.remove_active_state_labels(context.request_fun, context.token, context.owner, context.repo, context.issue_number, issue, context.prefix,
-             clear_terminal_state_overrides: Keyword.get(context.opts, :clear_terminal_state_overrides, false)
+           IssueState.remove_active_state_labels(
+             context.request_fun,
+             context.token,
+             context.owner,
+             context.repo,
+             context.issue_number,
+             issue,
+             context.prefix,
+             clear_terminal_state_overrides: Keyword.get(context.opts, :clear_terminal_state_overrides, false),
+             force_remove: Keyword.get(context.opts, :clear_terminal_state_labels, [])
            ) do
       {:error, {:no_state_label_written, terminal_issue(issue, context.prefix, context.opts)}}
     end

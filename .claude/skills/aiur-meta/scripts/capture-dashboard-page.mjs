@@ -60,7 +60,6 @@ export async function inspectPage(page, name) {
     const primaryContentSelector = {
       units: '#units-rows .units-row',
       commands: '.decision-inbox',
-      'build-orders': '.bo-catalog-table, .bo-selected-summary',
       build: '#build-root',
       'build-home': '#build-root',
       analytics: '#analytics-page .an-kpis'

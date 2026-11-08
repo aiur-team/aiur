@@ -17,7 +17,18 @@ defmodule Aiur.PrePrFixture do
     git!(repo, ["config", "user.name", "pre-pr test"])
     git!(repo, ["remote", "add", "origin", "."])
     File.mkdir_p!(Path.join(repo, "src"))
+    File.mkdir_p!(Path.join(repo, "src/browser"))
+    File.write!(Path.join(repo, "src/browser/package-lock.json"), "{}")
     File.mkdir_p!(Path.join(repo, "scripts"))
+    File.mkdir_p!(Path.join(repo, "scripts/lib"))
+
+    File.write!(
+      Path.join(repo, "scripts/lib/layout-assets.sh"),
+      "build_layout_assets() { npm ci --ignore-scripts && npm run vendor:elk -- --check; }\n"
+    )
+
+    File.write!(Path.join(repo, "layout-assets.marker"), "")
+    File.write!(Path.join(repo, "src/browser/package.json"), "{}")
     File.write!(Path.join(repo, "src/mix.exs"), "")
 
     for script <- [
@@ -45,12 +56,14 @@ defmodule Aiur.PrePrFixture do
         echo clean >> "#{root}/test-env"
         echo "$TMPDIR" >> "#{root}/test-tmpdirs"
         echo "$*" > "#{root}/test-command"
+        test -e "#{root}/layout-assets-ran" || { echo "layout assets were not generated before tests"; exit 78; }
         if [ "${PRE_PR_READER_MODE:-}" = failure ] && [[ "$*" == *unmodified_reader_test.exs* ]]; then echo '     test/unmodified_reader_test.exs:28'; exit 2; fi
         case "$*" in *changed_reader_test.exs*) echo "$*" > "#{root}/reader-tests" ;; esac
         ;;
     esac
     case "$*" in
       *"mix aiur.affected_tests"*)
+        test -e "#{root}/layout-assets-ran" || { echo "layout assets were not generated before test selection"; exit 78; }
         case "${PRE_PR_SELECTOR_MODE:-full}" in
           failure) exit 42 ;;
           unknown) echo '{"status":"unexpected"}' ;;
@@ -73,6 +86,8 @@ defmodule Aiur.PrePrFixture do
 
     gh = "#!/usr/bin/env bash\necho 'no pull requests found for branch \"feature\"' >&2\nexit 1\n"
 
+    npm = "#!/usr/bin/env bash\necho \"$*\" >> \"#{root}/npm-command\"\ntouch \"#{root}/layout-assets-ran\"\n"
+
     nice = """
     #!/usr/bin/env bash
     [[ "$1 $2" == "-n 10" ]] || exit 91
@@ -81,7 +96,7 @@ defmodule Aiur.PrePrFixture do
     exec "$@"
     """
 
-    for {name, contents} <- [{"mise", mise}, {"gh", gh}, {"nice", nice}] do
+    for {name, contents} <- [{"mise", mise}, {"gh", gh}, {"nice", nice}, {"npm", npm}] do
       path = Path.join(bin, name)
       File.write!(path, contents)
       File.chmod!(path, 0o755)

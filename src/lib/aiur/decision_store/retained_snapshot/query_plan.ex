@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
@@ -28,8 +29,10 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   @spec matches?(Decision.t(), map()) :: boolean()
   def matches?(decision, query) do
-    lifecycle_match?(decision, Map.get(query, :lifecycle)) and
+    Policy.matches_route?(decision, Map.get(query, :route)) and
+      lifecycle_match?(decision, Map.get(query, :lifecycle)) and
       ticket_match?(decision, Map.get(query, :ticket)) and
+      ticket_scope_match?(decision, Map.get(query, :tickets)) and
       search_match?(decision, Map.get(query, :search)) and
       optional_match?(decision.authority, Map.get(query, :authority)) and
       optional_match?(decision.blocking, Map.get(query, :blocking)) and
@@ -38,6 +41,9 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   defp candidate(index, %{ticket: ticket} = query) when is_binary(ticket),
     do: RetainedIndex.ticket(index, ticket, ordering(query))
+
+  defp candidate(index, %{tickets: tickets} = query) when is_struct(tickets, MapSet),
+    do: ticket_union(index, tickets, ordering(query))
 
   defp candidate(index, %{search: search} = query) when is_binary(search),
     do: RetainedIndex.search(index, search, ordering(query))
@@ -60,6 +66,12 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   defp candidate(index, query), do: RetainedIndex.all(index, ordering(query))
 
+  defp ticket_union(index, tickets, order) do
+    tickets
+    |> Enum.map(&RetainedIndex.ticket(index, &1, order))
+    |> Enum.reduce(:gb_sets.empty(), &:gb_sets.union/2)
+  end
+
   defp union(index, statuses, query) do
     statuses
     |> Enum.map(&RetainedIndex.lifecycle(index, &1, ordering(query)))
@@ -67,7 +79,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp scan_limited?(query) do
-    Enum.any?([:ticket, :search, :authority, :blocking, :kind], &(not is_nil(Map.get(query, &1))))
+    Enum.any?([:ticket, :tickets, :search, :authority, :blocking, :kind, :route], &(not is_nil(Map.get(query, &1))))
   end
 
   defp lifecycle_match?(_decision, nil), do: true
@@ -82,6 +94,16 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
   defp ticket_match?(_decision, nil), do: true
   defp ticket_match?(decision, ticket), do: exact_match?(ticket_identifier(decision), ticket)
+  defp ticket_scope_match?(_decision, nil), do: true
+
+  defp ticket_scope_match?(decision, %MapSet{} = tickets) do
+    case ticket_identifier(decision) do
+      nil -> false
+      identifier -> MapSet.member?(tickets, String.downcase(identifier))
+    end
+  end
+
+  defp ticket_scope_match?(_decision, _tickets), do: false
   defp search_match?(_decision, nil), do: true
 
   defp search_match?(decision, search) do

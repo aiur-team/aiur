@@ -82,6 +82,16 @@ defmodule AiurWeb.Build.UsageTest do
     assert mixed.session.acc == [91]
   end
 
+  # A prepaid credit reading without its ceiling reads as plenty of money no
+  # matter how little is left, and a usage floor cannot measure the remainder
+  # against anything. OpenRouter reports both, so the strip states both.
+  test "an OpenRouter prepaid credit window states the remaining balance against its limit" do
+    credit = I.window(22.5, nil, %{kind: :credit, credits: %{status: :available, amount: 77.5}, remaining: 77.5, limit: 100})
+    row = provider(%{"credits-remaining" => credit}, %{}, :openrouter)
+
+    assert row.credits == %{pct: 78, left: "$77.50", tip: [["Prepaid credits", "$77.50 of $100.00 left · 78% left"]]}
+  end
+
   test "U8 U9 accounts align sorted slots and preserve failed readings" do
     snapshot = I.snapshot(:claude, %{"primary" => I.window(40), "secondary" => I.window(50)})
     accounts = %{"work" => I.account(1, 96), "personal" => %{reading: nil, observed_at: I.now()}}

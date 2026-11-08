@@ -20,8 +20,8 @@ defmodule Aiur.Orchestrator.EventTopics do
   }
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Commands
+  alias Aiur.Signal
 
   @spec route(State.t(), map(), keyword()) :: State.t()
   def route(state, event, opts \\ [])
@@ -134,7 +134,9 @@ defmodule Aiur.Orchestrator.EventTopics do
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body"),
+      commit_messages: Map.get(pr, "commit_messages", []),
       pr_url: Map.get(pr, "html_url"),
+      repository: Map.get(event, :repository) || get_in(pr, ["base", "repo", "full_name"]),
       head_sha: get_in(pr, ["head", "sha"])
     ]
 
@@ -276,7 +278,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   end
 
   defp emit_stalled_resolution(state, identifier, issue_id, running_entry, event, opts) do
-    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
     result =
       emitter.("ticket.#{identifier}.agent.stalled.resolved",

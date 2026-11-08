@@ -33,4 +33,17 @@ defmodule Aiur.Config.AgentTurnCapsTest do
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{max_input_tokens_per_turn: -1}})
   end
+
+  test "local green-CI gate stop threshold must exceed the steer threshold" do
+    assert {:error, {:invalid_workflow_config, message}} =
+             Schema.parse(%{
+               tracker: %{kind: "memory"},
+               agent: %{
+                 local_gate_wait_steer_minutes: 30,
+                 local_gate_wait_stop_minutes: 30
+               }
+             })
+
+    assert message =~ "local_gate_wait_stop_minutes"
+  end
 end

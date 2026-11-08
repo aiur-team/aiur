@@ -1,0 +1,9 @@
+{
+  "from": "harness-adapters",
+  "to_module": "Aiur.Commands.NativeCapture.Codex",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/codex/approvals.ex"
+  ],
+  "reason": "#6405 gated native question capture; the harness keeps one call site for the adapter move"
+}

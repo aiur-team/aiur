@@ -18,11 +18,14 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"pause global", "cmd_pause_resume pause", :write, []},
     {"resume all", "cmd_pause_resume resume --all", :write, []},
     {"resume tickets", "cmd_pause_resume resume 123 456", :write, []},
+    {"redispatch", "cmd_redispatch 123 --backend codex", :write, []},
     {"ownership take", "cmd_executor_ownership take 123", :write, []},
     {"ownership release", "cmd_executor_ownership release 123", :write, []},
     {"reset budget", "cmd_reset_budget 123 456", :write, []},
     {"todo", "run_todo --todo 123 456", :write, []},
     {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
+    {"listen mode read", "cmd_listen_mode 123 --json", :read, []},
+    {"listen mode write", "cmd_listen_mode 123 async --expected-version 0", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
     {"message status", "cmd_message --status 7", :read, []},
@@ -39,9 +42,10 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"queue order display", "cmd_queue order", :read, []},
     {"units", "cmd_units --scope all --condition active --format records --json", :read, []},
     {"build orders", "cmd_build_orders 123 --json", :read, []},
+    {"build orders published contract", "cmd_build_orders 123 --json --contract build-order.v1", :read, []},
     {"analytics", "cmd_analytics --range full --since 2026-01-01 --build-order 123 --json", :read, []},
-    {"GitHub cost", "cmd_github_cost --budget all --format records --json", :read, []},
-    {"GitHub usage", "cmd_github_usage --json", :read, []},
+    {"GitHub cost", "usage_alias github-cost --json", :read, []},
+    {"GitHub usage", "usage_alias github-usage --json", :read, []},
     {"capabilities", "cmd_capabilities --json", :read, []},
     {"commands", "cmd_commands --filter all --blocking --ticket 123 --search x --cursor next --limit 1 --json", :read, []},
     {"alerts", "cmd_alerts --needs-attention --limit 1", :read, []},
@@ -50,10 +54,12 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"watch full", "cmd_watch --full", :read, []},
     {"watch changes", "cmd_watch --changes", :write, []},
     {"ticket estimate", "cmd_ticket estimate 123 0.5 --reason test --by operator --json", :write, []},
-    {"ticket usage", "cmd_ticket_usage 123 --json", :read, []},
+    {"ticket usage", "usage_alias ticket-usage 123 --json", :read, []},
     {"experiments list", "cmd_experiments list", :read, []},
     {"experiments stats", "cmd_experiments stats 123", :read, []},
     {"experiments freeze", "cmd_experiments freeze", :write, []},
+    {"operator relay answer", "cmd_operator_relay_answer decision --expected-version 1 --option yes --quote approved --relayed-by executor --idempotency-key key", :write, []},
+    {"executor ack", "cmd_executor_ack dec_0123456789abcdef --executor-id worker", :write, []},
     {"executor answer", "cmd_executor_answer decision --expected-version 1 --option yes --rationale approved --idempotency-key key", :write, []},
     {"executor escalate", "cmd_executor_escalate decision --expected-version 1 --reason help", :write, []},
     {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},
@@ -87,7 +93,9 @@ defmodule Aiur.ControlCall.EngineCensusTest do
   @guarded_wrappers %{
     "cmd_queue" => ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "")|,
     "cmd_operator_answer" => ~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|,
-    "cmd_alerts" => ~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.test", "--executor-id", "operator"])|
+    "cmd_alerts" => ~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.test", "--executor-id", "operator"])|,
+    "run_account_login" => ~s|System.cmd("codex", [])|,
+    "run_claude_login" => ~s|System.cmd("claude", [])|
   }
 
   test "every public AgentControlCLI function has an explicit classification" do
@@ -106,6 +114,14 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       assert {:ok, %{scope: :read}} = ControlCall.parse(expression, remote: true, max_scope: :read),
              "#{Enum.join(argv, " ")} is not a server-approved read: #{expression}"
     end
+  end
+
+  test "the fleet executor wait fixture is accepted by the remote control parser" do
+    path = Path.expand("../../../../packaging/npm/aiur-cli/test/fixtures/control-read-commands.json", __DIR__)
+    fixture = path |> File.read!() |> Jason.decode!()
+    command = hd(fixture["remote_write_commands"])
+
+    assert {:ok, %{scope: :write}} = ControlCall.parse(command["expression"], remote: true)
   end
 
   test "real engine wrappers emit allowlisted expressions with their expected scope" do
@@ -139,8 +155,11 @@ defmodule Aiur.ControlCall.EngineCensusTest do
            "guarded engine wrappers changed: expected #{inspect(expected)}, found #{inspect(guarded)}"
 
     for {wrapper, expression} <- @guarded_wrappers do
-      assert {:error, :denied_remote} = ControlCall.parse(expression),
-             "#{wrapper} has a local-only guard but its RPC is not denied"
+      assert {:error, reason} = ControlCall.parse(expression),
+             "#{wrapper} has a local-only guard but its RPC was accepted"
+
+      assert reason in [:denied_remote, :not_allowlisted],
+             "#{wrapper} has a local-only guard but parsed as #{inspect(reason)}"
     end
   end
 
@@ -175,7 +194,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
           {"Aiur.AgentControlCLI.executor_subscribe(Base.decode64!(\"dGlja2V0LjU5NjUuYWdlbnQuIw==\"))", :write},
           {"Aiur.AgentControlCLI.executor_unsubscribe(Base.decode64!(\"dGlja2V0LjU5NjUuIw==\"))", :write},
           {"Aiur.AgentControlCLI.analytics([range: :run])", :read},
-          {"Aiur.AgentControlCLI.accounts(true, Base.decode64!(\"Y29kZXg=\"))", :read},
+          {"Aiur.Usage.CLI.rpc(\"codex\", true)", :read},
           {"Aiur.AgentControlCLI.message(\"123\", Base.decode64!(\"aGVsbG8=\"), \"msg-1\")", :write},
           {"Aiur.AgentControlCLI.todo([\"123\"], [only: true, budget_ms: 1000, emit_exit_marker: true])", :write},
           {"Aiur.AgentControlCLI.pause(:all)", :write},

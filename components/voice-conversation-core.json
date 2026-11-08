@@ -32,5 +32,6 @@
   "status": "optional",
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "voice"
 }

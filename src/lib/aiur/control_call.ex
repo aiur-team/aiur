@@ -10,7 +10,8 @@ defmodule Aiur.ControlCall do
   alias Aiur.ControlCall.Literal
 
   @call_type "aiur.control.call"
-  @call_version 1
+  @call_version 2
+  @accepted_call_versions [1, 2]
   @result_type "aiur.control.result"
   @result_version 1
   @actor_key {__MODULE__, :actor}
@@ -22,6 +23,9 @@ defmodule Aiur.ControlCall do
 
   @spec call_version() :: pos_integer()
   def call_version, do: @call_version
+
+  @spec accepted_call_versions() :: [pos_integer()]
+  def accepted_call_versions, do: @accepted_call_versions
 
   @spec result_type() :: binary()
   def result_type, do: @result_type
@@ -43,7 +47,7 @@ defmodule Aiur.ControlCall do
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
          scope when scope in [:read, :write, :deny] <- classify(entry.class, args),
-         :ok <- allow_remote(scope),
+         :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
       module = Module.concat(segments)
       {:ok, %{module: module, function: function, args: args, scope: scope}}
@@ -128,8 +132,12 @@ defmodule Aiur.ControlCall do
 
   defp classify(class, args) when is_function(class, 1), do: class.(args)
   defp classify(class, _args), do: class
-  defp allow_remote(:deny), do: {:error, :denied_remote}
-  defp allow_remote(_scope), do: :ok
+
+  defp allow_remote(:deny, opts) do
+    if Keyword.get(opts, :remote, true), do: {:error, :denied_remote}, else: :ok
+  end
+
+  defp allow_remote(_scope, _opts), do: :ok
   defp max_scope(:write, :read), do: {:error, :scope_exceeds_max}
   defp max_scope(_scope, scope) when scope in [:read, :write], do: :ok
   defp max_scope(_scope, _max), do: {:error, :scope_exceeds_max}

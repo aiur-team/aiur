@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   @moduledoc false
 
-  alias Aiur.GitHub.{CIRecovery, Client, Errors, FailureEvidence, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery, Client, FailureEvidence}
 
   require Logger
 
@@ -37,7 +37,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
       )
       |> Enum.map(fn [name, path] -> "#{name} :: #{normalize_test_path(path)}" end)
 
-    browser_identities = Enum.map(browser_spec_paths(log), &"BrowserSpec :: #{&1}")
+    browser_identities = merge_browser_identities(browser_spec_paths(log), browser_test_identities(log))
 
     Enum.uniq(exunit_identities ++ browser_identities)
   end
@@ -48,9 +48,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   defp browser_spec_paths(log) do
     annotations =
-      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s|$)/, log, capture: :all_but_first)
-      |> List.flatten()
-      |> Enum.map(&normalize_browser_path/1)
+      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s*(?:::|\s|$))/, log, capture: :all_but_first)
+      |> Enum.map(fn [path] -> normalize_browser_path(path) end)
 
     playwright =
       Regex.scan(
@@ -63,6 +62,23 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
     Enum.uniq(annotations ++ playwright)
   end
+
+  defp browser_test_identities(log) do
+    Regex.scan(
+      ~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)\s*::\s*(.*?)\s*::\s*(\d+)(?=\s|$)/,
+      log,
+      capture: :all_but_first
+    )
+    |> Enum.map(fn [path, title, line] -> "BrowserSpec :: #{normalize_browser_path(path)} :: #{String.trim(title)} :: #{line}" end)
+  end
+
+  defp merge_browser_identities(paths, tests) do
+    detailed_paths = Enum.map(tests, &browser_identity_path/1)
+    fallbacks = paths |> Enum.reject(&(&1 in detailed_paths)) |> Enum.map(&"BrowserSpec :: #{&1}")
+    fallbacks ++ tests
+  end
+
+  defp browser_identity_path("BrowserSpec :: " <> rest), do: rest |> String.split(" :: ") |> hd()
 
   defp strip_actions_timestamps(log), do: Regex.replace(~r/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /m, log, "")
 
@@ -82,13 +98,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   end
 
   defp fetch_recent_main_failure_paths(base, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
       since = Keyword.get(opts, :now_ms, System.system_time(:millisecond)) - 24 * 60 * 60_000
       created = DateTime.from_unix!(since, :millisecond) |> DateTime.to_iso8601()
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
           URI.encode_query(%{
             branch: base,
             event: "push",
@@ -97,7 +113,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
             per_page: 100
           })
 
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       with {:ok, runs} <- read_pages(request, token, url, [], 0) do
         {:ok, Enum.flat_map(runs, &failed_main_run_paths(&1, opts)) |> Enum.uniq()}
@@ -249,16 +265,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
            caller: "landing_watch_merge_group_runs"
          }) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, acc ++ runs}
           next -> read_pages(request, token, next, acc ++ runs, page + 1)
         end
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 end

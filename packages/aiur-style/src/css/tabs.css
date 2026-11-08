@@ -1,0 +1,14 @@
+@layer aiur.components {
+  .aiur-tabs { display: flex; flex-wrap: wrap; padding-inline: 1px; border-bottom: 1px solid var(--aiur-color-pill-bd); }
+  .aiur-tabs [role="tab"] {
+    flex: 1; border: 0; border-right: 1px solid var(--aiur-color-pill-bd);
+    background: transparent; color: var(--aiur-color-muted);
+    font: 12.5px/normal var(--aiur-font-mono); letter-spacing: .02em;
+    padding: 8px 13px; cursor: pointer; transition: color .2s, background-color .2s;
+  }
+  .aiur-tabs [role="tab"]:last-child { border-right: 0; }
+  .aiur-tabs [role="tab"][aria-selected="true"] { color: var(--aiur-color-fg); background: color-mix(in srgb, var(--aiur-color-fg) 10%, transparent); }
+  .aiur-tabs [role="tab"]:not(:disabled):hover { color: var(--aiur-color-fg); }
+  .aiur-tabs [role="tab"]:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: -3px; }
+  .aiur-tabs [role="tab"]:disabled { cursor: not-allowed; }
+}

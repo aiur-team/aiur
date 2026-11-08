@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @moduledoc "Durable optimistic dispatch attempts; writes are serialized, reads use ETS."
   use GenServer
   require Logger
-  alias Aiur.{Alerts, JsonStore}
   alias Aiur.Config.Paths
+  alias Aiur.{JsonStore, Signal}
   alias Aiur.Orchestrator.{DispatchPolicy, OptimisticIntegration, OptimisticLedgerTelemetry}
 
   @table :aiur_optimistic_starts
@@ -100,7 +100,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @impl true
   def init(opts) do
     :ets.new(@table, [:named_table, :protected, read_concurrency: true])
-    state = %{path: nil, records: %{}, writable?: true, alert: Keyword.get(opts, :alert, &Alerts.emit_system/2)}
+    state = %{path: nil, records: %{}, writable?: true, alert: Keyword.get(opts, :alert, &Signal.alert/2)}
 
     case path(opts) do
       {:ok, path} -> load(%{state | path: path}, opts)

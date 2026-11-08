@@ -4,7 +4,7 @@ defmodule Aiur.Muse.TurnLoop do
   alias Aiur.AgentTools.MCP
   alias Aiur.AppServer.Messages
   alias Aiur.AppServer.ToolCallLedger
-  alias Aiur.Muse.{Approvals, Meters, Protocol, Transport, TurnControl, View}
+  alias Aiur.Muse.{Approvals, CodingAgent, Meters, Protocol, Transport, TurnControl, View}
 
   @spec await(map(), String.t(), map(), reference(), keyword(), pos_integer()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
@@ -22,6 +22,8 @@ defmodule Aiur.Muse.TurnLoop do
       deadline: System.monotonic_time(:millisecond) + timeout_ms,
       pending: "",
       view: View.new(session.thread_id),
+      steer_claim: Keyword.get(opts, :on_steer_claim, fn -> :noop end),
+      steer: nil,
       interrupt: nil,
       interrupt_accepted: false,
       pending_terminal: nil
@@ -83,9 +85,30 @@ defmodule Aiur.Muse.TurnLoop do
   defp continue(prior, result), do: close(prior, result)
 
   defp close(state, result) do
+    reason = if match?({:ok, _}, result), do: :parent_turn_completed, else: :turn_closed
+    if state.steer, do: state.steer.fail.(reason)
     Approvals.close(state.approvals)
     result
   end
+
+  defp operator_wake(%{steer: nil, interrupt: nil} = state, :steer) do
+    case state.steer_claim.() do
+      :noop ->
+        {:continue, state}
+
+      {:deliver_text, text, ok, fail} ->
+        case CodingAgent.steer(state.session, %{kind: :text, body: text}, state.turn_id) do
+          {:ok, request} ->
+            {:continue, %{state | steer: Map.merge(request, %{ok: ok, fail: fail})}}
+
+          {:error, reason} ->
+            fail.(reason)
+            {:continue, state}
+        end
+    end
+  end
+
+  defp operator_wake(state, :steer), do: {:continue, state}
 
   defp operator_wake(state, urgent) do
     if Approvals.pending?(state.approvals) do
@@ -99,6 +122,19 @@ defmodule Aiur.Muse.TurnLoop do
     else
       if urgent, do: TurnControl.interrupt(state, :operator_message), else: {:continue, state}
     end
+  end
+
+  defp handle_frame(%{steer: %{request_id: id} = steer} = state, %{"id" => id} = frame) do
+    case Protocol.turn_steer_result(frame["result"], steer.command_id) do
+      {:accepted, %{"turnId" => turn_id}} when turn_id == state.turn_id ->
+        steer.ok.(%{transport: :muse_msp, turn_id: turn_id, command_id: steer.command_id})
+
+      _ ->
+        reason = if Map.has_key?(frame, "error"), do: {:response_error, frame["error"]}, else: :invalid_turn_steer_receipt
+        steer.fail.(reason)
+    end
+
+    {:continue, %{state | steer: nil}}
   end
 
   defp handle_frame(

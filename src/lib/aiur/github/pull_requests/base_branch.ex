@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.PullRequests.BaseBranch do
 
   require Logger
 
-  alias Aiur.GitHub.{Errors, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, WriteThrough}
 
   @doc """
   Ensures an open pull request targets the configured integration branch.
@@ -53,11 +53,11 @@ defmodule Aiur.GitHub.PullRequests.BaseBranch do
         "expected=#{inspect(expected_base)} action=repair"
     )
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          :ok <- journal_before_base_repair(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
 
       request_fun.(%{
         method: :patch,
@@ -147,7 +147,7 @@ defmodule Aiur.GitHub.PullRequests.BaseBranch do
       pr_number,
       current_base,
       expected_base,
-      Errors.github_status_error(response),
+      Access.github_status_error(response),
       true
     )
   end
@@ -157,7 +157,7 @@ defmodule Aiur.GitHub.PullRequests.BaseBranch do
       pr_number,
       current_base,
       expected_base,
-      Errors.classify_error({:error, reason}),
+      Access.classify_error({:error, reason}),
       true
     )
   end

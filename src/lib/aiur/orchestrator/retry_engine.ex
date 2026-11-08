@@ -82,6 +82,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   defdelegate handle_agent_down(state, ref, reason), to: AgentDown
 
+  @spec handle_agent_down(State.t(), reference(), term(), keyword()) :: {:noreply, State.t()}
+  defdelegate handle_agent_down(state, ref, reason, opts), to: AgentDown
+
   @spec prior_work_for_retry?(map(), boolean()) :: boolean()
   defdelegate prior_work_for_retry?(running_entry, continuation_enabled? \\ Config.agent_prior_work_continuation?()), to: AgentDown
 

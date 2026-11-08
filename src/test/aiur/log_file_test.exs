@@ -63,7 +63,7 @@ defmodule Aiur.LogFileTest do
         Aiur.TestCleanup.rm_rf!(tmp_root)
       end)
 
-      %{log_file: log_file}
+      %{log_file: log_file, original_default: original_default}
     end
 
     test "test logger rotates oversized output and retains recent messages", %{log_file: log_file} do
@@ -111,6 +111,39 @@ defmodule Aiur.LogFileTest do
       :ok = :logger_std_h.filesync(:aiur_file_log)
       assert File.read!(log_file) =~ "dispatch cycle diagnostic 2980"
       assert Logger.level() == :info
+    end
+
+    test "container boot keeps daemon Logger output on the console and in the file", %{log_file: log_file, original_default: original_default} do
+      original_container = System.get_env("AIUR_CONTAINER")
+      original_debug = System.get_env("AIUR_DEBUG")
+      original_headless = Application.get_env(:aiur, :headless)
+      original_level = Logger.level()
+      System.put_env("AIUR_CONTAINER", "1")
+      System.delete_env("AIUR_DEBUG")
+      Application.put_env(:aiur, :headless, true)
+      Logger.configure(level: :info)
+
+      on_exit(fn ->
+        if original_default == :absent, do: :logger.remove_handler(:default)
+        if original_container, do: System.put_env("AIUR_CONTAINER", original_container), else: System.delete_env("AIUR_CONTAINER")
+        if original_debug, do: System.put_env("AIUR_DEBUG", original_debug), else: System.delete_env("AIUR_DEBUG")
+        if is_nil(original_headless), do: Application.delete_env(:aiur, :headless), else: Application.put_env(:aiur, :headless, original_headless)
+        Logger.configure(level: original_level)
+      end)
+
+      if original_default == :absent do
+        assert :ok = :logger.add_handler(:default, :logger_std_h, %{config: %{type: :standard_io}})
+      end
+
+      assert :ok = LogFile.configure()
+      assert {:ok, %{module: :logger_std_h, config: %{type: :standard_io}}} = :logger.get_handler_config(:default)
+      assert {:ok, %{id: :aiur_file_log}} = :logger.get_handler_config(:aiur_file_log)
+
+      require Logger
+      Logger.info("container stdout diagnostic 5939")
+      Logger.flush()
+      :ok = :logger_std_h.filesync(:aiur_file_log)
+      assert File.read!(log_file) =~ "container stdout diagnostic 5939"
     end
 
     test "background boot writes into the exported run root before headless is configured", %{log_file: log_file} do

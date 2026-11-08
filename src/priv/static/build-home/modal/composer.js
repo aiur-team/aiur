@@ -13,15 +13,16 @@ export const PAUSED = 'Message the agent — it resumes when you send';
 export const AMBIGUOUS = 'Agent actions are unavailable because this display identifier is not a unique writable target.';
 const NO_ANSWER = 'No answer from the dashboard, so the message may still be queued. Check the log before you send again.';
 const STATUS = {
-  queued: ['Queued · waiting for the agent', ''], delivered: null, unconfirmed: ['Queued · delivery unconfirmed', ''],
+  queued: ['Queued · waiting for the agent', ''], delivered: ['Delivered to the agent', ''], unconfirmed: ['Queued · delivery unconfirmed', ''],
   failed: ['Not delivered (failed)', 'bad'], superseded: ['Not delivered (superseded)', 'bad'],
 };
 let drafts = new Map(), st = null, offs = [], localOps = [], appending = false, mic = null;
 const fresh = t => ({ id: t.id, pending: false, last: null, sent: '', line: null, ended: false });
 function unbind() { offs.forEach(off => off()); offs = []; }
 function destroyMic() { mic?.destroy(); mic = null; }
-onReset(() => { unbind(); destroyMic(); drafts = new Map(); st = null; localOps = []; });
-onModalClose(() => { unbind(); destroyMic(); st = null; localOps = []; });
+export function teardownComposer() { unbind(); destroyMic(); }
+onReset(() => { teardownComposer(); drafts = new Map(); st = null; localOps = []; });
+onModalClose(() => { teardownComposer(); st = null; localOps = []; });
 
 export function placeholder(t) {
   if (t.agent?.state === 'paused') return PAUSED;
@@ -36,14 +37,14 @@ function setLine(text, tone = '') {
 }
 function refresh() {
   const button = $('#cv-in .cv-send'); if (!st || !button) return;
-  button.disabled = st.pending || st.ended || !live();
+  button.disabled = st.pending || st.ended || $('#cv-in textarea')?.readOnly || !live();
   if (st.ended) setLine(st.ended, 'bad');
   else if (!live() && !st.pending) setLine('Offline · reconnect to send');
   else if (st.line?.[0] === 'Offline · reconnect to send') setLine(null);
 }
 function grow(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; }
 export function renderComposer(t, msg) {
-  unbind(); destroyMic(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
+  teardownComposer(); $('#cv-in')?.remove(); $('#cv-in-st')?.remove(); $('#cv-in-off')?.remove();
   const slot = $('#cv-footer');
   if (!slot || t.sec === 'hist' || ctx.snap?.writable !== true || !msg.composer) return;
   if (st?.id !== t.id) st = fresh(t);
@@ -53,10 +54,13 @@ export function renderComposer(t, msg) {
   const hint = placeholder(t);
   slot.insertAdjacentHTML('afterend', '<form class="cv-in" id="cv-in" data-voice-composer><textarea rows="1" placeholder="' + esc(hint) +
     '" aria-label="' + esc(hint.replace(/…$/, '')) + '" enterkeyhint="send" data-voice-input></textarea>' +
-    '<button class="cv-mic" type="button" id="cv-mic" title="Checking whether dictation is available…" aria-label="Dictate (unavailable)" aria-disabled="true" disabled data-voice-mic>' + MI.mic + '</button>' +
+    '<button class="cv-mic" type="button" id="cv-mic" title="Checking whether dictation is available…" aria-label="Dictate (unavailable)" aria-disabled="true" disabled data-voice-mic data-voice-mode="dictate">' + MI.mic + '</button>' +
     '<button class="cv-send" type="submit" aria-label="Send" data-voice-send>' + MI.send + '</button></form>' +
     '<p class="cv-in-st" id="cv-in-st" role="status" aria-live="polite" hidden data-voice-status></p>');
   const form = $('#cv-in'), ta = $('textarea', form);
+  form.dataset.voiceRoot = '';
+  form.dataset.voiceSurface = 'agent_composer';
+  form.dataset.voiceTarget = JSON.stringify({ kind: 'worker', ticket: String(t.id) });
   ta.value = drafts.get(t.id) || ''; if (ta.value) grow(ta);
   if (st.line) setLine(...st.line);
   if (msg.state === 'ended') st.ended = 'Agent is no longer running.';
@@ -73,9 +77,9 @@ export function renderComposer(t, msg) {
 const timeout = ms => new Promise(resolve => setTimeout(() => resolve(null), ms));
 async function submit() {
   const ref = st, ta = $('#cv-in textarea');
-  if (!ref || !ta || ref.pending || ref.ended || !live()) return;
+  if (!ref || !ta || ta.readOnly || ref.pending || ref.ended || !live()) return;
   const raw = ta.value; if (!raw.trim()) return;
-  ref.pending = true; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
+  ref.pending = true; ref.last = null; $('#cv-in').dataset.voiceState = 'idle'; $('#cv-in').setAttribute('aria-busy', 'true'); refresh();
   let reply;
   try { reply = await Promise.race([ctx.push('send', { id: ref.id, text: raw }), timeout(15000)]); } catch { reply = null; }
   ref.pending = false;
@@ -90,7 +94,7 @@ async function submit() {
 function accepted(ref, raw, reply) {
   const ta = $('#cv-in textarea');
   if (ta && ta.value === raw) { ta.value = ''; ta.style.height = 'auto'; drafts.delete(ref.id); }
-  ref.last = reply.request_id; ref.sent = reply.text; setLine(null);
+  ref.last = reply.request_id; ref.sent = reply.text; $('#cv-in').dataset.voiceState = 'sent'; setLine('Sent — waiting for the agent');
   const log = $('#cv-log'); if (log) log.scrollTop = log.scrollHeight;
   // The composer's own row must not claim an earlier local row with the same text.
   appending = true;
@@ -108,9 +112,10 @@ export function claimLocalOp(entry) {
   return localOps.splice(i, 1)[0].el;
 }
 export function sendStatus(msg) {
-  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last || !Object.hasOwn(STATUS, msg.status)) return;
-  const words = STATUS[msg.status];
+  if (!st || msg?.v !== 1 || msg.id !== st.id || msg.request_id !== st.last) return;
+  const words = Object.hasOwn(STATUS, msg.status) ? STATUS[msg.status] : ['Delivery outcome unknown. Check the log before you send again.', ''];
   setLine(words?.[0], words?.[1]);
+  const form = $('#cv-in'); if (form) form.dataset.voiceState = ['queued', 'delivered'].includes(msg.status) ? 'sent' : 'idle';
   const ta = $('#cv-in textarea');
   if (msg.status === 'failed' && ta && !ta.value) { ta.value = st.sent; drafts.set(st.id, st.sent); grow(ta); }
 }

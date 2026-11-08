@@ -34,9 +34,9 @@ defmodule Aiur.Harness.CallbackSupportTest do
     end
   end
 
-  test "every registered adapter reports steer and native-question reply as none" do
+  test "wired production adapter and its test alias report native steer support" do
     for key <- Aiur.CodingAgent.known_backends() do
-      assert Capabilities.callback_support(key) == %{steer: :none, native_question_reply: :none}
+      assert Capabilities.callback_support(key) == %{steer: if(key in ["claude-repl", "codex", "fake", "muse"], do: :native, else: :none), native_question_reply: :none}
     end
   end
 

@@ -14,14 +14,13 @@ defmodule Aiur.AgentRunner.AdoptedConcurrencyTest do
     Application.put_env(:aiur, :process_reaper_registrations, true)
     original_reaper = Process.whereis(ProcessReaper)
     if original_reaper, do: Process.unregister(ProcessReaper)
-    reaper = start_supervised!(ProcessReaper)
+    start_supervised!(ProcessReaper)
     # Adoption renames each pane through the daemon's Tmux; stand a mock in its place.
     original_tmux = Process.whereis(Tmux)
     if original_tmux, do: Process.unregister(Tmux)
     tmux = start_supervised!({Tmux, [transport: {:mock, self()}, name: Tmux, session: "test"]})
 
     on_exit(fn ->
-      if Process.alive?(reaper), do: GenServer.stop(reaper)
       if original_reaper && Process.alive?(original_reaper), do: Process.register(original_reaper, ProcessReaper)
       if original_tmux && Process.alive?(original_tmux), do: Process.register(original_tmux, Tmux)
       Application.put_env(:aiur, :process_reaper_registrations, previous)

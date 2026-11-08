@@ -20,14 +20,14 @@ defmodule Aiur.AgentResourceGuard.BusyLoop do
   def sample(pid, proc_dir \\ "/proc") when is_integer(pid) and pid > 0 do
     dir = Path.join(proc_dir, Integer.to_string(pid))
 
-    with {:ok, stat} <- File.read(Path.join(dir, "stat")),
-         {:ok, io} <- File.read(Path.join(dir, "io")),
-         {:ok, status} <- File.read(Path.join(dir, "status")),
+    with {:ok, stat} <- :prim_file.read_file(Path.join(dir, "stat")),
+         {:ok, io} <- :prim_file.read_file(Path.join(dir, "io")),
+         {:ok, status} <- :prim_file.read_file(Path.join(dir, "status")),
          # comm may contain spaces and parens, so fields start after the last ")".
          [_comm, rest] <- :binary.split(stat, ") ", [:global]) |> split_last(),
-         fields when length(fields) >= 20 <- String.split(rest),
+         fields when length(fields) >= 20 <- :binary.split(String.trim_trailing(rest), " ", [:global, :trim_all]),
          {:ok, io_calls} <- io_calls(io),
-         [_, ctxt] <- Regex.run(~r/^voluntary_ctxt_switches:\s+(\d+)$/m, status) do
+         ctxt when is_binary(ctxt) <- counter(status, "voluntary_ctxt_switches") do
       %{
         pid: pid,
         state: Enum.at(fields, 0),
@@ -72,7 +72,22 @@ defmodule Aiur.AgentResourceGuard.BusyLoop do
   defp split_last(_parts), do: nil
 
   defp io_calls(io) do
-    counts = for line <- String.split(io, "\n"), [key, value] <- [String.split(line, ": ")], key in ["syscr", "syscw"], do: String.to_integer(value)
-    if length(counts) == 2, do: {:ok, Enum.sum(counts)}, else: :error
+    with reads when is_binary(reads) <- counter(io, "syscr"),
+         writes when is_binary(writes) <- counter(io, "syscw") do
+      {:ok, String.to_integer(reads) + String.to_integer(writes)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp counter(content, key) do
+    content
+    |> :binary.split("\n", [:global])
+    |> Enum.find_value(fn line ->
+      case :binary.split(line, ":") do
+        [^key, value] -> String.trim(value)
+        _ -> nil
+      end
+    end)
   end
 end

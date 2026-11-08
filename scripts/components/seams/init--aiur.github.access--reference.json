@@ -1,0 +1,9 @@
+{
+  "from": "init",
+  "to_module": "Aiur.GitHub.Access",
+  "kind": "reference",
+  "reason": "#3826: existing GitHub access integration binds through the public access contract",
+  "only_paths": [
+    "src/lib/aiur/init/github.ex"
+  ]
+}

@@ -27,7 +27,9 @@ function applyDiffImpl(msg) {
     })]);
     for (const key of Object.keys(copy.sections)) copy.sections[key] = copy.sections[key].filter(row => !ids.has(row.id));
     for (const row of msg.upsert) copy.sections[row.sec].push(structuredClone(row));
-    Object.assign(copy, structuredClone(msg.set), { generation: msg.generation, now: msg.now });
+    const set = structuredClone(msg.set);
+    if (set.icons) set.icons = { ...(copy.icons || {}), ...set.icons };
+    Object.assign(copy, set, { generation: msg.generation, now: msg.now });
     return commit(copy);
   } catch { return { error: 'invalid' }; }
 }

@@ -65,7 +65,7 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
     assert Tracker.labels("1570") == ["needs-triage"]
   end
 
-  test "a reference-only merge refuses an existing operator park before adding its marker" do
+  test "a reference-only merge leaves ticket state unchanged" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     tracker = Tracker.start("1570", ["agent:in-progress"], true)
     on_exit(fn -> Tracker.stop("1570", tracker) end)
@@ -79,8 +79,8 @@ defmodule Aiur.Orchestrator.MergedTicketOpenPRTest do
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
 
-    assert Tracker.result("1570") == {:error, {:operator_hold, "needs-triage"}}
-    assert Tracker.labels("1570") == ["needs-triage"]
+    assert Tracker.result("1570") == nil
+    assert Tracker.labels("1570") == ["agent:in-progress"]
   end
 
   test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do

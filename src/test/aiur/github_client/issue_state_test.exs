@@ -47,8 +47,12 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
 
+          # Verification after removing the old state label.
+          {:get, 4} ->
+            open_issue_response(["sym:done", "other"])
+
           # PATCH close
-          {:patch, 4} ->
+          {:patch, 5} ->
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
 

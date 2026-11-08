@@ -8,6 +8,7 @@ defmodule VoiceConverse.EventsTest do
     assert Events.all() == [
              Events.UserTranscript,
              Events.AgentText,
+             Events.AgentTextTiming,
              Events.AgentAudio,
              Events.Interruption,
              Events.ToolCall,

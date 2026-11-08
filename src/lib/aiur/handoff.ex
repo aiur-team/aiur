@@ -329,21 +329,27 @@ defmodule Aiur.Handoff do
   defp snapshot_fallback_reason({:runner_gone, _reason}), do: "runner_gone"
   defp snapshot_fallback_reason(_reason), do: nil
 
+  # A backend whose registry entry declares a handoff transport gets asked to
+  # snapshot; the rest fall back without blocking a compatible peer. Whether a
+  # backend supports keep-agents is a registry fact, never an allowlist here.
   defp snapshot_agent(entry, snapshot) do
-    case get_in(entry, [:session_execution, :backend]) do
-      backend when backend in [nil, "codex", "claude", "claude-repl"] ->
-        snapshot.(entry.pid)
+    backend = get_in(entry, [:session_execution, :backend])
 
-      backend ->
-        {:ok,
-         %{
-           "backend" => backend,
-           "workspace" => entry[:workspace_path],
-           "transport" => %{"kind" => "unsupported"},
-           "fallback_reason" => "relay_protocol"
-         }}
+    if handoff_supported?(backend) do
+      snapshot.(entry.pid)
+    else
+      {:ok,
+       %{
+         "backend" => backend,
+         "workspace" => entry[:workspace_path],
+         "transport" => %{"kind" => "unsupported"},
+         "fallback_reason" => "relay_protocol"
+       }}
     end
   end
+
+  defp handoff_supported?(nil), do: true
+  defp handoff_supported?(backend), do: not is_nil(Aiur.CodingAgent.handoff_kind(backend))
 
   defp json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp json_value(%MapSet{} = value), do: Enum.map(value, &json_value/1)

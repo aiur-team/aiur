@@ -11,9 +11,11 @@
     "src/lib/aiur/agent_github_guard.ex",
     "src/lib/aiur/agent_github_guard/**",
     "src/lib/aiur/agent_process_log.ex",
+    "src/lib/aiur/agent_process_log/**",
     "src/lib/aiur/agent_resource_guard.ex",
     "src/lib/aiur/agent_resource_guard/**",
     "src/lib/aiur/agent_scratch.ex",
+    "src/lib/aiur/agent_shell_hook.ex",
     "src/lib/aiur/build_gate.ex",
     "src/lib/aiur/build_gate/**",
     "src/lib/aiur/build_gate_hold_monitor.ex",
@@ -28,7 +30,8 @@
   "requires": [
     "config",
     "kernel",
-    "signal"
+    "signal",
+    "workspace"
   ],
   "optional": [],
   "owns": {
@@ -36,7 +39,9 @@
     "env": [
       "AIUR_AGENT_IR_SANDBOX",
       "AIUR_AGENT_WORKSPACE",
-      "PATH"
+      "AIUR_MCP_SOCKET_DIR",
+      "PATH",
+      "XDG_RUNTIME_DIR"
     ],
     "state": [],
     "capabilities": []
@@ -57,7 +62,10 @@
   "env": [
     "AIUR_AGENT_IR_SANDBOX",
     "AIUR_AGENT_WORKSPACE",
-    "PATH"
+    "AIUR_MCP_SOCKET_DIR",
+    "PATH",
+    "XDG_RUNTIME_DIR"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

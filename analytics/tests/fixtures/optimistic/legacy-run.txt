@@ -11,6 +11,9 @@ Top cost (CPU-seconds):
   #930                     9.5
   #931                     1.0
 
+Feature supply by UTC day (observed intervals):
+  unavailable (no feature-supply interval observations)
+
 Fleet-wide build pressure:
   Occupancy: CPU-derived legacy fallback (exact fleet samples unavailable)
   Binding admission signal: unavailable; load unavailable / threshold unavailable

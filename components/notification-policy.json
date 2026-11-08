@@ -35,5 +35,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N5"
+  "added_by": "MP-N5",
+  "goal": "notify"
 }

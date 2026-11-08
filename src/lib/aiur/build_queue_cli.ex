@@ -120,6 +120,10 @@ defmodule Aiur.BuildQueueCLI do
     Enum.each(queue["items"], fn item ->
       IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
     end)
+
+    Enum.each(queue["elsewhere"] || [], fn [number, owner] ->
+      IO.puts("  —  ##{number}  owned elsewhere  #{owner || "another set"}")
+    end)
   end
 
   defp print_summary(queue) do

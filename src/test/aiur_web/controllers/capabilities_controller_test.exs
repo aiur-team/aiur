@@ -1,5 +1,5 @@
 defmodule AiurWeb.CapabilitiesControllerTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   import Plug.Conn
   import Plug.Test
   alias AiurWeb.Router
@@ -25,6 +25,14 @@ defmodule AiurWeb.CapabilitiesControllerTest do
     assert response.status == 200
     assert Jason.decode!(response.resp_body)["contract"] == "aiur.capabilities"
     assert get_resp_header(response, "cache-control") == ["no-store"]
+  end
+
+  test "registered event export is advertised as disabled through the public endpoint" do
+    Aiur.Capabilities.refresh()
+    :sys.get_state(Aiur.Capabilities.Monitor)
+    response = request(:get)
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body)["capabilities"]["events.export"] == %{"state" => "unavailable", "reason" => "disabled"}
   end
 
   test "non-GET methods return 405 with GET allowed" do

@@ -271,17 +271,18 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
         end
       end
 
-    {:ok, store} =
-      DecisionStore.start_link(
-        name: nil,
-        state_dir: state_dir,
-        dispatcher: dispatcher,
-        dispatch_scheduler: dispatch_scheduler
+    store =
+      start_supervised!(
+        {DecisionStore,
+         [
+           name: nil,
+           state_dir: state_dir,
+           dispatcher: dispatcher,
+           dispatch_scheduler: dispatch_scheduler
+         ]}
       )
 
     on_exit(fn ->
-      if Process.alive?(store), do: GenServer.stop(store)
-
       Aiur.TestCleanup.rm_rf!(state_dir)
     end)
 
@@ -410,7 +411,9 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(event) == [
                merged_by_login: "its-everdred",
                pr_body: "Refs #176 (merge does not close the ticket)",
+               commit_messages: [],
                pr_url: "https://github.com/aiur-team/aiur/pull/176",
+               repository: nil,
                head_sha: "4ab677b8b"
              ]
     end
@@ -419,14 +422,18 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged"}) == [
                merged_by_login: nil,
                pr_body: nil,
+               commit_messages: [],
                pr_url: nil,
+               repository: nil,
                head_sha: nil
              ]
 
       assert EventTopics.pr_merged_opts(%{topic: "ticket.176.pr.merged", pr: nil}) == [
                merged_by_login: nil,
                pr_body: nil,
+               commit_messages: [],
                pr_url: nil,
+               repository: nil,
                head_sha: nil
              ]
     end

@@ -24,7 +24,42 @@ defmodule Aiur.CodingAgent.ProvidersView do
   option, so it intentionally has no effort vocabulary.
   """
   @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
-  def backends, do: Registry.entries()
+  def backends, do: Process.get({__MODULE__, :backends}) || Registry.entries()
+
+  @doc false
+  @spec with_snapshot((-> result)) :: result when result: var
+  def with_snapshot(fun) do
+    key = {__MODULE__, :backends}
+
+    if Process.get(key) do
+      fun.()
+    else
+      Process.put(key, Registry.entries())
+
+      try do
+        fun.()
+      after
+        Process.delete(key)
+        Process.delete({__MODULE__, :dispatchable})
+      end
+    end
+  end
+
+  @doc false
+  @spec snapshot_dispatchable_backends(map()) :: [backend()]
+  def snapshot_dispatchable_backends(configs) do
+    key = {__MODULE__, :dispatchable}
+
+    case Process.get(key) do
+      {^configs, backends} ->
+        backends
+
+      _ ->
+        backends = dispatchable_backends(configs)
+        if Process.get({__MODULE__, :backends}), do: Process.put(key, {configs, backends})
+        backends
+    end
+  end
 
   @doc "Child specs registry entries declare under `:children`, de-duplicated, in `init_order`."
   @spec child_specs(%{backend() => Aiur.CodingAgent.Backend.capabilities()}) ::
@@ -39,6 +74,32 @@ defmodule Aiur.CodingAgent.ProvidersView do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc """
+  The daemon-handoff transport a backend's registry entry declares, or `nil`
+  when its live sessions cannot survive `restart --keep-agents`.
+
+  * `:relay` — the provider runs as a child process behind a relay port that the
+    successor daemon re-attaches to.
+  * `:repl` — the provider runs in a tmux pane the successor daemon rebinds to.
+  * `:in_daemon` — the provider's conversation lives in this daemon's own
+    process (in-process HTTP); it is snapshotted at a safe step boundary and
+    restored into a fresh session in the successor daemon.
+
+  Absence means the backend's sessions die with the daemon, so the preflight
+  refuses `--keep-agents` for a fleet made only of them and names the blocking
+  backends. Derived from the registry so a new backend cannot be silently
+  assumed compatible by a hard-coded allowlist.
+  """
+  @spec handoff_kind(backend()) :: :relay | :repl | :in_daemon | nil
+  def handoff_kind(backend) when is_binary(backend) do
+    case get_in(backends(), [backend, :handoff]) do
+      kind when kind in [:relay, :repl, :in_daemon] -> kind
+      _ -> nil
+    end
+  end
+
+  def handoff_kind(_backend), do: nil
 
   @doc """
   Whether a backend refuses to pick a model for itself, so every route to it

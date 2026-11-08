@@ -6,8 +6,9 @@ defmodule Aiur.Events.DurableConsumer.Handler do
 
   # aiur:event-bus-boundary-member
 
-  @doc "`{:error, _}` holds the cursor and retries the same record; it is never skipped."
-  @callback handle_record(record :: map(), state :: term()) :: {:ok, term()} | {:error, term()}
+  @doc "`{:error, _}` retries the same record; `{:discard, _, _}` advances past a permanent failure."
+  @callback handle_record(record :: map(), state :: term()) ::
+              {:ok, term()} | {:error, term()} | {:discard, term(), term()}
 
   @doc "The source no longer holds the cursor's successor; re-read any state built from events."
   @callback handle_reset(oldest :: non_neg_integer(), state :: term()) :: {:ok, term()}

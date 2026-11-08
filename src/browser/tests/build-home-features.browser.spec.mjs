@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import AxeBuilder from '@axe-core/playwright'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 test.beforeEach(async ({ page }) => {
@@ -46,6 +47,16 @@ test('header uses whole-index figures, mode buttons and clear restore the board'
   await expect(page.locator('.bd-card.dim, .bd-card.feat-on, .bd-card.also, .bd-card.ghost')).toHaveCount(0)
   await expect(page).not.toHaveURL(/feature=/)
 })
+test('lane chips use the stored hue for each lane', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    const { ctx, fx } = m
+    const lane = ctx.D.lanes[ctx.D.features.pag.epics[0]]
+    lane.hue = 13
+    fx.renderFeatures()
+  })
+  await expect(page.locator('#bd-fh .bd-chip').first()).toHaveAttribute('style', /oklch\(\.7 \.13 13\)/)
+})
 test('unknown stats, baseline, missing stats and labels update through live diffs', async ({ page }) => {
   await open(page)
   const stats = await page.evaluate(() => m.ctx.D.features.pag.stats)
@@ -60,6 +71,107 @@ test('unknown stats, baseline, missing stats and labels update through live diff
   await diff(page, { stats: null })
   await expect(page.locator('.bd-kv b')).toHaveText(['—', '—', '—'])
   await expect(page.locator('.sp polyline')).toHaveCount(0)
+})
+test('Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort', async ({ page }, info) => {
+  await open(page, '?view=list')
+  await page.getByRole('tab', { name: 'Features' }).click()
+  // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
+  // Labels are what the daemon names each row: the registry label, else the label's description
+  // (MP-E2 Commands, Listener modes, Phone app shell), else the title-cased slug.
+  const bars = [
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
+    { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
+    { key: 'streamdeck-redesign', label: 'Stream Deck redesign with dials, keys, paging modes and the phone emulator', merged: 25, total: 30 },
+    { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
+    { key: 'mp-n1', label: 'Phone app shell', merged: 1, total: 10 }
+  ]
+  await page.evaluate(bars => {
+    const { ctx, fx } = window.m
+    ctx.D.feature_progress = { ...ctx.D.feature_progress, bars }
+    fx.renderList()
+  }, bars)
+  const rows = page.locator('.fp-list > .fp-row:not(.fp-all)')
+  await expect(rows).toHaveCount(7)
+  expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(() => ['fp-name', 'fp-pg', 'fp-count', 'fp-left']))
+  expect(await rows.locator('.fp-bar').evaluateAll(els => els.map(el => el.className))).toEqual(bars.map(b => b.merged === b.total ? 'fp-bar done' : 'fp-bar'))
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}${b.total - b.merged}`))
+  const visibleNames = await rows.locator('.fp-name').allTextContents()
+  expect(new Set(visibleNames).size).toBe(visibleNames.length)
+  expect(visibleNames).not.toContain('mp-e2')
+  // Each name is one line; a cut name ends in an ellipsis and keeps the full name in its title.
+  const oneLine = () => rows.locator('.fp-name').evaluateAll(els => els.map(el => {
+    const style = getComputedStyle(el)
+    return { oneLine: el.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, title: el.title === el.textContent, cut: el.scrollWidth > el.clientWidth, ellipsis: style.textOverflow === 'ellipsis' }
+  }))
+  const desk = await oneLine()
+  expect(desk.every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  expect(desk.map(n => n.cut)).toEqual(bars.map(b => b.key === 'streamdeck-redesign'))
+  await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
+  await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
+  await expect(page.locator('.fp-list h1')).toHaveCount(0)
+  await expect(page.locator('.fp-sum')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
+  await expect(page.locator('.fp-list [data-fsort]')).toHaveCount(0)
+  // The table starts at the top of the card, under the Tickets-style column headers.
+  const flushTop = await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp').getBoundingClientRect()
+    return {
+      list: Math.round(document.querySelector('.fp-list').getBoundingClientRect().top - vp.top),
+      toolbar: Math.round(vp.top - document.querySelector('.bd-toolbar').getBoundingClientRect().bottom)
+    }
+  })
+  expect(flushTop.list).toBeLessThanOrEqual(1)
+  expect(flushTop.toolbar).toBeLessThanOrEqual(16)
+  expect(await page.locator('.fp-list > .lr-h [role="columnheader"]').allTextContents()).toEqual(['Feature', 'Progress', 'Merged', 'Remaining'])
+  await expect(page.locator('.fp-all')).toHaveText('All features57/8932')
+  await expect(page.locator('.fp-all .fp-bar i')).toHaveAttribute('style', /width:64\.04/)
+  const colors = await page.evaluate(() => {
+    const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-list').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
+    const fill = selector => getComputedStyle(document.querySelector(selector)).backgroundColor
+    return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-row:not(.fp-all) .fp-bar:not(.done):not(.all) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
+  })
+  for (const [actual, token] of Object.values(colors)) expect(actual).toBe(token)
+  expect(new Set(Object.values(colors).map(([actual]) => actual)).size).toBe(3)
+
+  await expect(rows.first()).toHaveAttribute('tabindex', '0')
+  await expect(rows.nth(1)).not.toHaveAttribute('tabindex', /.*/)
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.emulateMedia({ colorScheme: 'light' })
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.locator('[data-fsort]').selectOption('left')
+  await expect(page).toHaveURL(/fsort=left/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['mp-e3', 'mp-n1', 'streamdeck-redesign', 'pag', 'mp-e2', 'khala', 'newsletter'])
+  await page.locator('[data-fsort]').selectOption('pct')
+  await expect(page).toHaveURL(/fsort=pct/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['newsletter', 'streamdeck-redesign', 'pag', 'khala', 'mp-e3', 'mp-n1', 'mp-e2'])
+  await page.locator('[data-fsort]').selectOption('goal')
+  await expect(page).not.toHaveURL(/fsort=/)
+  await page.screenshot({ path: info.outputPath('features-list-1440.png') })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect((await oneLine()).every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  const gaps = await rows.evaluateAll(els => els.slice(1).map((el, i) => el.getBoundingClientRect().top - els[i].querySelector('.fp-bar').getBoundingClientRect().bottom))
+  expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
+  expect(await rows.evaluateAll(els => {
+    const nav = document.querySelector('.sidenav')
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    const top = els[0].getBoundingClientRect().top
+    const rowHeight = Math.max(...els.slice(0, 6).map(el => el.getBoundingClientRect().bottom - el.getBoundingClientRect().top))
+    return usableTop - top >= 6 * rowHeight
+  })).toBe(true)
+  await page.screenshot({ path: info.outputPath('features-list-390.png') })
+  await page.locator('.fp-row[data-feature="pag"]').press('Enter')
+  await expect(page).toHaveURL(/feature=pag/)
+})
+test('Features list says progress is unavailable instead of inventing a zero total', async ({ page }) => {
+  await open(page, '?view=list&list=features&fsort=pct')
+  await expect(page.locator('[data-fsort]')).toHaveValue('pct')
+  await page.evaluate(() => { const { ctx, fx } = window.m; ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: null }; fx.renderList() })
+  await expect(page.locator('.fp-sum')).toHaveText(/^Feature progress unavailable - /)
+  await expect(page.locator('.fp-all')).toHaveCount(0)
+  await expect(page.locator('.fp-list > .fp-row:not(.fp-all)')).toHaveCount(0)
 })
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
@@ -86,7 +198,7 @@ test('first-paint feature focus loads oldest history, back/forward restores focu
   await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.khala.oldest)).toBe(true)
   expect(await page.evaluate(() => m.ctx.D.hist.filter(t => t.feature === 'khala').length)).toBeGreaterThan(0)
   expect(Math.abs(await bandTop() - before)).toBeLessThanOrEqual(1)
-  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.appendChild(a) })
+  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.prepend(a) })
   await page.locator('#feature-navigation').click()
   await expect(page.locator('.bd-fh-name')).toContainText('Events pagination')
   await page.goBack()

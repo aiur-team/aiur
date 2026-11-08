@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
   alias Aiur.{AgentQueueStore, TrackerIdentity}
+  alias Aiur.AgentQueueStore.Correlation
 
   alias Aiur.Orchestrator.State
 
@@ -56,7 +57,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     |> control_api_call({:send_correlated_operator_message, issue_identifier, payload}, timeout)
     |> reconcile_send_timeout(
       server,
-      {:action_id, Enqueue.payload_key(payload, :action_id)},
+      {:action_id, Correlation.delivery_key(Enqueue.payload_key(payload, :action_id), Map.get(payload, :correlation))},
       timeout,
       &{:ok, %{status: :duplicate, item: &1}}
     )
@@ -129,6 +130,12 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:claim_next_checkpoint_queue_item, issue_identifier}, :infinity)
 
+  @spec claim_next_steer_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_steer_queue_item(server, issue_identifier)
+      when is_binary(issue_identifier),
+      do: queue_api_call(server, {:claim_next_steer_queue_item, issue_identifier}, :infinity)
+
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, issue_identifier)
@@ -140,6 +147,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   def claim_next_operator_queue_item(server, issue_identifier)
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:claim_next_operator_queue_item, issue_identifier}, :infinity)
+
+  @spec claim_native_reply_item(GenServer.server(), String.t(), [String.t()]) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_native_reply_item(server, identifier, refs),
+    do: queue_api_call(server, {:claim_native_reply_item, identifier, refs}, :infinity)
 
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command) when is_binary(command) and command != "" do
@@ -233,6 +244,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
           {:reply, :empty | {:ok, map()}, State.t()}
   defdelegate claim_next_checkpoint_queue_item_call(state, issue_identifier), to: Calls
+
+  @spec claim_next_steer_queue_item_call(State.t(), String.t()) ::
+          {:reply, :empty | {:ok, map()}, State.t()}
+  defdelegate claim_next_steer_queue_item_call(state, issue_identifier), to: Calls
 
   @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
           {:reply, :empty | {:ok, map()}, State.t()}

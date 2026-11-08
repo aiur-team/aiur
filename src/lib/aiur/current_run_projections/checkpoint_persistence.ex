@@ -6,15 +6,19 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
   @spec content_hash(map()) :: binary()
   def content_hash(candidate) do
     candidate
-    |> Checkpoint.dump()
-    |> Map.delete(:checkpoint_generation)
+    |> content()
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
   end
 
+  @spec content(map()) :: map()
+  def content(candidate), do: candidate |> Checkpoint.dump() |> Map.delete(:checkpoint_generation)
+
   @spec unchanged?(map(), map()) :: boolean()
   def unchanged?(state, candidate) do
-    state.checkpoint_health == :healthy and state.checkpoint_hash == content_hash(candidate)
+    # Compare persisted terms before serializing or hashing. Only a successful write
+    # installs this baseline, so failed writes are retried even for identical inputs.
+    state.checkpoint_health == :healthy and state.checkpoint_content === content(candidate)
   end
 
   @spec start(map(), map(), keyword(), pid()) :: map()

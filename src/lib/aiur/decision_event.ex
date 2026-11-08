@@ -29,6 +29,9 @@ defmodule Aiur.DecisionEvent do
     :executor_escalated,
     :authority_reclassified,
     :answer_recorded,
+    :pending_for_session,
+    :session_started,
+    :answer_comment_published,
     :revision_recorded,
     :dispatch_queued,
     :revision_dispatched,
@@ -47,10 +50,19 @@ defmodule Aiur.DecisionEvent do
 
   # A timed-out dispatch may still be queued; the store later adopts that item (#2717).
   @outcome_unknown_types [:dispatch_outcome_unknown]
-  @types @types ++ @outcome_unknown_types
+  @types @types ++ @outcome_unknown_types ++ Aiur.Commands.EventData.fact_types()
 
   @type type ::
           :requested
+          | :native_released
+          | :request_attributed
+          | :routed
+          | :escalated
+          | :human_needed
+          | :executor_acknowledged
+          | :executor_claimed
+          | :executor_claim_released
+          | :requester_notified
           | :enriched
           | :decision_expired
           | :decision_dismissed
@@ -59,6 +71,9 @@ defmodule Aiur.DecisionEvent do
           | :executor_escalated
           | :authority_reclassified
           | :answer_recorded
+          | :pending_for_session
+          | :session_started
+          | :answer_comment_published
           | :revision_recorded
           | :dispatch_queued
           | :dispatch_outcome_unknown
@@ -190,10 +205,42 @@ defmodule Aiur.DecisionEvent do
          {:ok, persisted_hash} <- Validation.fetch_string(raw, "content_hash", :content_hash),
          {:ok, event} <-
            decode_typed_event(schema_version, type, decision_id, decision_version, data, event_id, run_id, occurred_at),
-         :ok <- Validation.verify_hash(event.content_hash, persisted_hash) do
-      {:ok, event}
+         :ok <- verify_persisted_hash(event, persisted_hash, data) do
+      {:ok, %{event | content_hash: persisted_hash}}
     end
   end
+
+  # The recomputed hash re-encodes the decoded data with this build's encoder,
+  # so a build that adds or drops an encoded key strands records written by
+  # another build (#7577). Each fallback still proves the stored hash covers
+  # the stored record: snapshots written while #5506 was live (before #6246)
+  # hashed the session-delivery keys, and any record may match the data exactly
+  # as its writer persisted it.
+  defp verify_persisted_hash(event, persisted_hash, raw_data) do
+    with {:error, _reason} = mismatch <- Validation.verify_hash(event.content_hash, persisted_hash) do
+      candidates = [%{event_material(event) | data: persisted_hash_data(event.schema_version, event.type, raw_data)}]
+
+      candidates =
+        if event.type in @snapshot_types,
+          do: [%{event_material(event) | data: event_hash_data(event.schema_version, event.type, event.data)} | candidates],
+          else: candidates
+
+      if Enum.any?(candidates, &(DecisionValidation.content_hash(&1) == persisted_hash)), do: :ok, else: mismatch
+    end
+  end
+
+  # The persisted data minus the keys the writer added after hashing.
+  defp persisted_hash_data(@schema_version, :requested, raw),
+    do: raw |> Map.drop(["provenance", "provenance_hash", "provenance_state"]) |> drop_unhashed_snapshot_keys(:requested)
+
+  defp persisted_hash_data(@schema_version, :enriched, raw) do
+    raw
+    |> Map.drop(["provenance_hash", "provenance_state"])
+    |> Map.update!("decision", &Map.delete(&1, "provenance"))
+    |> drop_unhashed_snapshot_keys(:enriched)
+  end
+
+  defp persisted_hash_data(_schema_version, type, raw), do: drop_unhashed_snapshot_keys(raw, type)
 
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()
@@ -244,9 +291,12 @@ defmodule Aiur.DecisionEvent do
       decision_id: decision_id,
       decision_version: decision_version,
       occurred_at: DateTime.to_iso8601(occurred_at),
-      data: event_hash_data(schema_version, type, data)
+      data: event_hash_data(schema_version, type, data) |> drop_unhashed_snapshot_keys(type)
     }
   end
+
+  defp event_material(%__MODULE__{} = e),
+    do: event_material(e.schema_version, e.type, e.event_id, e.run_id, e.decision_id, e.decision_version, e.occurred_at, e.data)
 
   # Schema-1 hashes retain main's material; provenance remains rollback-compatible.
   defp legacy_data_to_json_safe(:requested, %Decision{} = decision) do
@@ -268,6 +318,17 @@ defmodule Aiur.DecisionEvent do
 
   defp event_hash_data(@versioned_snapshot_schema_version, type, data),
     do: Codec.data_to_json_safe(type, data) |> Provenance.maybe_put_provenance_state(type, data)
+
+  # #5506 added these to the snapshot encoder. Older snapshots were hashed without
+  # them and replay never decodes them, so they stay out of the hash (#6246).
+  @unhashed_snapshot_keys ["pending_for_session", "ticket_comment_status"]
+
+  defp drop_unhashed_snapshot_keys(data, :requested), do: Map.drop(data, @unhashed_snapshot_keys)
+
+  defp drop_unhashed_snapshot_keys(data, :enriched),
+    do: Map.update!(data, "decision", &Map.drop(&1, @unhashed_snapshot_keys))
+
+  defp drop_unhashed_snapshot_keys(data, _type), do: data
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}

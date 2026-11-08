@@ -1,8 +1,10 @@
 defmodule Aiur.DecisionApi.PublicProjection do
   @moduledoc false
 
-  alias Aiur.{Decision, DecisionSanitizer}
+  alias Aiur.Commands.{Media, Projection}
+  alias Aiur.Decision
   alias Aiur.DecisionApi.PublicLifecycleProjection
+  alias Aiur.DecisionSanitizer
 
   @spec encode(Decision.t()) :: map()
   def encode(%Decision{} = decision) do
@@ -21,6 +23,7 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "question" => decision.question,
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
+      "media" => Media.public(decision.media),
       "recommendation" => recommendation(decision.recommendation),
       "consequence_of_delay" => decision.consequence_of_delay,
       "artifacts" => artifacts(decision.artifacts),
@@ -41,6 +44,8 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "resolution" => PublicLifecycleProjection.lifecycle_fact(decision.resolution),
       "provenance" => provenance(decision.provenance)
     }
+    |> Map.merge(Aiur.JSONSafe.normalize(Projection.public_v2(decision)))
+    |> then(fn encoded -> if Projection.attributed?(decision), do: Map.put(encoded, "payload_version", 2), else: encoded end)
   end
 
   defp ticket(ticket) when is_map(ticket) do
@@ -69,7 +74,8 @@ defmodule Aiur.DecisionApi.PublicProjection do
       "description" => value(option, :description),
       "benefits" => value(option, :benefits),
       "drawbacks" => value(option, :drawbacks),
-      "risk" => value(option, :risk)
+      "risk" => value(option, :risk),
+      "media" => Media.public(Map.get(option, :media) || Map.get(option, "media"))
     }
   end
 

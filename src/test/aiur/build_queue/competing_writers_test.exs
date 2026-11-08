@@ -107,7 +107,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert item("2").override == :manual_promotion
     labels("2", ["agent:queued"])
     for _ <- 1..5, do: reconcile(pid)
-    assert projection(pid, "2").state == :overridden
+    assert {projection(pid, "2").state, projection(pid, "2").reason} == {:held, :parked_marker}
     assert calls() == [{:promote, "1"}]
     assert :ok = Aiur.BuildQueue.release("2", pid)
     reconcile(pid)
@@ -281,7 +281,7 @@ defmodule Aiur.BuildQueue.CompetingWritersTest do
     assert item("2").override == :manual_promotion
     labels("2", ["agent:queued"])
     reconcile(pid)
-    assert projection(pid, "2").state == :overridden
+    assert {projection(pid, "2").state, projection(pid, "2").reason} == {:held, :parked_marker}
   end
 
   test "release reports unknown, unavailable and persistence errors" do

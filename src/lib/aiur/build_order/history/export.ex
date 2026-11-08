@@ -15,7 +15,7 @@ defmodule Aiur.BuildOrder.History.Export do
   alias Aiur.BuildOrder.{Epic, EpicOverrides, Features, History, Index, ProviderHealth}
   alias Aiur.BuildOrder.Index.Catalogue
   alias Aiur.DisplaySanitizer
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
 
   @default_limit 200
   @max_limit 500
@@ -105,7 +105,7 @@ defmodule Aiur.BuildOrder.History.Export do
 
   defp configured_epics, do: Catalogue.general(%{settings: Aiur.Config.settings()})
 
-  defp held_issue(number), do: ResourceStore.fetch(ResourceStore.key_for_repo(:issue, Aiur.Tracker.project_identity(), number))
+  defp held_issue(number), do: Access.fetch_resource(Access.key_for_repo(:issue, Aiur.Tracker.project_identity(), number))
 
   # Unsorted means the resolver fell through to its default. A ticket already
   # given an override or a feature has another source, so a rerun resumes.
@@ -234,7 +234,7 @@ defmodule Aiur.BuildOrder.History.Export do
         true -> :partial
       end
 
-    %{state: state, held: held, of: of, retention_hours: div(ResourceStore.retention_ms(), 3_600_000)}
+    %{state: state, held: held, of: of, retention_hours: div(Access.retention_ms(), 3_600_000)}
   end
 
   # Same entry shape as `Aiur.BuildOrdersCLI` sources, so both commands report

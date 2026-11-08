@@ -1,0 +1,12 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.HttpServer",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur.ex",
+    "src/lib/aiur/application/children.ex",
+    "src/lib/aiur/application/startup_checks.ex",
+    "src/lib/aiur/control_cli/executor_attach.ex"
+  ],
+  "reason": "MP-E3-C1-T03: verify bound hook sink at the control entry; preserve existing application composition references"
+}

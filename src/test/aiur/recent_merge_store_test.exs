@@ -173,6 +173,10 @@ defmodule Aiur.RecentMergeStoreTest do
 
   test "reads explicit Refs lines for non-closing merge triage" do
     assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", "owner/repo") == ["176"]
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "issue 177", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "handle issue 2", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "issue #178", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "`issue 179`", repository: "owner/repo")) == []
     assert RecentMerge.referenced_issue_identifiers_in_body("Part of #176\nimplementation details", "owner/repo") == ["176"]
     assert RecentMerge.referenced_issue_identifiers_in_body("Part of other/repo#176", "owner/repo") == []
     assert RecentMerge.referenced_issue_identifiers_in_body("Context\nPart of #176", "owner/repo") == []
@@ -210,6 +214,14 @@ defmodule Aiur.RecentMergeStoreTest do
     assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
     assert String.length(merge.summary) <= 500
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571"]
+  end
+
+  test "retains closing references beyond the bounded commit message" do
+    message = String.duplicate("x", 600) <> "\nCloses #1572"
+    event = merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"commit_messages" => [message]})}})
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert RecentMerge.closing_issue_identifiers(merge) == ["1572"]
   end
 
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do

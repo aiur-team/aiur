@@ -9,18 +9,13 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias AiurWeb.{EndpointConfig, Presenter, StreamDeckGrid}
+  alias AiurWeb.{EndpointConfig, Presenter}
   alias Plug.Conn
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
     conn
     |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
-  end
-
-  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
-  def streamdeck_grid(conn, _params) do
-    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
@@ -62,7 +57,7 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
 
     issue_identifier
-    |> send_operator_message(text, Map.get(params, "message_id"))
+    |> send_operator_message(text, Map.get(params, "message_id"), conn.assigns[:auth_actor])
     |> render_send_message_response(conn, issue_identifier)
   end
 
@@ -183,8 +178,14 @@ defmodule AiurWeb.ObservabilityApiController do
   # `message_id` is optional (#2717). A client that sends one gets its retry
   # deduplicated: the same id, target and text return the first item. Without
   # one, every request is a new message.
-  defp send_operator_message(issue_identifier, text, message_id) do
-    payload = %{kind: :text, body: text}
+  defp send_operator_message(issue_identifier, text, message_id, auth_actor) do
+    payload = %{kind: :text, body: text, delivery_policy: :listener, origin: :http}
+
+    payload =
+      case auth_actor do
+        {:device, id} when is_binary(id) -> Map.put(payload, :actor, "device:" <> id)
+        _ -> payload
+      end
 
     payload =
       if is_binary(message_id) and message_id != "", do: Map.put(payload, :message_id, message_id), else: payload

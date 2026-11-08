@@ -21,9 +21,11 @@
       "AIUR_AGENT_TMPFILE",
       "AIUR_ALERT_LEDGER_PATH_FILE",
       "AIUR_BG_STATE_DIR",
+      "AIUR_CONTAINER",
       "AIUR_ERLANG_COOKIE",
       "AIUR_LAUNCHER_PID",
       "AIUR_OPERATOR_PID",
+      "AIUR_PROJECT_ROOT",
       "AIUR_RELEASE_DIR",
       "AIUR_RELEASE_NODE",
       "AIUR_SESSION_TMPFILE",
@@ -53,9 +55,11 @@
     "AIUR_AGENT_TMPFILE",
     "AIUR_ALERT_LEDGER_PATH_FILE",
     "AIUR_BG_STATE_DIR",
+    "AIUR_CONTAINER",
     "AIUR_ERLANG_COOKIE",
     "AIUR_LAUNCHER_PID",
     "AIUR_OPERATOR_PID",
+    "AIUR_PROJECT_ROOT",
     "AIUR_RELEASE_DIR",
     "AIUR_RELEASE_NODE",
     "AIUR_SESSION_TMPFILE",
@@ -65,5 +69,6 @@
     "ERL_EPMD_PORT",
     "MISE_DATA_DIR"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

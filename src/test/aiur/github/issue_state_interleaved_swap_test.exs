@@ -4,7 +4,6 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
   alias Aiur.GitHub.{IssueState, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
-  @issue_etag ~s("same-second")
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -32,10 +31,10 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
     :ok
   end
 
-  test "interleaved state swaps leave one label with a non-default prefix" do
+  test "concurrent state swaps serialize with a non-default prefix" do
     key = ResourceStore.key_for_repo(:issue, "owner/repo", "42")
     stale_issue = %{"state" => "open", "labels" => [%{"name" => "nuc:todo"}]}
-    :ok = ResourceStore.put_resource(key, stale_issue, etag: @issue_etag)
+    :ok = ResourceStore.put_resource(key, stale_issue)
 
     labels = :ets.new(:interleaved_issue_state_labels, [:set, :public])
     :ets.insert(labels, {:values, ["nuc:todo"]})
@@ -57,13 +56,13 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
         IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
       end)
 
-    assert :ok = Task.await(second_swap, 1_000)
+    refute_receive {:in_progress_add_waiting}, 50
     send(first_swap.pid, {:release_rework_add, ref})
-    assert_receive {:removal_read, :rework, _request}, 1_000
-    send(first_swap.pid, {:release_rework_read, ref})
     assert :ok = Task.await(first_swap, 1_000)
+    assert_receive {:in_progress_add_waiting}, 1_000
+    assert :ok = Task.await(second_swap, 1_000)
 
-    assert :ets.lookup_element(labels, :values, 2) == ["nuc:rework"]
+    assert :ets.lookup_element(labels, :values, 2) == ["nuc:in-progress"]
   end
 
   defp request_fun(parent, labels, ref) do
@@ -72,9 +71,7 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
 
       case request.method do
         :get ->
-          read_count = Process.get(:issue_state_read_count, 0) + 1
-          Process.put(:issue_state_read_count, read_count)
-          issue_read(parent, labels, ref, target, read_count, request)
+          removal_response(labels, request)
 
         :post ->
           add_state_request(parent, labels, ref, target, request)
@@ -92,7 +89,8 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
     await_rework_add(labels, ref, request.body["labels"])
   end
 
-  defp add_state_request(_parent, labels, _ref, _target, request) do
+  defp add_state_request(parent, labels, _ref, :in_progress, request) do
+    send(parent, {:in_progress_add_waiting})
     add_state_label(labels, request.body["labels"])
     {:ok, %{status: 200}}
   end
@@ -106,27 +104,6 @@ defmodule Aiur.GitHub.IssueStateInterleavedSwapTest do
       2_000 -> {:error, :timed_out_waiting_to_add_rework}
     end
   end
-
-  defp issue_read(_parent, _labels, _ref, _target, read_count, request) when read_count < 3 do
-    assert request.etag == @issue_etag
-    {:ok, %{status: 304}}
-  end
-
-  defp issue_read(parent, labels, ref, target, 3, request) do
-    send(parent, {:removal_read, target, request})
-
-    if target == :rework do
-      receive do
-        {:release_rework_read, ^ref} -> removal_response(labels, request)
-      after
-        2_000 -> {:error, :timed_out_waiting_to_remove_rework}
-      end
-    else
-      removal_response(labels, request)
-    end
-  end
-
-  defp removal_response(_labels, %{etag: etag}) when is_binary(etag), do: {:ok, %{status: 304}}
 
   defp removal_response(labels, _request) do
     issue = %{

@@ -1,3 +1,4 @@
+import { isUnfiled, refText, queueText } from './unfiled.js';
 import { activeFeature } from './features.js';
 // Port of design build.js:807–877, 1543–1547; unknowns are explicit at the trust boundary.
 import { S, ctx, fx, onReset } from './state.js';
@@ -6,9 +7,10 @@ import { nowMs } from './clock.js';
 import { fmtD, fmtT, fmtH, dayKey } from './util.js';
 import { I } from './icons.js';
 import { progress } from './now-state.js';
-import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
+import { rowState, holdLinkHTML, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
+import { labelCard } from './a11y.js';
 import { estHours, estLabel } from './estimate.js';
 
 const CX = ['❶', '❷', '❸', '❹', '❺'], CXH = [145, 110, 80, 50, 25];
@@ -39,9 +41,9 @@ export function alignActiveGlow(el) {
     if (animation.animationName === 'bdRot') animation.startTime = 0;
   }
 }
-function epic(key) {
-  if (Object.hasOwn(ctx.D.epics, key)) return ctx.D.epics[key];
-  if (!warned.has(key)) { console.warn('Unknown epic:', key); warned.add(key); }
+function lane(key) {
+  if (Object.hasOwn(ctx.D.lanes, key)) return ctx.D.lanes[key];
+  if (!warned.has(key)) { console.warn('Unknown lane:', key); warned.add(key); }
   return { key: 'unsorted', unsorted: true };
 }
 export function cardDetail(it) {
@@ -56,11 +58,11 @@ function complexity(t) {
   const cx = finite(t.cx, 1, 5), known = cx !== null && Number.isInteger(cx);
   const points = finite(t.pts) === null ? 'points unknown' : t.pts + ' pts';
   return '<span class="bd-cx' + (known ? '" style="--cxh:' + CXH[cx - 1] : ' unk') + '" title="' +
-    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '">' + (known ? CX[cx - 1] : '—') + '</span>';
+    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '" aria-hidden="true">' + (known ? CX[cx - 1] : '—') + '</span>';
 }
 function planContent(t, points) {
   const c = t.cue || {}, cues = [];
-  if (c.promoted != null) {
+  if (c.promoted != null && !isUnfiled(t)) {
     cues.push('<span class="bd-q promo">' + promo(c.promoted) + '</span>');
     if (!ageTick && ctx.life) { ctx.life.every(60000, tickAges); ageTick = true; }
   }
@@ -72,8 +74,7 @@ function planContent(t, points) {
   const body = c.failed ? '<div class="bd-alert">' + I.warn + '<span>Prereq #' + number(c.failed.by, 'failed.by', 'Prerequisite unknown') + ' failed' +
     (blocks.length ? ' · blocks ' + blocks.map(n => '#' + number(n, 'failed.blocks', 'Blocked ticket unknown')).join(' ') : '') + '</span></div>' :
     cues.length ? '<div class="bd-cues">' + cues.join('') + '</div>' : '';
-
-  const label = t.id.startsWith('pack:') && t.num === null ? 'Planned · not filed' : 'Q' + number(t.qpos, 'qpos', 'Queue position unknown') +
+  const label = isUnfiled(t) ? 'Not filed' : (t.qpos == null ? esc(queueText(t)) : 'Q' + number(t.qpos, 'qpos', 'Queue position unknown')) +
     (c.held ? ' · held' : c.failed ? ' · prereq failed' : c.wait ? ' · waiting' : ' · queued');
   return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + (estHours(t) === null ? unk('est', 'Estimate unknown') : estLabel(t)) + ' · ' + points + ' pts</span></div>' };
 }
@@ -94,7 +95,7 @@ function historyContent(t, points) {
   return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + value + '</span></div>' };
 }
 export function makeCard(it) {
-  const t = it.t, e = epic(colKey(t)), det = cardDetail(it), ag = rowState(t), cls = agentClasses(t, det);
+  const t = it.t, e = lane(colKey(t)), det = cardDetail(it), ag = rowState(t), cls = agentClasses(t, det);
   const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null;
   const el = document.createElement('div');
   const startUnknown = it.startUnknown || (S.view === 'gantt' && t.sec === 'hist' && t.start == null);
@@ -103,15 +104,15 @@ export function makeCard(it) {
   el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
     (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
     (t.sec === 'plan' && (t.cue?.failed || t.cue?.blockedChain) ? ' blk' : '') + (cls.hasAg ? ' has-ag' : '') + (t.status === 'not_planned' ? ' np' : '');
+  if (t.sec === 'hist' && t.status === 'done') el.classList.add('completed');
   const hue = finite(e.hue, 0, 360);
   if (hue !== null) el.style.setProperty('--h', hue);
   if (e.unsorted && hue === null) el.style.setProperty('--ec', 'var(--muted)');
   if (pg?.known) { el.style.setProperty('--pct', t.pct + '%'); el.style.setProperty('--ph', Math.round(42 + t.pct * 1.03)); }
   if ((det === 'mini' && it.h > 34) || (det === 'line' && it.h > 3.2 * ctx.L.fs)) el.classList.add('tall');
   const glow = glowHTML(t), sr = srHTML(t, ctx.snap);
-  const unfiled = t.id.startsWith('pack:') && t.num === null;
-  const id = unfiled ? '<span title="Not filed yet">—</span>' : '#' + number(t.num, 'num', 'Ticket number unknown');
-  const tip = (unfiled ? '—' : '#' + (finite(t.num) ?? '—')) + ' · ' + t.title + (ag ? ' · ' + ag.label : '') + (startUnknown ? ' · start unknown' : '') + (estUnknown ? ' · estimate unknown' : '');
+  const id = isUnfiled(t) ? '<span title="Not filed yet">—</span>' : '#' + number(t.num, 'num', 'Ticket number unknown');
+  const tip = refText(t) + ' · ' + t.title + (ag ? ' · ' + ag.label : '') + (startUnknown ? ' · start unknown' : '') + (estUnknown ? ' · estimate unknown' : '');
   const bar = pg?.known ? '<span class="bd-bar"><i style="width:' + finite(t.pct, 0, 100) + '%"></i></span>' : '';
   if (det === 'bar') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '">' + sr + '</div>';
   else if (det === 'line' || det === 'mini') el.innerHTML = glow + '<div class="bd-in" title="' + esc(tip) + '">' + sr + '<span class="bd-dot"></span><span class="bd-id">' + id + '</span>' +
@@ -122,12 +123,14 @@ export function makeCard(it) {
     const points = number(t.pts, 'pts', 'Points unknown');
     let body = '', status = '';
     if (t.sec === 'hist') ({ body, status } = historyContent(t, points));
-    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>') + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
+    else if (t.sec === 'now') status = '<div class="bd-status"><span>' + (holdLinkHTML(t) || (ag.cls ? ag.label : '<span data-unknown="state" title="State unknown">' + ag.label + '</span>')) + '</span><span>' + (pg.known ? pg.text : unk('pct', 'Progress unknown')) + '</span></div>' + bar;
     else if (t.sec === 'plan') ({ body, status } = planContent(t, points));
     else status = '<div class="bd-status"><span>Open · not queued</span><span>' + points + ' pts</span></div>';
     el.innerHTML = glow + '<div class="bd-in"' + (startUnknown || estUnknown ? ' title="' + esc(tip) + '"' : '') + '>' + sr + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + logoHTML(t, det);
   }
-  decorate(el); return el;
+  el.querySelector('.bd-hold')?.addEventListener('click', event => event.stopPropagation());
+  el.querySelector('.bd-hold')?.addEventListener('keydown', event => event.stopPropagation());
+  el.setAttribute('role', 'button'); decorate(el); return el;
 }
 export function decorate(el) {
   const t = ctx.D.byId[el.dataset.id], F = activeFeature();
@@ -137,6 +140,7 @@ export function decorate(el) {
   el.classList.toggle('also', !!also); el.classList.toggle('feat-on', !!inFeat);
   const hue = F && Object.hasOwn(ctx.D.features, F) ? finite(ctx.D.features[F].hue, 0, 360) : null;
   if (hue !== null) el.style.setProperty('--fh', hue); else el.style.removeProperty('--fh');
+  labelCard(el);
 }
 export function decorateAll() { rendered().forEach(decorate); fx.drawEdgesSoon(10); }
 export function refreshTicket(id) {

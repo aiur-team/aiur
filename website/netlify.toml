@@ -1,16 +1,16 @@
 [build]
   base = "website"
-  command = "bun install && bun run build && cd docs-app && bun install && bun run build"
+  command = "npm ci --prefix ../packages/aiur-style && bun install && bun run build && cd docs-app && bun install && bun run build"
   publish = "dist"
   # Production deploys are manual. Each one costs 15 Netlify credits from a
   # pool shared with khala.aiur.team and archon.aiur.team, so a merge to main
   # must not publish aiur.team. Exit 0 cancels the build: every production
   # build Netlify starts from a push is skipped. A deploy preview still builds
-  # when something under website/ changed. To publish, build locally, then run
+  # when website/ or packages/aiur-style/ changed. To publish, build locally, then run
   # `netlify deploy --prod --dir website/dist`.
   # Then verify that published commit (not main's possibly newer build):
   # `gh workflow run website.yml --ref main -f deployed_sha="$(git rev-parse HEAD)"`.
-  ignore = 'if [ "$CONTEXT" = production ]; then exit 0; fi; git diff --quiet "$CACHED_COMMIT_REF" "$COMMIT_REF" -- .'
+  ignore = 'if [ "$CONTEXT" = production ]; then exit 0; fi; git diff --quiet "$CACHED_COMMIT_REF" "$COMMIT_REF" -- . ../packages/aiur-style'
 
 [build.environment]
   NODE_VERSION = "20"
@@ -27,4 +27,50 @@
 [[redirects]]
   from = "/docs/guide/executor-control-center"
   to = "/docs/guide/gui"
+  status = 301
+
+# Preserve externally linked brand asset URLs after consolidating the files.
+[[redirects]]
+  from = "/favicon.ico"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-16x16.png"
+  to = "/aiur-style/assets/favicon-16x16.png"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-32x32.png"
+  to = "/aiur-style/assets/favicon-32x32.png"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-48x48.png"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-96x96.png"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/apple-touch-icon.png"
+  to = "/aiur-style/assets/apple-touch-icon.png"
+  status = 301
+
+[[redirects]]
+  from = "/android-chrome-192x192.png"
+  to = "/aiur-style/assets/android-chrome-192x192.png"
+  status = 301
+
+[[redirects]]
+  from = "/android-chrome-512x512.png"
+  to = "/aiur-style/assets/android-chrome-512x512.png"
+  status = 301
+
+[[redirects]]
+  from = "/assets/aiur-logo.png"
+  to = "/aiur-style/assets/aiur-logo.png"
   status = 301

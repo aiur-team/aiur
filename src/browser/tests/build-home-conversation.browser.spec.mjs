@@ -1,41 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { mountConversation, scenario, states } from './support/build-conversation.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-const states = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/conversations/states.json', import.meta.url), 'utf8'))
 test.use({ httpCredentials: dashboardCredentials, viewport: { width: 1440, height: 900 }, timezoneId: 'America/Los_Angeles' })
-test.beforeEach(async ({ page }, info) => {
-  page.on('pageerror', error => { throw error })
-  const root = info.project.metadata.agentAssets
-  if (root) await page.route('**/build-home/**/*.js', async route => {
-    const relative = new URL(route.request().url()).pathname.replace('/build-home/', '')
-    try { await route.fulfill({ body: await readFile(root + '/' + relative, 'utf8'), contentType: 'text/javascript' }) }
-    catch { await route.continue() }
-  })
-  await page.goto('/build-fixture/live')
-  await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
-})
-async function scenario(page, name, opts = {}) {
-  await page.evaluate(async ({ fixture, opts }) => {
-    const { ctx } = await import('/build-home/state.js'), { openModal } = await import('/build-home/modal/frame.js')
-    const original = ctx.push
-    window.conversationCalls = []; window.olderFailures = opts.failures || 0; window.olderHolds = opts.hold || 0
-    const entries = fixture.entries
-    ctx.push = async (event, payload) => {
-      window.conversationCalls.push({ event, payload })
-      if (event !== 'conversation-page') return original(event, payload)
-      const before = payload.before
-      if (before != null && window.olderHolds-- > 0) await new Promise(resolve => { window.releaseOlder = resolve })
-      if (before != null && opts.delay) await new Promise(resolve => setTimeout(resolve, opts.delay))
-      if (before != null && window.olderFailures-- > 0) return { v: 1, kind: 'error', reason: 'unavailable' }
-      const end = before == null ? entries.length : Number(before.split(':')[1]), start = Math.max(0, end - 100)
-      return { v: 1, kind: before == null ? 'conversation' : 'conversation-earlier', id: payload.id, ...fixture, ...opts.reply,
-        entries: entries.slice(start, end), before: 'fx:' + start, more: start > 0 }
-    }
-    const t = { ...ctx.D.now[0], ...(opts.ticket || {}) }
-    openModal(t)
-  }, { fixture: states[name], opts })
-}
+test.beforeEach(async ({ page }, info) => mountConversation(page, info))
 const proof = async (page, name) => test.info().attach(name, { body: await page.locator('#tk-modal').screenshot({ animations: 'disabled', path: test.info().outputPath(name + '.png') }), contentType: 'image/png' })
 const messageCount = page => page.locator('#cv-log [data-k]')
 const top = page => page.locator('#cv-log').evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
@@ -59,21 +27,70 @@ test('mounted body requests the real exported conversation and closes its subscr
   expect(await page.evaluate(id => window.conversationCalls.filter(c => c.event === 'conversation-close' && c.payload.id === id).length, id)).toBe(1)
 })
 
+test('conversation opens scrolled to its newest message', async ({ page }) => {
+  // Deliberately exceed the viewport so scrollTop=0 cannot also be the bottom.
+  const entries = Array.from({ length: 48 }, (_, index) => ({
+    ...states.kinds.entries[index % states.kinds.entries.length],
+    id: `tail:${index}`,
+    text: `Conversation message ${index + 1}`,
+    at: states.kinds.entries[0].at + index,
+  }))
+  await scenario(page, 'kinds', { entries })
+  await expect.poll(() => page.locator('#cv-log').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect.poll(() => page.locator('#cv-log').evaluate(el =>
+    Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= 1
+  )).toBe(true)
+})
+
 test('all six item branches render; hostile text stays text and unknown times/models stay unknown', async ({ page }) => {
   await scenario(page, 'kinds')
   for (const kind of ['sys', 'say', 'op', 'tool', 'diff', 'ev']) await expect(page.locator('#cv-log [data-k=' + kind + ']')).toHaveCount(1)
   await expect(page.locator('.cv-say img')).toHaveCount(1)
-  await expect(page.locator('.cv-op time')).toHaveText('You · 14:20')
-  await expect(page.locator('.cv-tool.bad .cv-tr')).toHaveText('✗ exit 2')
+  await expect(page.locator('.cv-op .cv-meta')).toContainText('You')
+  await expect(page.locator('.cv-op .cv-time')).toHaveText('14:20')
+  await expect(page.locator('.cv-tool-row.bad .cv-tool-status')).toHaveText('Failed')
   await scenario(page, 'hostile'); await expect(page.locator('.cv-say p')).toHaveText(states.hostile.entries[0].text)
   expect(await page.evaluate(() => window.__xss)).toBeUndefined()
   await scenario(page, 'unknown_time'); await expect(page.locator('#cv-log [title="Time unknown"]')).toHaveCount(2)
-  await expect(page.locator('.cv-op time')).toHaveText('You')
+  await expect(page.locator('.cv-op .cv-meta')).toHaveText('You')
   await expect(page.locator('#cv-log')).not.toContainText(/00:00|Jan 1|NaN|Invalid/)
   await proof(page, 'conversation-unknown-time')
   await scenario(page, 'unknown_model', { ticket: { agent: { model: 'muse', state: 'active' } } })
   await expect(page.locator('.cv-say .ax-mono')).toHaveText('M'); await expect(page.locator('.cv-say img')).toHaveCount(0)
   await proof(page, 'conversation-unknown-model')
+})
+
+test('tool rows share one clipped result style beside the minimap in every theme and viewport', async ({ page }) => {
+  const entries = [
+    { id: 'tool:bash', k: 'tool', name: 'bash', arg: 'git status', res: 'working tree clean', summary: 'working tree clean', bad: false, at: 1791408000000 },
+    { id: 'tool:edit', k: 'tool', name: 'edit', arg: 'lib/agent.ex', res: '@@ -1,2 +1,3 @@\n-old\n+new\n+extra', summary: 'lib/agent.ex · +2 −1', bad: false, at: 1791408001000 },
+    { id: 'tool:read', k: 'tool', name: 'read', arg: 'lib/agent.ex', res: 'source excerpt', summary: 'lib/agent.ex · source excerpt', bad: false, at: 1791408002000 },
+    { id: 'tool:write', k: 'tool', name: 'write', arg: 'lib/new.ex', res: 'created', summary: 'lib/new.ex · created', bad: false, at: 1791408003000 },
+    { id: 'tool:search', k: 'tool', name: 'search', arg: 'rg pattern', res: 'match', summary: 'A very long search result '.repeat(30), bad: false, at: 1791408004000 },
+    { id: 'tool:failure', k: 'tool', name: 'bash', arg: 'mix test', res: 'failed', summary: 'test suite failed', status: 'Exit 2', bad: true, at: 1791408005000 },
+    { id: 'tool:diff', k: 'diff', file: 'lib/another.ex', lines: [['+', '+added'], ['-', '-removed']], add: 1, del: 1, summary: 'lib/another.ex · +1 −1', at: 1791408006000 },
+  ]
+  for (const width of [390, 1440]) for (const theme of ['dark', 'light']) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
+    await scenario(page, 'kinds', { entries })
+    const rows = page.locator('#cv-log > .cv-tool-row')
+    await expect(rows).toHaveCount(entries.length)
+    const fontSizes = await page.locator('.cv-tool-summary').evaluateAll(items => [...new Set(items.map(item => getComputedStyle(item).fontSize))])
+    expect(fontSizes).toHaveLength(1)
+    expect(fontSizes[0]).toBe('11.52px')
+    expect(await rows.evaluateAll(items => items.every(item => item.getBoundingClientRect().right <= document.querySelector('#cv-map').getBoundingClientRect().left))).toBe(true)
+    const long = page.locator('[data-eid="tool:search"] .cv-tool-summary')
+    await expect(long).toHaveCSS('text-overflow', 'ellipsis')
+    expect(await long.evaluate(item => item.scrollWidth > item.clientWidth)).toBe(true)
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-detail')).toBeHidden()
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-summary')).toContainText('lib/agent.ex · +2 −1')
+    await expect(page.locator('[data-eid="tool:failure"] .cv-tool-status')).toHaveText('Exit 2')
+    await expect(page.locator('#cv-log .cv-tool-row .cv-time')).toHaveCount(entries.length)
+    await expect(page.locator('[data-eid="tool:bash"] .cv-time')).toHaveText('14:20')
+    await page.locator('[data-eid="tool:edit"] summary').click()
+    await expect(page.locator('[data-eid="tool:edit"] .cv-tool-detail pre')).toContainText('@@ -1,2 +1,3 @@')
+  }
 })
 
 test('state cues, retained-history handoff and unknown dates render explicitly', async ({ page }) => {

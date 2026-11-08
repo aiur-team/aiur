@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.History.CatchUp do
   @moduledoc "Bounded closed-issue catch-up; no writes until a run succeeds."
   alias Aiur.BuildOrder.History.{CatchUpQuery, Feed}
-  alias Aiur.GitHub.{Errors, LocalHold, Transport}
+  alias Aiur.GitHub.Access
   # ponytail: five pages and ten-minute overlap; tune only after measuring missed history.
   @max_pages 5
 
@@ -35,7 +35,7 @@ defmodule Aiur.BuildOrder.History.CatchUp do
     opts = Keyword.put(opts, :scan_started_at, started)
     variables = %{"owner" => owner, "name" => name, "since" => DateTime.to_iso8601(since), "after" => continuation["after"]}
 
-    case Keyword.get(opts, :token_fun, &Transport.require_token/0).() do
+    case Keyword.get(opts, :token_fun, &Access.require_token/0).() do
       {:ok, token} -> pages(%{repo: repo, variables: variables, token: token, opts: opts, started: now, events: [], count: 0, cursors: []})
       {:error, reason} -> result(:failed, now, reason, 0, nil, [])
     end
@@ -43,18 +43,18 @@ defmodule Aiur.BuildOrder.History.CatchUp do
 
   defp pages(context) do
     %{variables: variables, token: token, opts: opts, started: started, count: count} = context
-    graphql = Keyword.get(opts, :graphql_fun, &Transport.github_graphql/5)
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    graphql = Keyword.get(opts, :graphql_fun, &Access.github_graphql/5)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     attempt = fn ->
       case graphql.(request, token, CatchUpQuery.document(), variables, caller: "build_history_catch_up") do
         {:error, {:github, _kind, _detail}} = classified -> classified
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+        {:error, reason} -> {:error, Access.classify_error({:error, reason})}
         other -> other
       end
     end
 
-    case LocalHold.run(attempt, LocalHold.caller_opts(opts)) do
+    case Access.with_transient_retry(attempt, Access.transient_retry_opts(opts)) do
       {:ok, %{"data" => %{"repository" => %{"issues" => connection}}}} ->
         apply_page(connection, %{context | count: count + 1})
 

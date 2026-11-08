@@ -36,6 +36,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovedLandingFailureTest do
           Recovery.recover(target_issue, result,
             ci_recovery_path: recovery_path,
             ci_recovery_enabled: true,
+            ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,
             main_watch_history: [%{sha: "base-head", checks: [%{name: "browser spec", conclusion: "success"}]}],
             ci_recovery_observation:
               {:ok, %{"state" => "OPEN", "headRefOid" => "approved-head", "reviewDecision" => "APPROVED", "autoMergeRequest" => %{"enabledAt" => "now"}, "mergeQueueEntry" => nil}},

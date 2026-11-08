@@ -6,12 +6,17 @@ defmodule VoiceConverse.Config do
   accept that audio and text go to a cloud provider. An instance still boots without them, but
   `check_session_start/1` refuses a session until both are set.
 
+  `agent_id` names the hosted provider agent a hosted-agent adapter talks through — for ElevenLabs
+  Agents, the Agent the conversation runs on. It is an account-visible identifier, never a
+  credential: the API key stays in the credentials port. Only adapters whose `descriptor/0`
+  reports `family: :hosted_agent` need it, and a session refuses to start without it.
+
   `limits.daily_minutes_cap` is an integer number of minutes (0 disables sessions) or `nil` for
   no cap. Minutes from a session that ended in a crash always count toward the cap.
   """
 
   @required [:transcript_root, :credentials, :briefing_source]
-  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
+  @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer, :host_tools]
 
   @default_limits %{
     max_session_seconds: 1_800,
@@ -27,13 +32,21 @@ defmodule VoiceConverse.Config do
   defstruct name: VoiceConverse,
             provider: nil,
             llm: nil,
+            agent_id: nil,
             cloud_disclosure_accepted: nil,
             credentials: nil,
+            credential_names: %{},
             briefing_source: nil,
             agent_channel: nil,
+            allowed_tools: nil,
+            ask_requires_confirm: :first_in_session,
             command_source: nil,
+            host_tools: nil,
             token_issuer: nil,
             transcript_root: nil,
+            cleanup_root: nil,
+            provider_cleanup: false,
+            cleanup_options: [],
             transcript: :file,
             redactor: &VoiceConverse.Redact.redact/1,
             roles: [],
@@ -77,9 +90,12 @@ defmodule VoiceConverse.Config do
   def validate(%__MODULE__{} = config) do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
-         :ok <- check_transcript_root(config),
+         :ok <- check_provider_cleanup(config),
+         :ok <- check_cleanup_options(config),
+         :ok <- check_roots(config),
          :ok <- check_session_settings(config),
          :ok <- check_limits(config),
+         :ok <- check_roles(config),
          :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
          :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
@@ -87,14 +103,56 @@ defmodule VoiceConverse.Config do
   end
 
   @doc """
-  Checks the settings a session needs before it may start: an `llm` and an explicit `true` for
-  `cloud_disclosure_accepted`. The error names the missing field.
+  Checks the settings a session needs before it may start: an `llm`, an explicit `true` for
+  `cloud_disclosure_accepted`, and — for a hosted-agent adapter — an `agent_id`. The error names
+  the missing field.
   """
   @spec check_session_start(t()) :: :ok | {:error, %{field: atom(), reason: atom()}}
-  def check_session_start(%__MODULE__{llm: llm} = config) do
-    if is_nil(llm) or String.trim(llm) == "",
+  def check_session_start(%__MODULE__{} = config) do
+    if blank?(config.llm),
       do: {:error, %{field: :llm, reason: :missing}},
-      else: check_disclosure(config)
+      else: with(:ok <- check_disclosure(config), do: check_agent_id(config, config.provider))
+  end
+
+  @doc """
+  Checks the hosted agent identifier a hosted-agent adapter needs. One argument reads
+  `config.provider`; two name the adapter a caller resolved at start time.
+
+  Adapters whose `descriptor/0` reports `family: :hosted_agent` cannot request a conversation
+  without one, so a missing or blank `agent_id` is refused here, before any provider transport
+  opens. The error names the field, never a value.
+  """
+  @spec check_agent_id(t(), module() | nil | {module(), keyword()}) ::
+          :ok | {:error, %{field: :agent_id, reason: :missing}}
+  def check_agent_id(%__MODULE__{} = config), do: check_agent_id(config, config.provider)
+
+  def check_agent_id(%__MODULE__{agent_id: agent_id}, provider) do
+    if hosted_agent?(provider) and blank?(agent_id),
+      do: {:error, %{field: :agent_id, reason: :missing}},
+      else: :ok
+  end
+
+  @doc "Loads and validates target-specific host tools, including reserved built-in names."
+  @spec validate_host_tools(t(), term()) :: {:ok, [map()]} | {:error, %{field: :host_tools, reason: atom()}}
+  def validate_host_tools(%__MODULE__{host_tools: nil}, _target), do: {:ok, []}
+
+  def validate_host_tools(%__MODULE__{host_tools: source}, target) do
+    case VoiceConverse.Ports.call_port(source, :specs, [target], :host_tool) do
+      {:ok, tools} when is_list(tools) ->
+        cond do
+          not Enum.all?(tools, &valid_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :invalid_spec}}
+
+          Enum.any?(tools, &reserved_host_tool?/1) ->
+            {:error, %{field: :host_tools, reason: :reserved_name}}
+
+          true ->
+            {:ok, tools}
+        end
+
+      _ ->
+        {:error, %{field: :host_tools, reason: :unavailable}}
+    end
   end
 
   defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: nil}),
@@ -104,6 +162,24 @@ defmodule VoiceConverse.Config do
 
   defp check_disclosure(%__MODULE__{}),
     do: {:error, %{field: :cloud_disclosure_accepted, reason: :not_accepted}}
+
+  # A hosted agent is a provider-side object the host chooses; nothing can stand in for it.
+  defp hosted_agent?({module, _opts}) when is_atom(module), do: hosted_agent?(module)
+
+  defp hosted_agent?(module) when is_atom(module) do
+    Code.ensure_loaded?(module) and function_exported?(module, :descriptor, 0) and
+      Map.get(module.descriptor(), :family) == :hosted_agent
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp hosted_agent?(_provider), do: false
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 
   defp check_known(opts) do
     case Enum.find(Map.keys(opts), &(not Map.has_key?(%__MODULE__{}, &1))) do
@@ -126,7 +202,17 @@ defmodule VoiceConverse.Config do
   defp check_transcript_mode(_config), do: {:error, %{field: :transcript, reason: :invalid}}
 
   # `transcript: :none` stores no transcript, so it needs no root.
+  defp required_fields(%{transcript: :none, provider_cleanup: false}),
+    do: @required -- [:transcript_root]
+
+  defp required_fields(%{transcript: :none, cleanup_root: root}) when is_binary(root) and root != "",
+    do: @required -- [:transcript_root]
+
+  defp required_fields(%{transcript: :none, provider_cleanup: true, cleanup_root: nil}),
+    do: (@required -- [:transcript_root]) ++ [:cleanup_root]
+
   defp required_fields(%{transcript: :none}), do: @required -- [:transcript_root]
+
   defp required_fields(_config), do: @required
 
   defp check_ports(config) do
@@ -139,23 +225,84 @@ defmodule VoiceConverse.Config do
   defp valid_port?(nil), do: true
   defp valid_port?(mod), do: is_atom(mod)
 
-  # A no-transcript config carries no root, so nothing downstream has a place to write.
-  defp check_transcript_root(%{transcript: :none, transcript_root: nil}), do: :ok
+  defp valid_host_tool?(%{name: name, description: description, params: params}),
+    do: is_binary(name) and name != "" and is_binary(description) and is_map(params)
 
-  defp check_transcript_root(%{transcript: :none}),
-    do: {:error, %{field: :transcript_root, reason: :not_allowed}}
+  defp valid_host_tool?(_tool), do: false
 
-  defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
-  defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
+  defp reserved_host_tool?(%{name: name}),
+    do: VoiceConverse.Ports.HostTools.reserved_name?(name)
+
+  defp check_roots(%{transcript: :none, transcript_root: nil, cleanup_root: nil, provider_cleanup: false}), do: :ok
+
+  defp check_roots(%{
+         transcript: :none,
+         transcript_root: transcript_root,
+         cleanup_root: cleanup_root,
+         provider_cleanup: enabled
+       }) do
+    cond do
+      not is_nil(transcript_root) -> {:error, %{field: :transcript_root, reason: :not_allowed}}
+      is_nil(cleanup_root) and not enabled -> :ok
+      is_nil(cleanup_root) -> {:error, %{field: :cleanup_root, reason: :missing}}
+      is_binary(cleanup_root) and cleanup_root != "" -> :ok
+      true -> {:error, %{field: :cleanup_root, reason: :invalid}}
+    end
+  end
+
+  defp check_roots(%{transcript: :file, transcript_root: root, cleanup_root: nil}) when is_binary(root), do: :ok
+
+  defp check_roots(%{transcript: :file, transcript_root: root, cleanup_root: _cleanup_root}) when is_binary(root),
+    do: {:error, %{field: :cleanup_root, reason: :not_allowed}}
+
+  defp check_roots(%{transcript: :file, transcript_root: root}) when not is_binary(root),
+    do: {:error, %{field: :transcript_root, reason: :invalid}}
+
+  defp check_roots(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
+
+  defp check_provider_cleanup(%{provider_cleanup: enabled}) when is_boolean(enabled), do: :ok
+  defp check_provider_cleanup(_), do: {:error, %{field: :provider_cleanup, reason: :invalid}}
+
+  defp check_cleanup_options(%{cleanup_options: options}) when is_list(options), do: :ok
+  defp check_cleanup_options(_), do: {:error, %{field: :cleanup_options, reason: :invalid}}
 
   defp check_session_settings(%{llm: llm}) when not (is_nil(llm) or is_binary(llm)),
     do: {:error, %{field: :llm, reason: :invalid}}
+
+  defp check_session_settings(%{agent_id: agent_id}) when not (is_nil(agent_id) or is_binary(agent_id)),
+    do: {:error, %{field: :agent_id, reason: :invalid}}
 
   defp check_session_settings(%{cloud_disclosure_accepted: accepted})
        when not (is_nil(accepted) or is_boolean(accepted)),
        do: {:error, %{field: :cloud_disclosure_accepted, reason: :invalid}}
 
+  defp check_session_settings(%{ask_requires_confirm: value})
+       when value not in [:first_in_session, :always, :never],
+       do: {:error, %{field: :ask_requires_confirm, reason: :invalid}}
+
+  defp check_session_settings(%{allowed_tools: tools}) when not is_nil(tools) do
+    if is_list(tools) and Enum.all?(tools, &is_binary/1),
+      do: :ok,
+      else: {:error, %{field: :allowed_tools, reason: :invalid}}
+  end
+
   defp check_session_settings(_config), do: :ok
+
+  defp check_roles(config) do
+    cond do
+      not is_list(config.roles) ->
+        {:error, %{field: :roles, reason: :invalid}}
+
+      not (is_nil(config.roles_dir) or is_binary(config.roles_dir)) ->
+        {:error, %{field: :roles_dir, reason: :invalid}}
+
+      not (is_list(config.glossary) and Enum.all?(config.glossary, &is_binary/1)) ->
+        {:error, %{field: :glossary, reason: :invalid}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp check_limits(%{limits: limits}) do
     case Enum.find(limits, fn {key, value} -> not valid_limit?(key, value) end) do

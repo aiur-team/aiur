@@ -9,8 +9,8 @@ defmodule AiurWeb.Routes.DashboardPages do
 
         get("/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css)
         get("/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook)
-        get("/build-order-grid-hook.js", AiurWeb.StaticAssetController, :build_order_grid_hook)
         get("/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook)
+        get("/decision-questions-validation.js", AiurWeb.StaticAssetController, :decision_questions_validation)
         get("/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook)
         get("/streamdeck-emulator-hook.js", AiurWeb.StaticAssetController, :streamdeck_emulator_hook)
         get("/streamdeck-emulator-knob.js", AiurWeb.StaticAssetController, :streamdeck_emulator_knob)
@@ -32,20 +32,27 @@ defmodule AiurWeb.Routes.DashboardPages do
     quote do
       scope "/" do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
+        alias AiurWeb.Routes.Experiments, as: ExperimentsRoutes
+        require ExperimentsRoutes
 
         get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
+        get("/units", AiurWeb.UnitsRedirectController, :legacy)
+        get("/executor", AiurWeb.ExecutorRedirectController, :show)
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
+        get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
+        get("/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root)
 
-        live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
+        live_session :dashboard, session: {AiurWeb.Conversation.Access, :session, []}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.BuildLive, :build)
-          live("/units", AiurWeb.DashboardLive, :index)
+          live("/conversations/:conversation_id", AiurWeb.ConversationLive, :show)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
-          live("/build-orders", AiurWeb.BuildOrderLive, :build_orders)
-          live("/build-orders/:root_number", AiurWeb.BuildOrderLive, :build_order)
+          live("/voice", AiurWeb.DashboardLive, :voice)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
+          ExperimentsRoutes.pages()
+          live("/instances", AiurWeb.InstanceRosterLive, :instances)
           live("/post-deploy", AiurWeb.PostDeployLive, :index)
           live("/streamdeck", AiurWeb.StreamdeckLive, :streamdeck)
         end
@@ -55,6 +62,11 @@ defmodule AiurWeb.Routes.DashboardPages do
         pipe_through([:browser_dashboard_auth, :dashboard_pages, :secure_document])
 
         get("/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show)
+        # Command media for the dashboard surfaces. The Decision API route needs
+        # a supervisor bearer token a browser `<img>` cannot present, so the
+        # dashboard renders the same attachment through the credential the page
+        # itself was loaded with.
+        get("/commands/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show)
       end
     end
   end

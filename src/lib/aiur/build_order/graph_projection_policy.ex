@@ -241,6 +241,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
 
   def failure_class(reason) when reason in [:timeout, :transport, :rate_limited, :permission], do: reason
   def failure_class(:invalid_requested_root), do: :invalid_root
+  def failure_class(:unknown), do: :unknown
   def failure_class(_reason), do: :provider_unavailable
 
   # A defect the read actually observed: a bad root summary, or any diagnostic

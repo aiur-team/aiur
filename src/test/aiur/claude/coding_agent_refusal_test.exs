@@ -122,12 +122,14 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     File.rmdir!(ledger_path)
     File.write!(ledger_path, Jason.encode!(ledger))
 
+    paused_at = DateTime.new!(~D[2026-01-01], ~T[00:00:00], "Etc/UTC")
+
     entry = %{
       issue: issue,
       identifier: issue.identifier,
       pid: self(),
       ref: make_ref(),
-      started_at: DateTime.utc_now(),
+      started_at: paused_at,
       retry_attempt: 2,
       control: %{status: :working, can_interrupt: true}
     }
@@ -139,11 +141,20 @@ defmodule Aiur.Claude.CodingAgentRefusalTest do
     assert paused.running[issue.id].paused_reason == :usage_limit_exhausted
     assert paused.running[issue.id].usage_limit_reset_at == pause.reset_at
 
-    opts = [primary_backend: "claude", fallback_backend: nil, marker_label: "agent:rate-limit-fallback", state: %{"backends" => %{}}]
-    assert RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, DateTime.add(reset, -1))) == paused
+    paused = put_in(paused.running[issue.id].paused_at, paused_at)
+    now = DateTime.add(paused_at, 3_600, :second)
+    before_reset = DateTime.add(now, -1, :second)
 
-    assert RateLimitFallback.decide(paused.running[issue.id], issue, Keyword.merge(opts, fallback_backend: "codex", current_backend: "claude", now: DateTime.add(reset, -1))) ==
+    opts = [primary_backend: "claude", fallback_backend: nil, marker_label: "agent:rate-limit-fallback", state: %{"backends" => %{}}]
+    assert RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, before_reset)) == paused
+
+    assert RateLimitFallback.decide(paused.running[issue.id], issue, Keyword.merge(opts, fallback_backend: "codex", current_backend: "claude", now: before_reset)) ==
              :engage
+
+    too_soon = DateTime.add(paused_at, 599, :second)
+
+    assert RateLimitFallback.decide(paused.running[issue.id], issue, Keyword.merge(opts, fallback_backend: "codex", current_backend: "claude", now: too_soon)) ==
+             :noop
 
     global_pause = %{paused | globally_paused: true}
     assert RateLimitFallback.reconcile(global_pause, Keyword.put(opts, :now, reset)) == global_pause

@@ -5,7 +5,8 @@ defmodule Aiur.Signal do
   The composition root registers the alert sink under `:aiur, :signal`.
   Alerts run in the caller process, preserving the sink's side-effect order.
   Lifecycle telemetry delegates synchronously to the optional `:lifecycle_sink`;
-  an unregistered lifecycle sink is a valid run shape and silently returns `:ok`.
+  an unregistered lifecycle sink is a valid run shape. Writes silently return
+  `:ok`, enablement returns `false`, and decoders and anchors return `:skip`.
   """
 
   require Logger
@@ -57,6 +58,24 @@ defmodule Aiur.Signal do
     end
   end
 
+  @doc "Whether the optional lifecycle sink records events for these options."
+  @spec lifecycle_enabled?(keyword()) :: boolean()
+  def lifecycle_enabled?(opts \\ []), do: lifecycle_call(:enabled?, [opts], false)
+
+  @type operation :: {:start, String.t(), String.t() | nil} | {:complete, String.t(), String.t() | nil, atom()} | :skip
+
+  @spec decode_codex_operation(map()) :: operation()
+  def decode_codex_operation(message), do: lifecycle_call(:decode_codex_operation, [message], :skip)
+
+  @spec decode_claude_operation(map()) :: operation()
+  def decode_claude_operation(message), do: lifecycle_call(:decode_claude_operation, [message], :skip)
+
+  @spec external_anchor(map()) :: {:ok, map(), term()} | :skip
+  def external_anchor(event), do: lifecycle_call(:external_anchor, [event], :skip)
+
+  @spec terminal_capture(map(), atom()) :: :ok
+  def terminal_capture(identity, lifecycle), do: lifecycle_call(:terminal_capture, [identity, lifecycle], :ok)
+
   @doc "Creates an opaque identity for one dispatched worker attempt."
   @spec new_attempt_id(String.t()) :: String.t()
   def new_attempt_id(ticket) when is_binary(ticket) do
@@ -94,6 +113,13 @@ defmodule Aiur.Signal do
 
       _ ->
         :ok
+    end
+  end
+
+  defp lifecycle_call(function, args, default) do
+    case lifecycle_sink() do
+      nil -> default
+      sink -> apply(sink, function, args)
     end
   end
 

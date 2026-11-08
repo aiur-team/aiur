@@ -60,7 +60,7 @@ defmodule VoiceConverse.ProvidersPolicyTest do
     config =
       config(
         %{anthropic: "anthropic-secret"},
-        preference: [:openai_live],
+        preference: [:openai_live, :text_only],
         on_missing_credential: :text_only,
         privacy: %{provider_allowlist: [:openai_live]}
       )

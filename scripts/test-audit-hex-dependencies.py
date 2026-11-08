@@ -18,6 +18,18 @@ spec.loader.exec_module(audit)
 class AuditPolicyTest(unittest.TestCase):
     CLEAN = audit.NO_ADVISORIES
 
+    def test_current_critical_always_fails(self):
+        finding = ("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL")
+        allowed = {"EEF-CRITICAL": {"reason": "temporary exception", "expires": "2026-11-20", "accept_high": True}}
+        expected = ["assent 0.3.1: CRITICAL advisory EEF-CRITICAL cannot be allow-listed"]
+
+        self.assertEqual(audit.evaluate({finding}, {finding}, {}), expected)
+        self.assertEqual(audit.evaluate({finding}, {finding}, allowed), expected)
+
+    def test_fixed_base_critical_does_not_fail_candidate(self):
+        base = {("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL")}
+        self.assertEqual(audit.evaluate(base, set(), {}), [])
+
     def test_current_high_fails_even_when_present_on_base(self):
         finding = ("bandit", "1.12.5", "EEF-HIGH", "HIGH")
         self.assertEqual(audit.evaluate({finding}, {finding}, {}), ["bandit 1.12.5: unallowlisted HIGH advisory EEF-HIGH"])
@@ -188,11 +200,19 @@ class AuditPolicyTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "unparsed or unmatched advisories"):
                     audit.audit_lock(b"lock", "fixture", runner)
 
-    def test_registry_cache_fallback_fails_closed(self):
-        result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
-        with patch.object(audit.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
-                audit.run(["mix", "hex.audit"], cwd=Path("."), allow_advisories=True)
+    def test_audit_retries_cached_fetch_then_fails_closed_after_exhaustion(self):
+        fetch = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)\n:timeout\nResolution completed", "returncode": 0})()
+        clean = type("Result", (), {"stdout": self.CLEAN, "returncode": 0})()
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(audit, "LOCK", Path(directory) / "mix.lock"), patch.object(audit.time, "sleep"):
+                with patch.object(audit.subprocess, "run", side_effect=[fetch, clean, clean]) as runner:
+                    self.assertEqual(audit.audit_lock(lock_bytes, "fixture"), set())
+                    self.assertEqual(runner.call_count, 3)
+                with patch.object(audit.subprocess, "run", side_effect=[fetch] * 3) as runner:
+                    with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
+                        audit.audit_lock(lock_bytes, "fixture")
+                    self.assertEqual(runner.call_count, 3)
 
     def test_hex_offline_fails_closed(self):
         with patch.dict(audit.os.environ, {"HEX_OFFLINE": "1"}):
@@ -206,13 +226,22 @@ class AuditPolicyTest(unittest.TestCase):
     def test_parser_extracts_severity_and_id(self):
         output = (
             "Advisories:\n"
+            "  assent 0.3.1 - EEF-CRITICAL (CRITICAL)\n"
+            "    https://osv.dev/vulnerability/EEF-CRITICAL\n"
             "  bandit 1.12.5 - EEF-HIGH (HIGH)\n"
             "    https://osv.dev/vulnerability/EEF-HIGH\n"
             "  decimal 3.1.1 - EEF-MEDIUM (MEDIUM)\n"
             "    https://osv.dev/vulnerability/EEF-MEDIUM\n"
             "Found packages with security advisories\n"
         )
-        self.assertEqual(audit.parse_findings(output), {("bandit", "1.12.5", "EEF-HIGH", "HIGH"), ("decimal", "3.1.1", "EEF-MEDIUM", "MEDIUM")})
+        self.assertEqual(
+            audit.parse_audit_output(output, "fixture"),
+            {
+                ("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL"),
+                ("bandit", "1.12.5", "EEF-HIGH", "HIGH"),
+                ("decimal", "3.1.1", "EEF-MEDIUM", "MEDIUM"),
+            },
+        )
 
 
 if __name__ == "__main__":

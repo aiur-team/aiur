@@ -24,4 +24,16 @@ defmodule Aiur.AgentEnvironmentSecretTest do
     assert {~c"AIUR_LEASE_DATABASE_URL", false} =
              List.keyfind(env, ~c"AIUR_LEASE_DATABASE_URL", 0)
   end
+
+  test "workspace environment scrubs the operator Claude token before backend selection" do
+    env = AgentEnvironment.workspace_env("/work/aiur/5943")
+    assert {~c"CLAUDE_CODE_OAUTH_TOKEN", false} = List.keyfind(env, ~c"CLAUDE_CODE_OAUTH_TOKEN", 0)
+    provider_names = AgentEnvironment.provider_credential_env_names()
+    assert "OPENAI_API_KEY" in provider_names
+    assert "ANTHROPIC_API_KEY" in provider_names
+
+    command = AgentEnvironment.scrub_shell_command("env | grep '^CLAUDE_CODE_OAUTH_TOKEN=' || true")
+    {output, 0} = System.cmd("bash", ["-lc", command], env: [{"CLAUDE_CODE_OAUTH_TOKEN", "subscription-token"}])
+    assert output == ""
+  end
 end

@@ -158,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsCommandHistoryTest do
     assert final =~ "10 loaded"
   end
 
-  test "Commands inbox exposes only the four primary filters with canonical retained counts" do
+  test "Commands inbox exposes routing and primary filters with canonical retained counts" do
     html =
       render_inbox(
         [inbox_decision("dec-overview-only")],
@@ -169,10 +169,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsCommandHistoryTest do
     assert html =~ ~s(class="filter-row" aria-label="Command filters" data-count-scope="commands")
     assert html =~ ~s(data-count-label="All")
     assert html =~ ~r/All\s+<span class="count num">701<\/span>/
-    assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
     assert html =~ "Commands inbox"
-    assert html =~ "Resolved"
+    refute html =~ ~s(data-count-label="Open")
+    refute html =~ ~s(data-count-label="Resolved")
     refute html =~ ~r/>Undelivered\s+<span class="count num">/
     refute html =~ ~r/>Supervisor\s+<span class="count num">/
     refute html =~ ~r/>Superseded\s+<span class="count num">/

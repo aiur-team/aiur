@@ -3,6 +3,9 @@ defmodule Aiur.Config.Schema.Server do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.DashboardOrigin
+  alias Aiur.Config.TrustedProxyEntry
+
   @primary_key false
   embedded_schema do
     # 0 = bind a free OS-assigned loopback port. The dashboard must bind so
@@ -21,6 +24,13 @@ defmodule Aiur.Config.Schema.Server do
     # @config-reference config-configuration-18 server.allowed_hosts
     # @config-detail server.allowed_hosts | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
     field(:allowed_hosts, {:array, :string})
+    # @config-reference config-configuration-18 server.dashboard_origins
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.dashboard_origins | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` cross-origin with credentials; `http` only on loopback. Writes stay same-origin. |
+    field(:dashboard_origins, {:array, :string}, default: [])
+    # @config-reference config-configuration-18 server.trusted_proxies
+    # @config-detail server.trusted_proxies | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
+    field(:trusted_proxies, {:array, :string}, default: [])
     # @config-reference config-configuration-18 server.tailscale_funnel
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail server.tailscale_funnel | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
@@ -30,7 +40,22 @@ defmodule Aiur.Config.Schema.Server do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :tailscale_funnel], empty_values: [])
+    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :dashboard_origins, :trusted_proxies, :tailscale_funnel], empty_values: [])
     |> validate_number(:port, greater_than_or_equal_to: 0)
+    |> validate_change(:dashboard_origins, fn :dashboard_origins, entries ->
+      if Enum.all?(entries, &match?({:ok, _}, DashboardOrigin.normalize_origin(&1))),
+        do: [],
+        else: [dashboard_origins: "must contain http(s) origins"]
+    end)
+    |> update_change(:dashboard_origins, fn entries ->
+      entries |> Enum.map(&DashboardOrigin.normalize_or_keep/1) |> Enum.uniq()
+    end)
+    |> validate_change(:trusted_proxies, fn :trusted_proxies, entries ->
+      if Enum.all?(entries, &valid_proxy_entry?/1), do: [], else: [trusted_proxies: "must contain CIDRs or \"platform\""]
+    end)
   end
+
+  @doc false
+  @spec valid_proxy_entry?(String.t()) :: boolean()
+  def valid_proxy_entry?(entry), do: TrustedProxyEntry.valid?(entry)
 end

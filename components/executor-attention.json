@@ -15,8 +15,10 @@
     "src/lib/aiur/executor_events/**",
     "src/lib/aiur/executor_sweep/**",
     "src/lib/aiur/executor_wake_inbox/**",
+    "src/lib/aiur/gateway/liveness.ex",
     "src/lib/aiur/operator_wait_log.ex",
-    "src/lib/aiur/progress_checkin/**"
+    "src/lib/aiur/progress_checkin/**",
+    "src/lib/aiur/usage/alerts.ex"
   ],
   "facades": [
     "*"
@@ -26,11 +28,14 @@
     "commands",
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
+    "listener-modes",
     "signal"
   ],
   "optional": [
+    "accounting",
     "build-queue",
     "conversations",
     "github",
@@ -54,18 +59,20 @@
     "EXE"
   ],
   "dependency_kind": "optional",
-  "summary": "Collects alerts and pending work so the Executor can keep a run moving.",
+  "summary": "Collects Executor alerts and pending work, and captures the attached Claude session into its durable conversation.",
   "status": "optional",
   "install": {
     "type": "included"
   },
   "docs": [
     "concepts/executor.md",
+    "reference/cli-decisions.md",
     "reference/cli.md"
   ],
   "config": [
     "alerts"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

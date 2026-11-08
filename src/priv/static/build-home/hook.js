@@ -21,11 +21,14 @@ import './trees.js';
 import './band.js';
 import './states.js';
 import './list.js';
+import './build-order.js';
 import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
+import './modal/live.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
 import './modal/command.js';
+import { announceState, noteDiff } from './a11y.js';
 import './filters.js';
 
 export function writeOwnData() {
@@ -47,6 +50,26 @@ function firstPaint() {
   if (activeFeature()) loadFeatureSpan(S.feature);
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); if (activeFeature()) loadFeatureSpan(S.feature); }
+function clearResyncRetry(resetAttempt = false) {
+  ctx.proto.retrySeq = (ctx.proto.retrySeq || 0) + 1;
+  ctx.proto.retryPending = false;
+  if (resetAttempt) ctx.proto.retryAttempt = 0;
+}
+function retryThrottledResync() {
+  if (!ctx.life || ctx.proto.retryPending) return;
+  const attempt = ctx.proto.retryAttempt || 0;
+  const delay = Math.min(2_100 * 2 ** attempt, 8_400);
+  const seq = (ctx.proto.retrySeq || 0) + 1;
+  ctx.proto.retrySeq = seq;
+  ctx.proto.retryAttempt = attempt + 1;
+  ctx.proto.retryPending = true;
+  const life = ctx.life;
+  life.later('build-resync-retry', delay, () => {
+    if (ctx.life !== life || life.disposed || ctx.proto.retrySeq !== seq) return;
+    ctx.proto.retryPending = false;
+    resync(true);
+  });
+}
 function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
@@ -56,31 +79,47 @@ function reloadOnce() {
   fx.renderUnavailable('version');
 }
 export function receive(msg) {
-  if (msg.kind === 'error') { if (!ctx.snap) fx.renderUnavailable(msg.reason); return; }
+  if (msg.kind === 'error') {
+    if (msg.reason === 'throttled') retryThrottledResync();
+    else if (!ctx.snap) fx.renderUnavailable(msg.reason);
+    return;
+  }
   switch (decide({ ...ctx.proto, resyncing: ctx.proto.inFlight }, msg)) {
     case 'reload': reloadOnce(); break;
     case 'resync': resync(); break;
     case 'apply': {
       if (msg.kind !== 'snapshot' && msg.kind !== 'diff') return;
       const first = !ctx.snap;
+      const previous = msg.kind === 'diff' ? ctx.D : null;
       const result = msg.kind === 'snapshot' ? acceptSnapshot(msg) : applyDiff(msg);
       if (result.error) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
         return;
       }
+      clearResyncRetry(true);
       fx.tickCardAges();
       if (msg.kind === 'snapshot') {
+        renderPartialNotice(msg.unavailable_rows);
         if (first) firstPaint();
-        else { repaint(); fx.modalSync({ upsert: ctx.D.all }); }
+        else { repaint(); fx.modalSync({ upsert: ctx.D.all, snapshot: true }); }
       }
-      else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); if (msg.set?.features && activeFeature()) loadFeatureSpan(S.feature); }
+      else { announceState(noteDiff(previous, ctx.D, msg)); fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); if (msg.set?.features && activeFeature()) loadFeatureSpan(S.feature); }
       writeOwnData();
       break;
     }
   }
 }
-export function resync() {
+function renderPartialNotice(count) {
+  const host = ctx.root?.querySelector('#bd-partial');
+  if (!host) return;
+  const n = Number.isSafeInteger(count) && count > 0 ? count : 0;
+  host.textContent = n ? `${n} ${n === 1 ? 'row' : 'rows'} unavailable · this board is partial` : '';
+  host.hidden = n === 0;
+  if (n) host.setAttribute('role', 'status'); else host.removeAttribute('role');
+}
+export function resync(retry = false) {
   if (ctx.proto.inFlight) return;
+  clearResyncRetry(!retry);
   ctx.proto.inFlight = true;
   const seq = ++ctx.resyncSeq, life = ctx.life;
   const current = () => ctx.life === life && !life.disposed && seq === ctx.resyncSeq;
@@ -112,6 +151,7 @@ export function createBuildHomeHook() {
       if (!this.buildActive) return;
       fx.wireTrees();
       fx.renderTools(); fx.renderFilters(); fx.initModal();
+      if (S.view === 'build-order') fx.mountBuildOrder();
       writeOwnData();
       this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));

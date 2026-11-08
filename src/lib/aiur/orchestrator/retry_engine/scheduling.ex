@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
+  alias Aiur.Signal
 
   @continuation_retry_delay_ms 1_000
 
@@ -48,7 +48,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
 
       alert_message = Exhaustion.retry_exhausted_alert_message(error)
 
-      Alerts.emit_custom("ticket.#{identifier}.agent.retry_exhausted", alert_message,
+      Signal.agent_alert("ticket.#{identifier}.agent.retry_exhausted", alert_message,
         issue: identifier,
         reason: alert_message,
         needs_attention: true,
@@ -141,6 +141,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
                 priority: priority,
                 issue_state: issue_state,
                 handoff_fallback: metadata[:handoff_fallback] == true,
+                forced_backend: metadata[:forced_backend],
                 rework_head_sha: rework_head_sha,
                 terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
                 # Persisted so the non-consuming classification is observable and
@@ -216,6 +217,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
           priority: Map.get(retry_entry, :priority),
           issue_state: Map.get(retry_entry, :issue_state),
           handoff_fallback: Map.get(retry_entry, :handoff_fallback, false),
+          forced_backend: Map.get(retry_entry, :forced_backend),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false),
           rework_head_sha: Map.get(retry_entry, :rework_head_sha),
           stalled_alert_outstanding: Map.get(retry_entry, :stalled_alert_outstanding, false),

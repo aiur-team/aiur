@@ -12,7 +12,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   alias Aiur.Events.CommentFilter
   alias Aiur.Events.GithubCommentsPoller.{Publish, Reviews, Validators}
-  alias Aiur.GitHub.{Client, ResourceStore}
+  alias Aiur.GitHub.{Access, Client}
   alias Aiur.Orchestrator.ReadyForReviewTransitions
 
   @type target :: String.t() | integer()
@@ -214,7 +214,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_issue_comments(target, comments, repo), Validators.newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
-        resource = ResourceStore.key_for_repo(:issue_comments, repo, target)
+        resource = Access.key_for_repo(:issue_comments, repo, target)
         {etag, provenance} = Validators.request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
@@ -385,7 +385,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), Validators.newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
-        resource = ResourceStore.key_for_repo(:pr_issue_comments, repo, pr_number)
+        resource = Access.key_for_repo(:pr_issue_comments, repo, pr_number)
         {etag, provenance} = Validators.request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 

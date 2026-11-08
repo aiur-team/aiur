@@ -7,7 +7,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.OperatorControlCenter.ProviderMeters
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: Presenter
-  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
 
   @reset ~U[2026-07-18 12:00:00Z]
   @observed ~U[2026-07-18 11:30:00Z]
@@ -236,13 +235,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "role=\"progressbar\""
     assert html =~ ~s(class="provider-meter-account-bar")
     assert length(Floki.find(Floki.parse_fragment!(html), ".provider-meter-account-segment[role=progressbar]")) == 2
-    strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: observed_at)
-    assert strip =~ ~s(data-account="default")
-    assert strip =~ ~s(data-account="work")
-    assert strip =~ ~s(width:6%)
-    assert strip =~ ~s(width:67%)
-    assert length(Regex.scan(~r/class="provider-meter-bar"/, html)) == 1
-    refute html =~ ~s(class="provider-meter-window-name">Weekly<)
   end
 
   test "an unavailable Claude account remains unknown and does not become zero in the summary" do

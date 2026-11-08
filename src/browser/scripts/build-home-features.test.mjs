@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { activeFeature, layoutExt, figuresHTML, loadFeatureSpan } from '../../priv/static/build-home/features.js';
 import { S, ctx, fx, resetState } from '../../priv/static/build-home/state.js';
 import { H } from '../../priv/static/build-home/history.js';
+import { listHTML } from '../../priv/static/build-home/list.js';
+// The subtitle shows the viewer's local date, so pin the viewer's timezone here instead of
+// assuming a negative UTC offset: these date assertions must also pass on a UTC machine.
+process.env.TZ = 'America/Los_Angeles';
 const row = (id, feature, end = null, deps = [], also = []) => ({ id, feature, end, deps, also });
 function setup() {
   resetState(); S.feature = 'f'; S.fmode = 'compact'; S.histFrom = 20;
@@ -39,6 +43,35 @@ test('known figures and sparkline keep exact design coordinates without titles',
   assert.match(html, />7\/12<\/b>/); assert.match(html, />64%<\/b>/);
   assert.match(html, /10 → 12 <em>\+2<\/em>/); assert.match(html, /points="1.0,20.0 38.0,11.0 75.0,2.0"/); assert.ok(!html.includes('title='));
   assert.match(figuresHTML({ ...s, spark: [12] }, 42), /points="0.0,10.0"/);
+});
+test('feature list rows are table rows of name, bar, merged/total and remaining; registry rows are focusable', () => {
+  resetState(); S.list = 'features';
+  const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }, { key: 'mp-e2', label: 'mp-e2', merged: 2, total: 2 }];
+  const html = listHTML({ features: { pag: { label: 'Pagination' } }, feature_progress: { bars }, repo: { url: 'https://github.com/o/aiur/' } }, S, {}, {}, Date.UTC(2026, 10, 1));
+  assert.match(html, /<div class="lr-cap fp-sum" role="row"><span role="cell">5 of 6 tickets merged - 2026-10-31<\/span><\/div><\/div>$/);
+  assert.ok(!html.includes('data-fsort'));
+  assert.ok(!html.includes('<h1'));
+  // Same card and header row as the Tickets table.
+  assert.match(html, /^<div class="bd-list fp-list" role="table" aria-label="Feature progress" tabindex="-1"><div class="lr lr-h fp-grid" role="row"><span class="fp-name" role="columnheader">Feature<\/span><span class="fp-pg" role="columnheader">Progress<\/span><span class="fp-count" role="columnheader">Merged<\/span><span class="fp-left" role="columnheader">Remaining<\/span><\/div>/);
+  assert.match(html, /<div class="lr fp-grid fp-row fp-go" role="row" data-feature="pag" tabindex="0" aria-label="Focus Pagination feature"><span class="fp-name" role="cell" title="Pagination">Pagination<\/span><span class="fp-pg" role="cell"><span class="fp-bar" role="img" aria-label="3 of 4 merged"><i style="width:75%"><\/i><\/span><\/span><span class="fp-count" role="cell">3\/4<\/span><span class="fp-left" role="cell">1<\/span><\/div>/);
+  assert.match(html, /<div class="lr fp-grid fp-row" role="row" data-feature="mp-e2"><span class="fp-name" role="cell" title="mp-e2">mp-e2<\/span><span class="fp-pg" role="cell"><span class="fp-bar done"/);
+  assert.match(html, /<div class="lr fp-grid fp-row fp-all" role="row"><span class="fp-name" role="cell" title="All features">All features<\/span><span class="fp-pg" role="cell"><span class="fp-bar all" role="img" aria-label="5 of 6 merged">/);
+  S.fsort = 'pct';
+  assert.ok(listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('mp-e2') < listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('"pag"'));
+});
+test('unavailable feature bars render no invented totals', () => {
+  resetState(); S.list = 'features';
+  const html = listHTML({ features: {}, feature_progress: { bars: null } }, S, {}, {}, 0);
+  assert.match(html, /<div class="lr-cap fp-sum" role="row"><span role="cell">Feature progress unavailable - 1969-12-31<\/span><\/div>/);
+  assert.ok(!html.includes('fp-all')); assert.ok(!html.includes('0 of 0'));
+});
+test('feature subtitle uses the viewer local date and keeps sorting outside the list', () => {
+  resetState(); S.list = 'features'; S.view = 'list';
+  const now = Date.UTC(2026, 10, 1, 2);
+  const html = listHTML({ features: {}, feature_progress: { bars: [] } }, S, {}, {}, now);
+  assert.match(html, /tickets merged - 2026-10-31/);
+  assert.ok(!html.includes('data-fsort'));
+  assert.ok(!html.includes('fp-sort'));
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';

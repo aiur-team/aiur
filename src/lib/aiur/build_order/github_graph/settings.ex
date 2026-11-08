@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   @moduledoc false
 
   alias Aiur.{GitHub, TrackerIdentity}
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @member_limit 100
   @max_page_budget 4
@@ -63,7 +63,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   @spec initial_state(keyword(), limits()) :: map()
   def initial_state(opts, limits) do
     %{
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
       calls: 0,
       pages: 0,
       rate_limit: %{},
@@ -102,7 +102,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
   @spec catalog_variables(map()) :: map()
   def catalog_variables(%Paging{repository: {owner, repository}, cursor: cursor, limits: limits} = paging) do
     %{"owner" => owner, "repo" => repository, "pageSize" => catalog_page_size(paging, limits)}
-    |> Transport.maybe_put_query("cursor", cursor)
+    |> Access.maybe_put_query("cursor", cursor)
   end
 
   defp catalog_page_size(%Paging{member_labels?: true}, limits),
@@ -118,7 +118,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
         limits: limits
       }) do
     %{"owner" => owner, "repo" => repository, "number" => number, "pageSize" => limits.page_size}
-    |> Transport.maybe_put_query("cursor", cursor)
+    |> Access.maybe_put_query("cursor", cursor)
   end
 
   @spec requested_root(term(), repository()) :: {:ok, TrackerIdentity.t()} | {:error, :invalid_requested_root}

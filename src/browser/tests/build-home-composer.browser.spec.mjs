@@ -185,18 +185,23 @@ test('failed, unknown and unanswered sends keep the draft and say why', async ({
   await expect(box(page)).toHaveValue('keep me')
 })
 
-test('delivery states: queued, delivered hides the line, failed restores the text, superseded does not', async ({ page }) => {
+test('delivery states: queued, delivered shows confirmed receipt, failed restores the text, superseded does not', async ({ page }) => {
   await open(page)
   await box(page).fill('one'); await box(page).press('Enter')
   await expect(page.locator('#cv-log .cv-op')).toHaveCount(1)
   await status(page, { request_id: 7, status: 'queued' })
   await expect(line(page)).toHaveText('Queued · waiting for the agent')
+  await expect(page.locator('#cv-in')).toHaveAttribute('data-voice-state', 'sent')
   await status(page, { request_id: 6, status: 'failed' })
   await expect(line(page)).toHaveText('Queued · waiting for the agent')
   await status(page, { request_id: 7, status: 'delivered' })
-  await expect(line(page)).toBeHidden()
+  await expect(line(page)).toHaveText('Delivered to the agent')
+  await status(page, { request_id: 7, status: 'unrecognized_receipt' })
+  await expect(line(page)).toHaveText('Delivery outcome unknown. Check the log before you send again.')
+  await expect(page.locator('#cv-in')).toHaveAttribute('data-voice-state', 'idle')
   await status(page, { request_id: 7, status: 'failed' })
   await expect(line(page)).toHaveText('Not delivered (failed)'); await expect(line(page)).toHaveClass(/bad/)
+  await expect(page.locator('#cv-in')).toHaveAttribute('data-voice-state', 'idle')
   await expect(box(page)).toHaveValue('one')
 
   await box(page).fill('two'); await box(page).press('Enter')
@@ -206,6 +211,13 @@ test('delivery states: queued, delivered hides the line, failed restores the tex
   await expect(box(page)).toHaveValue('')
   await status(page, { request_id: 8, status: 'unconfirmed' })
   await expect(line(page)).toHaveText('Queued · delivery unconfirmed')
+  await page.evaluate(() => window.replies.push({ ok: false, reason: 'unavailable', message: 'new send failed' }))
+  await box(page).fill('three'); await box(page).press('Enter')
+  await expect(line(page)).toHaveText('new send failed')
+  await status(page, { request_id: 8, status: 'delivered' })
+  await expect(line(page)).toHaveText('new send failed')
+  await expect(page.locator('#cv-in')).toHaveAttribute('data-voice-state', 'idle')
+  await expect(box(page)).toHaveValue('three')
 })
 
 test('read-only, history, no agent and ambiguous targets render no form', async ({ page }) => {

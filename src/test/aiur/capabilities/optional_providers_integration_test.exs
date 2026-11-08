@@ -35,11 +35,15 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
     write_voice(path, base, "")
     {after_removal, _warnings} = Collector.collect([])
     changed = for {id, entry} <- before.capabilities, entry != after_removal.capabilities[id], do: id
-    assert Enum.sort(changed) == ~w(voice.stt voice.tts)
+    assert Enum.sort(changed) == ~w(voice.conversation voice.stt voice.tts)
 
-    for id <- changed do
+    for id <- ~w(voice.stt voice.tts) do
       assert after_removal.capabilities[id] == %{state: :unavailable, reason: :not_configured}
     end
+
+    missing_key_reason = "ElevenLabs Agents skipped: elevenlabs.api_key / ELEVENLABS_API_KEY missing"
+    refute before.capabilities["voice.conversation"].provider_reason =~ missing_key_reason
+    assert after_removal.capabilities["voice.conversation"].provider_reason =~ missing_key_reason
 
     refute Jason.encode!(before) =~ "test-voice-secret"
   end
@@ -61,9 +65,10 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
 
     for _tick <- 1..10 do
       {report, warnings} = Collector.collect(providers: [Aiur.BuildOrder.CapabilityProvider])
-      assert report.capabilities["build_orders"] == %{state: :unknown, reason: :unknown}
-      assert report.capabilities["build_orders.progress"] == %{state: :unknown, reason: :unknown}
-      assert MapSet.member?(warnings, {:failed, Aiur.BuildOrder.CapabilityProvider})
+      assert %{state: :unknown, reason: :unknown, detail: detail} = report.capabilities["build_orders"]
+      assert detail =~ "snapshot_unpublished"
+      assert %{state: :unknown, reason: :unknown} = report.capabilities["build_orders.progress"]
+      assert Enum.any?(warnings, &match?({:failed, Aiur.BuildOrder.CapabilityProvider, _}, &1))
     end
 
     assert {:message_queue_len, 0} = Process.info(pid, :message_queue_len)
@@ -105,7 +110,74 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
     end)
 
     Aiur.TestSupport.start_owned_endpoint!()
+    assert Application.fetch_env!(:aiur, AiurWeb.Endpoint)[:server] == false
     spec = Supervisor.child_spec({Bandit, plug: AiurWeb.Endpoint, port: 0}, id: {AiurWeb.Endpoint, :http})
     assert {:ok, _server} = Supervisor.start_child(AiurWeb.Endpoint, spec)
+  end
+end
+
+defmodule Aiur.Capabilities.CollectorFailureTest do
+  use Aiur.TestSupport, async: false
+
+  alias Aiur.Capabilities.Collector
+
+  defmodule RaisingProvider do
+    def capability_ids, do: ["test.failure"]
+    def capabilities(_context), do: raise(ArgumentError, "provider exploded")
+  end
+
+  defmodule RetryProvider do
+    def capability_ids, do: ["test.failure"]
+
+    def capabilities(_context) do
+      send(Application.fetch_env!(:aiur, :collector_failure_test_parent), {:provider_attempt, self()})
+
+      receive do
+        {:reply, result} -> result
+      end
+    end
+  end
+
+  defmodule BlockingProvider do
+    def capability_ids, do: ["test.failure"]
+
+    def capabilities(_context) do
+      send(Application.fetch_env!(:aiur, :collector_failure_test_parent), {:blocking_attempt, self()})
+
+      receive do
+        :never -> %{}
+      end
+    end
+  end
+
+  test "records provider exception class and message in the warning and capability entry" do
+    {report, warnings} = Collector.collect(providers: [RaisingProvider], boot_elapsed_ms_fun: fn -> 60_000 end)
+    assert %{state: :unknown, reason: :unknown, detail: detail} = report.capabilities["test.failure"]
+    assert detail =~ "ArgumentError"
+    assert detail =~ "provider exploded"
+    assert Enum.any?(warnings, &match?({:failed, RaisingProvider, ^detail}, &1))
+  end
+
+  test "retries one provider that exceeds its initial boot timeout" do
+    Application.put_env(:aiur, :collector_failure_test_parent, self())
+    on_exit(fn -> Application.delete_env(:aiur, :collector_failure_test_parent) end)
+    collector = Task.async(fn -> Collector.collect(providers: [RetryProvider], timeout_ms: 25, boot_elapsed_ms_fun: fn -> 0 end) end)
+
+    receive_barrier({:provider_attempt, _first})
+    receive_barrier({:provider_attempt, second})
+    send(second, {:reply, %{"test.failure" => %{state: :available}}})
+    {report, warnings} = Task.await(collector, 1_000)
+    assert report.capabilities["test.failure"] == %{state: :available}
+    refute Enum.any?(warnings, &match?({:failed, RetryProvider, _}, &1))
+  end
+
+  test "records timeout duration when provider exceeds the collection window" do
+    Application.put_env(:aiur, :collector_failure_test_parent, self())
+    on_exit(fn -> Application.delete_env(:aiur, :collector_failure_test_parent) end)
+    {report, warnings} = Collector.collect(providers: [BlockingProvider], timeout_ms: 20, boot_elapsed_ms_fun: fn -> 60_000 end)
+    receive_barrier({:blocking_attempt, _pid})
+    assert %{detail: "timed out after " <> elapsed} = report.capabilities["test.failure"]
+    assert String.ends_with?(elapsed, " ms")
+    assert Enum.any?(warnings, &match?({:failed, BlockingProvider, "timed out after " <> _}, &1))
   end
 end

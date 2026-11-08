@@ -1,7 +1,8 @@
 defmodule AiurWeb.Build.NowRowsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  alias Aiur.PollCadence
   alias Aiur.TrackerIdentity
-  alias AiurWeb.Build.{NowRows, Payload}
+  alias AiurWeb.Build.{Freshness, NowRows, Payload}
   @repo {"owner", "repo"}
   @time "2026-10-07T21:20:00Z"
   @ms 1_791_408_000_000
@@ -63,13 +64,13 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert ci.agent.state == "ci_wait"
     assert ci.agent.pause == "ci_wait"
 
-    for reason <- [:max_agent_duration, :github_budget_hold] do
+    for reason <- [:max_agent_duration, :github_budget_hold, :label_override] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "parked"
     end
 
     assert facts(row(%{reasons: %{pause: :blocker_dependency}})).agent.state == "blocked"
 
-    for reason <- [:operator_pause, :global_pause, :label_override] do
+    for reason <- [:operator_pause, :global_pause] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "paused"
     end
 
@@ -101,6 +102,15 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert NowRows.build(catalog([row()]), repository: {"other", "repo"}).rows == %{}
   end
 
+  test "a known open PR is part of running row facts" do
+    pr = %{num: 7280, state: "open", ci: "pr_opened"}
+
+    projected = NowRows.build(catalog([row()]), repository: @repo, pr_facts: %{"1" => pr})
+
+    assert projected.rows["1"].sec == "now"
+    assert projected.rows["1"].pr == pr
+  end
+
   test "unknown progress stays nil including absent field; numeric progress rounds only in range" do
     for input <- [row(%{progress: %{status: :unknown}}), Map.delete(row(), :progress)] do
       assert Map.fetch!(facts(input), :pct) == nil
@@ -113,7 +123,7 @@ defmodule AiurWeb.Build.NowRowsTest do
 
   test "unknown model has no fabricated label; registry families and product efforts survive" do
     assert facts(row(%{agent_family: nil, backend: nil, resolved_model: "claude-opus-5-1"})).agent ==
-             %{model: nil, name: nil, state: "active", pause: nil, resume_at: nil, effort: nil}
+             %{model: nil, name: nil, state: "active", native_hold: nil, pause: nil, resume_at: nil, effort: nil}
 
     assert facts(row(%{agent_family: "muse"})).agent.model == "muse"
     assert facts(row(%{agent_family: "muse"})).agent.name == "Muse"
@@ -140,15 +150,35 @@ defmodule AiurWeb.Build.NowRowsTest do
   end
 
   test "empty, unavailable, stale and truncated catalogs preserve source truth" do
+    on_exit(&PollCadence.forget_effective_interval_ms/0)
+    :ok = PollCadence.publish_effective_interval_ms(120_000)
+    assert Freshness.snapshot_tolerance_ms() == 240_000
+
     empty = NowRows.build(catalog([], :empty), repository: @repo)
-    assert empty == %{rows: %{}, source: %{state: "ok", observed_at: @ms, reason: nil}}
+
+    assert empty == %{
+             rows: %{},
+             source: %{
+               state: "ok",
+               observed_at: @ms,
+               reason: nil,
+               stale_after_ms: 240_000
+             }
+           }
 
     assert NowRows.build(catalog([row()], :unavailable), repository: @repo) ==
              %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}}
 
     stale = NowRows.build(catalog([row()], :stale), repository: @repo)
     assert map_size(stale.rows) == 1
-    assert stale.source == %{state: "stale", observed_at: @ms, reason: "fleet_stale"}
+
+    assert stale.source == %{
+             state: "stale",
+             observed_at: @ms,
+             reason: "fleet_stale",
+             stale_after_ms: 240_000
+           }
+
     assert NowRows.build(Map.put(catalog([]), :truncated?, true), repository: @repo).source.reason == "membership_truncated"
 
     for freshness <- [%{status: :unknown}, %{status: %{observed_at: "garbage"}}, %{}] do

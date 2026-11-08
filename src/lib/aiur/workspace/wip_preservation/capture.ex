@@ -24,6 +24,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   alias Aiur.Workspace.WipPreservation.Command
 
   @patch "tracked.patch"
+  @check_index "reverse-check.index"
   @untracked "untracked.tar"
   @untracked_list "untracked.list"
   @bundle "unpushed-commits.bundle"
@@ -148,8 +149,69 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
     with {:ok, _} <- git(context, args, true),
          {:ok, size} <- nonempty(path),
          :ok <- private(path),
-         {:ok, _} <- git(context, ["apply", "--check", "--reverse", "--binary", path], true) do
+         :ok <- check_reverses(context, base, path) do
       {:ok, size}
+    end
+  end
+
+  # #7543: the worktree can hold a file the patch deletes, because the agent
+  # dropped it from the index but the bytes are still on disk (`git rm
+  # --cached`) or something re-created it. A reverse apply on the worktree then
+  # fails with "already exists in working directory" although the save is
+  # exact, and the ticket was held. The check runs against a private copy of
+  # the index with the tracked changes of the worktree staged into it: the same
+  # tree, without any untracked entry, so it keeps its strength.
+  defp check_reverses(context, base, patch) do
+    index = Path.join(context.partial, @check_index)
+    env = [{"GIT_INDEX_FILE", index}]
+
+    result =
+      with :ok <- seed_index(context, base, index, env),
+           {:ok, _out} <- git(context, ["add", "--update"], true, env),
+           {:ok, _out} <- git(context, ["apply", "--check", "--reverse", "--cached", "--binary", patch], true, env) do
+        :ok
+      end
+
+    _ = File.rm(index)
+    result
+  end
+
+  # A copy is stamped "now", and git trusts an entry's stat only when the index
+  # file is not newer than the entry. A copy stamped later therefore hides an
+  # edit whose size did not change in the second the checkout wrote the file:
+  # `git add --update` skipped it and the reverse check failed on a save that
+  # was exact (soak seed 973359). Carrying the source's stamp keeps the copy as
+  # racy as the index it copies.
+  defp seed_index(context, base, index, env) do
+    with {:ok, path} <- index_path(context) do
+      case File.cp(path, index) do
+        :ok -> keep_stamp(path, index)
+        {:error, :enoent} -> read_tree(context, base, env)
+        {:error, reason} -> {:error, {:index_copy_failed, path, reason}}
+      end
+    end
+  end
+
+  # Best effort: a stamp that cannot be read or carried only leaves git's racy
+  # check stricter, never the staged content wrong.
+  defp keep_stamp(path, index) do
+    with {:ok, stat} <- File.stat(path, time: :posix) do
+      _ = File.touch(index, stat.mtime)
+      :ok
+    end
+  end
+
+  defp index_path(context) do
+    case git(context, ["rev-parse", "--git-path", "index"]) do
+      {:ok, path} -> {:ok, Path.expand(String.trim(path), context.workspace)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp read_tree(context, base, env) do
+    case git(context, ["read-tree", base], true, env) do
+      {:ok, _out} -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -410,19 +472,19 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
 
   # Commands whose stdout is parsed keep stderr apart; the others fold it in
   # so a failure reason carries git's own message.
-  defp git(context, args, stderr_to_stdout? \\ false) do
-    case git_raw(context, args, stderr_to_stdout?) do
+  defp git(context, args, stderr_to_stdout? \\ false, env \\ []) do
+    case git_raw(context, args, stderr_to_stdout?, env) do
       {:ok, {out, 0}} -> {:ok, out}
       {:ok, {out, status}} -> {:error, {:git_failed, args, status, String.slice(out, 0, 2_000)}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp git_raw(context, args, stderr_to_stdout? \\ false),
-    do: run(git_executable(), ["-C", context.workspace | args], context, stderr_to_stdout?)
+  defp git_raw(context, args, stderr_to_stdout? \\ false, env \\ []),
+    do: run(git_executable(), ["-C", context.workspace | args], context, stderr_to_stdout?, env)
 
-  defp run(command, args, context, stderr_to_stdout?) do
-    Command.run(command, args, timeout_ms: context.limits.command_timeout_ms, env: @git_env, stderr_to_stdout: stderr_to_stdout?)
+  defp run(command, args, context, stderr_to_stdout?, env \\ []) do
+    Command.run(command, args, timeout_ms: context.limits.command_timeout_ms, env: @git_env ++ env, stderr_to_stdout: stderr_to_stdout?)
   end
 
   # A test seam: the suite points this at a wrapper that stalls one command.

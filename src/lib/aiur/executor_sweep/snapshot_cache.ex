@@ -2,7 +2,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   @moduledoc "Reads the current repository's already-cached GitHub resources."
 
   alias Aiur.ExecutorSweep.{CacheAges, CiObservation}
-  alias Aiur.GitHub.{Config, ResourceStore}
+  alias Aiur.GitHub.{Access, Config}
 
   @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
   def read(open_ticket_snapshot \\ &Aiur.OpenTicketSource.snapshot/0) do
@@ -428,7 +428,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   @spec entries(atom(), String.t(), String.t()) :: [{integer(), map()}]
   defp entries(type, owner, repo) do
     type
-    |> ResourceStore.list(owner, repo)
+    |> Access.list(owner, repo)
     |> Enum.flat_map(fn
       {{^type, _owner, _repo, id}, %{} = entry} ->
         case {Integer.parse(to_string(id)), Map.get(entry, :data)} do

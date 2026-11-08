@@ -134,12 +134,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
       previous = issue(unique_identifier("human-review-handoff"), "rework")
+      previous = %{previous | tracker_identity: %{previous.tracker_identity | identifier: "3022"}}
       start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
       start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest, patterns: ["ticket.#{previous.identifier}.agent.handoff.human_review"]})
       current = %{previous | state: "human-review"}
       sha = String.duplicate("e", 40)
-      key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-      :ok = ResourceStore.put_resource(key, %{"number" => 3022, "head" => %{"sha" => sha}})
+      key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, "its-everdred/aiur", "open")
+      :ok = ResourceStore.put_resource(key, [%{"number" => 3022, "head" => %{"ref" => "aiur/3022", "sha" => sha}}])
       parent = self()
 
       opts = [

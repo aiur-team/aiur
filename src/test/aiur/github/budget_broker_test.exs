@@ -70,8 +70,8 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
     broker = Path.join(root, "frozen_clock.py")
 
     File.write!(broker, """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("broker", #{inspect(Budget.broker_path())})
+    import importlib.machinery, importlib.util
+    spec = importlib.util.spec_from_file_location("broker", #{inspect(Budget.broker_path())}, loader=importlib.machinery.SourceFileLoader("broker", #{inspect(Budget.broker_path())}))
     broker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(broker)
     broker.now_ms = lambda: #{System.system_time(:millisecond)}
@@ -108,8 +108,8 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
 
   test "one batch commits successful admissions and rolls back only its failing command", %{root: root} do
     script = """
-    import importlib.util, json, sqlite3, sys, time
-    spec = importlib.util.spec_from_file_location("broker", sys.argv[1])
+    import importlib.machinery, importlib.util, json, sqlite3, sys, time
+    spec = importlib.util.spec_from_file_location("broker", sys.argv[1], loader=importlib.machinery.SourceFileLoader("broker", sys.argv[1]))
     broker = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(broker)
     broker.SESSION_CONNECTIONS = {}

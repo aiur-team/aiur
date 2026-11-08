@@ -226,13 +226,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
   end
 
   @doc false
-  @spec claim_after_queue_update(GenServer.server(), String.t(), boolean()) ::
+  @spec claim_after_queue_update(GenServer.server(), String.t(), boolean() | :steer) ::
           {:ok, map()} | :empty | :ignored
   def claim_after_queue_update(orchestrator, issue_identifier, true) do
     claim_next_wake_queue_item(orchestrator, issue_identifier)
   end
 
-  def claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
+  def claim_after_queue_update(_orchestrator, _issue_identifier, wake) when wake in [false, :steer], do: :ignored
 
   @doc false
   @spec claim_next_operator_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty

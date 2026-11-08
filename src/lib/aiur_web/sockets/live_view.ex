@@ -6,7 +6,7 @@ defmodule AiurWeb.Sockets.LiveView do
   defmacro mount(_session_options) do
     quote do
       socket("/live", Phoenix.LiveView.Socket,
-        websocket: [connect_info: [:user_agent, session: {Aiur.Config.SessionOptions, :runtime_options, []}]],
+        websocket: [connect_info: [:user_agent, :peer_data, session: {Aiur.Config.SessionOptions, :runtime_options, []}]],
         longpoll: false
       )
     end

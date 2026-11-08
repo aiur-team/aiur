@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
   import ExUnit.CaptureIO
   import Aiur.OrchestratorDeactivateSupport
   alias Aiur.AlertLedger
-  alias Aiur.CI.FailureDigest
   alias Aiur.ControlCLI.CiWait
   alias Aiur.Events.GithubCIPoller.Recovery, as: CiRecovery
   alias Aiur.GitHub.CIRecoveryStore, as: CiRecoveryStore
@@ -132,7 +131,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert writes(ctx) == []
   end
 
-  test "Actions permission fallback reaches the lifecycle rework handoff", ctx do
+  test "Actions permission fallback is not replayed after the lifecycle rework handoff", ctx do
     setup_lifecycle(ctx)
     Agent.update(ctx.agent, &%{&1 | actions_post_status: 403})
     state = lifecycle_poll(empty_orchestrator_state(), ctx, ctx.issue)
@@ -145,9 +144,8 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert requests(ctx) == first_requests
     refute_received {:attention, _, _}
     lifecycle_poll(state, ctx, %{ctx.issue | updated_at: DateTime.from_unix!(3)})
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.loop", details}
-    assert details[:message] =~ "UntouchedTest :: fails"
     assert requests(ctx) == first_requests
+    refute_received {:attention, _, _}
   end
 
   test "unavailable Actions evidence holds ten minutes, retries once, then routes", ctx do
@@ -201,25 +199,6 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert %{decision: :pending, recovery: "merge_queue"} = recover(ctx)
     assert writes(ctx) == []
     refute_received {:attention, _, _}
-  end
-
-  test "three failed handoffs raise one attention naming tests, then still route", ctx do
-    for n <- 1..3 do
-      result = Map.put(ctx.result, :ci_failure_digest, %FailureDigest{tests: [%{identity: "UntouchedTest :: fails"}]})
-      assert :ok = CiRecovery.record_failure(%{ctx.issue | updated_at: DateTime.from_unix!(n)}, result, ctx.opts)
-    end
-
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.loop", details}
-    assert details[:message] =~ "3 failed CI/rework cycles"
-    assert details[:message] =~ "UntouchedTest :: fails"
-    first_requests = requests(ctx)
-    assert %{decision: :failed, recovery: nil} = recover(ctx)
-    assert %{decision: :failed, recovery: nil} = recover(ctx)
-    assert requests(ctx) == first_requests
-    refute_received {:attention, "ticket.3864.pr.ci_recovery.loop", _}
-    assert writes(ctx) == []
-    assert :ok = CiRecovery.record_pass(ctx.issue, ctx.result, ctx.opts)
-    assert %{decision: :pending, recovery: "rerun_requested"} = recover(ctx)
   end
 
   test "corrupt journal fails closed before GitHub writes", ctx do
@@ -371,24 +350,16 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert output == "CI WAIT 3864 PR #42: loop (test)\n"
   end
 
-  test "lifecycle counts three rework cycles, alerts once, and still routes the fourth", ctx do
+  test "lifecycle keeps an identical handled failure in CI wait", ctx do
     setup_lifecycle(ctx)
     Agent.update(ctx.agent, &%{&1 | changed: ["src/test/untouched_test.exs"]})
 
-    state =
-      Enum.reduce(1..3, empty_orchestrator_state(), fn n, state ->
-        issue = %{ctx.issue | updated_at: DateTime.from_unix!(n)}
-        state = lifecycle_poll(state, ctx, issue)
-        assert_received {:ci_watcher_update, "3864", "rework"}
-        state
-      end)
-
-    assert_received {:attention, "ticket.3864.pr.ci_recovery.loop", details}
-    assert details[:message] =~ "UntouchedTest :: fails"
-    state = lifecycle_poll(state, ctx, %{ctx.issue | updated_at: DateTime.from_unix!(4)})
+    state = lifecycle_poll(empty_orchestrator_state(), ctx, %{ctx.issue | updated_at: DateTime.from_unix!(1)})
     assert_received {:ci_watcher_update, "3864", "rework"}
+    state = lifecycle_poll(state, ctx, %{ctx.issue | updated_at: DateTime.from_unix!(2)})
+    refute_received {:ci_watcher_update, "3864", "rework"}
     refute_received {:attention, "ticket.3864.pr.ci_recovery.loop", _}
-    refute CiRecovery.attention_hold?(state.ci_lifecycle.poll_cache["3864"])
+    assert %{decision: :pending, recovery: "handled_failure"} = state.ci_lifecycle.poll_cache["3864"]
   end
 
   defp lifecycle_poll(state, ctx, issue) do

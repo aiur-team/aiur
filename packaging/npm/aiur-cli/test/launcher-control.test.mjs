@@ -7,6 +7,22 @@ import { runControl, setupControlRpc } from "./launcher-control-support.mjs";
 
 useTempRoot();
 
+test("commands rejects limits outside 1 through 100 before RPC", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+  for (const limit of ["101", "150", "200", "0", "9999999999999999999999999"]) {
+    for (const flags of [["--limit", limit], [`--limit=${limit}`]]) {
+      const result = runControl(launcher, releaseDir, env, ["commands", "--filter", "resolved", ...flags, "--json"]);
+      expect(result.status).toBe(64);
+      expect(result.stderr).toContain("--limit must be between 1 and 100");
+    }
+  }
+  for (const limit of ["1", "100"]) {
+    expect(runControl(launcher, releaseDir, env, ["commands", "--limit", limit]).status).toBe(0);
+    expect(readFileSync(captureFile, "utf8")).toContain(`limit: ${limit}`);
+  }
+});
+
 // --- Control RPC error reporting -------------------------------------------
 
 test("bare pause/resume flip the global switch; targeted forms stay per-agent", () => {
@@ -72,6 +88,36 @@ test("message status accepts a positive request id", () => {
   expect(runControl(launcher, releaseDir, env, ["message", "--status", "0"]).status).toBe(64);
 });
 
+test("singular command lists, shows details, and routes relayed answers through the guarded API", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1", AIUR_EXECUTOR_ID: "attended-executor" };
+
+  expect(runControl(launcher, releaseDir, env, ["command"]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("Aiur.AgentControlCLI.commands([filter: :open])");
+
+  rmSync(captureFile, { force: true });
+  expect(runControl(launcher, releaseDir, env, ["command", "dec_0123456789abcdef"]).status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("filter: :all");
+  expect(readFileSync(captureFile, "utf8")).toContain('decision_id: Base.decode64!("ZGVjXzAxMjM0NTY3ODlhYmNkZWY=")');
+
+  rmSync(captureFile, { force: true });
+  expect(runControl(launcher, releaseDir, env, ["command", "dec_0123456789abcdef", "--option", "keep", "--relayed", "--quote", "keep them"]).status).toBe(0);
+  const expression = readFileSync(captureFile, "utf8");
+  expect(expression).toContain("Aiur.AgentControlCLI.operator_relay_answer(");
+  expect(expression).toContain("auto_current: true");
+  expect(expression).toContain('relayed_by: Base.decode64!("YXR0ZW5kZWQtZXhlY3V0b3I=")');
+  expect(expression).toContain('quote: Base.decode64!("a2VlcCB0aGVt")');
+});
+
+test("singular command direct answers require an interactive human operator", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" }, ["command", "dec_0123456789abcdef", "--option", "keep"]);
+
+  expect(result.status).toBe(64);
+  expect(result.stderr).toMatch(/human operator|interactive terminal/);
+  expect(existsSync(captureFile)).toBe(false);
+});
+
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {
@@ -119,26 +165,93 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
-test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+test("github-cost keeps its ranked reader and options during deprecation", () => {
   const { launcher, releaseDir } = setupControlRpc();
-  const result = runControl(
-    launcher,
-    releaseDir,
-    {
-      AIUR_FAKE_RPC_MODE: "noconnection",
-      AIUR_FAKE_EPMD_REGISTERED: "0",
-    },
-    ["github-cost"],
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  }, ["github-cost", "--budget", "core", "--format", "records", "--json"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stderr.trim()).toBe("aiur: 'github-cost' is deprecated; use 'aiur usage github'");
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "core", format: :records, json: true])',
   );
+});
+
+test("help keeps the deprecated github-cost budget and format options visible", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {}, ["--help"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain(
+    "aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]",
+  );
+});
+
+test("github-cost reports a stopped daemon instead of falling back to an empty local meter", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "noconnection",
+    AIUR_FAKE_EPMD_REGISTERED: "0",
+  }, ["github-cost"]);
 
   expect(result.status).not.toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr.trim()).toBe(
-    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+    "aiur: 'github-cost' is deprecated; use 'aiur usage github'\n" +
+      "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
   );
   expect(readFileSync(captureFile, "utf8")).toContain(
     'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
   );
+});
+
+test("accounts falls back to the offline reader after preparing the control identity", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "noconnection",
+    AIUR_FAKE_EPMD_REGISTERED: "0",
+  }, ["accounts", "kimi", "--json"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stderr.trim()).toBe("aiur: 'accounts' is deprecated; use 'aiur usage'");
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("ARGV_FILE:accounts\nkimi\n--json");
+  expect(capture).not.toContain("RPC_EXPR:");
+});
+
+test("usage compatibility commands preserve readers and emit deprecations", () => {
+  const cases = [
+    { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.legacy_accounts(false, nil)" },
+    { argv: ["accounts", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
+    { argv: ["accounts", "--all", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
+    { argv: ["github-cost", "--budget", "core", "--format", "records"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_cost([budget: "core", format: :records])' },
+    { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_usage([json: true])' },
+    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.TicketUsageCLI.rpc(Base.decode64!("NDI="), json: true)' },
+  ];
+
+  for (const item of cases) {
+    const { launcher, releaseDir } = setupControlRpc();
+    const result = runControl(launcher, releaseDir, {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    }, item.argv);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(`aiur: '${item.argv[0]}' is deprecated; use '${item.replacement}'`);
+    expect(readFileSync(captureFile, "utf8")).toContain(`RPC_EXPR:${item.expression}`);
+  }
+
+  const { launcher, releaseDir } = setupControlRpc();
+  rmSync(captureFile, { force: true });
+  const filtered = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  }, ["github-cost", "--budget", "invalid"]);
+  expect(filtered.status).toBe(64);
+  expect(filtered.stderr).toContain("github-cost --budget accepts graphql, core or all");
+  expect(existsSync(captureFile)).toBe(false);
 });
 
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {

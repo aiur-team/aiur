@@ -6,6 +6,7 @@ defmodule Aiur.RunTelemetry.Dataset.Source do
 
   @telemetry_filename "telemetry.ndjson"
   @supported_kinds ~w(
+    feature_supply
     restart
     run_context
     lifecycle

@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacityTest do
   # Global tracker and event doubles require synchronous cases.
   use Aiur.TestSupport
 
-  import Aiur.IssueSyncTestSupport
+  import Aiur.IssueSyncTestSupport, except: [issue: 2]
 
   alias Aiur.Events.Exchange
   alias Aiur.Events.Publisher
@@ -302,4 +302,9 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacityTest do
     assert event["reason"] =~
              "binding constraint=dispatch authorization denials (all fallback backends usage-limited for 8 ready ticket(s))"
   end
+
+  # These cases measure capacity, not spend caps: with no tracker identity the
+  # spend-cap gate dispatches without reading the global store, whose health an
+  # earlier test in the shard can leave unavailable (#7733).
+  defp issue(id, state), do: %{Aiur.IssueSyncTestSupport.issue(id, state) | tracker_identity: nil}
 end

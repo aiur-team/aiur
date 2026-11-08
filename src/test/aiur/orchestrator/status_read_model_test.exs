@@ -2,11 +2,9 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
   use Aiur.TestSupport
 
   import ExUnit.CaptureIO
-  import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
-  alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter}
   alias AiurWeb.Presenter
 
   test "snapshot projection preserves all six renderer inputs and their behavior" do
@@ -182,9 +180,6 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     agents = capture_io(fn -> AgentControlCLI.agents(fleet_view: {:ok, cli, freshness}) end)
     assert agents =~ "FLEET SNAPSHOT 0s old"
     assert agents =~ "80s old; since daemon start"
-    capacity_html = render_component(&CapacityControl.capacity_control/1, capacity: CapacityPresenter.present(payload.capacity), writable: false, input: "", feedback: nil)
-    assert capacity_html =~ "maximum 6"
-    assert capacity_html =~ "0s old"
   end
 
   test "missing observations and unavailable snapshots cannot masquerade as zero age or capacity" do

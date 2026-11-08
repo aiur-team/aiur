@@ -1,5 +1,6 @@
 defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Claude.Repl.TranscriptTurn
   alias Aiur.Tmux
@@ -120,6 +121,46 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     respond(tmux, "[Pasted text +5 lines]\n")
     assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
     respond(tmux, "")
+  end
+
+  test "steer wake types mid-turn while false wake leaves input held", %{tmux: tmux} do
+    path = temp_transcript()
+    on_exit(fn -> File.rm(path) end)
+    session = turn_session(tmux, path)
+    parent = self()
+
+    on_operator = fn ->
+      send(parent, :operator_claimed)
+      {:deliver_text, "native steer", fn _ -> send(parent, :operator_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task = Task.async(fn -> TranscriptTurn.run(session, "work", poll_interval_ms: 10, on_steer_claim: on_operator, on_operator_message: fn -> flunk("steer must not claim a held sync item") end) end)
+    expect_prompt_submit(tmux)
+    # False-wake behavior is an intentional existing-behavior guard.
+    send(task.pid, {:agent_queue_updated, "test", 1, false})
+    send(task.pid, {:agent_queue_updated, "test", 2, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:operator_claimed)
+    receive_barrier(:operator_delivered)
+    File.write!(path, completion_record(), [:append])
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+    refute_received :operator_claimed
+    refute_received {:delivery_failed, _}
+  end
+
+  defp expect_steer_input(tmux) do
+    receive_barrier({:tmux_mock_out, command})
+
+    case command do
+      "display-message" <> _ ->
+        respond(tmux, "4242\n")
+        expect_steer_input(tmux)
+
+      "send-keys -t %50 -l native steer" ->
+        respond(tmux, "")
+        receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
+        respond(tmux, "")
+    end
   end
 
   test "cold start where the jsonl never materializes returns {:error, :no_transcript}", %{

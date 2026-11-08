@@ -49,13 +49,23 @@ defmodule Aiur.GitHub.IssueStateCleanupReadTest do
       if request.method == :get do
         count = :ets.update_counter(gets, :count, 1)
         if count < 3, do: assert(request.etag == ~s("issue-etag")), else: refute(Map.has_key?(request, :etag))
-        {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}}}
+
+        labels =
+          case count do
+            count when count < 3 -> ["sym:todo"]
+            3 -> ["sym:todo", "sym:rework"]
+            _ -> ["sym:rework"]
+          end
+
+        body = %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}
+
+        {:ok, %{status: 200, body: body}}
       else
-        {:ok, %{status: 200}}
+        {:ok, %{status: 200, body: [%{"name" => "sym:rework"}]}}
       end
     end
 
     assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
-    assert :ets.lookup_element(gets, :count, 2) == 3
+    assert :ets.lookup_element(gets, :count, 2) == 4
   end
 end

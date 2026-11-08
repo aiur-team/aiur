@@ -15,6 +15,8 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingRecoveryTest do
       token: "test-gh-token",
       ci_recovery_path: Path.join(root, "recovery.json"),
       ci_recovery_enabled: false,
+      ci_failure_digest: fn _, _ -> {:ok, %Aiur.CI.FailureDigest{}} end,
+      main_watch_history: [],
       alert_emitter: fn topic, _details ->
         send(parent, {:attention, topic})
         :ok

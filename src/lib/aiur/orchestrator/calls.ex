@@ -1,8 +1,11 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
-  alias Aiur.Orchestrator.{BuildQueueClaimProbe, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, StatusReport}
+  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
+  alias Aiur.Orchestrator.CommandOverrideContext
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.OperatorMessages.Calls, as: MessageCalls
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -15,15 +18,27 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(identifier) and is_list(events),
       do: OM.enqueue_event_digest_batch_call(state, identifier, events)
 
+  def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
+    do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
+
+  def handle_call({:claim_executor_hook_batch, binding, boundary, opts}, _from, state),
+    do: Aiur.Handoff.claim_or_empty(state, fn -> ExecutorHookClaims.handle_call(state, binding, boundary, opts) end)
+
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
   def handle_call(:list_active_identifiers, _from, state),
     do: StatusReport.list_active_identifiers(state)
 
+  def handle_call({:command_override_context, identifier}, _from, state),
+    do: {:reply, CommandOverrideContext.read(state, identifier), state}
+
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
 
   def handle_call({:has_live_owner, identifier}, _from, state), do: StatusReport.has_live_owner(state, identifier)
+
+  def handle_call({:spend_cap_exhausted, %Aiur.TrackerIdentity{} = identity}, _from, state),
+    do: SpendCap.Stop.handle_call(state, identity)
 
   def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
     {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
@@ -52,6 +67,19 @@ defmodule Aiur.Orchestrator.Calls do
 
   def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
+
+  def handle_call({:cancel_agent, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) and issue_identifier != "",
+      do: Cancellation.cancel_agent_call(state, issue_identifier)
+
+  def handle_call({:cancel_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
+  def handle_call({:cancel_tracker_result, identifier, stage, result}, _from, state),
+    do: Cancellation.cancel_tracker_call(state, identifier, stage, result)
+
+  def handle_call({:cancel_observation_result, stage, outcome}, _from, state),
+    do: Cancellation.cancel_observation_call(state, stage, outcome)
 
   def handle_call({:control_capabilities, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
@@ -151,6 +179,13 @@ defmodule Aiur.Orchestrator.Calls do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:redispatch, identifier, backend}, _from, state)
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)),
+      do: RC.redispatch_call(state, identifier, backend)
+
+  def handle_call({:redispatch, _identifier, _backend}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
   def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),
       do: RC.ensure_remote_control_trust_call(state, workspace, from)
@@ -180,6 +215,9 @@ defmodule Aiur.Orchestrator.Calls do
       when is_boolean(on?) and is_binary(source),
       do: GlobalPause.set_global_pause_call(state, on?, source)
 
+  def handle_call({:operator_message_snapshot, item_id}, _from, state) when is_integer(item_id),
+    do: Snapshot.handle_call(state, item_id)
+
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)
@@ -198,6 +236,10 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_checkpoint_queue_item_call(state, issue_identifier) end)
 
+  def handle_call({:claim_next_steer_queue_item, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_steer_queue_item_call(state, issue_identifier) end)
+
   def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_blocker_critical_events_digest_call(state, issue_identifier) end)
@@ -205,6 +247,10 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
+
+  def handle_call({:claim_native_reply_item, identifier, refs}, _from, state)
+      when is_binary(identifier) and is_list(refs),
+      do: Aiur.Handoff.claim_or_empty(state, fn -> MessageCalls.claim_native_reply_item_call(state, identifier, refs) end)
 
   def handle_call({:claim_operator_response, identifier, command}, _from, state)
       when is_binary(identifier) and is_binary(command) and command != "",

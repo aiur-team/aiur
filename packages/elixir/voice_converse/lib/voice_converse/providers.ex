@@ -67,7 +67,7 @@ defmodule VoiceConverse.Providers do
       option.status == :ready ->
         {{:ok, option}, skipped}
 
-      match?({:missing_credential, _provider}, option.reason) and config.providers.on_missing_credential == :refuse ->
+      match?({:missing_credential, _provider}, option.reason) and config.providers.on_missing_credential != :next ->
         {:none, [{id, option.reason} | skipped]}
 
       true ->
@@ -79,12 +79,15 @@ defmodule VoiceConverse.Providers do
          %Config{providers: %{on_missing_credential: :text_only}} = config,
          skipped
        ) do
-    case option_by_id(:text_only, config) do
+    case if(:text_only in config.providers.preference, do: option_by_id(:text_only, config)) do
       %{status: :ready} = option ->
         resolve_text_only_fallback(option, config, skipped)
 
       %{reason: reason} ->
         {:error, :no_usable_option, skipped ++ [{:text_only, reason}]}
+
+      nil ->
+        {:error, :no_usable_option, skipped}
     end
   end
 
