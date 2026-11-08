@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @counters ~w(pushes_absorbed integrations_clean integrations_conflict non_ff_pushes parks resumes_after_park)
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
 
   @spec record_start(String.t(), map()) :: :ok | {:error, atom()}
   def record_start(ticket, attrs), do: call({:start, ticket, attrs})

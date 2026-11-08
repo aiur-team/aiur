@@ -55,7 +55,7 @@ defmodule Aiur.Events do
 
   @doc false
   @spec exchange_server() :: GenServer.server()
-  def exchange_server, do: Exchange
+  def exchange_server, do: Exchange.name()
 
   @doc false
   @spec any_subscriber_matches?(String.t()) :: boolean()

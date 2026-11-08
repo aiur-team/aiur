@@ -435,7 +435,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
-    if Process.whereis(Events.exchange_server()) do
+    if GenServer.whereis(Events.exchange_server()) do
       Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 

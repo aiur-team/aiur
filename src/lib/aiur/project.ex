@@ -28,15 +28,6 @@ defmodule Aiur.Project do
     end
   end
 
-  @doc "Scopes a PubSub topic by the caller's project; the bare topic with no context."
-  @spec topic(String.t()) :: String.t()
-  def topic(base) do
-    case Context.current_id() do
-      nil -> base
-      id -> "project:" <> id <> ":" <> base
-    end
-  end
-
   @doc """
   Name a project-scoped process registers under: `module` itself with no project,
   else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.

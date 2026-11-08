@@ -174,7 +174,7 @@ defmodule Aiur.Application.Children do
       Aiur.Conversation.HeadTable,
       {Registry, keys: :unique, name: Aiur.Conversation.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
-      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
       Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.

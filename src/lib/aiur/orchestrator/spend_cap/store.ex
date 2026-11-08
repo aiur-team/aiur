@@ -17,8 +17,8 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)) do
-      nil -> GenServer.start_link(__MODULE__, opts)
-      name -> GenServer.start_link(__MODULE__, opts, name: name)
+      nil -> GenServer.start_link(__MODULE__, Aiur.Project.carry(opts))
+      name -> GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: name)
     end
   end
 

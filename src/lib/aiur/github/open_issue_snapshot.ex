@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @table __MODULE__
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
 
   @impl true
   def init(opts) do
