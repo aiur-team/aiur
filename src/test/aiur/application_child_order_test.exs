@@ -81,6 +81,8 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.BuildOrder.PackStatus,
     Aiur.OpenTicketSource,
     Aiur.GitHub.ViewStateSweep,
+    Aiur.Intent.Hlc,
+    Aiur.Intent.Store,
     Aiur.Orchestrator,
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,

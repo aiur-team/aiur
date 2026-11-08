@@ -49,11 +49,6 @@ defmodule Aiur.Intent.Registers do
     do: {:paused, id, DateTime.from_unix!(wall, :millisecond), author || gateway}
 
   defp own_gateway(opts) do
-    Keyword.get_lazy(opts, :own_gateway, fn ->
-      case Identity.current() do
-        %{gateway_id: id} -> id
-        _ -> nil
-      end
-    end)
+    Keyword.get_lazy(opts, :own_gateway, fn -> Identity.current().gateway_id end)
   end
 end
