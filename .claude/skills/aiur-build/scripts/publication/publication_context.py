@@ -19,6 +19,9 @@ from publication_materialize import recover_materialization_transaction
 from publication_titles import has_logical_id_prefix
 
 
+# Both prefixes are lane labels; `lane:` is the spelling new packs publish and
+# `build-lane:` is the legacy spelling older packs already carry on GitHub. A
+# pack declares the lane labels it may create in its own publication adapter.
 CREATABLE_LABELS = {
     "build-order": ("5319e7", "Build Order planning root"),
     "build-lane:plan-graph": ("bfdadc", "Build Order lane: plan graph"),
@@ -298,8 +301,18 @@ def build_context(
     )
 
 
-def feature_epics(build: dict[str, Any]) -> list[dict[str, str]]:
-    """Build stable home-page epic keys from the approved lane and phase model."""
+def planning_epic_slug(root_number: int) -> str:
+    """The epic one planning pack registers: ``bo-<root number>``.
+
+    Root import derives the same slug from a ``build-order`` root, so a
+    published pack and its later history import name one epic, and the epic
+    claims the root without an explicit ``--root`` argument.
+    """
+    return f"bo-{root_number}"
+
+
+def feature_lanes(build: dict[str, Any]) -> list[dict[str, str]]:
+    """Build the lane definitions a product feature carries."""
     root_id = build.get("build_order_id")
     slug = root_id.rsplit(":", 1)[-1] if isinstance(root_id, str) else ""
     lanes = {
@@ -310,7 +323,7 @@ def feature_epics(build: dict[str, Any]) -> list[dict[str, str]]:
         item["id"]: item for item in build.get("workstreams", [])
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
-    epics = []
+    lanes_out = []
     for lane in sorted(lanes):
         record = records.get(lane)
         icon = record.get("icon") if isinstance(record, dict) else None
@@ -318,15 +331,15 @@ def feature_epics(build: dict[str, Any]) -> list[dict[str, str]]:
             not isinstance(record, dict) or not isinstance(record.get("title"), str)
             or not isinstance(icon, str) or not icon or icon == "squares-2x2"
         ):
-            raise ValueError(f"workstream {lane} requires a non-default epic icon")
+            raise ValueError(f"workstream {lane} requires a non-default lane icon")
         key = _bounded_identifier(f"f-{slug}", lane, 64)
         if len(key) > 64:
-            raise ValueError(f"feature epic key exceeds 64 characters for workstream {lane}")
-        epics.append({"key": key, "label": record["title"], "icon": icon, "lane": lane})
-    icons = [epic["icon"] for epic in epics]
+            raise ValueError(f"feature lane key exceeds 64 characters for workstream {lane}")
+        lanes_out.append({"key": key, "label": record["title"], "icon": icon, "lane": lane})
+    icons = [item["icon"] for item in lanes_out]
     if len(icons) != len(set(icons)):
-        raise ValueError("feature epic icons must be unique")
-    return epics
+        raise ValueError("feature lane icons must be unique")
+    return lanes_out
 
 
 def product_features(build: dict[str, Any]) -> list[dict[str, Any]]:
@@ -391,7 +404,7 @@ def validate_product_feature_publication(build: dict[str, Any]) -> None:
         lanes = sorted({ticket.get("workstream") for ticket in selected})
         if any(not isinstance(lane, str) or lane not in workstreams for lane in lanes):
             raise ValueError(f"product feature {group['slug']} references an unknown workstream")
-        feature_epics({
+        feature_lanes({
             "build_order_id": f"{build['repository']}:{slug}",
             "workstreams": [workstreams[lane] for lane in lanes],
             "tickets": selected,

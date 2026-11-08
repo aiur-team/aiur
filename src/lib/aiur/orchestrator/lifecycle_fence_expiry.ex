@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceExpiry do
   defp release(state, issue_id, entry, fence) do
     ids = Enum.sort(fence.pending_item_ids)
     identifier = entry.identifier
-    reason = "Provider delivery fence expired after #{@timeout_seconds}s; pending_item_ids=#{inspect(ids)}. Lifecycle reconciliation may proceed; delivery is unconfirmed."
+    reason = "Provider delivery fence expired after #{@timeout_seconds}s; pending_item_ids=#{inspect(ids, charlists: :as_lists)}. Lifecycle reconciliation may proceed; delivery is unconfirmed."
     Logger.warning("#{State.issue_context(entry.issue)} #{reason}")
 
     Signal.alert("ticket.#{identifier}.agent.lifecycle_fence_expired",

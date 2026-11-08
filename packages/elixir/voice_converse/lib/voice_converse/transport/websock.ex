@@ -133,7 +133,28 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       def handle_in({payload, _opcode}, state) when is_binary(payload) and byte_size(payload) > @max_frame_bytes,
         do: error(state, "frame_too_large", "Frame exceeds 400000 bytes.")
 
-      def handle_in({payload, :text}, state) do
+      def handle_in({payload, opcode}, state) when is_binary(payload) do
+        case data_opcode(opcode) do
+          :text -> handle_text(payload, state)
+          :binary -> error(state, "invalid_frame", "Frames must be JSON text.")
+          :unknown -> {:ok, state}
+        end
+      end
+
+      # `WebSock` specifies `{payload, opcode: :text | :binary}` and that is what Bandit and
+      # `WebSockAdapter` deliver. The bare atom shape is retained for direct callback callers.
+      defp data_opcode(opcode) when opcode in [:text, :binary], do: opcode
+
+      defp data_opcode(opcode) when is_list(opcode) do
+        case List.keyfind(opcode, :opcode, 0) do
+          {:opcode, value} -> data_opcode(value)
+          nil -> :unknown
+        end
+      end
+
+      defp data_opcode(_opcode), do: :unknown
+
+      defp handle_text(payload, state) do
         with {:ok, frame} <- Wire.decode(payload) do
           dispatch(frame, state)
         else
@@ -141,8 +162,6 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
           {:error, :invalid_frame} -> error(state, "invalid_frame", "Invalid voice frame.")
         end
       end
-
-      def handle_in({_payload, :binary}, state), do: error(state, "invalid_frame", "Frames must be JSON text.")
 
       @impl WebSock
       def terminate(_reason, %{conversation_id: conversation_id} = state) when is_binary(conversation_id) do
@@ -155,6 +174,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       @impl WebSock
       def handle_info({:voice_conversation_state, conversation_id, name}, %{conversation_id: conversation_id} = state),
         do: push(%{"v" => 1, "type" => "state", "state" => to_string(name)}, state)
+
+      # An ended session may already be gone when the browser closes its socket.
+      def handle_info({:voice_conversation, id, {:ended, _reason} = event}, %{conversation_id: id} = state),
+        do: push(event_frame(event), %{state | conversation_id: nil})
 
       def handle_info({:voice_conversation, conversation_id, event}, %{conversation_id: conversation_id} = state) do
         case event_frame(event) do

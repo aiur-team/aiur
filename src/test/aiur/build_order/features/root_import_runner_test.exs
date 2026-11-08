@@ -58,7 +58,8 @@ defmodule Aiur.BuildOrder.Features.RootImportRunnerTest do
     assert {:ok, _} = RootImport.status(pid)
     assert {:ok, s} = Features.snapshot(server: features_pid)
     assert s.features["bo-1"].label == "Rename"
-    assert s.features["bo-1"].epics == [%{key: "f-bo-1", label: "Rename"}]
+    assert Map.take(hd(s.features["bo-1"].epics), [:key, :label]) == %{key: "f-bo-1", label: "Rename"}
+    assert s.features["bo-1"].epics |> hd() |> Map.has_key?(:color)
     assert {:ok, renamed} = Features.journal("bo-1", server: features_pid)
     stop_supervised!(RootImport)
     restarted = start_supervised!({RootImport, opts})

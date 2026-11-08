@@ -17,9 +17,20 @@ defmodule Aiur.FeatureEngineTest do
     )
   end
 
+  # The deprecated flag spellings print a notice on stderr; the merged stream
+  # keeps the RPC expression on its own lines for comparison.
   defp opts(args) do
     {output, 0} = shell(args)
-    expression = output |> String.trim() |> String.replace_prefix("Aiur.AgentControlCLI.feature(", "") |> String.trim_trailing(")")
+
+    expression =
+      output
+      |> String.split("\n")
+      |> Enum.reject(&String.starts_with?(&1, "aiur: "))
+      |> Enum.join("\n")
+      |> String.trim()
+      |> String.replace_prefix("Aiur.AgentControlCLI.feature(", "")
+      |> String.trim_trailing(")")
+
     {opts, []} = Code.eval_string(expression)
     opts
   end
@@ -58,6 +69,20 @@ defmodule Aiur.FeatureEngineTest do
 
     assert opts(["add", "s", "1", "--epic", "phase-1", "--move", "--source", "backfill-agent"]) ==
              [op: :add, slug: "s", ids: [1], who: "tester", epic: "phase-1", move: true, source: "backfill-agent"]
+  end
+
+  test "the deprecated epic flags still define lanes and print the lane deprecation" do
+    {notice, 0} = shell(["create", "s", "--label", "S", "--epic", "a=First"])
+    assert notice =~ "aiur: feature --epic is deprecated; use --lane"
+    assert notice =~ "epics: [%{key: Base.decode64!(\"YQ==\"), label: Base.decode64!(\"Rmlyc3Q=\")}]"
+
+    {lane_notice, 0} = shell(["create", "s", "--label", "S", "--lane", "a=First"])
+    refute lane_notice =~ "deprecated"
+    assert lane_notice =~ "epics: [%{key: Base.decode64!(\"YQ==\")"
+
+    {add_notice, 0} = shell(["add", "s", "1", "--epic", "phase-1"])
+    assert add_notice =~ "aiur: feature --epic is deprecated; use --lane"
+    assert add_notice =~ "epic: Base.decode64!(\"cGhhc2UtMQ==\")"
   end
 
   test "create and edit preserve arbitrary text and repeated epics through RPC encoding" do

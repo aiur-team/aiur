@@ -95,13 +95,13 @@ defmodule AiurWeb.Build.PackIndexTest do
     parent = self()
 
     reader = fn context ->
-      send(parent, {:assembled_rows, Map.keys(context.all), Map.keys(context.epics)})
+      send(parent, {:assembled_rows, Map.keys(context.all), Map.keys(context.lanes)})
       %{rows: [], aliases: %{}, source: %{state: "disabled", observed_at: now(), reason: "no_pack_configured"}}
     end
 
     assert {:ok, index} = parts([row(9)]) |> Map.put(:packs, reader) |> assemble()
     receive_barrier({:assembled_rows, ["9"], epics})
-    assert Enum.sort(epics) == Enum.sort(Map.keys(index.epics))
+    assert Enum.sort(epics) == Enum.sort(Map.keys(index.lanes))
     refute_received {:assembled_rows, _, _}
     assert index.sources.packs.state == "disabled"
   end

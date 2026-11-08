@@ -28,7 +28,7 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
 
   @spec sizes(Nav.t(), map()) :: map()
   def sizes(nav, sections) do
-    Map.new([:ticket, :feature, :epic, :fleet], &{&1, length(Map.get(sections, &1, []))})
+    Map.new([:ticket, :feature, :lane, :fleet], &{&1, length(Map.get(sections, &1, []))})
     |> Map.put(:chip_max_offset, StripCounts.model(Map.get(sections, :counts), 999).offset)
     |> Map.put(:drill, if(nav.stack == [], do: nil, else: drill_size(nav, sections)))
   end

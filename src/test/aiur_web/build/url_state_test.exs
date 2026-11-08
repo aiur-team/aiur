@@ -4,16 +4,16 @@ defmodule AiurWeb.Build.URLStateTest do
   alias AiurWeb.Build.URLState
 
   test "parse keeps every valid design key in canonical order" do
-    q = "view=gantt&list=epics&fsort=left&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+    q = "view=gantt&list=lanes&fsort=left&trees=1&live=min&span=7&feature=f-docs&fmode=compact&lane=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
 
     assert URLState.parse(URI.decode_query(q)) == %{
              view: "gantt",
-             list: "epics",
+             list: "lanes",
              fsort: "left",
              span: 7,
              feature: "f-docs",
              fmode: "compact",
-             epic: ["bugs", "docs"],
+             lane: ["bugs", "docs"],
              model: ["claude"],
              tstate: ["in progress"],
              astate: ["error", "retries", "command"],
@@ -39,7 +39,7 @@ defmodule AiurWeb.Build.URLStateTest do
   test "invalid and non-string values are dropped" do
     assert canonical("view=Gantt&span=4&fmode=compact&astate=bogus,active,active&model=none&ticket=AIUR-12&zoom=2&models=7&example=dense") == "astate=active"
 
-    for key <- ~w(view list span feature fmode epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
+    for key <- ~w(view list span feature fmode lane epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
       assert URLState.parse(%{key => value}) == URLState.defaults()
     end
 
@@ -52,7 +52,25 @@ defmodule AiurWeb.Build.URLStateTest do
     assert URLState.parse(%{"list" => "bogus"}).list == "tickets"
     assert canonical("view=list&list=features") == "view=list&list=features"
     assert canonical("list=tickets") == ""
-    for value <- ~w(tickets features epics), do: assert(URLState.parse(%{"list" => value}).list == value)
+    for value <- ~w(tickets features lanes), do: assert(URLState.parse(%{"list" => value}).list == value)
+  end
+
+  test "pre-rename epic bookmarks load as lanes and the canonical query rewrites the address bar" do
+    params = URI.decode_query("view=list&list=epics&epic=ui")
+    state = URLState.parse(params)
+
+    assert state.list == "lanes"
+    assert state.lane == ["ui"]
+    assert URLState.to_query(state) == "view=list&list=lanes&lane=ui"
+
+    both = URLState.parse(URI.decode_query("lane=docs&epic=ui"))
+    assert both.lane == ["docs", "ui"]
+  end
+
+  test "view selection accepts the package-rendered build order and defaults unknown values to the timeline" do
+    assert URLState.parse(%{"view" => "bogus"}).view == "graph"
+    for value <- ~w(graph gantt list build-order), do: assert(URLState.parse(%{"view" => value}).view == value)
+    assert canonical("view=build-order&feature=bo-42") == "view=build-order&feature=bo-42"
   end
 
   test "models accept unknown shape-valid keys" do
@@ -65,8 +83,9 @@ defmodule AiurWeb.Build.URLStateTest do
     assert canonical("astate=parked,,paused,parked") == "astate=parked,paused"
     assert canonical("astate=paused,parked") == "astate=paused,parked"
     assert canonical("tstate=in+progress,queued") == "tstate=in+progress,queued"
-    values = Enum.map(1..40, &"epic-#{&1}")
-    assert URLState.parse(%{"epic" => Enum.join(values, ",")}).epic == Enum.take(values, 32)
+    values = Enum.map(1..40, &"lane-#{&1}")
+    assert URLState.parse(%{"lane" => Enum.join(values, ",")}).lane == Enum.take(values, 32)
+    assert URLState.parse(%{"epic" => Enum.join(values, ",")}).lane == Enum.take(values, 32)
   end
 
   test "ticket keeps unknown positive ids and canonicalizes leading zeros" do
@@ -107,7 +126,7 @@ defmodule AiurWeb.Build.URLStateTest do
               map(
                 list_of(
                   tuple(
-                    {member_of(~w(view span feature fmode epic model tstate astate live trees ticket unknown)),
+                    {member_of(~w(view span feature fmode lane epic model tstate astate live trees ticket unknown)),
                      one_of([string(:printable), member_of(["gantt", "compact", "07", "active,active", "min", "1", "f-docs"])])}
                   )
                 ),
@@ -124,15 +143,15 @@ defmodule AiurWeb.Build.URLStateTest do
 
   property "200 generated valid states round trip every field" do
     check all(
-            view <- member_of(["graph", "gantt", "list"]),
-            list <- member_of(["tickets", "features", "epics"]),
+            view <- member_of(["graph", "gantt", "list", "build-order"]),
+            list <- member_of(["tickets", "features", "lanes"]),
             fsort <- member_of(["goal", "pct", "left"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),
             feature <- member_of([nil, "f-docs", "Outside-window._1"]),
             compact <- boolean(),
             trees <- boolean(),
             live_min <- boolean(),
-            epics <- ordered_subset(["bugs", "docs", "epic-3"]),
+            lanes <- ordered_subset(["bugs", "docs", "lane-3"]),
             models <- ordered_subset(["claude", "zz-new", "muse"]),
             tstates <- ordered_subset(["merged", "in progress", "not planned", "queued"]),
             astates <- ordered_subset(~w(active error retries command paused parked none)),
@@ -148,7 +167,7 @@ defmodule AiurWeb.Build.URLStateTest do
         fmode: if(feature && compact, do: "compact", else: "focus"),
         trees: trees,
         live_min: live_min,
-        epic: epics,
+        lane: lanes,
         model: models,
         tstate: tstates,
         astate: astates,

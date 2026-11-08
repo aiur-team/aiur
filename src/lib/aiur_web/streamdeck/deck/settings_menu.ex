@@ -27,7 +27,7 @@ defmodule AiurWeb.Streamdeck.Deck.SettingsMenu do
     missing ++ Enum.map(available, &%{label: &1["label"], value: &1["id"]})
   end
 
-  def choices("default_view", _settings, _devices), do: values(~w(ticket feature epic fleet))
+  def choices("default_view", _settings, _devices), do: values(~w(ticket feature lane fleet))
   def choices("default_sort", _settings, _devices), do: values(~w(state priority title))
   def choices("brightness", _settings, _devices), do: Enum.map(0..10, &%{label: "#{&1 * 10}%", value: &1 * 10})
   def choices("dim_after_seconds", _settings, _devices), do: Enum.map([0, 5, 30, 60, 300, 600, 1800], &%{label: if(&1 == 0, do: "Never", else: "#{&1}s"), value: &1})

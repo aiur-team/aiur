@@ -342,6 +342,7 @@ defmodule VoiceConverse.ToolsTest do
              "get_status",
              "get_details",
              "list_open_commands",
+             "answer_command",
              "propose_instruction",
              "end_conversation"
            ]

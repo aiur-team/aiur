@@ -230,7 +230,7 @@ test('filtered days continue paging and use server DST boundary exactly', async 
   await page.request.get('/build-control/earlier?from=' + (from - 23 * 3600000))
   expect(await page.evaluate(async () => { await hist.loadEarlier(); return S.histFrom })).toBe(from - 23 * 3600000)
   await page.request.get('/build-control/earlier')
-  await page.evaluate(() => { S.f.epic = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
+  await page.evaluate(() => { S.f.lane = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
   await expect.poll(() => page.evaluate(() => hist.H.more)).toBe(false)
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
 })

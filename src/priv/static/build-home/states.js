@@ -46,8 +46,8 @@ export function emptyMark(sec, st, mctx) {
     label = name + ' ' + show;
     sub = `${subject} ${show === 'incomplete' ? 'was only partly read' : 'could not be read'} (${why}). ${last}.` + (disclaimer ? ` This does not mean ${disclaimer}.` : '');
   } else if (show === 'filtered') {
-    label = sec === 'hist' ? 'No history in the selected epics' : 'No planned tickets in the selected epics';
-    sub = 'Clear the epic filter to see ' + (sec === 'hist' ? 'the loaded history.' : 'the build queue.');
+    label = sec === 'hist' ? 'No history in the selected lanes' : 'No planned tickets in the selected lanes';
+    sub = 'Clear the lane filter to see ' + (sec === 'hist' ? 'the loaded history.' : 'the build queue.');
   } else if (show === 'window') {
     label = 'No history in the loaded days'; sub = 'Scroll up to load earlier days.';
   } else if (sec === 'hist') {

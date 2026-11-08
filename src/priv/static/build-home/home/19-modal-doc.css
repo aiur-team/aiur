@@ -60,10 +60,8 @@
 .bd-list-label { color: var(--muted); font: 600 .68rem "JetBrains Mono", monospace; white-space: nowrap; }
 .bd-list-shows button span { display: inline; }
 .bd-list-placeholder { padding: 2rem; color: var(--muted); text-align: center; font: .8rem "JetBrains Mono", monospace; }
-.fp-card { box-sizing: border-box; width: min(100%, 960px); margin: 1rem auto; padding: 1.5rem 1.75rem; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
-.fp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; }
-.fp-head h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
-.fp-head p { margin: .3rem 0 0; color: var(--muted); font-size: .85rem; }
+.fp-list { box-sizing: border-box; width: 100%; color: var(--fg); }
+.fp-sum { margin: 0 .25rem; padding: .2rem 0 .45rem; color: var(--muted); font-size: .8rem; }
 .fp-sort { display: flex; gap: .4rem; align-items: center; color: var(--muted); font-size: .75rem; }
 .fp-sort select { color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .2rem .35rem; font: inherit; }
 .fp-row { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: minmax(10rem, 20rem) 1fr 4.5rem; gap: 1.25rem; align-items: center; padding: .55rem .25rem; color: inherit; background: none; border: 0; border-radius: 6px; font: inherit; text-align: left; }
@@ -80,10 +78,7 @@ button.fp-row:hover, button.fp-row:focus-visible { background: color-mix(in srgb
 @media (max-width: 480px) {
   #build-root.feature-list #bd-usage { display: none; }
   #build-root.feature-list #bd-vp { height: auto; max-height: none; overflow: visible; }
-  .fp-card { margin: .5rem auto; padding: 12px; }
-  .fp-head { gap: .35rem; margin-bottom: .35rem; }
-  .fp-head h1 { font-size: 1rem; }
-  .fp-head p { margin-top: .15rem; font-size: .7rem; }
+  .fp-sum { margin: 0; padding: .15rem 0 .35rem; font-size: .7rem; }
   .fp-sort { gap: .2rem; font-size: .68rem; }
   .fp-sort select { padding: .1rem .2rem; }
   .fp-row { grid-template-columns: minmax(0, 1.15fr) 1fr 3.4rem; gap: .6rem; padding: .4rem 0; }

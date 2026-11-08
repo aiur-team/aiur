@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 test('mounted loading toolbar reports unknown and early switch preserves unavailable board', async ({ page }) => {
-  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(page.getByRole('tab')).toHaveCount(4)
   await expect(page.locator('.bd-daemon')).toHaveText('Daemon status unknown')
   await expect(page.locator('.bd-daemon')).toHaveClass('bd-daemon off')
   await page.evaluate(() => document.querySelector('#bd-vp').textContent = 'Build timeline unavailable')
@@ -47,10 +47,12 @@ test('selected view is inert and switches invoke board in order and omit list le
 test('manual keyboard wraps, activates and preserves focus through cached and rewritten controls', async ({ page }) => {
   const tab = name => page.getByRole('tab', { name, exact: true })
   await tab('Timeline').focus()
-  await page.keyboard.press('ArrowLeft'); await expect(tab('List')).toBeFocused()
+  await page.keyboard.press('ArrowLeft'); await expect(tab('Build order')).toBeFocused()
   await page.keyboard.press('Home'); await expect(tab('Timeline')).toBeFocused()
-  await page.keyboard.press('End'); await expect(tab('List')).toBeFocused()
+  await page.keyboard.press('End'); await expect(tab('Build order')).toBeFocused()
   expect(await page.evaluate(() => m.S.view)).toBe('graph')
+  // Activate List rather than the document view: this page has no projection to read.
+  await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
   await page.keyboard.press('Enter'); await expect(tab('List')).toBeFocused()
   await expect(tab('List')).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight')

@@ -19,7 +19,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillBatchTest do
       projection: fn _ -> {:ok, %{get.(:number) => :held_backfill}} end,
       owner: fn n -> if n == get.(:number), do: {:ok, owner}, else: :none end,
       overrides: fn -> {:ok, %{}, %{state: :healthy}} end,
-      settings: fn -> {:ok, %{build_order: %{general_epics: []}}} end,
+      settings: fn -> {:ok, %{build_order: %{lanes: []}}} end,
       history: fn numbers ->
         {:ok, Enum.map(numbers, &%{number: &1, labels: [], lifecycle: %{state: :closed}, observed_at: get.(:now)}), %{state: :healthy}}
       end,

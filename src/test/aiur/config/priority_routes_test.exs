@@ -70,6 +70,21 @@ defmodule Aiur.Config.PriorityRoutesTest do
   end
 
   describe "odd aggregator identifiers" do
+    test "a model set route is accepted and keeps its models" do
+      assert priority_errors(["openrouter:{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"]) == []
+
+      assert RoutingValue.model_set(RoutingValue.routing_model("openrouter:{vendor/a, vendor/b}")) ==
+               {:ok, ["vendor/a", "vendor/b"]}
+    end
+
+    test "a malformed model set is a config error rather than a literal model name" do
+      assert [message] = priority_errors(["openrouter:{deepseek/deepseek-v4-flash,}"])
+      assert message =~ "must list at least one model"
+
+      assert [message] = priority_errors(["openrouter:{}"])
+      assert message =~ "must list at least one model"
+    end
+
     test "a ~-prefixed model is rejected explicitly rather than parsing into something surprising" do
       assert [message] = priority_errors(["openrouter:~moonshotai/kimi-latest"])
       assert message =~ "starts with `~`"

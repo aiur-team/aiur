@@ -11,6 +11,7 @@ test.beforeEach(async ({ page }, info) => {
   await scenario(page, 'kinds', { entries: Array.from({ length: 40 }, (_, i) => ({
     id: 'row:' + i, k: 'say', text: 'Transcript row ' + i + ' ' + 'message '.repeat(12), at: null,
   })), reply: { live: true, composer: 'ready' }, ticket: { agent: { state: 'active', name: 'Worker' } } })
+  await page.locator('.cv-preamble > summary').click()
   await expect(page.locator('#cv-in textarea')).toBeVisible()
   await expect(page.locator('#cv-log [data-eid="row:39"]')).toHaveCount(1)
 })

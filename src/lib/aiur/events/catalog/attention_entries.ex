@@ -8,6 +8,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
   @alerts [
     # aiur/landing_watch/held_approval.ex
     {"ticket.*.agent.attention.approved_pr_not_armed_for_merge", "orchestration"},
+    # aiur/orchestrator/reconciler/reactivation.ex
+    {"ticket.*.agent.attention.before_run_resume_exhausted", "orchestration"},
     # aiur/orchestrator/retry_engine/hold_streak.ex
     {"ticket.*.agent.attention.budget-hold-persistent", "orchestration"},
     # aiur/orchestrator/comment_wake/dispatch.ex

@@ -45,6 +45,11 @@ const outputs = [
     ignoreMinAndMaxItems: true,
   },
   {
+    name: 'BuildOrderContract',
+    target: new URL('../src/build-order.generated.ts', import.meta.url),
+    refs: ['build-order.v1.schema.json'],
+  },
+  {
     name: 'TicketSpendCapContract',
     target: new URL('../src/spend-cap.generated.ts', import.meta.url),
     refs: [

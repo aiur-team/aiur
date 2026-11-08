@@ -181,6 +181,10 @@ if config_env() == :test do
   # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
   config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
+  # The label catalogue refreshes hourly against GitHub. The shared test app starts the
+  # process so its table exists, but no test may dial for it; cases drive `refresh/1`
+  # with an injected request function.
+  config :aiur, :label_catalogue_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available

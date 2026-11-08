@@ -14,9 +14,9 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider icons from `priv/static` before router dispatch. Explicit allowlists keep the dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and font files use long-lived caching, and provider icons derive from the coding-agent registry.
 
-On `/build`, epic columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their epic colour without keeping an empty epic column. Feature focus follows its visible tickets.
+On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets.
 
-Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = epic”.
+Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”. On touch, one finger scrolls the page, two fingers pan the board, and a pinch sets the zoom percent.
 
 If individual Build rows fail validation, Aiur omits those rows and shows how many are unavailable; the remaining board is marked partial.
 
@@ -24,7 +24,7 @@ Planned and running estimates use complexity defaults of 1, 2, 4, 7 and 11 hours
 
 The Live band ETA sums planned hours and divides by the observed runtime agent cap; `≥` marks running work, a partial queue or missing estimates. A stale cap is labelled. Use [`aiur ticket estimate`](../reference/cli.md#decisions-executor-events-and-findings) to inspect or correct an estimate.
 
-Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
+Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, lane, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
 
 ## Ticket timeline
 
@@ -67,6 +67,11 @@ tick to jump and highlight that event; hover for its label and time. Focus the
 conversation to scroll with the keyboard. The working indicator appears only
 for an active agent with live conversation state and a live dashboard link.
 
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
 ### Conversation event navigation
 
 At `/conversations/:id`, use the Events rail to jump to progress, pushes,
@@ -94,31 +99,33 @@ markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
 
 
-The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
+The Build toolbar filters by Lane, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL as `lane=`, and the pre-rename `epic=` parameter still loads and is rewritten to `lane=` in the address bar.
 
-Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
+Lane hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
 
 Tickets closed as not planned are hidden by default. Choose **Not planned** in the Ticket group to show them. **Clear** restores the default view. Escape closes a filter popover and returns focus to its button.
+
+**Build order** renders the published document's review and graph through the `aiur-build-order` package; its `sources.*.status` draws its stale and unknown banners.
 
 ### Build timeline range
 
 On the build timeline, Day, Week and Month set the visible range; − and + step
-through 1–30 days. The span is kept in the link. Range controls are hidden in
-List view and return when you switch to Timeline or Gantt.
+through 1–30 days. The span is kept in the link. List and Build order hide the
+range controls; Timeline and Gantt restore them.
 
-In List view, **List shows** switches between Tickets, Features and Epics. The
-selection is kept in the `list` link parameter; `tickets` is the default and
-omitted.
+In List view, **List shows** switches between Tickets, Features and Lanes. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A bookmark with `list=epics` still opens the Lanes list.
 
-Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Merged means closed with a merged PR, or closed as done without a PR. Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them.
+A one-line summary above the rows shows the same total and the viewer's local date; the list has no title or card and starts directly under the toolbar.
 
-Rows follow [`feature_order`](../reference/configuration-build-order.md). Sort by most done or most left stays in `fsort`. The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+Each registry feature and `feature:<slug>` label in history gets a row with its name, merged/total, and progress bar. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
 
-Epics counts matching general epics, including feature-owned tickets, so totals
-overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
-tickets. Planned pack tickets without area labels are excluded; incomplete
-history or labels stay unknown. With no matches, see
-[`general_epics`](../reference/configuration-build-order.md#general-epics).
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label (logical ids such as `MP-E1` stripped), then the label description, then the title-cased slug. Descriptions come from the repository's label list, read hourly, so fully merged features keep their names.
+
+Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
+
+Sort is remaining, then name; age is shown. Footer counts unmatched tickets. Planned pack tickets without area labels are excluded; incomplete history or labels stay unknown. With no matches, see [`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -137,6 +144,12 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With an `openrouter:` route configured, the provider row shows the key's
+remaining credit against the limit it was bought with, and
+`aiur usage openrouter` lists each route's spend per route and model beside that
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
+the row reports an unknown reading rather than zero credit.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Exercise the merge-group-only affected-test runner path."""
+import importlib.util
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 
 SCRIPT = Path(__file__).with_name('run-ci-affected-tests.py')
+RUNNER_SPEC = importlib.util.spec_from_file_location('merge_group_runner', SCRIPT)
+RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
+RUNNER_SPEC.loader.exec_module(RUNNER)
 
 
 class MergeGroupSelectionTest(unittest.TestCase):
@@ -115,6 +120,21 @@ class MergeGroupSelectionTest(unittest.TestCase):
                                                  GITHUB_STEP_SUMMARY=str(summary)))
                 self.assertNotEqual(result.returncode, 0)
                 self.assertRegex(summary.read_text(), r'merge-group time-bomb rerun: 1 dated test files, [0-9.]+s')
+                # The rerun's own ::error:: only shows up as a check annotation, so the
+                # runner prints its own line into the step log (#7545).
+                stderr = result.stderr.decode()
+                self.assertIn('::error::affected-tests merge-group time-bomb rerun failed:', stderr)
+                self.assertIn('scripts/check-test-time-bombs.py exited non-zero for 1 changed test file(s)', stderr)
+                self.assertIn('test/changed_test.exs', stderr)
+                self.assertIn('fixture date moved 35 days back', stderr)
+                self.assertIn('not a timeout (#7545)', stderr)
+
+        def test_time_bomb_shift_matches_the_check_script_default(self):
+            check = SCRIPT.with_name('check-test-time-bombs.py').read_text(encoding='utf-8')
+            default = re.search(r"add_argument\('--days', type=int, default=(\d+)\)", check)
+            self.assertIsNotNone(default, 'check-test-time-bombs.py declares a --days default')
+            self.assertEqual(int(default.group(1)), RUNNER.TIME_BOMB_SHIFT_DAYS,
+                             'the runner names the same shift the check script applies (#7545)')
 
 
 

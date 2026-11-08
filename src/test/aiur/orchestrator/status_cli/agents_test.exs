@@ -34,6 +34,29 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "agent:ci-wait,agent:ci-red"
     end
 
+    test "prints the skills a worker loaded first and why", %{orchestrator: pid} do
+      agent =
+        "issue-skills"
+        |> running_entry("repo#sk", :working)
+        |> Map.put(:session_execution, %{skills: "skills: pixel-art (lane:art), palette (lane:art)"})
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-skills" => agent}} end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "skills: pixel-art (lane:art), palette (lane:art)"
+    end
+
+    test "prints no skills suffix for a worker that reported none", %{orchestrator: pid} do
+      agent = "issue-noskills" |> running_entry("repo#ns", :working) |> Map.put(:session_execution, %{backend: "claude"})
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-noskills" => agent}} end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      refute output =~ "skills:"
+    end
+
     test "prints empty table when no agents are running" do
       output = capture_io(fn -> AgentControlCLI.agents() end)
 
@@ -250,6 +273,25 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "#46"
       assert output =~ "(paused: label override)"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "renders pending item ids as numbers when every id is a printable byte (#7530)", %{orchestrator: pid} do
+      # `[10]` and `[13, 62]` are all printable bytes, so a bare `inspect/1`
+      # reads them as charlists (`~c"\n"`, `~c"\r>"`) instead of ids.
+      for {ids, rendered} <- [{[10], "[10]"}, {[13, 62], "[13, 62]"}] do
+        fenced =
+          "issue-7530"
+          |> running_entry("repo#7530", :working)
+          |> Map.put(:lifecycle_fence, %{pending_item_ids: MapSet.new(ids), opened_at: DateTime.utc_now()})
+
+        :sys.replace_state(pid, fn state -> %{state | running: %{"issue-7530" => fenced}} end)
+
+        output = capture_io(fn -> AgentControlCLI.agents() end)
+
+        assert output =~ " · active · LifecycleFence"
+        assert output =~ "pending_item_ids=#{rendered}"
+        refute output =~ "pending_item_ids=~c"
+      end
     end
 
     test "falls back to last_codex_message, then to a placeholder, and collapses long activity", %{orchestrator: pid} do

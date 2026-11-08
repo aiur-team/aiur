@@ -257,7 +257,7 @@ test('client guards malicious numbers, missing epic and feature keys', async ({ 
   const warnings = []; page.on('console', msg => { if (msg.type() === 'warning') warnings.push(msg.text()) })
   await page.evaluate(() => {
     inject('9001', { cx: 9, num: '1<b>', epic: 'ghost-epic', pct: '50%;background:red' })
-    ctx.D.epics.bugs.hue = '1);x'; S.feature = 'ghost-feature'
+    ctx.D.lanes.bugs.hue = '1);x'; S.feature = 'ghost-feature'
   })
   let card = await draw(page, '9001'); await draw(page, '9001')
   await expect(card).toHaveClass(/unsorted/); await expect(card.locator('.bd-id')).toHaveText('#—')

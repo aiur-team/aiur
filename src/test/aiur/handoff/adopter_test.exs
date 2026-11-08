@@ -275,6 +275,36 @@ defmodule Aiur.Handoff.AdopterTest do
     refute_receive :resumed_before_consume, 20
   end
 
+  test "an in-daemon record with no model anywhere falls back naming :missing_model", %{dir: dir} do
+    workspace = Path.join(Aiur.Config.workspace_root(), "adopter-in-daemon-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    assert :ok = Record.write(record([in_daemon_agent(workspace, "one")]), dir: dir)
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: fn agent, generation, recipient, opts ->
+            send(recipient, {:handoff_adopted, self(), Runner.attach(agent, generation, opts)})
+          end,
+          api_key_fetcher: fn _env -> "test-key" end,
+          backend_config: %{},
+          issue_state_fetcher: fn ["one"] ->
+            {:ok, [%Aiur.Issue{id: "one", identifier: "one", title: "existing", state: "done"}]}
+          end
+        )
+      )
+
+    assert state.running == %{}
+
+    # The cause still reaches the operator-facing report: this record carries no
+    # model and the backend config names none.
+    assert {:ok, %{adopted: [], fallback: [outcome]}} = Report.latest(dir: dir)
+    assert outcome["reason"] == ":missing_model"
+  end
+
   test "compatibility checks protocol, identity and loss before mutable configuration", %{dir: dir} do
     agent = agent(dir, "one")
     opts = options(dir)
@@ -315,6 +345,19 @@ defmodule Aiur.Handoff.AdopterTest do
       "running_entry" => Runner.encode(entry),
       "transport" => Map.merge(hello(), %{"kind" => "relay", "directory" => dir}),
       "dispatch_attempts" => Runner.encode(%{attempts: 3})
+    }
+  end
+
+  defp in_daemon_agent(workspace, id) do
+    provider_state = %{"thread_id" => "thread-#{id}", "turn_index" => 0, "next_request_id" => 1, "messages" => [], "interrupted" => false}
+
+    %{
+      "issue_id" => id,
+      "identifier" => id,
+      "workspace" => workspace,
+      "backend" => "openrouter",
+      "running_entry" => Runner.encode(%{identifier: id, session_id: "session-#{id}", worker_host: nil}),
+      "transport" => %{"kind" => "in_daemon", "provider_state" => Runner.encode(provider_state)}
     }
   end
 

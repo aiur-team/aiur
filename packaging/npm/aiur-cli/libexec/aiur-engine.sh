@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all gateway node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -77,6 +77,7 @@ usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
+       aiur --gateway <name|label|id|all|local> <command>  like --instance, matching a registry name, label or gateway id
        aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
@@ -90,10 +91,11 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
        aiur command [<decision-id> [--option id|--custom-response text [--relayed --quote words]]]  list open, show, or answer a Command
-       aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur command request <question> [--option id=label]… [--media file|https-url[,kind=,alt=,caption=,option=]]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
+       aiur commands [repair | <decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-ack <decision-id> [--executor-id <id>]
+       aiur executor-claim-decision|executor-release-decision <decision-id> --as <executor> [--ttl <seconds>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -102,20 +104,27 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; queue add also accepts --json for per-ticket outcomes
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
-       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
-       aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
-       aiur epic clear <ids...> [--as <who>] [--json]
-       aiur epic confirm <ids...> [--epic <key>] [--as <who>] [--json]
-       aiur epic show [<ids...>] [--unconfirmed] [--json]
+       aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
+       aiur lane clear <ids...> [--as <who>] [--json]
+       aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
+       aiur lane show [<ids...>] [--unconfirmed] [--json]
+       aiur lane list [--json]
+       aiur epic set|clear|confirm ...  deprecated alias for aiur lane
+       aiur epic create <slug> --label <text> [--icon <heroicon>] [--hue <0-359>] [--root <n>] [--as <who>] [--json]
+       aiur epic edit <slug> [--label <text>] [--icon <heroicon>] [--hue <0-359>] [--as <who>] [--json]
+       aiur epic add <slug> <feature...> [--as <who>] [--json]
+       aiur epic remove <slug> <feature...> [--as <who>] [--json]
+       aiur epic show [<slug>] [--json]
        aiur epic list [--json]
-       aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label> --epic-icon <key>=<heroicon>]... [--as <who>] [--json]
-       aiur feature add <slug> <ids...> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]
+       aiur feature create <slug> --label <text> [--hue <0-359>] [--lane <key>=<label> --lane-icon <key>=<heroicon>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--in <epic>] [--as <who>] [--json]
+       aiur feature add <slug> <ids...> [--lane <key>] [--epic-hue <key>=<gruvbox-name or 0-359>] [--move] [--source backfill-agent] [--as <who>] [--json]
        aiur feature remove <slug> <ids...> [--as <who>] [--json]
        aiur feature also <slug> <ids...> [--remove] [--as <who>] [--json]
        aiur feature baseline <slug> [--replace] [--as <who>] [--json]
-       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--epic-icon <key>=<heroicon>]... [--as <who>] [--json]
+       aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-lane <key>=<label>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--lane-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
@@ -153,6 +162,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
+       aiur redispatch <ids> [--backend <backend>]  restart a ticket on current routing or a selected backend
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
@@ -198,22 +208,10 @@ dispatch_run() {
   run_session "$mode" "${args[@]+"${args[@]}"}"
 }
 aiur_engine_main() {
-  # Only an explicit first-argument flag may select a remote target. Clear any
-  # inherited value before parsing so a leaked shell variable cannot redirect
-  # a direct shared-engine invocation.
-  unset AIUR_REMOTE_INSTANCE
-  case "${1:-}" in
-    --instance)
-      [ "$#" -gt 1 ] && [ -n "${2:-}" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
-      export AIUR_REMOTE_INSTANCE="$2"
-      shift 2
-      ;;
-    --instance=*)
-      export AIUR_REMOTE_INSTANCE="${1#--instance=}"
-      [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
-      shift
-      ;;
-  esac
+  # Only explicit leading flags may select a remote target (an inherited value is
+  # cleared first) or name a request id; see engine/remote_request_id.sh.
+  aiur_parse_remote_flags "$@" || return $?
+  shift "$AIUR_FLAGS_CONSUMED"
 
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
@@ -315,9 +313,8 @@ aiur_engine_main() {
       shift
       cmd_operator_relay_answer "$@"
       ;;
-    executor-ack)
-      shift
-      cmd_executor_ack "$@"
+    executor-ack | executor-claim-decision | executor-release-decision)
+      if [ "$1" = executor-ack ]; then shift; cmd_executor_ack "$@"; else cmd_executor_claim_decision "$@"; fi
       ;;
     executor-answer)
       shift
@@ -339,15 +336,13 @@ aiur_engine_main() {
       shift
       cmd_executor_moot "$@"
       ;;
-    units)
-      shift
-      cmd_units "$@"
-      ;;
+    units) shift; cmd_units "$@" ;;
     queue)
       shift
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
     build-orders)
@@ -432,10 +427,8 @@ aiur_engine_main() {
         *) cmd_pause_resume "$cmd" "$@" ;;
       esac
       ;;
-    reset-budget)
-      shift
-      cmd_reset_budget "$@"
-      ;;
+    redispatch) shift; cmd_redispatch "$@" ;;
+    reset-budget) shift; cmd_reset_budget "$@" ;;
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
@@ -485,6 +478,7 @@ aiur_engine_main() {
 }
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-daemon-supervisor.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-queue.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/aiur-lane.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-epic.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-feature.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/aiur-capabilities.sh"

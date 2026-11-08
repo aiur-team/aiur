@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStore.Answers do
   require Logger
 
   alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.Media
   alias Aiur.Commands.NativeAnswer
   alias Aiur.Commands.Overrides
   alias Aiur.Commands.Requester
@@ -11,6 +12,7 @@ defmodule Aiur.DecisionStore.Answers do
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
+  alias Aiur.DecisionStore.Claims
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Persistence
@@ -20,7 +22,8 @@ defmodule Aiur.DecisionStore.Answers do
   def handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts),
-         :ok <- require_relay_enabled(actor, state) do
+         :ok <- require_relay_enabled(actor, state),
+         :ok <- Claims.check_actor(decision, actor, DateTime.utc_now()) do
       accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
@@ -146,6 +149,7 @@ defmodule Aiur.DecisionStore.Answers do
              decision_id: request.decision_id,
              decision_version: decision_version,
              options: options,
+             command_media: Media.index(request.media, options),
              actor: actor,
              supervisor_basis: Keyword.get(opts, :supervisor_basis),
              ticket_comment_pending?: true,

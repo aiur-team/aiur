@@ -288,14 +288,23 @@ reference "$root" <<'EOF'
 | `agent.backend_configs.<backend>.management_api_key_env` | string | registry default | Management key environment name. |
 | `agent.backend_configs.<backend>.transport` | string | registry default | Transport. |
 | `agent.backend_configs.<backend>.balance_baseline` | number | nil | Balance seed. |
+| `agent.backend_configs.<backend>.max_output_tokens` | integer | 16000 | Output-token cap. |
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | registry default | Reasoning replay. |
 | `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | registry default | Text tool fallback. |
 | `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | registry default | OpenRouter metadata. |
 | `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | registry default | Local concurrency. |
 | `agent.backend_configs.openrouter.provider.order` | array | nil | Provider order. |
+| `agent.backend_configs.openrouter.provider.only` | array | nil | Allowed providers. |
 | `agent.backend_configs.openrouter.provider.ignore` | array | nil | Ignored providers. |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean | nil | Provider fallback. |
 | `agent.backend_configs.openrouter.provider.sort` | string | nil | Provider sorting. |
+| `agent.backend_configs.openrouter.provider.max_price` | map | nil | Price cap. |
+| `agent.backend_configs.openrouter.provider.quantizations` | array | nil | Quantizations. |
+| `agent.backend_configs.openrouter.provider.data_collection` | string | nil | Data collection policy. |
+| `agent.backend_configs.openrouter.provider.require_parameters` | boolean | nil | Require parameters. |
+| `agent.backend_configs.openrouter.routes` | map | `%{}` | Per-route overrides. |
+| `agent.backend_configs.openrouter.routes.<route>.provider` | map | nil | Per-route provider preferences. |
+| `agent.backend_configs.openrouter.routes.<route>.models` | array | nil | Per-route model set. |
 EOF
 if ! output="$(run_check "$root")"; then
   fail "a fully documented known map shape should pass, got: $output"
@@ -315,14 +324,23 @@ map_subkeys=(
   'agent.backend_configs.<backend>.management_api_key_env'
   'agent.backend_configs.<backend>.transport'
   'agent.backend_configs.<backend>.balance_baseline'
+  'agent.backend_configs.<backend>.max_output_tokens'
   'agent.backend_configs.<backend>.quirks.reasoning_content_replay'
   'agent.backend_configs.<backend>.quirks.text_tool_fallback'
   'agent.backend_configs.<backend>.quirks.openrouter_metadata'
   'agent.backend_configs.<backend>.quirks.local_concurrency_limit'
   'agent.backend_configs.openrouter.provider.order'
+  'agent.backend_configs.openrouter.provider.only'
   'agent.backend_configs.openrouter.provider.ignore'
   'agent.backend_configs.openrouter.provider.allow_fallbacks'
   'agent.backend_configs.openrouter.provider.sort'
+  'agent.backend_configs.openrouter.provider.max_price'
+  'agent.backend_configs.openrouter.provider.quantizations'
+  'agent.backend_configs.openrouter.provider.data_collection'
+  'agent.backend_configs.openrouter.provider.require_parameters'
+  'agent.backend_configs.openrouter.routes'
+  'agent.backend_configs.openrouter.routes.<route>.provider'
+  'agent.backend_configs.openrouter.routes.<route>.models'
 )
 reference_file="$root/website/docs-app/reference/configuration.md"
 cp "$reference_file" "$root/complete-reference.md"

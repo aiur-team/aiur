@@ -9,7 +9,7 @@ defmodule AiurWeb.Streamdeck.SettingsResultTest do
     saved = %{settings: Map.put(Settings.defaults(), "default_view", "epic")}
     applied = SettingsUpdates.apply_result(nav, %{"default_view" => "epic"}, {:ok, saved})
     assert applied.result == :ok
-    assert applied.nav.view == :epic
+    assert applied.nav.view == :lane
     assert applied.nav.stack == []
     assert applied.nav.drill_pages == []
     assert applied.nav.scroll == 0

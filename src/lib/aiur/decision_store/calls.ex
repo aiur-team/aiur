@@ -10,6 +10,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Enrichment
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.JournalRepair
   alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Requests
@@ -36,6 +37,8 @@ defmodule Aiur.DecisionStore.Calls do
   end
 
   def handle_call(:await_failure_attention_reprojection, _from, state), do: {:reply, :ok, state}
+
+  def handle_call(:repair_journal, _from, state), do: JournalRepair.handle_call(state)
 
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}

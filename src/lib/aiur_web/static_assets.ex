@@ -15,6 +15,7 @@ defmodule AiurWeb.StaticAssets do
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
   @revalidated_static_paths ~w(
+    aiur-build-order
     aiur-style
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js

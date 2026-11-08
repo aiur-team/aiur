@@ -87,8 +87,11 @@ leaves the state unchanged when no PR head moved.
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
-push starts fresh checks. A rework handback without a push leaves those runs
-cancelled, and CI recovery raises an attention for that head.
+push starts fresh checks.
+
+A rework handback without a push leaves those runs cancelled: an approved head's
+runs are rerun once so auto-merge can queue, and otherwise CI recovery raises an
+attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -159,12 +162,12 @@ state, or `todo` if only a released claim survives. Parked or untriaged tickets
 without it are alerted and left alone. An open workflow ticket with no live
 agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+Agents use `aiur_set_lane` for local lane overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
 marks an unconfirmed guess.
 
 `aiur_history_export` gives only `history-backfill`
-tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [epic commands](../reference/cli.md#build-history-epic-commands).
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [lane commands](../reference/build-history-commands#lanes).
 
 ### Model labels
 
