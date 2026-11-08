@@ -437,7 +437,7 @@ reloading the page.
 
 The event navigation lists progress, pushes, PRs and Commands. Select an event
 to jump to and highlight its transcript position. Filter chips include CI and
-reviews when needed. **Approximate position** means the event was observed near
+reviews. **Approximate position** means the event was observed near
 that entry; it does not claim an exact causal match. On phones the event list sits above the transcript and scrolls independently.
 
 `/conversations/:conversation_id` opens the durable conversation page. Read-only
@@ -495,5 +495,5 @@ Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive). Sessions contain no
 
 Conversation text can contain secrets. Body and output are masked by default;
 `reveal=true` is honored only for an authenticated operator connecting from
-loopback. Device principals and client tokens always remain masked. Basic Auth is refused
+loopback. Device principals and client tokens stay masked. Basic Auth is refused
 on public binds. Treat revealed content as sensitive. Write verbs return 405; sends continue through the listener path.
