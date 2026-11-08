@@ -95,3 +95,16 @@ test('pinching in lowers the zoom percent and pinching out raises it', async ({ 
   await drag(page, [[x - 20, y], [x + 20, y]], [[x - 90, y], [x + 90, y]])
   expect(parseInt(await percent(page))).toBeGreaterThan(lowered)
 })
+
+// #7774's fixed Executor footer bar sits over the page bottom above the phone nav; the board must leave room for it.
+// Height, not position: the fixture page's end clamps the scroll a few px short of aligning the board top.
+test('the section height leaves room for a fixed Executor footer bar', async ({ page }) => {
+  const h = await page.evaluate(() => {
+    const nav = document.querySelector('.sidenav').getBoundingClientRect().height
+    const top = document.querySelector('.topnav, header, .app-header')?.getBoundingClientRect().height ?? 56
+    document.body.insertAdjacentHTML('beforeend', `<aside class="executor-footer" style="position:fixed;left:0;right:0;bottom:${nav}px"><div class="executor-footer__bar" style="height:44px"></div></aside>`)
+    window.dispatchEvent(new Event('resize'))
+    return { board: document.querySelector('#build-root .bd-board').getBoundingClientRect().height, want: innerHeight - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-top')) - nav - 44 }
+  })
+  expect(Math.abs(h.board - h.want)).toBeLessThanOrEqual(1)
+})

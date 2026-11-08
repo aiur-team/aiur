@@ -14,10 +14,13 @@ function wireInsets(life) {
   const set = () => {
     const fixedNav = nav && getComputedStyle(nav).position === 'fixed';
     st.setProperty('--app-top', (top ? top.getBoundingClientRect().height : 0) + 'px');
-    st.setProperty('--app-bottom', (fixedNav ? nav.getBoundingClientRect().height : 0) + 'px');
+    // #7774's fixed Executor footer bar also sits over the page bottom (above the phone nav).
+    const bar = document.querySelector('.executor-footer__bar');
+    const fixedBar = bar && getComputedStyle(bar.closest('.executor-footer')).position === 'fixed';
+    st.setProperty('--app-bottom', (fixedNav ? nav.getBoundingClientRect().height : 0) + (fixedBar ? bar.getBoundingClientRect().height : 0) + 'px');
   };
   set();
-  for (const el of [top, nav]) if (el) life.observe(el, set);
+  for (const el of [top, nav, document.querySelector('.executor-footer__bar')]) if (el) life.observe(el, set);
   life.on(window, 'resize', set);
   life.cleanup(() => { st.removeProperty('--app-top'); st.removeProperty('--app-bottom'); });
 }
