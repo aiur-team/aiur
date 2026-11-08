@@ -2,6 +2,7 @@ defmodule AiurWeb.GatewayHelloControllerTest do
   use Aiur.TestSupport
   import Phoenix.ConnTest
   import Plug.Conn
+  alias Aiur.Gateway.Invites
   alias AiurWeb.Endpoint
   @endpoint Endpoint
 
@@ -28,6 +29,20 @@ defmodule AiurWeb.GatewayHelloControllerTest do
     assert Enum.sort(Map.keys(body)) == Enum.sort(~w(gateway_id gateway_label build tls_fingerprint_sha256 enrollment))
     assert body["enrollment"] == "closed"
     assert get_resp_header(conn, "cache-control") == ["no-store"]
+  end
+
+  test "enrollment is open exactly while an unused, unexpired invite exists" do
+    path = Path.join(System.tmp_dir!(), "hello-invites-#{System.unique_integer([:positive])}.json")
+    Application.put_env(:aiur, :gateway_invites_path, path)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :gateway_invites_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    assert json_response(get(build_conn(), @path), 200)["enrollment"] == "closed"
+    {:ok, _} = Invites.create(["read"], 600)
+    assert json_response(get(build_conn(), @path), 200)["enrollment"] == "open"
   end
 
   @tag hello: false
