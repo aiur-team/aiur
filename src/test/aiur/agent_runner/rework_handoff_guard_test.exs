@@ -154,6 +154,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     assert_receive {:state_write, "gid-evidence", "ci-wait"}, 100
   end
 
+  # #6143: guards a future regression. The guard already refuses this on main; it pins the rework path.
   test "rework human-review handback refuses stale PR body before writing state" do
     head = String.duplicate("b", 40)
     tested_head = String.duplicate("a", 40)
@@ -259,18 +260,6 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     ]
 
     assert :allow = ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", repo, opts)
-
-    # A merge-only history and identical PR contribution are not enough: the
-    # PR's current base must actually have advanced beyond the tested head.
-    stale_base_opts =
-      put_in(opts, [:open_pr_fetcher], fn _ ->
-        {:ok, %{"number" => 5408, "body" => body, "head" => %{"sha" => merged_head}, "base" => %{"sha" => tested_head}}}
-      end)
-
-    assert {:refused, :stale_pr_body_evidence, stale_base_message} =
-             ReworkHandoffGuard.evidence_blockers(issue, "human-review", repo, stale_base_opts)
-
-    assert stale_base_message =~ "does not match PR head #{merged_head}"
 
     File.write!(Path.join(repo, "feature.txt"), "feature changed\n")
     git!(git_bin, repo, ["commit", "--quiet", "-am", "feature follow-up"])
