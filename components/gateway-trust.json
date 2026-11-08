@@ -5,9 +5,12 @@
   "kind": "in-app",
   "paths": [
     "packaging/npm/aiur-cli/libexec/aiur-gateway.sh",
+    "packaging/npm/aiur-cli/libexec/engine/gateway_enroll.sh",
     "src/lib/aiur/gateway/cli.ex",
     "src/lib/aiur/gateway/grant_confirmation.ex",
-    "src/lib/aiur/gateway/grant_request.ex"
+    "src/lib/aiur/gateway/grant_request.ex",
+    "src/lib/aiur/gateway/invites.ex",
+    "src/lib/aiur_web/controllers/gateway_enroll_controller.ex"
   ],
   "facades": [
     "Aiur.Gateway.Cli",

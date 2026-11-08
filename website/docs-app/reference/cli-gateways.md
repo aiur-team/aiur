@@ -27,11 +27,17 @@ The permission commands edit the local file only. Over `--gateway` or `--instanc
 | `aiur gateway remove <peer>` | Deletes the registry entry and revokes every client token bound to the peer. An unknown peer exits 66. | `aiur gateway remove nook` |
 | `aiur gateway rotate <peer>` | Run on the side that issued the token. Mints a new token and prints it once; the old one works for 10 minutes, then is revoked and dropped from `allows.credentials`. Move the new token with `gateway register`. | `aiur gateway rotate nook` |
 
-On B, a valid enrolment burns the invite, creates a token bound to A's gateway id and adds A to the registry with `read`. Any invited write category becomes a Decision you must confirm signed in (see below); `join` prints `pending on <n>: …`. Mutual trust needs an invite in each direction. The enrol route allows 5 refusals a minute per remote IP, then answers 429 even for a correct secret; unknown id and wrong secret return the same 401.
+On B, a valid enrolment burns the invite, creates a token bound to A's gateway id and adds A to the registry with `read`.
+
+Any invited write category becomes a Decision you must confirm signed in (see below), and `join` prints `pending on <n>: …`. Mutual trust needs an invite in each direction.
+
+The enrol route allows 5 refusals a minute per remote IP, then answers 429 even for a correct secret. Unknown id and wrong secret return the same 401.
 
 With no pin, `join` trusts whatever certificate answers at the URL; the secret is single-use and the new peer starts read-only. If B enrolled A but the answer was lost, run `aiur gateway remove <peer>` on B and issue a new invite.
 
-All five are local: over `--gateway` or `--instance` they exit 64 with `<command> is local to the gateway it changes`. Hello reports `enrollment: open` while an unused, unexpired invite exists, and `tls_fingerprint_sha256` is `server.tls_pin_sha256` or `null`. Audit events add `enrolled`, `enroll_refused`, `invite_created`, `peer_removed` and `token_rotated`.
+All five are local: over `--gateway` or `--instance` they exit 64 with `<command> is local to the gateway it changes`.
+
+Hello reports `enrollment: open` while an unused, unexpired invite exists, and `tls_fingerprint_sha256` is `server.tls_pin_sha256` or `null`. Audit events add `enrolled`, `enroll_refused`, `invite_created`, `peer_removed` and `token_rotated`.
 
 ## Categories
 
