@@ -43,7 +43,7 @@ defmodule Aiur.Orchestrator.PrevalidatedDispatchDependencyTest do
         emit_alert_fun: fn topic, _opts -> send(parent, {:alert, topic}) end
       )
 
-    assert_receive {:alert, "ticket.7645.agent.attention.startup_orphan_claim_released"}, 1000
+    assert_receive {:alert, "ticket.7645.agent.attention.orphan_claim_released"}, 1000
     assert released.blocked_by == []
 
     hydrator = fn issue -> {:ok, %{issue | blocked_by: [open_blocker()]}} end
@@ -58,5 +58,19 @@ defmodule Aiur.Orchestrator.PrevalidatedDispatchDependencyTest do
              Dispatcher.dispatch_prevalidated_issue(state(), cold_issue(), blocked_by_hydrator: fn _ -> {:error, :cache_miss} end)
 
     refute MapSet.member?(next.claimed, "7645")
+  end
+
+  test "do_dispatch_issue records a decline when the blocker read fails" do
+    hydrator = fn _ -> {:error, :boom} end
+    next = Dispatcher.do_dispatch_issue(state(), cold_issue(), nil, nil, blocked_by_hydrator: hydrator)
+    assert next.dispatch_declines["7645"] == :dependency_hydration_failed
+    assert next.running == %{}
+  end
+
+  test "do_dispatch_issue records a dependency decline for an open blocker" do
+    hydrator = fn issue -> {:ok, %{issue | blocked_by: [open_blocker()]}} end
+    next = Dispatcher.do_dispatch_issue(state(), cold_issue(), nil, nil, blocked_by_hydrator: hydrator)
+    assert next.dispatch_declines["7645"] == :dependency
+    assert next.running == %{}
   end
 end

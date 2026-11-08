@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.ListenerModes
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
@@ -97,9 +98,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
       {:ok, checked} ->
         SharedLeaseDispatch.dispatch(state, checked, attempt, preferred_worker_host, opts, &dispatch_to_worker/5)
 
-      {:error, reason} ->
-        Logger.info("Skipping dispatch; dependency gate #{reason}: #{State.issue_context(issue)}")
-        state
+      {:error, :waiting_for_dependencies} ->
+        Logger.info("Skipping dispatch; open blocker: #{State.issue_context(issue)}")
+        Candidates.emit_dispatch_attempt_decline(state, issue, :dependency, false)
+
+      {:error, {:dependency_hydration_failed, reason}} ->
+        Logger.warning("Skipping dispatch; blocked-by read failed (fail-closed): #{State.issue_context(issue)}: #{inspect(reason)}")
+        decline = HoldDecline.classify(issue, {:error, reason}, :dependency_hydration_failed)
+        Candidates.emit_dispatch_attempt_decline(state, issue, decline, true)
     end
   end
 

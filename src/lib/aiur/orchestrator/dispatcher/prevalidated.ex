@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Prevalidated do
   alias Aiur.Tracker
 
   @doc false
-  @spec check(term(), keyword()) :: {:ok, term()} | {:error, :waiting_for_dependencies | :dependency_hydration_failed}
+  @spec check(term(), keyword()) :: {:ok, term()} | {:error, :waiting_for_dependencies | {:dependency_hydration_failed, term()}}
   def check(%Issue{} = issue, opts) do
     if Keyword.get(opts, :dependency_checked, false) do
       {:ok, issue}
@@ -33,7 +33,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Prevalidated do
       else: {:ok, hydrated}
   end
 
-  defp gate(_unknown), do: {:error, :dependency_hydration_failed}
+  defp gate({:error, reason}), do: {:error, {:dependency_hydration_failed, reason}}
+  defp gate(other), do: {:error, {:dependency_hydration_failed, other}}
 
   @doc false
   @spec dispatch_prevalidated_issue(State.t(), Issue.t(), keyword()) ::
@@ -41,6 +42,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Prevalidated do
   def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue, opts \\ []) do
     case check(issue, opts) do
       {:ok, hydrated} -> Launch.dispatch_prevalidated_issue(state, hydrated)
+      {:error, {:dependency_hydration_failed, _}} -> {{:error, :dependency_hydration_failed}, state}
       {:error, reason} -> {{:error, reason}, state}
     end
   end
