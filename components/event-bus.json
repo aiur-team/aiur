@@ -92,6 +92,7 @@
     "Aiur.JsonStore",
     "Aiur.JsonStore.*",
     "Aiur.OpaqueIdentifier",
+    "Aiur.Project",
     "Aiur.TrackerIdentity"
   ],
   "requires": [
