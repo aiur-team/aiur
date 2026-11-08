@@ -8,14 +8,13 @@ defmodule Aiur.DecisionStore.Siblings do
 
   alias Aiur.Commands.Tags
   alias Aiur.Decision
+  alias Aiur.DecisionAnswer
   alias Aiur.DecisionStore.Persistence
 
-  # #7779 records a host rejection as an answer flagged `rejected`; Map.get
-  # keeps this independent of that field until it lands.
-  @spec moot_if_rejected(map(), Decision.t(), map()) :: map()
-  def moot_if_rejected(state, decision, answer) do
-    if Map.get(answer, :rejected) == true, do: moot_after_rejection(state, decision), else: state
-  end
+  # A host rejection is recorded as an answer flagged `rejected`.
+  @spec moot_if_rejected(map(), Decision.t(), DecisionAnswer.t()) :: map()
+  def moot_if_rejected(state, decision, %DecisionAnswer{rejected: true}), do: moot_after_rejection(state, decision)
+  def moot_if_rejected(state, _decision, _answer), do: state
 
   @spec moot_after_rejection(map(), Decision.t()) :: map()
   def moot_after_rejection(state, %Decision{} = rejected) do
