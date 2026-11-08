@@ -70,6 +70,7 @@ defmodule AiurWeb.CommandsApiControllerTest do
 
   test "answer forwards feedback and a rejected feedback is a 422" do
     feedback = [%{"option_id" => "a", "verdict" => "like"}]
+    # Same shape HostApi.answer returns for a store-refused feedback (pinned in host_api_test.exs).
     Process.put({FakeHostApi, :answer}, {:error, {:invalid_answer, {:feedback, :unknown_option}}})
 
     conn = scoped_conn(:post) |> CommandsApiController.answer(%{"decision_id" => "dec_1", "option_id" => "a", "feedback" => feedback})
