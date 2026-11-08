@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   require Logger
   alias Aiur.{JsonStore, Signal}
   alias Aiur.Orchestrator.{DispatchPolicy, OptimisticIntegration, OptimisticLedgerTelemetry}
+  alias Aiur.Project.Context
+  alias Aiur.Project.Table
 
   @table :aiur_optimistic_starts
   @retention_ms 14 * 86_400_000
@@ -80,7 +82,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   end
 
   defp records do
-    case {GenServer.whereis(Aiur.Project.whereis(__MODULE__)), :ets.lookup(Aiur.Project.Table.ref(@table), :records)} do
+    case {GenServer.whereis(Aiur.Project.whereis(__MODULE__)), :ets.lookup(Table.ref(@table), :records)} do
       {pid, [{:records, :available, rows}]} when is_pid(pid) -> {:ok, rows}
       _ -> {:error, :ledger_unavailable}
     end
@@ -99,7 +101,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @impl true
   def init(opts) do
     Aiur.Project.adopt(opts)
-    Aiur.Project.Table.new(@table, [:protected, read_concurrency: true])
+    Table.new(@table, [:protected, read_concurrency: true])
     state = %{path: nil, records: %{}, writable?: true, alert: Keyword.get(opts, :alert, &Signal.alert/2)}
 
     case path(opts) do
@@ -258,12 +260,12 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
     supported? = Enum.all?(state.records, fn {_id, row} -> row["v"] == 1 end)
     availability = if state.writable? and supported?, do: :available, else: :unavailable
     visible = for {_id, %{"v" => 1} = row} <- state.records, do: row
-    :ets.insert(Aiur.Project.Table.ref(@table), {:records, availability, visible})
+    :ets.insert(Table.ref(@table), {:records, availability, visible})
   end
 
   defp unavailable(state, reason) do
     Logger.warning("Optimistic ledger unavailable: #{inspect(reason)}")
-    latch = {__MODULE__, :alerted, Aiur.Project.Context.current_id(), Process.whereis(Aiur.Supervisor), state.path}
+    latch = {__MODULE__, :alerted, Context.current_id(), Process.whereis(Aiur.Supervisor), state.path}
 
     unless :persistent_term.get(latch, false) do
       :persistent_term.put(latch, true)

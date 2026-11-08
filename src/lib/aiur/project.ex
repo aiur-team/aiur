@@ -22,7 +22,7 @@ defmodule Aiur.Project do
   @doc "Scopes a machine-level key by the caller's project; the bare key with no context."
   @spec scope_key(term()) :: term()
   def scope_key(key) do
-    case Aiur.Project.Context.current_id() do
+    case Context.current_id() do
       nil -> key
       id -> {id, key}
     end
@@ -31,7 +31,7 @@ defmodule Aiur.Project do
   @doc "Scopes a PubSub topic by the caller's project; the bare topic with no context."
   @spec topic(String.t()) :: String.t()
   def topic(base) do
-    case Aiur.Project.Context.current_id() do
+    case Context.current_id() do
       nil -> base
       id -> "project:" <> id <> ":" <> base
     end

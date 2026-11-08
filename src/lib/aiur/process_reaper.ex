@@ -48,6 +48,8 @@ defmodule Aiur.ProcessReaper do
 
   require Logger
 
+  alias Aiur.Project.Context
+
   @type kind :: :agent | :serve
   @type ref :: {:os_pid, pos_integer()} | {:pane, String.t()} | {:pane, String.t(), String.t()}
 
@@ -157,7 +159,7 @@ defmodule Aiur.ProcessReaper do
 
   # Read in the registering caller's process: the reaper itself is machine-level and has no context.
   defp put_project(meta) do
-    case Aiur.Project.Context.current_id() do
+    case Context.current_id() do
       nil -> meta
       id -> Map.put_new(meta, :project, id)
     end

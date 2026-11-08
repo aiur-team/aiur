@@ -33,6 +33,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
     WorkspaceCleanup
   }
 
+  alias Aiur.Project.Context
+
   @poll_transition_render_delay_ms 20
   @control_ack_timeout_ms 30_000
   @orchestrator_topics [
@@ -241,7 +243,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   # With a project context only that project's agents are reaped; none reaps everything, as before.
   defp project_opt do
-    case Aiur.Project.Context.current_id() do
+    case Context.current_id() do
       nil -> []
       id -> [project: id]
     end

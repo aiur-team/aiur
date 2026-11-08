@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   alias Aiur.{AgentPubSub, Events, Signal}
   alias Aiur.Orchestrator.SpendCap.{Evaluation, Health, OutboundEvents, Persistence, Record, Runtime, Stop}
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Project.Table
   alias Aiur.TrackerIdentity
   alias Aiur.UsageAggregate
 
@@ -38,7 +39,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   @spec dispatch_admission(TrackerIdentity.t()) :: :allow | {:skip, :spend_cap_exhausted | :spend_cap_unavailable}
   def dispatch_admission(%TrackerIdentity{} = identity) do
-    case safe_lookup(Aiur.Project.Table.ref(@dispatch_table), :health) do
+    case safe_lookup(Table.ref(@dispatch_table), :health) do
       [{:health, :healthy}] -> dispatch_record_admission(identity)
       _other -> {:skip, :spend_cap_unavailable}
     end
@@ -47,7 +48,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   def dispatch_admission(_identity), do: {:skip, :spend_cap_unavailable}
 
   defp dispatch_record_admission(identity) do
-    case safe_lookup(Aiur.Project.Table.ref(@dispatch_table), Record.key(identity)) do
+    case safe_lookup(Table.ref(@dispatch_table), Record.key(identity)) do
       [{_key, :budget_exhausted}] -> {:skip, :spend_cap_exhausted}
       [{_key, :unavailable}] -> {:skip, :spend_cap_unavailable}
       _other -> :allow
@@ -457,7 +458,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   defp create_table(nil), do: :ets.new(__MODULE__, [:protected, :set, read_concurrency: true])
 
   defp create_table(name) when is_atom(name) do
-    Aiur.Project.Table.new(name, [:protected, :set, read_concurrency: true])
+    Table.new(name, [:protected, :set, read_concurrency: true])
   end
 
   defp sync_table(state), do: Health.sync_table(state)

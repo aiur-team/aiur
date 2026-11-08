@@ -1,7 +1,7 @@
 defmodule Aiur.Project.SingletonInventoryTest do
   use ExUnit.Case, async: true
 
-  @adr Path.expand("../../../../docs/research/MPG-301.md", __DIR__)
+  @adr Enum.map(["MPG-301.md", "MPG-301-inventory.md"], &Path.expand("../../../../docs/research/" <> &1, __DIR__))
   @lib Path.expand("../../../lib", __DIR__)
   @row ~r/^\|\s*(?:\d+\s*\|\s*)?`([A-Za-z0-9_.]+)`\s*\|\s*(per-project|machine)\s*\|.*\|\s*([^|]+?)\s*\|$/
   @registering ~r/name: __MODULE__|:name, __MODULE__|Project\.via\(__MODULE__\)/
@@ -12,11 +12,11 @@ defmodule Aiur.Project.SingletonInventoryTest do
   # Module => {owner, ticket}, parsed from the ADR so the test cannot drift from a copy of it.
   defp adr do
     rows =
-      for line <- File.stream!(@adr),
+      for line <- Stream.flat_map(@adr, &File.stream!/1),
           [_, mod, owner, ticket] <- [Regex.run(@row, String.trim_trailing(line))],
           do: {mod, {owner, ticket}}
 
-    assert rows != [], "parsed no rows from #{@adr}"
+    assert rows != [], "parsed no rows from #{inspect(@adr)}"
     Map.new(rows)
   end
 

@@ -4,6 +4,7 @@ defmodule Aiur.ProcessReaperTest do
   use ExUnit.Case, async: false
 
   alias Aiur.ProcessReaper
+  alias Aiur.Project.Context
 
   # Each test gets its own reaper instance plus registrations force-enabled
   # for the duration (config disables them in test so library code never
@@ -291,11 +292,11 @@ defmodule Aiur.ProcessReaperTest do
     tp = self()
     project = fn repo -> Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/c"}, "/x/s") end
 
-    Aiur.Project.Context.put(project.("O/A"))
+    Context.put(project.("O/A"))
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 111}, [])
-    Aiur.Project.Context.put(project.("o/b"))
+    Context.put(project.("o/b"))
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 222}, [])
-    Aiur.Project.Context.delete()
+    Context.delete()
 
     assert [%{project: "o/a"}] = for({{:os_pid, 111}, _kind, meta} <- ProcessReaper.entries(reaper), do: meta)
 

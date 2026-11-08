@@ -27,6 +27,8 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
 
   use GenServer
 
+  alias Aiur.Project.Table
+
   @table __MODULE__
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -35,7 +37,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @impl true
   def init(opts) do
     Aiur.Project.adopt(opts)
-    Aiur.Project.Table.new(@table, [:public, :set, read_concurrency: true])
+    Table.new(@table, [:public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
@@ -46,7 +48,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
     key = repo_key(owner, repo)
     taken_at_ms = now_ms()
     listed_from_ms = if match?(%DateTime{}, listed_from), do: DateTime.to_unix(listed_from, :millisecond)
-    :ets.insert(Aiur.Project.Table.ref(@table), [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}])
+    :ets.insert(Table.ref(@table), [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}])
     broadcast(taken_at_ms)
     :ok
   rescue
@@ -82,7 +84,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @doc "Retains the build queue refresh's conditional page cache; dropped when the table is absent."
   @spec put_refresh_cache(String.t(), String.t(), map()) :: :ok
   def put_refresh_cache(owner, repo, cache) when is_map(cache) do
-    :ets.insert(Aiur.Project.Table.ref(@table), {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
+    :ets.insert(Table.ref(@table), {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
     :ok
   rescue
     ArgumentError -> :ok
@@ -104,14 +106,14 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @doc "Removes every snapshot. For tests."
   @spec reset() :: :ok
   def reset do
-    :ets.delete_all_objects(Aiur.Project.Table.ref(@table))
+    :ets.delete_all_objects(Table.ref(@table))
     :ok
   rescue
     ArgumentError -> :ok
   end
 
   defp lookup(key) do
-    case :ets.lookup(Aiur.Project.Table.ref(@table), key) do
+    case :ets.lookup(Table.ref(@table), key) do
       [{^key, set, taken_at_ms}] -> {set, taken_at_ms}
       [] -> nil
     end
