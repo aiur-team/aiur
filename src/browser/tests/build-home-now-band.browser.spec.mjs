@@ -57,6 +57,20 @@ test('empty fleet is 86px, unavailable source has separate copy and no presets',
   await expect(page.locator('.bd-now-empty')).toHaveText('Agent states unavailable')
   await expect(page.locator('.bd-now-st button, .bd-now-sum')).toHaveCount(0)
 })
+// Future-regression guard for the existing stale-source rendering, paired with the LiveView timeout payload test.
+test('retained agents after a first-read timeout stay visible with their observation age', async ({ page }) => {
+  await open(page, 'live')
+  expect((await page.request.get('/build-control/diff?name=agents-stale')).ok()).toBe(true)
+  await expect.poll(() => page.evaluate(() => m.ctx.D.sources.agents.state)).toBe('stale')
+  await page.evaluate(async () => {
+    const { setNow } = await import('/build-home/clock.js'), { renderBand } = await import('/build-home/band.js')
+    setNow(1791407430000)
+    renderBand()
+  })
+  await expect(page.locator('.bd-now-empty')).toHaveCount(0)
+  await expect(page.locator('.bd-now-st')).toHaveText('3 running3 stuck2 paused')
+  await expect(page.locator('.bd-now-freshness')).toHaveText('Fresh · under 1m ago')
+})
 test('unavailable band rows without a rendered card element are skipped during relayout', async ({ page }) => {
   await open(page, 'now0')
   await page.evaluate(async () => {
