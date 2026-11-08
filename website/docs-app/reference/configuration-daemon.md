@@ -347,6 +347,7 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.public_url` | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
+| `server.gateway_hello` | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 | `server.trusted_proxies` | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
 

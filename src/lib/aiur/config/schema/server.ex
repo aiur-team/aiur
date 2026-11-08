@@ -36,12 +36,16 @@ defmodule Aiur.Config.Schema.Server do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail server.tailscale_funnel | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
     field(:tailscale_funnel, :boolean, default: false)
+    # @config-reference config-configuration-18 server.gateway_hello
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.gateway_hello | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404. |
+    field(:gateway_hello, :boolean)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :dashboard_origins, :trusted_proxies, :tailscale_funnel], empty_values: [])
+    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :dashboard_origins, :trusted_proxies, :tailscale_funnel, :gateway_hello], empty_values: [])
     |> validate_number(:port, greater_than_or_equal_to: 0)
     |> validate_change(:public_url, fn :public_url, url ->
       if valid_public_url?(url), do: [], else: [public_url: "must be an absolute http:// or https:// URL with a host, such as https://host.ts.net:4001"]
