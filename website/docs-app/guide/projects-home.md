@@ -14,7 +14,9 @@ With the key on, a bare `/` redirects to `/projects`. `/build` and any `/?…` U
 
 Peers come from `~/.aiur/remote-instances.yaml` (see [remote instances](/reference/cli-options#remote-instances)). Only entries with a `url` are shown. Add `gateway_id` and `label` to an entry to pin the gateway's identity and name its card.
 
-Your browser fetches `<url>/api/v1/gateway/summary` from each peer with your sign-in cookie, all in parallel, giving up after 3 seconds. So the page paints at once from this gateway, and a slow peer never delays it. A peer must list this page's origin in its `server.dashboard_origins`, or the browser blocks the read and the card reads `unreachable`.
+Your browser fetches `<url>/api/v1/gateway/summary` from each peer with your sign-in cookie, all in parallel, giving up after 3 seconds. So the page paints at once from this gateway, and a slow peer never delays it.
+
+A peer must list this page's origin in its `server.dashboard_origins`, or the browser blocks the read and its card reads `unreachable`; every card shows one of these:
 
 | Card says | Meaning |
 |---|---|
