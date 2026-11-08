@@ -26,6 +26,8 @@ defmodule Aiur.WorkflowStore do
   require Logger
 
   alias Aiur.Workflow
+
+  alias Aiur.Project.Context
   alias Aiur.WorkflowStore.{Cache, Reload, ReloadRejection}
 
   @poll_interval_ms 1_000
@@ -69,7 +71,7 @@ defmodule Aiur.WorkflowStore do
         Workflow.load()
 
       :error ->
-        case Process.whereis(__MODULE__) do
+        case store_pid() do
           pid when is_pid(pid) -> current_from(pid)
           _ -> Workflow.load()
         end
@@ -87,7 +89,7 @@ defmodule Aiur.WorkflowStore do
         load_with_unknown_generation()
 
       :error ->
-        case Process.whereis(__MODULE__) do
+        case store_pid() do
           pid when is_pid(pid) -> current_with_generation_from(pid)
           _ -> load_with_unknown_generation()
         end
@@ -106,7 +108,7 @@ defmodule Aiur.WorkflowStore do
         load_with_unknown_cache_identity()
 
       :error ->
-        case Process.whereis(__MODULE__) do
+        case store_pid() do
           pid when is_pid(pid) ->
             current_with_cache_identity_from(pid)
 
@@ -114,6 +116,12 @@ defmodule Aiur.WorkflowStore do
             load_with_unknown_cache_identity()
         end
     end
+  end
+
+  # The singleton store serves the default project; a project context without
+  # a published row reads its own file until it has a store (MPG-304).
+  defp store_pid do
+    if Context.current_id(), do: nil, else: Process.whereis(__MODULE__)
   end
 
   defp load_with_unknown_generation do
