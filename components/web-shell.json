@@ -49,6 +49,7 @@
     "config",
     "event-bus",
     "gateway-registry",
+    "gateway-trust",
     "identity",
     "kernel",
     "listener-modes",
