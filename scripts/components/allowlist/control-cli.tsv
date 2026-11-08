@@ -43,3 +43,8 @@ R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d421
 R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.Claude.Repl.Reaper	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.LaneCLI	#7493 lane verbs are the canonical spelling and the control CLI delegates to the build-orders lane CLI
+R-optional	Aiur.GitHub.LandingWithdrawal	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner; auto-merge disable is the github owner
+R-optional	Aiur.Ownership.GitHubRef	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
+R-optional	Aiur.Ownership.Liveness	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
+R-private	Aiur.Ownership.GitHubRef	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
+R-private	Aiur.Ownership.Liveness	#7640 ticket owner/assign CLI lives in control-cli and calls the ownership ref and liveness owner
