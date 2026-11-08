@@ -91,14 +91,9 @@ defmodule Aiur.ClosedDecisionCleanupTest do
   end
 
   test "an unavailable decision store does not stop terminal workspace cleanup" do
-    unavailable_store =
-      spawn(fn ->
-        receive do
-          :stop -> :ok
-        end
-      end)
-
-    Process.exit(unavailable_store, :kill)
+    unavailable_store = start_supervised!({Agent, fn -> nil end})
+    :ok = stop_supervised!(Agent)
+    refute Process.alive?(unavailable_store)
 
     assert :ok = WorkspaceCleanup.start_terminal_workspace_cleanups([{"closed-human-unavailable", :invalid_leaf, nil}], decision_store: unavailable_store)
     assert_receive {:workspace_cleanup_finished, :invalid_leaf, {:error, _message}}, 10_000
