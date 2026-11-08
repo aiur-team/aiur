@@ -27,7 +27,6 @@ defmodule Aiur.WorkflowStore do
 
   alias Aiur.Workflow
 
-  alias Aiur.Project.Context
   alias Aiur.WorkflowStore.{Cache, Reload, ReloadRejection}
 
   @poll_interval_ms 1_000
@@ -52,7 +51,7 @@ defmodule Aiur.WorkflowStore do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @spec current() :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
@@ -220,7 +219,7 @@ defmodule Aiur.WorkflowStore do
 
   @impl true
   def init(opts) do
-    Context.adopt(opts)
+    Aiur.Project.adopt(opts)
     Cache.init!()
 
     with {:ok, state} <- Reload.load_state(Workflow.workflow_file_path()),

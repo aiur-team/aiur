@@ -19,6 +19,15 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc "Project-owned state root: the current project's, else the machine's `decision_state_dir/0`."
+  @spec state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def state_dir do
+    case Context.current() do
+      %__MODULE__{state_root: root} -> {:ok, root}
+      nil -> Paths.decision_state_dir()
+    end
+  end
+
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
   def default_state_root, do: Paths.decision_state_dir()
@@ -33,5 +42,16 @@ defmodule Aiur.Project do
       nil -> module
       id -> {:via, Registry, {Aiur.ProjectRegistry, {id, module}}}
     end
+  end
+
+  @doc "Adds the caller's project to start options, for a server that must work for it."
+  @spec carry(keyword()) :: keyword()
+  def carry(opts), do: Keyword.put(opts, :project, Context.current())
+
+  @doc "Called in a server's `init/1`: takes on the project `carry/1` handed it."
+  @spec adopt(keyword()) :: :ok
+  def adopt(opts) do
+    if project = opts[:project], do: Context.put(project)
+    :ok
   end
 end

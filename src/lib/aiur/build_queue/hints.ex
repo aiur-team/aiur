@@ -15,6 +15,10 @@ defmodule Aiur.BuildQueue.Hints do
   @spec table_name() :: atom()
   def table_name, do: @table
 
+  @doc false
+  @spec create_table() :: :ets.table()
+  def create_table, do: Table.new(@table, [:set, :protected, read_concurrency: true])
+
   @doc "The hints table to read or write: this project's tid, or the named table."
   @spec table_ref() :: :ets.table() | nil
   def table_ref, do: Table.ref(@table)

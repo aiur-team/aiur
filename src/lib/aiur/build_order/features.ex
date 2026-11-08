@@ -2,8 +2,6 @@ defmodule Aiur.BuildOrder.Features do
   @moduledoc "Durable, single-writer feature and epic registry and membership journal."
   use GenServer
 
-  alias Aiur.Project.Context
-
   alias Aiur.BuildOrder.Epics.Journal, as: EpicJournal
   alias Aiur.BuildOrder.Epics.Operations, as: EpicOperations
   alias Aiur.BuildOrder.Features.{Journal, Operations, Persistence, Reads, RootImportMapping}
@@ -15,7 +13,7 @@ defmodule Aiur.BuildOrder.Features do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, Context.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
   end
 
   @spec create(String.t(), map(), keyword()) :: result()
@@ -74,7 +72,7 @@ defmodule Aiur.BuildOrder.Features do
 
   @impl true
   def init(opts) do
-    Context.adopt(opts)
+    Aiur.Project.adopt(opts)
     {:ok, Persistence.boot(opts)}
   end
 

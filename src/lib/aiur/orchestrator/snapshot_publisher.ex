@@ -16,8 +16,6 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
 
   use GenServer
 
-  alias Aiur.Project.Context
-
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Project.Table
 
@@ -32,7 +30,7 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @doc """
@@ -78,7 +76,7 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
 
   @impl true
   def init(opts) do
-    Context.adopt(opts)
+    Aiur.Project.adopt(opts)
     ensure_table()
     schedule_publish()
     {:ok, %{}}

@@ -2,13 +2,11 @@ defmodule Aiur.Orchestrator.SnapshotCache do
   @moduledoc "Owns retained fleet snapshots independently of the projection worker."
   use GenServer
 
-  alias Aiur.Project.Context
-
   alias Aiur.Project.Table
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @spec get(GenServer.server()) :: map() | nil
@@ -32,7 +30,7 @@ defmodule Aiur.Orchestrator.SnapshotCache do
 
   @impl true
   def init(opts) do
-    Context.adopt(opts)
+    Aiur.Project.adopt(opts)
     Table.new(__MODULE__, [:public, :set, read_concurrency: true])
     {:ok, nil}
   end

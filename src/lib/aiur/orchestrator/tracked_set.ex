@@ -9,8 +9,6 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   use GenServer
 
-  alias Aiur.Project.Context
-
   alias Aiur.{Issue, Orchestrator.TrackerIdentityStore}
   alias Aiur.Orchestrator.State
   alias Aiur.Project.Table
@@ -26,7 +24,7 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, Context.carry(opts), name: Aiur.Project.via(__MODULE__))
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @spec reset([String.t() | integer()]) :: :ok
@@ -82,7 +80,7 @@ defmodule Aiur.Orchestrator.TrackedSet do
 
   @impl true
   def init(opts) do
-    Context.adopt(opts)
+    Aiur.Project.adopt(opts)
     ensure_table()
     ensure_identity_table()
     identities = TrackerIdentityStore.load()

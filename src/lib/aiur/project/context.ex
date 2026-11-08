@@ -26,17 +26,6 @@ defmodule Aiur.Project.Context do
     end
   end
 
-  @doc "Adds the caller's project to start options, for a server that must work for it."
-  @spec carry(keyword()) :: keyword()
-  def carry(opts), do: Keyword.put(opts, :project, current())
-
-  @doc "Called in a server's `init/1`: takes on the project `carry/1` handed it."
-  @spec adopt(keyword()) :: :ok
-  def adopt(opts) do
-    if project = opts[:project], do: put(project)
-    :ok
-  end
-
   @spec delete() :: :ok
   def delete do
     Process.delete(@key)
