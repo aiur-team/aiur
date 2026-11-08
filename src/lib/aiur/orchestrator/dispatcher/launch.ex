@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.ListenerModes
@@ -54,7 +55,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
           {{:ok, :started} | {:error, term()}, State.t()}
   def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue) do
-    next_state = do_dispatch_issue(state, issue, nil, nil)
+    next_state = do_dispatch_issue(state, issue, nil, nil, dependency_checked: true)
 
     result =
       cond do
@@ -92,14 +93,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    SharedLeaseDispatch.dispatch(
-      state,
-      issue,
-      attempt,
-      preferred_worker_host,
-      opts,
-      &dispatch_to_worker/5
-    )
+    case Prevalidated.check(issue, opts) do
+      {:ok, checked} ->
+        SharedLeaseDispatch.dispatch(state, checked, attempt, preferred_worker_host, opts, &dispatch_to_worker/5)
+
+      {:error, reason} ->
+        Logger.info("Skipping dispatch; dependency gate #{reason}: #{State.issue_context(issue)}")
+        state
+    end
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::

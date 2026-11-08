@@ -392,7 +392,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
       Logger.info("Dependency gate passed #{State.issue_context(hydrated)} blockers=#{inspect(blockers)}")
 
       if OptimisticSlots.available?(hydrated, state, terminal_states) do
-        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, Keyword.put(opts, :dependency_checked, true))
       else
         maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
       end
