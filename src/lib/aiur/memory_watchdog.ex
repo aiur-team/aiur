@@ -52,10 +52,23 @@ defmodule Aiur.MemoryWatchdog do
   @impl true
   def handle_info(:check, state) do
     schedule(state.opts)
-    {:noreply, %{state | high?: check(state.high?, state.opts)}}
+    {:noreply, %{state | high?: safe_check(state)}}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  # A probe or alert failure must not restart this child every tick and take the top supervisor down.
+  defp safe_check(state) do
+    check(state.high?, state.opts)
+  rescue
+    error ->
+      Logger.warning("memory_watchdog check_failed error=#{Exception.message(error)}")
+      state.high?
+  catch
+    kind, reason ->
+      Logger.warning("memory_watchdog check_failed #{kind}=#{inspect(reason)}")
+      state.high?
+  end
 
   defp schedule(opts), do: Process.send_after(self(), :check, Keyword.get(opts, :interval_ms, @interval_ms))
 

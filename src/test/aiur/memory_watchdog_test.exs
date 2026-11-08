@@ -30,6 +30,26 @@ defmodule Aiur.MemoryWatchdogTest do
     assert_received {:alert, "system.daemon.memory_high.resolved", _}
   end
 
+  test "a failing alert leaves the watchdog running" do
+    parent = self()
+
+    failing =
+      Keyword.merge(opts(17 * @gib),
+        name: nil,
+        interval_ms: 1,
+        alert_fun: fn _topic, _alert ->
+          send(parent, :alert_attempted)
+          raise "sink down"
+        end
+      )
+
+    {:ok, pid} = GenServer.start(MemoryWatchdog, failing)
+    assert_receive :alert_attempted
+    assert_receive :alert_attempted
+    assert Process.alive?(pid)
+    GenServer.stop(pid)
+  end
+
   test "stays quiet below the line and when host memory is unknown" do
     assert MemoryWatchdog.check(false, opts(15 * @gib)) == false
     assert MemoryWatchdog.check(false, opts(17 * @gib, nil)) == false
