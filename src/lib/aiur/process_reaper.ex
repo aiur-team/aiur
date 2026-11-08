@@ -86,7 +86,7 @@ defmodule Aiur.ProcessReaper do
     if registrations_enabled?() do
       case normalize_ref(ref) do
         nil -> :ok
-        normalized -> safe_call(server, {:register, kind, normalized, Map.new(meta)})
+        normalized -> safe_call(server, {:register, kind, normalized, meta |> Map.new() |> put_project()})
       end
     else
       :ok
@@ -127,6 +127,8 @@ defmodule Aiur.ProcessReaper do
   @doc """
   Kill every registered entry of the given kinds and remove them. Options:
 
+    * `:project` — reap only entries registered by that project id (the downcased
+      repo). Without it every entry is reaped.
     * `:drain` — flip into draining mode (default false). Only shutdown
       chokepoints pass true.
     * `:kill_tree` / `:kill_pane` / `:cmdline_reader` — injectable for tests.
@@ -152,6 +154,17 @@ defmodule Aiur.ProcessReaper do
   catch
     :exit, _ -> :ok
   end
+
+  # Read in the registering caller's process: the reaper itself is machine-level and has no context.
+  defp put_project(meta) do
+    case Aiur.Project.Context.current_id() do
+      nil -> meta
+      id -> Map.put_new(meta, :project, id)
+    end
+  end
+
+  defp project_match?(%{project: id}, meta), do: Map.get(meta, :project) == id
+  defp project_match?(_opts, _meta), do: true
 
   defp registrations_enabled? do
     Application.get_env(:aiur, :process_reaper_registrations, true)
@@ -214,7 +227,7 @@ defmodule Aiur.ProcessReaper do
     killers = Map.merge(default_killers(), Map.take(opts, [:kill_tree, :kill_pane, :cmdline_reader]))
 
     {to_reap, keep} =
-      Enum.split_with(state.entries, fn {ref, {kind, _meta}} -> kind in kinds and not MapSet.member?(state.handoff, ref) end)
+      Enum.split_with(state.entries, fn {ref, {kind, meta}} -> kind in kinds and project_match?(opts, meta) and not MapSet.member?(state.handoff, ref) end)
 
     Enum.each(to_reap, fn {ref, {kind, meta}} -> kill_entry({ref, kind, meta}, killers) end)
 

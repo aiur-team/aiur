@@ -286,4 +286,23 @@ defmodule Aiur.ProcessReaperTest do
   end
 
   def record_pane_kill(pane_id), do: send(:process_reaper_pane_kill_recorder, {:configured_pane_kill, pane_id})
+
+  test "reap with project: kills only that project's entries", %{reaper: reaper} do
+    tp = self()
+    project = fn repo -> Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/c"}, "/x/s") end
+
+    Aiur.Project.Context.put(project.("O/A"))
+    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 111}, [])
+    Aiur.Project.Context.put(project.("o/b"))
+    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 222}, [])
+    Aiur.Project.Context.delete()
+
+    assert [%{project: "o/a"}] = for({{:os_pid, 111}, _kind, meta} <- ProcessReaper.entries(reaper), do: meta)
+
+    :ok = ProcessReaper.reap(reaper, [:agent], [project: "o/a"] ++ recording_killers(tp))
+
+    assert_receive {:killed_tree, 111}, 1000
+    refute_receive {:killed_tree, 222}, 50
+    assert [{:os_pid, 222}] = for({ref, _kind, _meta} <- ProcessReaper.entries(reaper), do: ref)
+  end
 end

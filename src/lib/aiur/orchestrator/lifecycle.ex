@@ -226,13 +226,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # drain: false is load-bearing — terminate/2 also runs on a supervised
     # crash-restart, and latching the app-lifetime reaper into draining
     # there would kill every agent the restarted orchestrator spawns.
-    _ = ProcessReaper.reap([:agent], drain: false)
+    _ = ProcessReaper.reap([:agent], Keyword.merge([drain: false], project_opt()))
     Enum.each(running, fn {id, entry} -> unless Protection.protected?(id), do: AgentTeardown.kill_repl_session(entry) end)
     discard_unnamed_snapshot(state)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  # With a project context only that project's agents are reaped; none reaps everything, as before.
+  defp project_opt do
+    case Aiur.Project.Context.current_id() do
+      nil -> []
+      id -> [project: id]
+    end
+  end
 
   defp discard_unnamed_snapshot(%State{snapshot_key: snapshot_key}) when is_pid(snapshot_key),
     do: SnapshotStore.discard(snapshot_key)
