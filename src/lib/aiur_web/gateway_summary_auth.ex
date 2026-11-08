@@ -22,10 +22,11 @@ defmodule AiurWeb.GatewaySummaryAuth do
     end
   end
 
-  # A read-scoped token can read the summary but must not pause a gateway.
+  # Pause and resume are the `agents` category: a read or read,message token must not pause a gateway.
   defp bearer(conn, header, write?) do
     with ["bearer", token] <- header |> String.split(~r/\s+/, parts: 2, trim: true) |> lower_scheme(),
-         {:ok, name, scope} when not write? or scope == "write" <- Aiur.ClientTokens.authenticate(token) do
+         {:ok, %{name: name, categories: cats}} <- Aiur.ClientTokens.authenticate_full(token),
+         true <- not write? or "agents" in cats do
       assign(conn, :token_name, name)
     else
       _ -> deny(conn, "unauthorized")

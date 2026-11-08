@@ -66,6 +66,21 @@ defmodule AiurWeb.GatewayPauseControllerTest do
     assert get_resp_header(conn, "access-control-allow-origin") == []
   end
 
+  test "only an agents-category token can pause or resume; read,message is refused on all four routes" do
+    headers = [{"origin", @listed}, {"x-aiur-request", "1"}]
+
+    for {cats, status} <- [{["read", "message"], 401}, {["agents"], 200}], path <- ~w(gateway/pause gateway/resume fleet/pause fleet/resume) do
+      {:ok, token} = Aiur.ClientTokens.create("cat-#{System.unique_integer([:positive])}", "write", categories: cats)
+      conn = build_conn() |> put_req_header("content-type", "application/json") |> put_req_header("authorization", "Bearer " <> token)
+      conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end) |> post("/api/v1/" <> path, "{}")
+      assert conn.status == status, "#{inspect(cats)} #{path}"
+    end
+
+    Registers.write_fleet_pause(false)
+    GlobalPause.sync_fleet_pause()
+    Client.set_global_pause(false)
+  end
+
   test "a listed origin's preflight allows POST with the custom header" do
     conn = build_conn() |> put_req_header("origin", @listed) |> put_req_header("access-control-request-method", "POST") |> options("/api/v1/gateway/pause")
     assert conn.status == 204
@@ -90,6 +105,7 @@ defmodule AiurWeb.GatewayPauseControllerTest do
     on_exit(fn ->
       Registers.write_fleet_pause(false)
       GlobalPause.sync_fleet_pause()
+      Client.set_global_pause(false)
     end)
 
     headers = [{"origin", @listed}, {"x-aiur-request", "1"}]
