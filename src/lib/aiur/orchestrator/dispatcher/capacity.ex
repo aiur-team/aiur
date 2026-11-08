@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   require Logger
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.{Config, SystemCgroup}
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
@@ -223,7 +225,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   # signal). Runs inside the orchestrator GenServer process, so no concurrent
   # dispatch can interleave between this check and the subsequent spawn.
   @spec auto_resume_admission(State.t()) :: :dispatch | {:hold, atom()}
-  def auto_resume_admission(%State{globally_paused: true}),
+  def auto_resume_admission(%State{} = s) when effective_paused?(s),
     do: {:hold, :global_pause}
 
   def auto_resume_admission(%State{} = state) do

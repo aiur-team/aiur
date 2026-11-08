@@ -204,6 +204,8 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call(:globally_paused?, _from, state),
     do: GlobalPause.globally_paused_call(state)
 
+  def handle_call(:sync_fleet_pause, _from, state), do: GlobalPause.sync_fleet_pause_call(state)
+
   def handle_call(:global_pause_status, _from, state),
     do: {:reply, GlobalPause.global_pause_status(state), state}
 
