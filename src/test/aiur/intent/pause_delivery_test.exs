@@ -6,6 +6,7 @@ defmodule Aiur.Intent.PauseDeliveryTest do
 
   alias Aiur.ControlCLI.FleetPause
   alias Aiur.Intent.{Change, Registers, Store}
+  alias Aiur.Orchestrator.StatusCLI.Diagnostics
   alias Aiur.Orchestrator.{GlobalPause, Slots, State}
 
   @now 5_000_000
@@ -69,6 +70,30 @@ defmodule Aiur.Intent.PauseDeliveryTest do
     test "a gateway that never saw a fleet pause boots unpaused", %{opts: opts} do
       refute GlobalPause.boot_fleet_paused(opts)
       assert Slots.available_slots(%State{fleet_paused: false}) > 0
+    end
+  end
+
+  describe "running gateway" do
+    test "a pause arriving by sync flips the fleet switch and the effective status", %{store: store, opts: opts} do
+      state = %State{fleet_paused: false}
+      assert {:noreply, ^state} = GlobalPause.fleet_pause_info(state, opts)
+
+      remote!(store, pause_change("p1", 1_000, true))
+      assert {:noreply, %State{fleet_paused: true} = paused} = GlobalPause.fleet_pause_info(state, opts)
+      assert Slots.available_slots(paused) == 0
+      assert %{pause_scope: :fleet, globally_paused: true} = GlobalPause.global_pause_status(paused)
+    end
+  end
+
+  describe "status banner" do
+    defp banner(status), do: capture_io(fn -> Diagnostics.print_global_pause_banner([global_pause_status: {:ok, status}], 100) end)
+
+    test "names a fleet-only pause as paused (fleet) and the fleet hold alongside a local one" do
+      assert banner(%{globally_paused: true, pause_scope: :fleet, paused_at: nil, source: nil}) =~ "paused (fleet)"
+      both = banner(%{globally_paused: true, pause_scope: :both, paused_at: nil, source: "CLI"})
+      assert both =~ "GLOBALLY PAUSED" and both =~ "paused (fleet)"
+      assert banner(%{globally_paused: true, pause_scope: :local, paused_at: nil, source: "CLI"}) =~ "GLOBALLY PAUSED"
+      assert banner(%{globally_paused: false, pause_scope: :none}) == ""
     end
   end
 

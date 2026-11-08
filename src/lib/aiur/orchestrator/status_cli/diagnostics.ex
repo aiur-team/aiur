@@ -20,6 +20,9 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
       end)
 
     case result do
+      {:ok, %{pause_scope: :fleet}} ->
+        IO.puts("paused (fleet) — no agents will be provisioned (run `aiur resume --all-gateways` to lift)")
+
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance =
           [format_pause_source(source), format_pause_time(paused_at)]
@@ -29,6 +32,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         suffix = if provenance == "", do: "", else: " (#{provenance})"
 
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+        if match?({:ok, %{pause_scope: :both}}, result), do: IO.puts("paused (fleet) — also held by the fleet pause")
 
       {:ok, _} ->
         :ok

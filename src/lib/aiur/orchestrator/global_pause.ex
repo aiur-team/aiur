@@ -234,11 +234,11 @@ defmodule Aiur.Orchestrator.GlobalPause do
   end
 
   @doc false
-  @spec fleet_pause_info(State.t()) :: {:noreply, State.t()}
-  def fleet_pause_info(%State{} = state), do: {:noreply, refresh_fleet_pause(state)}
+  @spec fleet_pause_info(State.t(), keyword()) :: {:noreply, State.t()}
+  def fleet_pause_info(%State{} = state, opts \\ []), do: {:noreply, refresh_fleet_pause(state, opts)}
 
-  defp refresh_fleet_pause(%State{fleet_paused: before} = state) do
-    fleet? = match?({:paused, _, _, _}, Registers.fleet_pause())
+  defp refresh_fleet_pause(%State{fleet_paused: before} = state, opts \\ []) do
+    fleet? = match?({:paused, _, _, _}, Registers.fleet_pause(opts))
     state = %{state | fleet_paused: fleet?}
 
     if fleet? == before do
