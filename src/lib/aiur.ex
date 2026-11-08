@@ -7,7 +7,7 @@ defmodule Aiur do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    Aiur.Orchestrator.start_link(Keyword.put_new(opts, :name, Aiur.Project.whereis(Aiur.Orchestrator)))
+    Aiur.Orchestrator.start_link(Keyword.put_new(opts, :name, Aiur.Project.via(Aiur.Orchestrator)))
   end
 end
 

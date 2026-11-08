@@ -95,6 +95,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+    :ok = Aiur.Project.adopt(opts)
     :ok = TestTicketScope.validate!()
     :ok = Protection.reset()
     if GenServer.whereis(Aiur.Project.whereis(Listeners)), do: Listeners.reset()

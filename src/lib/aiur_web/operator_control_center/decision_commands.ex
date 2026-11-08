@@ -186,7 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   # orchestrator's operator-message path already no-ops on a missing running
   # agent, so a single attempt covers both cases.
   defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
-    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server(), identifier, %{kind: :text, body: dismissal_text()})
     :ok
   end
 

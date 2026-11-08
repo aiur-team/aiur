@@ -17,8 +17,15 @@ defmodule Aiur.Orchestrator.ProjectRegistrationTest do
     Project.from_machine_entry(%{repo: repo, config: path}, dir)
   end
 
-  defp start_orchestrator(%Project{id: id} = project) do
-    {:ok, pid} = Aiur.Orchestrator.start_link(name: Project.name(Aiur.Orchestrator, id), project: project, initial_poll?: false)
+  # Started from inside the project, as its supervisor will: start_link carries the context.
+  defp start_orchestrator(%Project{} = project) do
+    pid =
+      in_project(project, fn ->
+        {:ok, pid} = Aiur.Orchestrator.start_link(name: Project.via(Aiur.Orchestrator), initial_poll?: false)
+        Process.unlink(pid)
+        pid
+      end)
+
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     pid
   end

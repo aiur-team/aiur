@@ -60,5 +60,5 @@ defmodule AiurWeb.TicketCancelApiController do
     |> json(%{error: %{code: code, message: message}})
   end
 
-  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
+  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server()
 end

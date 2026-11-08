@@ -152,7 +152,7 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp orchestrator do
-    EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
+    EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server()
   end
 
   # The configured value is the floor, not the tolerance: a fixed 15s window

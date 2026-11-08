@@ -208,7 +208,7 @@ defmodule Aiur.RunTelemetry.Sampler do
   end
 
   defp fleet_snapshot_fun(opts) do
-    Keyword.get(opts, :fleet_snapshot_fun, fn -> Orchestrator.dashboard_snapshot(Orchestrator, 100) end)
+    Keyword.get(opts, :fleet_snapshot_fun, fn -> Orchestrator.dashboard_snapshot(Orchestrator.server(), 100) end)
   end
 
   defp build_probe_tick?(opts) do
