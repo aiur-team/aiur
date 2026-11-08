@@ -438,10 +438,7 @@ reloading the page.
 The event navigation lists progress, pushes, PRs and Commands. Select an event
 to jump to and highlight its transcript position. Filter chips include CI and
 reviews when needed. **Approximate position** means the event was observed near
-that entry; it does not claim an exact causal match.
-
-On phones the event list
-sits above the transcript and scrolls independently.
+that entry; it does not claim an exact causal match. On phones the event list sits above the transcript and scrolls independently.
 
 `/conversations/:conversation_id` opens the durable conversation page. Read-only
 dashboards keep the transcript and event navigation available; sending requires
@@ -469,8 +466,7 @@ and observation age. Imported history shows **Earlier history is not available**
 ## Read a conversation over HTTP
 
 These read-only routes use dashboard authentication or a read client token,
-including when
-`dashboard_writable` is false. Responses set `Cache-Control: no-store`:
+including when `dashboard_writable` is false. Responses set `Cache-Control: no-store`:
 
 - `GET /api/v1/conversations/resolve?subject=executor`
 - `GET /api/v1/conversations/resolve?subject=worker&owner=OWNER&repository=REPO&identifier=NUMBER`
@@ -495,12 +491,9 @@ Pages include sessions, `head_pos`, `complete_from_start`, and
 storage returns `503 conversation_unavailable`; invalid cursors or limits
 return 422.
 
-Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
-Sessions contain no local source paths.
+Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive). Sessions contain no local source paths.
 
 Conversation text can contain secrets. Body and output are masked by default;
 `reveal=true` is honored only for an authenticated operator connecting from
 loopback. Device principals and client tokens always remain masked. Basic Auth is refused
-on public binds. Treat revealed content as sensitive.
-
-Write verbs return 405; sends continue through the listener path.
+on public binds. Treat revealed content as sensitive. Write verbs return 405; sends continue through the listener path.
