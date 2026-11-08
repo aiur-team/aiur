@@ -10,8 +10,8 @@ defmodule Aiur.Ownership.Projection do
 
   require Logger
 
-  alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.Labels
+  alias Aiur.Orchestrator.TicketTransition
 
   @type ref_read :: {:owned, map()} | :unowned | {:unreadable, term()}
   @type decision ::
@@ -86,7 +86,7 @@ defmodule Aiur.Ownership.Projection do
   @spec project(Aiur.Issue.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def project(issue, slug, opts \\ []) do
     ensure = Keyword.get(opts, :ensure_fun, &ensure_label/2)
-    add = Keyword.get(opts, :add_fun, &IssueState.add_label/2)
+    add = Keyword.get(opts, :add_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :ownership))
     name = "gateway:" <> slug
 
     with :ok <- ensure.(issue, slug), :ok <- add.(to_string(issue.identifier), name) do
