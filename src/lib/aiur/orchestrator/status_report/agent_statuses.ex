@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
@@ -485,6 +487,6 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # pause cause, so the tracker label is normally the whole story. A fleet-wide
   # pause is the one cause that is still knowable, and it explains the stall far
   # better than rendering every such row as an operator pause.
-  defp tracker_pause_cause(%State{globally_paused: true}), do: :global_pause
+  defp tracker_pause_cause(%State{} = s) when effective_paused?(s), do: :global_pause
   defp tracker_pause_cause(_state), do: :label_override
 end

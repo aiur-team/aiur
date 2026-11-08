@@ -118,8 +118,19 @@ defmodule Aiur.Orchestrator.ControlCLI do
   end
 
   defp set_global_pause_result(on?, verb) do
-    source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
+    if not on? and fleet_only_pause?() do
+      control_error("aiur: paused by the fleet pause, not a local one; run `aiur resume --all-gateways`")
+      exit_marker(1)
+    else
+      set_global_pause_result(on?, verb, if(on?, do: "CLI `pause`", else: "CLI `resume`"))
+    end
+  end
 
+  defp fleet_only_pause? do
+    match?({:ok, %{fleet_paused: true, pause_scope: :fleet}}, Orchestrator.global_pause_status())
+  end
+
+  defp set_global_pause_result(on?, verb, source) do
     case set_global_pause_call(on?, source) do
       {:ok, %{globally_paused: paused}} ->
         IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — new starts resume"}")

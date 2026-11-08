@@ -99,6 +99,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     contradictory_state_label_alert_active: :lifecycle,
     terminal_verification_attempts: :lifecycle,
     globally_paused: :control,
+    fleet_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
     ci_lifecycle: :pr_lifecycle,

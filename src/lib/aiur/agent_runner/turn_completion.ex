@@ -117,12 +117,22 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     transition_agent_handoff(%{turn_context | opts: opts}, issue)
   end
 
-  defp complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
+  @doc false
+  @spec complete_noop_bound_without_handoff(map(), Issue.t(), map(), map(), pos_integer()) :: term()
+  def complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
     %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
 
     case noop_bound_disposition(issue, turn_context.opts) do
       :handoff ->
-        handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
+        # A no-op park must not reach review past a PR body the handback guard refuses.
+        case ReworkHandoffGuard.evidence_blockers(issue, "human-review", workspace, turn_context.opts) do
+          :allow ->
+            handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
+
+          {:refused, _reason, _message} ->
+            emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
+            TurnLoop.return_completed(turn_context, issue)
+        end
 
       :keep_rework ->
         emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)

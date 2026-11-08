@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.EventDelivery do
   @moduledoc """
-  Default per-ticket delivery sink. Preserves the orchestrator enqueue timeout
-  and dead-letter reporting. Dead-letter sink failures propagate to the store.
+  Default per-ticket delivery sink. Enqueue is a nonblocking cast to the
+  orchestrator, which owns queue ordering and event-id deduplication.
   """
   @behaviour Aiur.Events.Delivery
 
@@ -9,20 +9,14 @@ defmodule Aiur.Orchestrator.EventDelivery do
 
   @impl true
   def enqueue(identifier, event, context) do
-    case Process.whereis(Aiur.Orchestrator) do
+    server = Application.get_env(:aiur, :event_delivery_orchestrator, Aiur.Orchestrator)
+
+    case GenServer.whereis(server) do
       nil ->
         {:error, :no_orchestrator}
 
-      pid ->
-        try do
-          case GenServer.call(pid, {:enqueue_event_digest, identifier, event, context}, 1_000) do
-            :ok -> :ok
-            {:error, _} = err -> err
-            other -> {:error, {:unexpected_return, other}}
-          end
-        catch
-          :exit, reason -> {:error, {:exit, reason}}
-        end
+      pid when is_pid(pid) ->
+        GenServer.cast(pid, {:enqueue_event_digest_async, identifier, event, context})
     end
   end
 

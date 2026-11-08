@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
     OverrideRecovery,
     OverrideRecoveryRead,
     OverrideSuccessor,
+    PauseGuard,
     Slots,
     State,
     TrackerTasks
@@ -125,7 +126,7 @@ defmodule Aiur.Orchestrator.OverrideResume do
       not eligible_issue?(issue) ->
         current
 
-      current.globally_paused ->
+      PauseGuard.paused?(current) ->
         current
 
       active?(entry) ->

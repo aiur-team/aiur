@@ -20,12 +20,37 @@ test('unknown model is dashed, partial model retains its remaining percentage an
   assert.match(s,/<span class="ax-seg none"><\/span>/)
   assert.match(s,/<span class="ax-pc">40% left/)
   assert.match(s,/<i class="" style="width:40%"/)
-  assert.match(tip(s), /"Max · work","not observed"/)
+  assert.match(tip(s), /Claude Max · work[^"]*",\[\["Session window 5h","not observed"/)
   assert.match(s,/×2/)
   const unknown=fixture('unknown');unknown.apis=[]
   assert.doesNotMatch(stripHTML(unknown,now),/0%|class="z"|null%/)
   unknown.providers[0].session.acc=[]
   assert.match(stripHTML(unknown,now),/class="ax-seg none"/)
+})
+test('#7757 each login draws its own full-width bar per window, stacked, with its own reset', () => {
+  const u=fixture('partial'); u.apis=[]
+  Object.assign(u.providers[0],{session:{acc:[70,40],resets:[now+3600000,now+7200000],reset_at:now+3600000,win:'5h'},weekly:{acc:[90,20],resets:[now+86400000,now+172800000],reset_at:now+86400000,win:'7d'}})
+  const s=stripHTML(u,now)
+  const bars=s.match(/<span class="ax-bar">.*?<span class="ax-rs">/g)
+  assert.equal(bars.length,4)
+  for (const b of bars) assert.equal(b.match(/class="ax-seg/g).length,1)
+  assert.equal((s.match(/class="ax-ln acct"/g)??[]).length,2)
+  for (const pc of ['70% left','40% left','90% left','20% left']) assert.ok(s.includes(`<span class="ax-pc">${pc}`) || s.includes(`<span class="ax-pc hi">${pc}`), pc)
+  assert.match(s,/<span>1h 00m<em>\/5h<\/em>/); assert.match(s,/<span>2h 00m<em>\/5h<\/em>/)
+  assert.match(s,/aria-label="Claude Pro · personal · resets in 2h 00m/)
+  const single=fixture('unknown');single.apis=[];single.providers[0].session.acc=[40]
+  const one=stripHTML(single,now)
+  const windows=[single.providers[0].session,single.providers[0].weekly].filter(Boolean).length
+  assert.doesNotMatch(one,/acct/);assert.equal((one.match(/class="ax-ln[ "]/g)??[]).length,windows)
+  assert.match(one,/aria-label="Codex\. Session window 5h 40% left\."/)
+})
+test('#7757 a failed provider read says unavailable and shows its age', () => {
+  const u=fixture('one');u.apis=[]
+  Object.assign(u.providers[0],{none:true,stale:true,session:null,weekly:null,observed_at:now-600000,note:'Transport error'})
+  const s=stripHTML(u,now)
+  assert.match(s,/<span class="ax-no">unavailable<\/span>/)
+  assert.match(tip(s),/"Limits","Transport error".*"Observed","10m ago"/)
+  assert.doesNotMatch(s,/\d+% left/)
 })
 test('model and API remaining tones share thresholds and match segment fill', () => {
   for (const n of [0,10,20,50,100]) {

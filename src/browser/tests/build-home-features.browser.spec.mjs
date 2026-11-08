@@ -165,6 +165,89 @@ test('Features list rows hold only name, bar and merged/total, with an all-featu
   await page.locator('.fp-row[data-feature="pag"]').press('Enter')
   await expect(page).toHaveURL(/feature=pag/)
 })
+test('epic rows group their features and clicking one focuses the graph on them', async ({ page }, info) => {
+  await open(page, '?view=list')
+  await page.getByRole('tab', { name: 'Features' }).click()
+  const bars = [
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
+    { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 }
+  ]
+  // Two epics with two features each, then one feature no epic lists. The epic totals are the
+  // summed feature totals the server computes (a ticket two features share counts once).
+  const epics = [
+    { key: 'launch', label: 'V1 launch', merged: 11, total: 16, features: ['khala', 'pag'] },
+    { key: 'later', label: 'Later', merged: 1, total: 14, features: ['mp-e2', 'mp-n1'] }
+  ]
+  await page.evaluate(({ bars, epics }) => {
+    const { ctx, fx } = window.m
+    ctx.D.feature_progress = { ...ctx.D.feature_progress, bars, epics }
+    fx.renderList()
+  }, { bars, epics })
+  const rows = page.locator('.fp-list > .fp-row:not(.fp-all):not(.fp-noepic-row)')
+  // Each epic row is followed by its own features in the epic's order; "No epic" closes the list.
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.epic ? 'epic:' + el.dataset.epic : 'feature:' + el.dataset.feature)))
+    .toEqual(['epic:launch', 'feature:khala', 'feature:pag', 'epic:later', 'feature:mp-e2', 'feature:mp-n1', 'feature:newsletter'])
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual([
+    'V1 launch11/165', 'Khala chat2/31', 'MP-E1 build queue9/134', 'Later1/1413', 'MP-E2 Commands0/44', 'mp-n11/109', 'Newsletter6/60'
+  ])
+  expect(await rows.evaluateAll(els => els.map(el => { let p = el; while (p && !p.classList.contains('fp-epic-row')) { if (p.previousElementSibling?.classList.contains('fp-noepic-row')) return 'no-epic'; p = p.previousElementSibling } return p?.dataset.epic ?? 'no-epic' })))
+    .toEqual(['launch', 'launch', 'launch', 'later', 'later', 'later', 'no-epic'])
+  await expect(page.locator('.fp-epic-row[data-epic="launch"] .fp-bar')).toHaveAttribute('aria-label', '11 of 16 merged')
+  await expect(page.locator('.fp-epic-row[data-epic="launch"]')).toHaveAttribute('aria-label', 'Focus V1 launch epic features')
+  await expect(page.locator('.fp-noepic-row .fp-name')).toHaveText('No epic')
+  // Features are indented under their epic's row.
+  expect(await page.evaluate(() => {
+    return parseFloat(getComputedStyle(document.querySelector('.fp-feat .fp-name')).paddingLeft) - parseFloat(getComputedStyle(document.querySelector('.fp-epic-row .fp-name')).paddingLeft)
+  })).toBeGreaterThanOrEqual(8)
+  await expect(page.locator('.fp-all')).toHaveText('All features18/3618')
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.screenshot({ path: info.outputPath('features-list-epics-1440.png') })
+
+  // 390 px: the grouped list still fits at least six rows on the first screen without sideways scroll.
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect(await page.evaluate(() => {
+    const nav = document.querySelector('.sidenav')
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    return [...document.querySelectorAll('.fp-list > .fp-row')].filter(el => el.getBoundingClientRect().bottom <= usableTop).length
+  })).toBeGreaterThanOrEqual(6)
+  await page.screenshot({ path: info.outputPath('features-list-epics-390.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  // Clicking the epic row focuses the graph on its features: the Feature filter carries them,
+  // so only their tickets lay out and Clear releases the filter.
+  await page.locator('.fp-epic-row[data-epic="launch"]').click()
+  await expect(page).toHaveURL(/features=khala,pag/)
+  await expect(page).not.toHaveURL(/view=list/)
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page.locator('[data-g="feature"]')).toContainText('Feature 2')
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual(['khala', 'pag'])
+  const laidOut = () => page.evaluate(() => {
+    const { ctx } = window.m
+    if (!ctx.L || !ctx.L.secs.plan) return 'pending'
+    const keep = t => t.feature === 'pag' || t.feature === 'khala' || (t.also || []).includes('pag') || (t.also || []).includes('khala')
+    const items = ['hist', 'plan', 'nq'].flatMap(key => ctx.L.secs[key]?.items || []).filter(item => !item.ghost)
+    return { outside: items.filter(item => !keep(item.t)).length, inside: items.filter(item => keep(item.t)).length }
+  })
+  await expect.poll(laidOut).toMatchObject({ outside: 0 })
+  expect((await laidOut()).inside).toBeGreaterThan(0)
+
+  // The filter is in the link: a reload keeps the same focused graph.
+  await page.reload()
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await page.evaluate(async () => { window.m = await import('/build-home/state.js') })
+  await expect(page).toHaveURL(/features=khala,pag/)
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual(['khala', 'pag'])
+  await expect(page.locator('[data-g="feature"]')).toContainText('Feature 2')
+  await expect.poll(laidOut).toMatchObject({ outside: 0 })
+
+  await page.locator('#bd-fclr').click()
+  await expect(page).not.toHaveURL(/features=/)
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual([])
+})
 test('Features list says progress is unavailable instead of inventing a zero total', async ({ page }) => {
   await open(page, '?view=list&list=features&fsort=pct')
   await expect(page.locator('[data-fsort]')).toHaveValue('pct')

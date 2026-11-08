@@ -15,11 +15,12 @@ defmodule Aiur.Orchestrator do
     CommentPollingState,
     CommentWake,
     DispatchCycleLiveness,
+    GlobalPause,
     StaleApprovedHead,
     TicketTransition
   }
 
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
+  alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
 
@@ -85,6 +86,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:dispatch_cycle_liveness_check, token}, state),
     do: DispatchCycleLiveness.handle_check(state, token)
+
+  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
+    do: GlobalPause.fleet_pause_info(state)
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
@@ -479,6 +483,9 @@ defmodule Aiur.Orchestrator do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}
   end
+
+  @impl true
+  def handle_cast(message, state), do: Calls.handle_cast(message, state)
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
