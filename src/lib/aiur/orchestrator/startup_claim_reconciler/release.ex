@@ -68,9 +68,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   end
 
   # A discovered ci-wait/human-review target passes the same PR body gate as an agent handback; a refused body goes
-  # to rework so an owner fixes it. A forced target (approved, armed orphan) already passed review.
+  # to rework so an owner fixes it. Only a caller passing `body_gate: :skip` (the approved, armed orphan) is exempt; a
+  # forced target alone (duration-cap release of a mid-work worker) is gated.
   defp body_gated_slug(issue, slug, opts) when slug in ["ci-wait", "human-review"] do
-    if Keyword.has_key?(opts, :forced_target) do
+    if Keyword.get(opts, :body_gate) == :skip do
       slug
     else
       case ReworkHandoffGuard.evidence_blockers(issue, slug, nil, opts) do
