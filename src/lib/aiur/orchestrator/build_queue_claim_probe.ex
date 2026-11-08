@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
   alias Aiur.Orchestrator.{DispatchCandidates, DispatchPolicy, IssueSync, OptimisticLedger, QueueSetSlots, State}
 
   @impl true
-  def next_set, do: next_set(Orchestrator)
+  def next_set, do: next_set(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @doc false
   @spec next_set(State.t() | GenServer.server()) :: ClaimProbe.next_set()
@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
   end
 
   @impl true
-  def status(ids), do: status(Orchestrator, ids)
+  def status(ids), do: status(Aiur.Project.whereis(Aiur.Orchestrator), ids)
 
   @impl true
   def optimistic_records, do: OptimisticLedger.open_records()
@@ -42,7 +42,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
   end
 
   @impl true
-  def notify_demand(ids), do: notify_demand(Orchestrator, ids)
+  def notify_demand(ids), do: notify_demand(Aiur.Project.whereis(Aiur.Orchestrator), ids)
 
   @doc false
   @spec notify_demand(GenServer.server(), [String.t()]) :: :ok | :unavailable

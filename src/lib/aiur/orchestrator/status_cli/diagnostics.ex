@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   def print_global_pause_banner(opts, timeout_ms) do
     result =
       Keyword.get_lazy(opts, :global_pause_status, fn ->
-        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+        Orchestrator.global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms)
       end)
 
     case result do

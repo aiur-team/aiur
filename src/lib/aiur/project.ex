@@ -18,6 +18,19 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc """
+  Name a project-scoped process registers under: `module` itself with no project,
+  else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.
+  """
+  @spec name(module(), id() | nil) :: GenServer.server()
+  def name(module, project_id \\ Aiur.Project.Context.current_id())
+  def name(module, nil), do: module
+  def name(module, id), do: {:via, Registry, {Aiur.ProjectRegistry, {String.downcase(id), module}}}
+
+  @doc "Lookup side of `name/2`; a function-head default evaluates it per call, so it follows the caller's project."
+  @spec whereis(module(), id() | nil) :: GenServer.server()
+  def whereis(module, project_id \\ Aiur.Project.Context.current_id()), do: name(module, project_id)
+
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
   def default_state_root, do: Paths.decision_state_dir()

@@ -61,7 +61,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @spec request_refresh_api() :: map() | :unavailable
-  def request_refresh_api, do: request_refresh_api(Aiur.Orchestrator)
+  def request_refresh_api, do: request_refresh_api(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec request_refresh_api(GenServer.server()) :: map() | :unavailable
   def request_refresh_api(server) do
@@ -437,7 +437,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp subscribe_to_prewarm(opts) do
-    if Keyword.get(opts, :name) == Aiur.Orchestrator, do: AgentPubSub.subscribe_prewarm(), else: :ok
+    if Keyword.get(opts, :name) == Aiur.Project.name(Aiur.Orchestrator), do: AgentPubSub.subscribe_prewarm(), else: :ok
   end
 
   @doc false

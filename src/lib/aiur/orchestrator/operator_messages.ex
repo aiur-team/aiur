@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(issue_identifier, payload),
-    do: send_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+    do: send_operator_message(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, payload)
 
   @spec send_operator_message(GenServer.server(), String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
           | {:error, term()}
   def send_correlated_operator_message(issue_identifier, payload),
-    do: send_correlated_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+    do: send_correlated_operator_message(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, payload)
 
   @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(issue_identifier),
-    do: control_capabilities(Aiur.Orchestrator, issue_identifier)
+    do: control_capabilities(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec control_capabilities(GenServer.server(), String.t()) ::
           {:ok, map()} | {:error, term()}

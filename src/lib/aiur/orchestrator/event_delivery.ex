@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.EventDelivery do
 
   @impl true
   def enqueue(identifier, event, context) do
-    case Process.whereis(Aiur.Orchestrator) do
+    case GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)) do
       nil ->
         {:error, :no_orchestrator}
 

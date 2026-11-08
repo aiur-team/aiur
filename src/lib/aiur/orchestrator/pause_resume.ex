@@ -63,14 +63,14 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
-  def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
+  def pause_agent(issue_identifier), do: pause_agent(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec pause_agent(GenServer.server(), String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, issue_identifier),
     do: control_api_call(server, {:pause_agent, issue_identifier})
 
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started | :reactivated} | {:error, term()}
-  def resume_agent(issue_identifier), do: resume_agent(Aiur.Orchestrator, issue_identifier)
+  def resume_agent(issue_identifier), do: resume_agent(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec resume_agent(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated} | {:error, term()}
@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_agent_with_receipt(String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
   def resume_agent_with_receipt(issue_identifier),
-    do: resume_agent_with_receipt(Aiur.Orchestrator, issue_identifier)
+    do: resume_agent_with_receipt(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
@@ -95,7 +95,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # a surface claiming confident success for something that did not happen
   # (#2435).
   @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
+  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
-  def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Orchestrator, issue_identifier, action, request_id)
+  def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, action, request_id)
 
   @spec request_control(GenServer.server(), String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(server, issue_identifier, action, request_id)
@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
-  def control_lifecycle(issue_identifier), do: control_lifecycle(Aiur.Orchestrator, issue_identifier)
+  def control_lifecycle(issue_identifier), do: control_lifecycle(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
   def control_lifecycle(server, issue_identifier),

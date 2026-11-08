@@ -114,6 +114,7 @@ defmodule Aiur.Application.Children do
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+      {Registry, keys: :unique, name: Aiur.ProjectRegistry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
@@ -272,7 +273,7 @@ defmodule Aiur.Application.Children do
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
       Aiur.GitHub.Listeners,
-      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.Commands.Routing,
       Aiur.DecisionExpiry,

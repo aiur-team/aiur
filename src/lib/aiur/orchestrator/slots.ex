@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.Slots do
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
-  def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
+  def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
   def max_concurrent_agents(server) do
@@ -22,7 +22,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec adjust_max_concurrent_agents(integer()) :: {:ok, map()} | {:error, term()}
   def adjust_max_concurrent_agents(delta),
-    do: adjust_max_concurrent_agents(Aiur.Orchestrator, delta)
+    do: adjust_max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator), delta)
 
   @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
           {:ok, map()} | {:error, term()}
@@ -31,7 +31,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(next),
-    do: set_max_concurrent_agents(Aiur.Orchestrator, next)
+    do: set_max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator), next)
 
   @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
