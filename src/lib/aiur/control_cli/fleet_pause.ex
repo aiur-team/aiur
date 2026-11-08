@@ -35,7 +35,9 @@ defmodule Aiur.ControlCLI.FleetPause do
   end
 
   # Sync.sync_once pushes the outbox; whatever is still in it was not stored.
-  defp push(change) do
+  @doc false
+  @spec push(Change.t()) :: :stored | :outbox_only
+  def push(change) do
     _ = Sync.sync_once()
     if Enum.any?(Store.outbox(), &(&1.change_id == change.change_id)), do: :outbox_only, else: :stored
   catch
