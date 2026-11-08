@@ -3,7 +3,7 @@ pageClass: cli-reference
 ---
 # CLI gateway permissions
 
-Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may do on this gateway, which enforces it; a peer with no block gets `read` only. The commands edit that file locally and are refused over `--gateway` or `--instance` (exit 64).
+Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may do here, and a peer with no block gets `read` only.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
@@ -11,6 +11,8 @@ Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may d
 | `aiur gateway grant <peer> <categories>` | `read` is written at once. Any other category raises a human-required Decision and is written only after you confirm it on this gateway's dashboard. The peer needs a `gateway_id` in the registry. | `aiur gateway grant nook read,agents` |
 | `aiur gateway revoke <peer> [<categories>]` | With categories, removes just those from the peer; tokens stay but are refused for them. With none, sets `categories: []` and deletes every client token bound to the peer and every name in `allows.credentials`. An unknown peer exits 66. | `aiur gateway revoke nook agents` |
 | `aiur gateway trust <peer> --full` | Same as granting `read,message,executor,agents,tickets,config`, with one Decision. `--full` never includes `trust`. Mutual trust is one command on each gateway. | `aiur gateway trust nook --full` |
+
+These commands edit the local file only: over `--gateway` or `--instance` they exit 64.
 
 ## Categories
 
