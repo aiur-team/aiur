@@ -113,25 +113,45 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     case live_instances_fun.() do
       {:ok, live_instances} when is_list(live_instances) ->
         instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
-        Instance.eligible?(issue, instance_id, live_instances)
+
+        issue
+        |> Instance.eligible?(instance_id, live_instances)
+        |> recheck_peer_owner(issue, instance_id, live_instances, opts)
 
       {:error, :store_not_configured} ->
-        if Instance.ownership_configured?(),
+        if not ownership_on?(opts) and Instance.ownership_configured?(),
           do: {:unavailable, :store_not_configured},
           else: :eligible
 
       _ ->
-        {:unavailable, :live_roster_unknown}
+        roster_unreadable(opts)
     end
   rescue
-    _ -> {:unavailable, :live_roster_unknown}
+    _ -> roster_unreadable(opts)
   end
+
+  # A peer's owns-rule must not beat a durable claim this gateway holds.
+  defp recheck_peer_owner({:ineligible, :peer_owns_ticket} = peer, issue, id, live, opts) do
+    if ownership_on?(opts),
+      do: Instance.eligible?(issue, id, live, Aiur.Ownership.owner(issue, opts)),
+      else: peer
+  end
+
+  defp recheck_peer_owner(other, _issue, _id, _live, _opts), do: other
+
+  # Under durable ownership the roster is advisory: the GitHub claim decides.
+  defp roster_unreadable(opts), do: if(ownership_on?(opts), do: :eligible, else: {:unavailable, :live_roster_unknown})
+
+  defp ownership_on?(opts), do: Keyword.get_lazy(opts, :ownership_enabled, &Aiur.Ownership.enabled?/0)
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do
     claim_fun = Keyword.get(opts, :lease_claim_fun, &LeaseStore.claim/1)
 
-    case DispatchClaim.call(selected_issue, dispatch, claim_fun: claim_fun) do
-      {:ok, :disabled, next_state} ->
+    case DispatchClaim.call(selected_issue, dispatch,
+           claim_fun: claim_fun,
+           degrade_on_store_error: ownership_on?(opts)
+         ) do
+      {:ok, status, next_state} when status in [:disabled, :degraded] ->
         next_state
 
       {:ok, :acquired, next_state} ->
