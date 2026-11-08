@@ -94,6 +94,7 @@
     "ZDOTDIR": "/dev/null",
     "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache",
     "AIUR_GITHUB_BUDGET_SOCKET": false,
+    "AIUR_OWNERSHIP_FENCE_SOCKET": false,
     "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   },
   "github_shell": {
@@ -230,6 +231,7 @@
     "ZDOTDIR": "/dev/null",
     "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache",
     "AIUR_GITHUB_BUDGET_SOCKET": false,
+    "AIUR_OWNERSHIP_FENCE_SOCKET": false,
     "AIUR_MCP_SOCKET_DIR": "<mcp-socket>"
   },
   "linear_shell": {

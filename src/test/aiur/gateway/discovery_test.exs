@@ -47,6 +47,7 @@ defmodule Aiur.Gateway.DiscoveryTest do
     registry(path, "BBBB")
     assert [%{status: "identity mismatch"}] = Discovery.discover(no_tailscale() ++ [http_get: fn _ -> {:ok, @hello} end]).rows
     assert [%{status: "unreachable"}] = Discovery.discover(no_tailscale() ++ [http_get: fn _ -> {:error, :timeout} end]).rows
+    assert [%{status: "answered, unrecognised"}] = Discovery.discover(no_tailscale() ++ [http_get: fn _ -> {:error, :hello_disabled} end]).rows
   end
 
   test "only online tag:gateway peers are probed; hello gets no credential", %{path: path} do

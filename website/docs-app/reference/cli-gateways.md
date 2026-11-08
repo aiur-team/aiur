@@ -12,6 +12,26 @@ Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may d
 | `aiur gateway revoke <peer> [<categories>]` | With categories, removes just those from the peer; tokens stay but are refused for them. With none, sets `categories: []` and deletes every client token bound to the peer and every name in `allows.credentials`. An unknown peer exits 66. | `aiur gateway revoke nook agents` |
 | `aiur gateway trust <peer> --full` | Same as granting `read,message,executor,agents,tickets,config`, with one Decision. `--full` never includes `trust`. Mutual trust is one command on each gateway. | `aiur gateway trust nook --full` |
 | `aiur gateway discover [--port N] [--json]` | Read-only. Probes each registry entry's `url` and every online `tag:gateway` tailnet peer (from `tailscale status --json`, on `--port`, default this daemon's port) with the anonymous `GET /api/v1/gateway/hello`, sending no credential. Rows: `enrolled`, `discovered (not enrolled)`, `identity mismatch` (hello id differs from the pinned `gateway_id`), `answered, unrecognised` (not exactly the five hello keys) and `unreachable` (registry entries only; silent tailnet peers are omitted). Without the `tailscale` binary it lists registry entries and says `Tailscale not found; showing registered gateways only`. `--json` rows carry `observed_at`, `age_ms` and `freshness`. | `aiur gateway discover` |
+| `aiur gateway list [--json]` | Read-only. One row per registry entry: `registered`, connectivity, workload, last seen, gateway id, agents and grants. Each entry is read in parallel (5 s each, `AIUR_GATEWAY_TIMEOUT_SECONDS`) with `agents --json` and the anonymous hello. The last line totals agents: `15 (3 cached)` when some counts come from an offline gateway's cache, `12 + unknown` when an entry has never answered. `--json` emits `{gateways, totals}`; `totals` is `{agents, unknown}` (the sum of known counts, cached included, and the number of rows with no count). Each row carries `gateway`, `registered`, `connectivity`, `reason`, `workload`, `last_workload`, `last_seen_at`, `age_ms`, `freshness`, `gateway_id`, `agents`, `projects`, `owned_tickets`, `executor`, `grants_to_peer` and `grants_from_peer`. `agents`, `last_seen_at` and `age_ms` are null when never reached; `projects`, `owned_tickets`, `executor` and `grants_from_peer` are null until gateways report them. | `aiur gateway list` |
+| `aiur gateway status <gateway> [--json]` | The same fields for one registry entry, one per line. Exits 66 for a name not in the registry. | `aiur gateway status nook` |
+
+Connectivity is one of:
+
+- `online`: hello and `agents --json` both answered.
+- `offline`: no answer.
+- `unknown`: never reached.
+- `error`: answered, but `reason` says why.
+
+`reason` is null unless connectivity is `error`:
+
+- `refused`: the authenticated call was refused.
+- `invalid hello`: the hello was not recognised.
+- `pin mismatch`: the gateway id differs from the pinned one.
+- `hello disabled`: hello returned 404 (`server.gateway_hello: false`, the default on a non-loopback, non-tailnet bind), so the id was not checked.
+
+Each online answer is cached in `~/.aiur/remote-state/<name>.json`. An offline gateway shows that cache with its age (`agents: 3 (12m ago)`, `freshness: stale`) and workload `unknown`, with the cached value in `last_workload`; it is never `idle` or `0`.
+
+Workload is `active` (running agents), `idle`, or `unknown` unless the gateway is `online`. `saturated`, `paused`, projects, owned tickets and Executor presence are `unknown` until gateways report them.
 
 The hello answer is `{gateway_id, gateway_label, build, tls_fingerprint_sha256, enrollment}` and nothing else; [`server.gateway_hello`](./configuration-daemon) turns it off.
 
