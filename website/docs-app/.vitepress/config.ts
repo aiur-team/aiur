@@ -122,6 +122,7 @@ export default withMermaid(defineConfig({
               { text: 'Launch and setup', link: '/reference/cli-launch' },
               { text: 'Operations', link: '/reference/cli-operations' },
               { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
+              { text: 'Gateway permissions', link: '/reference/cli-gateways' },
               { text: 'Development commands', link: '/reference/cli-development' }
             ] },
             { text: 'Build History Commands', link: '/reference/build-history-commands' },

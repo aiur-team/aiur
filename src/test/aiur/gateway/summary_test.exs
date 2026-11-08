@@ -21,7 +21,17 @@ defmodule Aiur.Gateway.SummaryTest do
     assert summary.projects == []
     assert summary.executor_present == nil
     summary = build(%{"data" => %{"projects" => [%{"repo" => "a/b"}]}})
-    assert [%{owned_tickets: nil, running: nil, ready: nil, paused: nil, pending_decisions: nil, focus_features: nil}] = summary.projects
+    assert [%{owned_tickets: nil, running: nil, ready: nil, paused: nil, focus_features: nil}] = summary.projects
+  end
+
+  test "agents, queue entry and Decisions are known with their age, and unknown (never 0) when unreadable" do
+    row = %{"repo" => "a/b", "agents" => 2, "next_queue" => %{"number" => 41}, "pending_decisions" => 3}
+    [known] = build(%{"data" => %{"projects" => [row]}}).projects
+    assert %{agents: %{state: "known", value: 2, age_ms: 0}, next_queue: %{state: "known", value: %{"number" => 41}}} = known
+    assert %{pending_decisions: %{state: "known", value: 3, observed_at: "2026-11-06T12:00:05Z"}} = known
+
+    [unknown] = build(%{"data" => %{"projects" => [%{"repo" => "a/b"}]}}).projects
+    for field <- [:agents, :next_queue, :pending_decisions], do: assert(%{state: "unknown", value: nil} = Map.fetch!(unknown, field))
   end
 
   test "a failing reader degrades to nulls" do

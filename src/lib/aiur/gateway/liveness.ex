@@ -44,6 +44,19 @@ defmodule Aiur.Gateway.Liveness do
     end
   end
 
+  @doc "Gateway ids whose freshest heartbeat is older than `threshold_ms`; any instance may ask, leader or not."
+  @spec offline_ids(map(), non_neg_integer()) :: [String.t()]
+  def offline_ids(%{instances: rows}, threshold_ms) do
+    rows
+    |> Enum.reject(&(&1.current? or is_nil(&1.gateway_id)))
+    |> Enum.group_by(& &1.gateway_id, & &1.age_ms)
+    |> Enum.filter(fn {_id, ages} -> Enum.min(ages) > threshold_ms end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
+
+  def offline_ids(_view, _threshold_ms), do: []
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
@@ -106,7 +119,9 @@ defmodule Aiur.Gateway.Liveness do
   defp emit(opts), do: Keyword.get(opts, :emit, &Aiur.Signal.alert/2)
   defp topic(id), do: "system.gateway.#{id}.offline"
 
-  defp threshold_ms(opts) do
+  @doc false
+  @spec threshold_ms(keyword()) :: non_neg_integer()
+  def threshold_ms(opts \\ []) do
     case Keyword.get(opts, :threshold_ms) do
       ms when is_integer(ms) ->
         ms

@@ -184,6 +184,7 @@ defmodule Aiur.Ownership.GitHubRef do
       previous_epoch: previous_epoch,
       actor: owner.actor,
       reason: owner.reason,
+      note: Map.get(owner, :note),
       at: at
     })
   end

@@ -11,7 +11,8 @@ defmodule Aiur.Ownership.Record do
   @fields ~w(schema repo ticket state gateway_id gateway_label daemon_key epoch previous_epoch actor reason at)a
 
   @enforce_keys @fields -- [:schema]
-  defstruct @fields
+  # `note` is optional free text (a transfer's `--reason`); it is omitted from the bytes when nil.
+  defstruct @fields ++ [note: nil]
 
   @type t :: %__MODULE__{
           schema: String.t(),
@@ -25,7 +26,8 @@ defmodule Aiur.Ownership.Record do
           previous_epoch: non_neg_integer(),
           actor: %{kind: String.t(), id: String.t()},
           reason: String.t(),
-          at: String.t()
+          at: String.t(),
+          note: String.t() | nil
         }
 
   @doc "Validates `attrs` (atom keys) into a record."
@@ -34,7 +36,7 @@ defmodule Aiur.Ownership.Record do
     attrs = Map.put(attrs, :schema, @schema)
 
     with :ok <- validate(attrs) do
-      {:ok, struct!(__MODULE__, Map.take(attrs, @fields))}
+      {:ok, struct!(__MODULE__, Map.take(attrs, [:note | @fields]))}
     end
   end
 
@@ -47,6 +49,7 @@ defmodule Aiur.Ownership.Record do
         field -> {Atom.to_string(field), Map.fetch!(record, field)}
       end)
 
+    fields = if record.note, do: fields ++ [{"note", record.note}], else: fields
     Jason.encode!(Jason.OrderedObject.new(fields))
   end
 
@@ -63,11 +66,11 @@ defmodule Aiur.Ownership.Record do
   defp atomize(map) do
     actor = Map.get(map, "actor")
     actor = if is_map(actor), do: %{kind: actor["kind"], id: actor["id"]}, else: actor
-    for field <- @fields -- [:actor], into: %{actor: actor}, do: {field, Map.get(map, Atom.to_string(field))}
+    for field <- [:note | @fields] -- [:actor], into: %{actor: actor}, do: {field, Map.get(map, Atom.to_string(field))}
   end
 
   defp validate(attrs) do
-    Enum.find_value(@fields, :ok, fn field ->
+    Enum.find_value(@fields ++ [:note], :ok, fn field ->
       if valid?(field, Map.get(attrs, field), attrs), do: nil, else: {:error, {:invalid, field}}
     end)
   end
@@ -84,5 +87,6 @@ defmodule Aiur.Ownership.Record do
   defp valid?(:actor, %{kind: k, id: id}, _), do: k in ["daemon", "human", "executor"] and is_binary(id)
   defp valid?(:actor, _, _), do: false
   defp valid?(:reason, v, _), do: v in ["dispatch", "transfer", "release", "migration"]
+  defp valid?(:note, v, _), do: is_nil(v) or (is_binary(v) and String.length(v) in 1..500)
   defp valid?(:at, v, _), do: is_binary(v) and String.ends_with?(v, "Z") and match?({:ok, _, _}, DateTime.from_iso8601(v))
 end

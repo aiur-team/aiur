@@ -66,6 +66,19 @@ defmodule Aiur.Instance.DispatchClaimTest do
              DispatchClaim.call("owner/repo#44", fn -> :resumed end, claim_fun: claim_fun)
   end
 
+  test "a store error degrades only when asked, and a held lease still refuses" do
+    down = fn _ -> {:error, :econnrefused} end
+
+    assert {:ok, :degraded, :ran} =
+             DispatchClaim.call("owner/repo#45", fn -> :ran end, claim_fun: down, degrade_on_store_error: true)
+
+    assert {:error, {:shared_lease_unavailable, :econnrefused}} =
+             DispatchClaim.call("owner/repo#45", fn -> :ran end, claim_fun: down)
+
+    assert {:error, :shared_lease_held} =
+             DispatchClaim.call("owner/repo#45", fn -> :ran end, claim_fun: fn _ -> :held end, degrade_on_store_error: true)
+  end
+
   defp collect_started(names) do
     receive do
       {:workspace_started, name} -> collect_started([name | names])

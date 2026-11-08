@@ -8,6 +8,8 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.ExecutorCommandCLI
   alias Aiur.GitHubCostCLI
   alias Aiur.GitHubUsageCLI
+  alias Aiur.Ownership.CLI, as: OwnershipCLI
+  alias Aiur.Ownership.MigrateCLI
   alias Aiur.UnitsCLI
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.HoldStatus
@@ -93,6 +95,15 @@ defmodule Aiur.ControlCLI.EntryPoints do
 
   @spec ticket_estimate(keyword()) :: :ok
   def ticket_estimate(opts \\ []), do: guarded("ticket estimate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> EstimateCLI.run() |> exit_marker() end)
+
+  @spec ticket_owner(keyword()) :: :ok
+  def ticket_owner(opts), do: guarded("ticket owner", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> OwnershipCLI.owner() |> exit_marker() end)
+
+  @spec ticket_assign(keyword()) :: :ok
+  def ticket_assign(opts), do: guarded("ticket assign", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> OwnershipCLI.assign() |> exit_marker() end)
+
+  @spec ownership_migrate(keyword()) :: :ok
+  def ownership_migrate(opts), do: guarded("ownership migrate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> MigrateCLI.run() |> exit_marker() end)
 
   @spec queue(keyword()) :: :ok
   def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)

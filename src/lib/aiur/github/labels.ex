@@ -216,6 +216,7 @@ defmodule Aiur.GitHub.Labels do
   def describe("flake"), do: "known intermittent test failure"
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("priority:" <> n), do: "build priority #{n} (1 is highest)"
+  def describe("gateway:" <> slug), do: "Owned by gateway #{slug}: mirrors the ownership ref, which is authoritative"
   def describe("model:remote"), do: "Supports claude remote-control"
 
   def describe("model:" <> spec = label) do
@@ -284,8 +285,40 @@ defmodule Aiur.GitHub.Labels do
     end)
   end
 
-  defp create_label(request_fun, url, token, label) do
-    case request_fun.(%{method: :post, url: url, token: token, body: %{"name" => label}}) do
+  @gateway_label_color "1d76db"
+
+  @doc "The `gateway:<slug>` label spec (one fixed colour) for `ensure_with/5`."
+  @spec gateway_label(String.t()) :: map()
+  def gateway_label(slug),
+    do: %{name: "gateway:" <> slug, color: @gateway_label_color, description: describe("gateway:" <> slug)}
+
+  @doc "Ensure `gateway:<slug>` exists in the configured repo (repo and token resolved here)."
+  @spec ensure_gateway_label(String.t()) :: :ok | {:error, term()}
+  def ensure_gateway_label(slug) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      ensure_with(owner, repo, token, [gateway_label(slug)])
+    end
+  end
+
+  @doc "Like `ensure/5` for labels that need a colour and description."
+  @spec ensure_with(String.t(), String.t(), String.t(), [map()], keyword()) :: :ok | {:error, term()}
+  def ensure_with(owner, repo, token, specs, opts \\ []) do
+    request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
+    url = "#{@base_url}/repos/#{owner}/#{repo}/labels"
+
+    Enum.reduce_while(specs, :ok, fn spec, :ok ->
+      body = %{"name" => spec.name, "color" => spec.color, "description" => spec.description}
+
+      case create_label(request_fun, url, token, spec.name, body) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp create_label(request_fun, url, token, label, body \\ nil) do
+    case request_fun.(%{method: :post, url: url, token: token, body: body || %{"name" => label}}) do
       {:ok, %{status: status}} when status in 200..299 ->
         :ok
 

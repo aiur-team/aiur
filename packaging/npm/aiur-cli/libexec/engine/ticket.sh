@@ -1,6 +1,10 @@
 # Durable estimate overrides; every unchecked string crosses RPC as base64.
 cmd_ticket() {
-  [ "${1:-}" = estimate ] || { echo 'aiur: unknown ticket subcommand (expected estimate)' >&2; exit 64; }
+  case "${1:-}" in
+    owner|assign) cmd_ticket_ownership "$@"; return ;;
+    estimate) ;;
+    *) echo 'aiur: unknown ticket subcommand (expected estimate, owner or assign)' >&2; exit 64 ;;
+  esac
   shift
   local id="${1:-}" hours="" reason="" by="cli:${USER:-unknown}" clear=0 json=0 arg opts
   [[ "$id" =~ ^[0-9]+$ ]] && [[ "$id" =~ [1-9] ]] || { echo 'aiur: ticket estimate expects a positive numeric id' >&2; exit 64; }
@@ -45,4 +49,68 @@ cmd_ticket() {
   fi
   [ "$json" -eq 0 ] || opts="$opts, json: true"
   run_control_rpc "Aiur.AgentControlCLI.ticket_estimate([$opts])"
+}
+
+# `owner <n> [--json]` and `assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]`.
+# --force is local and human only: it never crosses --gateway/--instance and never pairs with --as.
+cmd_ticket_ownership() {
+  local sub="$1" id="${2:-}" to="" reason="" as="" force=0 json=0 arg opts
+  [[ "$id" =~ ^(pr-)?[1-9][0-9]{0,9}$ ]] || { echo "aiur: ticket $sub expects a positive numeric id or pr-<n>" >&2; exit 64; }
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      --force) [ "$sub" = assign ] || { echo "aiur: unknown ticket owner option: $arg" >&2; exit 64; }; force=1 ;;
+      --to|--reason|--as)
+        [ "$sub" = assign ] || { echo "aiur: unknown ticket owner option: $arg" >&2; exit 64; }
+        [ "$#" -gt 1 ] || { echo "aiur: $arg requires a value" >&2; exit 64; }
+        shift
+        case "$arg" in --to) to="$1" ;; --reason) reason="$1" ;; --as) as="$1" ;; esac ;;
+      *) echo "aiur: unknown ticket $sub option: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  opts="ticket: \"$id\""
+  [ "$json" -eq 0 ] || opts="$opts, json: true"
+  if [ "$sub" = assign ]; then
+    if [ "$force" -eq 1 ] && { [ -n "${AIUR_REMOTE_INSTANCE:-}" ] || [ -n "$as" ]; }; then
+      echo 'aiur: --force is local and human only' >&2; exit 64
+    fi
+    [ -n "$to" ] || { echo 'aiur: ticket assign requires --to <gateway>' >&2; exit 64; }
+    [[ "$reason" =~ [^[:space:]] ]] && ! [[ "$reason" =~ [[:cntrl:]] ]] && [ "${#reason}" -le 500 ] || {
+      echo 'aiur: --reason requires 1..500 characters without controls' >&2; exit 64;
+    }
+    [ -z "$as" ] || [[ "$as" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { echo 'aiur: invalid --as executor id' >&2; exit 64; }
+    # A remote caller is never a human: the daemon may not take the actor from the caller.
+    [ -z "${AIUR_REMOTE_INSTANCE:-}" ] || [ -n "$as" ] || as=remote
+    opts="$opts, to: Base.decode64!(\"$(encode_control_value "$to")\"), reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+    [ -z "$as" ] || opts="$opts, as: \"$as\""
+    [ "$force" -eq 0 ] || opts="$opts, force: true"
+  fi
+  run_control_rpc "Aiur.AgentControlCLI.ticket_$sub([$opts])"
+}
+
+# `ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]`. Dry run unless --apply.
+cmd_ownership() {
+  [ "${1:-}" = migrate ] || { echo 'aiur: unknown ownership subcommand (expected migrate)' >&2; exit 64; }
+  shift
+  local maps="" apply=0 json=0 opts
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      --apply) apply=1 ;;
+      --map)
+        [ "$#" -gt 1 ] || { echo 'aiur: --map requires a value' >&2; exit 64; }
+        shift
+        maps="$maps${maps:+, }Base.decode64!(\"$(encode_control_value "$1")\")" ;;
+      *) echo "aiur: unknown ownership migrate option: $1" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ -n "$maps" ] || { echo 'aiur: ownership migrate requires --map <prefix>=<gateway>' >&2; exit 64; }
+  opts="maps: [$maps]"
+  [ "$apply" -eq 0 ] || opts="$opts, apply: true"
+  [ "$json" -eq 0 ] || opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.ownership_migrate([$opts])"
 }

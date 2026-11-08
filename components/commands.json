@@ -41,6 +41,8 @@
     "Aiur.DecisionArtifact",
     "Aiur.DecisionEvent",
     "Aiur.DecisionRevision",
+    "Aiur.DecisionStore",
+    "Aiur.DecisionStore.HumanConfirmation",
     "AiurWeb.CommandMediaResponse",
     "AiurWeb.DecisionApiController",
     "AiurWeb.DecisionMediaController",

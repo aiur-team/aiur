@@ -346,6 +346,34 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 `queue show` exits 0 for `running` or `writes_paused`; 1 for `disabled`, `unsupported_tracker`, `store_unavailable`, `read_timeout` or a refused selection; 64 for invalid arguments; 124 for RPC timeout. On timeout, it returns the last read with stale sources, or `read_timeout` if none exists. Refusals still print their read model.
 
+## Ticket ownership
+
+`aiur ticket owner <n> [--json]` reads the ownership record uncached and prints the owner, `epoch`, actor, reason, the record's age and the owner's liveness: `online`, `offline` or `unknown`, with its source (`self`, `heartbeat`, `hello`). It needs only the `read` grant.
+
+A failed read prints `ownership unknown` with no owner fields and exits 75; it never shows as unowned. `--json` is schema `aiur.ticket-owner/v1`.
+
+`aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`), then disables auto-merge on the old owner's open PR. It needs the `tickets` grant.
+
+`--to` names the target; `--gateway` still selects where the command runs. Today `--to` accepts only the gateway the command runs on (label or id), so run it where the ticket is going. A peer name needs the gateway registry and exits 64.
+
+The owner's liveness decides:
+
+| Owner liveness | Result |
+|---|---|
+| `offline`: heartbeat older than `coordination.offline_after_seconds`, no answering hello | transfer proceeds |
+| `online`: fresh heartbeat, answering hello, or this daemon | exit 64 `owner is online; ask it to release` |
+| `unknown`: store down, no heartbeat row, no hello | exit 64 `owner liveness unknown; treat as online` |
+
+`--force` overrides a live or unknown owner and records `forced: ` in the record's `note`. It is local and human only: with `--gateway`/`--instance` or `--as` it exits 64.
+
+The actor is derived, never supplied: `human` (`cli:$USER`) locally, `executor` with `--as <id>`, and `executor` `remote` over `--gateway`.
+
+Heartbeats match by gateway id, so a live second daemon on the owner's machine keeps it `online`.
+
+Exit 64 is a refusal or a lost compare-and-set (`ownership changed to <label> at epoch <n>`): re-read before retrying. Exit 75 is an unknown outcome, including a transfer that stands whose auto-merge disable failed (`auto_merge: "failed: ..."`).
+
+Retrying the same `assign` is safe: an already-owned target skips the write and retries the auto-merge disable.
+
 ## `pr merge`
 
 `aiur pr merge <N> --reviewed-sha <full-sha>` uses a stored, allowlisted human `gh` identity without a daemon; agents and Apps refuse. `--dry-run` writes nothing.
@@ -362,3 +390,13 @@ A merge-queue rule reports `ENQUEUED`, never a direct merge; rerun after GitHub 
 
 ## Offline experiment statistics
 `analytics/experiment-stats --experiment-dir DIR [--check] [--now TIME]` analyzes frozen experiment JSON. `--check` verifies the result; `--now` overrides its timestamp. See [Experiment statistics](./experiment-statistics).
+
+## Ownership migration
+
+| Command | Behavior | Example |
+|---------|----------|---------|
+| `aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]` | Plan (default, zero writes) or with `--apply` write ownership records for open tickets whose state labels name exactly one mapped prefix. Repeat `--map` per prefix; `--apply` prints `writes: <n>` and a re-run writes nothing. | `aiur ownership migrate --map agent=PC` |
+
+`aiur ownership migrate` claims an open ticket only when its *state* labels (`agent:todo`, `nuc:in-progress`) name exactly one mapped prefix; parked and queued labels never count. State labels from two mapped prefixes are `ambiguous`, and a ticket owned by another gateway is a `conflict`. Neither is changed.
+
+Without `--apply` it prints the plan and `writes: 0`. With it, each claim is a budget-paced write and the report prints `writes: <n>`; a re-run writes nothing. Labels are untouched. `<gateway>` must be the gateway running the command; a peer exits 64.
