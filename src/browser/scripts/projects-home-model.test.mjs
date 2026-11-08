@@ -45,3 +45,10 @@ test('cache expiry and poisoned entries read as never seen and are removed', () 
   assert.equal(m.readCache({ getItem() { throw new Error('private mode') }, removeItem() { throw new Error('x') } }, 'N', now), null)
   assert.deepEqual(m.readCache(store(JSON.stringify(cached)), 'N', now), cached)
 })
+
+test('peer signals show value and age, and unknown or missing never becomes 0', () => {
+  const known = (value) => ({ state: 'known', value, age_ms: 4000 })
+  assert.equal(m.signalsText({ agents: known(2), next_queue: known({ number: 41 }), pending_decisions: known(3) }), 'agents 2 (4s ago) · next #41 (4s ago) · decisions 3 (4s ago)')
+  assert.equal(m.signalsText({ agents: known(0), next_queue: known({ number: null }), pending_decisions: { state: 'unknown', value: null } }), 'agents 0 (4s ago) · next none ready (4s ago) · decisions unknown')
+  assert.equal(m.signalsText({}), 'agents unknown · next unknown · decisions unknown')
+})
