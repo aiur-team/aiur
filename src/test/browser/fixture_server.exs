@@ -187,6 +187,14 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    registry = Path.join(System.tmp_dir!(), "projects-home-registry-#{System.unique_integer([:positive])}.yaml")
+
+    File.write!(
+      registry,
+      "version: 1\ninstances:\n  nook:\n    url: https://nook.test\n    gateway_id: NOOK\n    label: Nook\n  lab:\n    url: https://lab.test\n    gateway_id: LAB\n    label: Lab\n"
+    )
+
+    Application.put_env(:aiur, :projects_home_registry, registry)
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)

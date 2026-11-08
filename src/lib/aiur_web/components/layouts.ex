@@ -45,6 +45,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/projects-home-hook.js"></script>
         <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script>
@@ -99,6 +100,7 @@ defmodule AiurWeb.Layouts do
             var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
 
             Hooks.NavToggle = window.AiurNavToggleHook;
+            Hooks.ProjectsHome = window.AiurProjectsHomeHook;
             Hooks.AxMenu = {
               mounted: function () {
                 this.cog = this.el.querySelector("#ax-cog");

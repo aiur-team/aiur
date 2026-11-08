@@ -48,6 +48,18 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :projects,
+      label: "Projects",
+      icon: "▤",
+      description: "Every project across reachable gateways.",
+      path: "/projects",
+      type: :live,
+      owner: :projects,
+      availability: :available,
+      nav?: false,
+      active_actions: [:projects]
+    },
+    %{
       id: :instances,
       label: "Instances",
       icon: "▦",

@@ -370,6 +370,7 @@ The durable repository Executor state also records every daemon start and stop i
 ## dashboard_auth
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->
 | --- | --- | --- | --- |
+| `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 | `dashboard_auth.browser_basic_auth` | boolean | true | Allows Basic Auth fallback on browser pages; API and Stream Deck machine clients keep Basic Auth. |
 | `dashboard_auth.google.allowed_emails` | array | `[]` | Exact email allowlist for Google OpenID Connect; an empty list disables Google sign-in. |
 | `dashboard_auth.passkeys` | boolean | false | Enables passkey login and enrollment after a fresh Google sign-in. |
