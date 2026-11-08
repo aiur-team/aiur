@@ -126,7 +126,6 @@ defmodule Aiur.Application.Children do
       Aiur.AgentResourceGuard,
       Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
-      Aiur.MemoryWatchdog,
       Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
@@ -322,7 +321,7 @@ defmodule Aiur.Application.Children do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(
       cli_children ++
-        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,
