@@ -38,14 +38,25 @@ defmodule Aiur.Ownership.MigrateCLI do
 
   defp summary(actions) do
     counts = Enum.frequencies_by(actions, &elem(&1, 0))
-    %{claim: counts[:claim] || 0, already: counts[:already] || 0, conflict: counts[:conflict] || 0, ambiguous: counts[:ambiguous] || 0, unknown: counts[:unknown] || 0, skip: counts[:skip] || 0, writes: 0}
+
+    %{
+      claim: counts[:claim] || 0,
+      already: counts[:already] || 0,
+      conflict: counts[:conflict] || 0,
+      ambiguous: counts[:ambiguous] || 0,
+      unknown: counts[:unknown] || 0,
+      skip: counts[:skip] || 0,
+      writes: 0
+    }
   end
 
   defp print(opts, result, plan, _result, code) do
     out = if result, do: Map.merge(plan, %{writes: result.writes, result: result}), else: plan
+
     text =
       "plan: #{plan.claim} claim, #{plan.already} already, #{plan.conflict} conflict, #{plan.ambiguous} ambiguous, #{plan.unknown} unknown, #{plan.skip} skip\nwrites: #{out.writes}" <>
         if(result, do: ", lost: #{result.lost}, unknown: #{result.unknown}", else: "")
+
     IO.puts(if opts[:json], do: Jason.encode!(Aiur.JSONSafe.normalize(out)), else: text)
     code
   end
