@@ -11,6 +11,7 @@ export const COMMAND_STATES = [
   'pending',
   'answered',
   'revised',
+  'rejected',
   'expired',
   'unavailable',
   'conflict',
@@ -24,7 +25,7 @@ export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error']
 export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
 
 /**
- * @typedef {'pending' | 'answered' | 'revised' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
+ * @typedef {'pending' | 'answered' | 'revised' | 'rejected' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
  */
 
 /**

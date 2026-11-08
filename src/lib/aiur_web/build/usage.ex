@@ -12,6 +12,7 @@ defmodule AiurWeb.Build.Usage do
 
   @order [:claude, :codex, :kimi, :deepseek]
   @logos [:claude, :codex, :kimi, :deepseek]
+  @api_key_envs [openrouter: "OPENROUTER_API_KEY", openrouter_management: "OPENROUTER_MANAGEMENT_KEY", deepseek: "DEEPSEEK_API_KEY", openai: "OPENAI_API_KEY"]
 
   @spec read({:ok, term()} | :locked, keyword()) :: map()
   def read(financial, opts \\ [])
@@ -39,7 +40,22 @@ defmodule AiurWeb.Build.Usage do
     # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
     {github, github_snapshot_observed_at} = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
-    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, github_snapshot_observed_at: github_snapshot_observed_at, elevenlabs: elevenlabs}
+    routed = isolated(Keyword.get(opts, :configured_fun, &ModelProviders.configured_families/0), [])
+    # A keyed OpenAI-compatible family is configured by its key; a session-login family by routing.
+    configured = Enum.filter(families, &(&1 in routed or compat(&1) != nil))
+    api_keys = for {key, env} <- @api_key_envs, System.get_env(env) not in [nil, ""], do: key
+
+    %{
+      families: families,
+      configured: configured,
+      api_keys: api_keys,
+      meters: meters,
+      accounts: accounts,
+      durable: durable,
+      github: github,
+      github_snapshot_observed_at: github_snapshot_observed_at,
+      elevenlabs: elevenlabs
+    }
   end
 
   defp github_snapshot(opts) do
@@ -84,11 +100,13 @@ defmodule AiurWeb.Build.Usage do
   @doc false
   @spec keyed?(atom()) :: boolean()
   def keyed?(provider) do
-    case get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]) do
+    case compat(provider) do
       %{} = compat -> ModelProviders.keyed?(compat)
       _ -> true
     end
   end
+
+  defp compat(provider), do: get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat])
 
   @doc false
   @spec durable(atom(), Path.t()) :: map() | nil
@@ -110,9 +128,39 @@ defmodule AiurWeb.Build.Usage do
 
   def block({:ok, _}, inputs, now) do
     cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
-    providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
-    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at))
+
+    providers =
+      for family <- order_families(inputs.families),
+          card = Enum.find(cards, &(&1.provider == family)),
+          card != nil and (family in Map.get(inputs, :configured, []) or observed?(card, inputs)),
+          do: provider(card, inputs, ms(now))
+
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at)) ++ key_rows(cards, inputs, ms(now))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
+  end
+
+  # Neither a configured account nor any observation: a registry placeholder, not a row.
+  defp observed?(card, inputs) do
+    card.windows != [] or Map.get(inputs.durable, card.provider) != nil or
+      (card.provider == :claude and Enum.any?(Map.values(inputs.accounts), &(Map.get(&1, :reading) != nil)))
+  end
+
+  # APIs the daemon holds a key for; balances come from the same provider meter cards as MODELS.
+  defp key_rows(cards, inputs, now) do
+    keys = Map.get(inputs, :api_keys, [])
+    card = fn provider -> Enum.find(cards, &(&1.provider == provider)) end
+
+    openrouter =
+      cond do
+        :openrouter_management in keys -> [provider(card.(:openrouter), inputs, now)]
+        :openrouter in keys -> [%{row("OpenRouter") | mono: "O", none: true, note: "Credits need OPENROUTER_MANAGEMENT_KEY"}]
+        true -> []
+      end
+
+    deepseek = if :deepseek in keys, do: [provider(card.(:deepseek), inputs, now)], else: []
+    # ponytail: a project key cannot read billing and nothing records OpenAI rate-limit headers; add the admin-key cost API when one is set.
+    openai = if :openai in keys, do: [%{row("OpenAI") | mono: "O", none: true, note: "Configured · a project key cannot read billing"}], else: []
+    openrouter ++ deepseek ++ openai
   end
 
   @doc false
@@ -153,7 +201,8 @@ defmodule AiurWeb.Build.Usage do
       :unknown -> unknown(base, Map.get(inputs.durable, card.provider))
       :loading -> %{base | none: true, note: "Awaiting first observation"}
       :signed_out -> %{base | none: true, note: "Not signed in"}
-      _ -> %{base | none: true, note: card.health.failure_label || "Unavailable"}
+      # A failed read keeps its row and is marked stale so the strip shows the reading's age.
+      _ -> %{base | none: true, stale: true, note: card.health.failure_label || "Unavailable"}
     end
   end
 

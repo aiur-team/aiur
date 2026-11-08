@@ -49,9 +49,11 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   # capacity leak where parked agents accumulate against the fleet limit
   # (#2329).
   # A provider usage limit belongs here for the same reason: the account, not
-  # this agent, is what the fleet waits on. Any pause on a `ci-wait` ticket
+  # this agent, is what the fleet waits on. A tracker `agent:paused` label
+  # (`:label_override`) releases too: a consumer that pauses many tickets must
+  # not starve dispatch. Any pause on a `ci-wait` ticket
   # releases too: its PR is handed off and the daemon owns that wait (#4694).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted, :label_override]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons

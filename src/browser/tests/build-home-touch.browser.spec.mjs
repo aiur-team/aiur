@@ -38,7 +38,8 @@ async function boardPoint(page) {
   const p = await page.evaluate(() => {
     const r = document.querySelector('#bd-vp').getBoundingClientRect()
     const nav = document.querySelector('.sidenav')
-    const bottom = Math.min(r.bottom, nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight)
+    const footer = document.querySelector('#executor-footer')
+    const bottom = Math.min(r.bottom, nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight, footer ? footer.getBoundingClientRect().top : innerHeight)
     const top = Math.max(r.top, 56)
     const x = r.left + r.width / 2, y = (top + bottom) / 2
     return { x, y, hit: !!document.elementFromPoint(x, y)?.closest('#bd-vp') }
@@ -81,7 +82,7 @@ test('one finger inside the board scrolls the page, not the board', async ({ pag
 test('two fingers pan the board and leave the page where it was', async ({ page }) => {
   const { x, y } = await boardPoint(page)
   const before = await state(page)
-  await drag(page, [[x - 40, y + 100], [x + 40, y + 100]], [[x - 40, y - 60], [x + 40, y - 60]])
+  await drag(page, [[x - 40, y + 60], [x + 40, y + 60]], [[x - 40, y - 80], [x + 40, y - 80]])
   expect((await state(page)).board).not.toBe(before.board)
   expect((await state(page)).page).toBe(before.page)
 })

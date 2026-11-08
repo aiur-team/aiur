@@ -186,7 +186,7 @@ test('real LiveView URL history and server diff retain selected view and focused
   await expect(page).toHaveURL(/\/build$/)
   await page.evaluate(() => {
     const link = document.createElement('a'); link.href = '/build?view=gantt'; link.textContent = 'History Gantt'
-    link.setAttribute('data-phx-link', 'patch'); link.setAttribute('data-phx-link-state', 'push'); document.body.append(link)
+    link.setAttribute('data-phx-link', 'patch'); link.setAttribute('data-phx-link-state', 'push'); document.body.prepend(link)
   })
   await page.getByRole('link', { name: 'History Gantt' }).click()
   await expect(page.getByRole('tab', { name: 'Gantt' })).toHaveAttribute('aria-selected', 'true')

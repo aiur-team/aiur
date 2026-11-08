@@ -60,17 +60,26 @@ function lanesHTML(D, P, now) {
     const pct = unknown ? null : value.total === 0 ? 0 : Math.floor(value.closed * 100 / value.total);
     const icon = Object.hasOwn(I, lane.icon) ? I[lane.icon] : '';
     const reason = unknown ? reasonText(value?.reason || 'Progress unavailable') : '';
-    return '<div class="ep-row" role="row" tabindex="0" data-lane="' + esc(key) + '" aria-label="' + esc(lane.label + ', ' + (unknown ? 'progress unknown: ' + reason : value.open + ' remaining')) + '">' +
-      '<span class="ep-icon" role="cell"' + hue('--h', lane.hue) + ' aria-hidden="true">' + icon + '</span>' +
-      '<span class="ep-name" role="cell"><b>' + esc(lane.label) + '</b><small>' + esc(key) + '</small></span>' +
-      '<span class="ep-meter" role="cell" aria-label="' + esc(unknown ? 'Progress unknown: ' + reason : value.closed + ' closed of ' + value.total + ', ' + pct + '%') + '"><i aria-hidden="true"' + (unknown ? '' : ' style="--pct:' + pct + '%"') + '></i></span>' +
-      '<span class="ep-count" role="cell">' + (unknown ? '<b>—</b><small>' + esc(reason) + '</small>' : '<b>' + value.open + '</b><small>' + value.open + ' / ' + value.total + ' · ' + pct + '%</small>') + '</span></div>';
+    // An unknown lane gets an empty track, never a zero fill.
+    const meter = unknown ? '<span class="fp-bar" role="img" aria-label="' + esc('Progress unknown: ' + reason) + '"></span>'
+      : fpBar(value.closed, value.total, value.total > 0 && value.closed === value.total ? ' done' : '', 'closed');
+    return '<div class="lr ln-grid ep-row" role="row" tabindex="0" data-lane="' + esc(key) + '"' + hue('--h', lane.hue) + ' aria-label="' + esc(lane.label + ', ' + (unknown ? 'progress unknown: ' + reason : value.open + ' remaining')) + '">' +
+      '<span class="ep-name" role="cell"><span class="lr-ep" aria-hidden="true">' + icon + '</span><b title="' + esc(key) + '">' + esc(lane.label) + '</b></span>' +
+      '<span class="ep-meter" role="cell">' + meter + '</span>' +
+      '<span class="ep-left" role="cell">' + (unknown ? '—' : value.open) + '</span>' +
+      '<span class="ep-count" role="cell">' + (unknown ? '— · ' + esc(reason) : value.closed + ' / ' + value.total + ' · ' + pct + '%') + '</span></div>';
   }).join('');
   const age = !Number.isFinite(meta.observed_at) ? 'age unknown' : ageText({ observed_at: meta.observed_at }, now);
-  return '<div class="epic-list"><header><b>' + knownTotal + ' tickets remaining across ' + rows.length + ' lanes</b><small>Data as of ' + esc(age) + '</small><small>Sorted by remaining tickets, most first; ties by name</small></header><div class="ep-rows" role="table" aria-label="Lane progress">' + content + '</div><footer>' +
+  const caption = knownTotal + ' tickets remaining across ' + rows.length + ' lanes · Data as of ' + age + ' · Sorted by remaining tickets, most first; ties by name. ' +
     'A ticket can count under more than one lane, so column totals can exceed the ticket count. Planned pack tickets without area labels are excluded. ' +
-    (meta.unmatched == null ? '— tickets match no lane (' + esc(reasonText(meta.reason || 'Labels incomplete')) + ')' : meta.unmatched + ' tickets match no lane') + '</footer></div>';
+    (meta.unmatched == null ? '— tickets match no lane (' + reasonText(meta.reason || 'Labels incomplete') + ')' : meta.unmatched + ' tickets match no lane');
+  return '<div class="bd-list epic-list" role="table" aria-label="Lane progress" tabindex="-1">' +
+    headRow('ln-grid', [['ep-name', 'Lane'], ['ep-meter', 'Progress'], ['ep-left', 'Remaining'], ['ep-count', 'Done']]) + content + capRow(caption) + '</div>';
 }
+// Features and Lanes share the Tickets table: the same card, header row and row class.
+const headRow = (cls, cols) => '<div class="lr lr-h ' + cls + '" role="row">' + cols.map(([cls, label]) => '<span class="' + cls + '" role="columnheader">' + label + '</span>').join('') + '</div>';
+const capRow = (text, cls = '') => '<div class="lr-cap' + cls + '" role="row"><span role="cell">' + esc(text) + '</span></div>';
+const fpBar = (m, t, cls, word = 'merged') => `<span class="fp-bar${cls}" role="img" aria-label="${m} of ${t} ${word}"><i style="width:${t > 0 ? m / t * 100 : 0}%"></i></span>`;
 function progCell(t) {
   if (t.sec === 'now') {
     const p = progress(t.pct);
@@ -145,26 +154,50 @@ export function listHTML(D, state, history, P, now) {
       return sec === 'now' && html ? '<div class="lr-live" role="rowgroup">' + html + '</div>' : html;
     }).join('') + '</div>';
 }
-// One row per feature: name, bar, merged/total. Bars come from the same block as the feature filter.
-// The list sits straight under the toolbar: one summary line, the rows and the total, with no
-// title of its own and no card box or margins around them. Sorting lives in the toolbar.
+// One table row per feature: name, rounded bar, merged/total and remaining. Bars come from the
+// same block as the feature filter. Sorting lives in the toolbar; the summary is the caption row.
 export function featureListHTML(D, state, now) {
-  const bars = D.feature_progress?.bars, known = Array.isArray(bars);
+  const P = D.feature_progress, bars = P?.bars, known = Array.isArray(bars);
   const sorted = known ? [...bars] : [];
   if (state.fsort === 'pct') sorted.sort((a, b) => b.merged / b.total - a.merged / a.total);
   if (state.fsort === 'left') sorted.sort((a, b) => (b.total - b.merged) - (a.total - a.merged));
   const merged = sorted.reduce((sum, b) => sum + b.merged, 0), total = sorted.reduce((sum, b) => sum + b.total, 0);
-  const bar = (m, t, cls) => `<span class="fp-bar${cls}" role="img" aria-label="${m} of ${t} merged"><i style="width:${t > 0 ? m / t * 100 : 0}%"></i></span>`;
-  const row = b => {
-    const cells = `<span class="fp-name" title="${esc(b.label)}">${esc(b.label)}</span>${bar(b.merged, b.total, b.merged === b.total ? ' done' : '')}<span class="fp-count">${b.merged}/${b.total}</span>`;
-    return Object.hasOwn(D.features, b.key)
-      ? `<button type="button" class="fp-row" data-feature="${esc(b.key)}" aria-label="Focus ${esc(b.label)} feature">${cells}</button>`
-      : `<div class="fp-row" data-feature="${esc(b.key)}">${cells}</div>`;
+  const cells = (name, m, t, cls) => `<span class="fp-name" role="cell" title="${esc(name)}">${esc(name)}</span><span class="fp-pg" role="cell">${fpBar(m, t, cls)}</span><span class="fp-count" role="cell">${m}/${t}</span><span class="fp-left" role="cell">${t - m}</span>`;
+  const row = (b, extra = '') => {
+    const go = Object.hasOwn(D.features, b.key);
+    return `<div class="lr fp-grid fp-row${extra}${go ? ' fp-go' : ''}" role="row" data-feature="${esc(b.key)}"${go ? ` tabindex="0" aria-label="Focus ${esc(b.label)} feature"` : ''}>${cells(b.label, b.merged, b.total, b.merged === b.total ? ' done' : '')}</div>`;
   };
   const date = new Date(now).toLocaleDateString('en-CA');
   const summary = known ? `${merged} of ${total} tickets merged - ${date}` : `Feature progress unavailable - ${date}`;
-  const all = known ? `<div class="fp-row fp-all"><span class="fp-name">All features</span>${bar(merged, total, ' all')}<span class="fp-count">${merged}/${total}</span></div>` : '';
-  return `<div class="fp-list"><p class="fp-sum">${esc(summary)}</p><div class="fp-rows">${sorted.map(row).join('') || '<p>No features with tickets</p>'}</div>${all}</div>`;
+  const all = known ? `<div class="lr fp-grid fp-row fp-all" role="row">${cells('All features', merged, total, ' all')}</div>` : '';
+  const body = known ? featureRowsHTML(sorted, P.epics, state, row, cells) : '';
+  return '<div class="bd-list fp-list" role="table" aria-label="Feature progress" tabindex="-1">' +
+    headRow('fp-grid', [['fp-name', 'Feature'], ['fp-pg', 'Progress'], ['fp-count', 'Merged'], ['fp-left', 'Remaining']]) +
+    (body || capRow('No features with tickets')) + all + capRow(summary, ' fp-sum') + '</div>';
+}
+// Epics group the rows when the payload carries epic rows: the epic's own merged/total first,
+// then its features indented under it in the epic's order. Features no epic lists keep their flat
+// order under "No epic" at the end. A payload without epic rows keeps the flat list, so a build
+// with no epic records reads exactly as before.
+function featureRowsHTML(sorted, epics, state, row, cells) {
+  const flat = () => sorted.map(b => row(b)).join('');
+  const known = new Map(sorted.map(b => [b.key, b]));
+  const inGroup = list => state.fsort === 'goal' ? list : [...list].sort((a, b) => state.fsort === 'pct'
+    ? b.merged / b.total - a.merged / a.total
+    : (b.total - b.merged) - (a.total - a.merged));
+  const claimed = new Set();
+  const groups = (Array.isArray(epics) ? epics : []).map(epic => {
+    const feats = (epic.features || []).map(key => known.get(key)).filter(Boolean);
+    feats.forEach(f => claimed.add(f.key));
+    return feats.length ? { epic, feats } : null;
+  }).filter(Boolean);
+  if (!groups.length) return flat();
+  const group = ({ epic, feats }) =>
+    `<div class="lr fp-grid fp-row fp-epic-row fp-go" role="row" data-epic="${esc(epic.key)}" tabindex="0" aria-label="Focus ${esc(epic.label)} epic features">${cells(epic.label, epic.merged, epic.total, epic.merged === epic.total ? ' done' : '')}</div>` +
+    inGroup(feats).map(f => row(f, ' fp-feat')).join('');
+  const rest = sorted.filter(b => !claimed.has(b.key));
+  const noEpic = rest.length ? '<div class="lr fp-grid fp-row fp-noepic-row" role="row"><span class="fp-name" role="cell">No epic</span></div>' + inGroup(rest).map(f => row(f, ' fp-feat')).join('') : '';
+  return groups.map(group).join('') + noEpic;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
@@ -203,24 +236,36 @@ function bindOnce(vp) {
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
     const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { chooseLane(lane.dataset.lane); return; }
+    const group = e.target.closest('.fp-epic-row[data-epic]'); if (group) { focusEpic(group.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
-    const feature = e.target.closest('button.fp-row'); if (feature) focusFeature(feature.dataset.feature);
+    const feature = e.target.closest('.fp-go'); if (feature) focusFeature(feature.dataset.feature);
   });
   ctx.life.on(vp, 'keydown', e => {
-    if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
+    if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
     const lane = e.target.closest('.ep-row[data-lane]'); if (lane) { e.preventDefault(); chooseLane(lane.dataset.lane); return; }
+    const group = e.target.closest('.fp-epic-row[data-epic]'); if (group) { e.preventDefault(); focusEpic(group.dataset.epic); return; }
     if (e.target.closest('.bd-hold')) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
-    const feature = e.target.closest('button.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
+    const feature = e.target.closest('.fp-go'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
   });
 }
 function chooseLane(key) {
   S.f.lane = [key]; S.list = 'tickets'; writeURL(); fx.renderTools(); fx.renderList();
 }
 function focusFeature(key) {
-  S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus';
-  writeURL(); fx.renderTools(); fx.viewport(); fx.relayout();
+  S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus'; S.f.feature = [];
+  writeURL(); fx.renderTools(); fx.renderFilters(); fx.viewport(); fx.relayout();
+}
+// An epic row focuses the graph on every feature the epic holds: the feature filter carries the
+// epic's features, so the timeline lays out only their tickets. The toolbar shows the count and
+// Clear releases it, the same way the lane filter does.
+function focusEpic(key) {
+  const epics = ctx.D?.feature_progress?.epics;
+  const epic = Array.isArray(epics) ? epics.find(candidate => candidate.key === key) : null;
+  if (!epic || !Array.isArray(epic.features) || !epic.features.length) return;
+  S.view = 'graph'; S.list = 'tickets'; S.feature = null; S.fmode = 'focus'; S.f.feature = [...epic.features];
+  writeURL(); fx.renderFeatures(); fx.renderTools(); fx.renderFilters(); fx.viewport(); fx.relayout();
 }
 async function earlier(btn) {
   if (H.state === 'loading') return;
