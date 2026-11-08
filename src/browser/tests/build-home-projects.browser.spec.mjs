@@ -28,6 +28,7 @@ test('a peer that is down reads unreachable with its last-seen age, and the page
   // The hook aborts the peer at 3 s, but the document itself must load without waiting for it.
   expect(await page.evaluate(() => performance.getEntriesByType('navigation')[0].loadEventEnd)).toBeLessThan(3000)
   await expect(card(page, 'lab').locator('[data-conn-text]')).toContainText('online')
+  await expect(card(page, 'lab').locator('[data-project-row="lab/repo"] a')).toHaveAttribute('href', 'https://lab.test/build')
   await expect(card(page, 'nook')).not.toContainText(/\b0 agents\b|idle/)
   await expect(page.locator('[data-totals]')).toHaveText('Running 2 of 4+ · 2 gateways unknown') // Lab 2 of 4; Nook down and the harness gateway's own count unreadable
 })
