@@ -136,12 +136,14 @@ defmodule Aiur.Project.StoreIsolationTest do
       end)
     end
 
+    Aiur.AgentPubSub.subscribe_fleet_invalidation()
+
     as(a, fn ->
       generation = SnapshotStore.begin_generation(:orch)
       SnapshotStore.publish_state(:orch, generation, %Aiur.Orchestrator.State{})
     end)
 
-    assert eventually(fn -> as(a, fn -> SnapshotCache.get(:orch) end) end)
+    await_snapshot(a)
     assert as(b, fn -> SnapshotCache.get(:orch) end) == nil
   end
 
@@ -167,11 +169,14 @@ defmodule Aiur.Project.StoreIsolationTest do
     assert {interval.(a), interval.(b)} == {33, 47}
   end
 
-  defp eventually(fun, tries \\ 100) do
-    cond do
-      fun.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(20) && eventually(fun, tries - 1)
+  # The store broadcasts :fleet_changed after it caches a built snapshot.
+  defp await_snapshot(project, tries \\ 20) do
+    if as(project, fn -> SnapshotCache.get(:orch) end) do
+      :ok
+    else
+      assert tries > 0, "snapshot never cached"
+      assert_receive :fleet_changed, 1_000
+      await_snapshot(project, tries - 1)
     end
   end
 end
