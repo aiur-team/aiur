@@ -269,6 +269,8 @@ aiur_engine_main() {
       ;;
     ask) run_ask "$@" ;;
     asks) run_asks "$@" ;;
+    # @cli-reference aiur --categories a,b | Limits a new client token to the named control-call categories. | aiur token create hub --categories read,message
+    # @cli-reference aiur --peer ID | Binds a new client token to a gateway id; categories default to `read`. | aiur token create hub --peer gw-hub
     # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
