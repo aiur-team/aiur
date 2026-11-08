@@ -94,11 +94,11 @@ defmodule Aiur.Gateway.StatusTest do
 
   test "a refused peer or a different gateway id is error, not offline", %{now: now} do
     {0, json} = run([ok("nook", 2), ok("pc", 1)], now: now, http_get: hello([{"nook.test", @pc}, {"pc.test", @pc}]), json: true)
-    assert %{"connectivity" => "error", "workload" => "unknown", "agents" => nil} = rows(json)["nook"]
-    assert %{"connectivity" => "online"} = rows(json)["pc"]
+    assert %{"connectivity" => "error", "reason" => "pin mismatch", "workload" => "unknown", "agents" => nil} = rows(json)["nook"]
+    assert %{"connectivity" => "online", "reason" => nil} = rows(json)["pc"]
 
     {0, json} = run([down("nook", 77), ok("pc", 1)], now: now, http_get: both(), json: true)
-    assert %{"connectivity" => "error", "workload" => "unknown"} = rows(json)["nook"]
+    assert %{"connectivity" => "error", "reason" => "refused", "workload" => "unknown"} = rows(json)["nook"]
   end
 
   test "an online row carries the six documented json keys and refreshes the cache", %{now: now} do

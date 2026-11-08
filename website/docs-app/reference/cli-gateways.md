@@ -15,7 +15,23 @@ Each peer's `allows` block in `~/.aiur/remote-instances.yaml` sets what it may d
 | `aiur gateway list [--json]` | Read-only. One row per registry entry: `registered`, connectivity, workload, last seen, gateway id, agents and grants. Each entry is read in parallel (5 s each, `AIUR_GATEWAY_TIMEOUT_SECONDS`) with `agents --json` and the anonymous hello. The last line totals agents: `15 (3 cached)` when some counts come from an offline gateway's cache, `12 + unknown` when an entry has never answered. `--json` emits `{gateways, totals}`; `totals` is `{agents, unknown}` (the sum of known counts, cached included, and the number of rows with no count). Each row carries `gateway`, `registered`, `connectivity`, `reason`, `workload`, `last_workload`, `last_seen_at`, `age_ms`, `freshness`, `gateway_id`, `agents`, `projects`, `owned_tickets`, `executor`, `grants_to_peer` and `grants_from_peer`. `agents`, `last_seen_at` and `age_ms` are null when never reached; `projects`, `owned_tickets`, `executor` and `grants_from_peer` are null until gateways report them. | `aiur gateway list` |
 | `aiur gateway status <gateway> [--json]` | The same fields for one registry entry, one per line. Exits 66 for a name not in the registry. | `aiur gateway status nook` |
 
-Connectivity is `online` (hello and `agents --json` both answered), `offline` (no answer), `error` (refused, invalid output, or a gateway id other than the pinned one; `reason` is `refused`, `invalid hello`, `hello disabled` or `pin mismatch`, and is null otherwise). `hello disabled` means the gateway answered `agents --json` but its anonymous hello returned 404 (`server.gateway_hello: false`, the default on a non-loopback, non-tailnet bind), so its gateway id could not be checked), or `unknown` (never reached). Each online answer is cached in `~/.aiur/remote-state/<name>.json`. An offline gateway shows that cache with its age (`agents: 3 (12m ago)`, `freshness: stale`) and workload `unknown`, with the cached value in `last_workload`; it is never `idle` or `0`. Workload is `active` (running agents), `idle`, or `unknown` unless the gateway is `online`. `saturated`, `paused`, projects, owned tickets and Executor presence are `unknown` until gateways report them.
+Connectivity is one of:
+
+- `online`: hello and `agents --json` both answered.
+- `offline`: no answer.
+- `unknown`: never reached.
+- `error`: answered, but `reason` says why.
+
+`reason` is null unless connectivity is `error`:
+
+- `refused`: the authenticated call was refused.
+- `invalid hello`: the hello was not recognised.
+- `pin mismatch`: the gateway id differs from the pinned one.
+- `hello disabled`: hello returned 404 (`server.gateway_hello: false`, the default on a non-loopback, non-tailnet bind), so the id was not checked.
+
+Each online answer is cached in `~/.aiur/remote-state/<name>.json`. An offline gateway shows that cache with its age (`agents: 3 (12m ago)`, `freshness: stale`) and workload `unknown`, with the cached value in `last_workload`; it is never `idle` or `0`.
+
+Workload is `active` (running agents), `idle`, or `unknown` unless the gateway is `online`. `saturated`, `paused`, projects, owned tickets and Executor presence are `unknown` until gateways report them.
 
 The hello answer is `{gateway_id, gateway_label, build, tls_fingerprint_sha256, enrollment}` and nothing else; [`server.gateway_hello`](./configuration-daemon) turns it off.
 
