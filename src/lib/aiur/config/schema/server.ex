@@ -38,7 +38,7 @@ defmodule Aiur.Config.Schema.Server do
     field(:tailscale_funnel, :boolean, default: false)
     # @config-reference config-configuration-18 server.gateway_hello
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail server.gateway_hello | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404. |
+    # @config-detail server.gateway_hello | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404, and `POST /api/v1/gateway/enroll` does too. |
     field(:gateway_hello, :boolean)
     # @config-reference config-configuration-18 server.tls_pin_sha256
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
