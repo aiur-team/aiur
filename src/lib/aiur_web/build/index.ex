@@ -478,10 +478,7 @@ defmodule AiurWeb.Build.Index do
 
     state = %{state | waiting: []}
 
-    cond do
-      MapSet.size(state.dirty) > 0 or now_unavailable? -> schedule(state)
-      true -> state
-    end
+    if MapSet.size(state.dirty) > 0 or now_unavailable?, do: schedule(state), else: state
   end
 
   defp broadcast(state, changes),
