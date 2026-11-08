@@ -166,6 +166,24 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     assert Enum.any?(offenders, &String.contains?(&1, "%RootSummary{progress: progress}"))
   end
 
+  test "census ignores an event-topic string literal that is not a progress field access" do
+    relay = ~S"""
+    defmodule Relay do
+      defp dispatch("agent.progress.status", event, %{kind: :briefing} = state), do: {event, state}
+    end
+    """
+
+    assert ProgressRendererCensus.offenders("aiur/relay.ex", relay) == []
+
+    access = ~S"""
+    defmodule Card do
+      def face(entry), do: "#{entry.progress.value}"
+    end
+    """
+
+    assert Enum.any?(ProgressRendererCensus.offenders("aiur/card.ex", access), &String.ends_with?(&1, "entry.progress"))
+  end
+
   test "renderer call sites match the reviewed census", %{sources: sources} do
     actual =
       sources

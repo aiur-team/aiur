@@ -21,7 +21,6 @@ Aiur.Orchestrator.PollAttentionSnapshotTest	standalone reads stay fresh and nest
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
-Aiur.Regression.ProgressRendererBoundaryTest	Build Order presentation surfaces do not bypass the shared renderer	#7234	2026-11-13
 Aiur.Scripts.AgentWorktreeTest	create checks out the PR head in a unique worktree with a unique branch	#7539	2026-11-20
 Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding pane ids	#7282	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
