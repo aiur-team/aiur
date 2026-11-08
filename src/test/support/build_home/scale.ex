@@ -68,6 +68,14 @@ defmodule Aiur.TestSupport.BuildHome.Scale do
     base |> put_in(["sections", "now"], rows) |> refresh()
   end
 
+  @doc "Planned rows spread round-robin over every lane, so even a 1440 px board falls back to flow layout (#7756)."
+  @spec crowded(map()) :: map()
+  def crowded(base) do
+    lanes = base["order"]
+    plan = base["sections"]["plan"] |> Enum.with_index() |> Enum.map(fn {row, i} -> Map.put(row, "epic", Enum.at(lanes, rem(i, length(lanes)))) end)
+    base |> put_in(["sections", "plan"], plan) |> refresh()
+  end
+
   @doc "The first now row of the base: visible on first paint, so its modal is reachable."
   @spec perf_ticket_id(map()) :: String.t()
   def perf_ticket_id(base), do: hd(base["sections"]["now"])["id"]
