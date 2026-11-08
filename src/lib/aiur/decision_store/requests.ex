@@ -160,6 +160,7 @@ defmodule Aiur.DecisionStore.Requests do
   def handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
          {:ok, opts} <- RequestAttributes.normalize_opts(opts),
+         {:ok, opts} <- RequestAttributes.put_tags(opts, payload),
          {:ok, decision} <- DecisionValidation.normalize(payload, opts),
          :ok <- SuggestedResponses.validate(decision, opts) do
       decision

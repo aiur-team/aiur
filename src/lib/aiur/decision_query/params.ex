@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionQuery.Params do
   @moduledoc false
 
+  alias Aiur.Commands.Tags
   alias Aiur.Decision
   alias Aiur.DecisionQuery.Cursor
 
@@ -8,7 +9,7 @@ defmodule Aiur.DecisionQuery.Params do
   @maximum_limit 100
   @maximum_decision_id_bytes 256
   @maximum_search_bytes 200
-  @query_fields ~w(authority blocking cursor kind labels lifecycle limit route search ticket tickets)
+  @query_fields ~w(authority blocking cursor kind labels lifecycle limit route search tag ticket tickets)
   @maximum_labels 50
   @label_pattern ~r/^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9._-]{0,127}$/
   @lifecycle_by_name %{
@@ -49,7 +50,8 @@ defmodule Aiur.DecisionQuery.Params do
           search: String.t() | nil,
           ticket: String.t() | nil,
           tickets: MapSet.t(String.t()) | nil,
-          labels: [String.t()] | nil
+          labels: [String.t()] | nil,
+          tag: String.t() | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, {:invalid_query, term()}}
@@ -66,6 +68,7 @@ defmodule Aiur.DecisionQuery.Params do
          {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search),
          {:ok, tickets} <- optional_tickets(normalized["tickets"]),
          {:ok, labels} <- optional_labels(normalized["labels"]),
+         {:ok, tag} <- optional_tag(normalized["tag"]),
          :ok <- distinct_search_inputs(ticket, search) do
       {:ok,
        %{
@@ -79,6 +82,7 @@ defmodule Aiur.DecisionQuery.Params do
          ticket: ticket,
          tickets: tickets,
          labels: labels,
+         tag: tag,
          search: search
        }}
     else
@@ -247,6 +251,15 @@ defmodule Aiur.DecisionQuery.Params do
   end
 
   defp normalize_label(_label), do: :error
+
+  defp optional_tag(nil), do: {:ok, nil}
+
+  defp optional_tag(tag) do
+    case Tags.normalize([tag]) do
+      {:ok, [tag]} -> {:ok, tag}
+      _invalid -> {:error, {:tag, :invalid}}
+    end
+  end
 
   defp optional_string(nil, _maximum, _field), do: {:ok, nil}
 

@@ -10,6 +10,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.Signal
 
   @spec handle_dismiss(term(), term(), term()) :: term()
@@ -105,7 +106,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   defp persist_dismissal(decision, actor, state) do
     case Persistence.build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
-        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, Siblings.moot_after_rejection(next_state, updated)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}

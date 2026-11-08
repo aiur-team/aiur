@@ -75,7 +75,8 @@ defmodule Aiur.Commands.ComponentState do
       "conflict" => conflict(projection),
       "media" => media(projection),
       "actions" => actions(state, writable?, projection),
-      "source" => text(projection, "source")
+      "source" => text(projection, "source"),
+      "tags" => List.wrap(Map.get(projection, "tags"))
     }
   end
 
