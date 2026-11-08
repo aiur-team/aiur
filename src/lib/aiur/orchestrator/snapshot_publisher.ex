@@ -64,10 +64,8 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   """
   @spec clear(GenServer.server()) :: :ok
   def clear(orchestrator) do
-    case Table.ref(@table) do
-      nil -> :ok
-      table -> :ets.delete(table, orchestrator)
-    end
+    table = Table.ref(@table)
+    if table && :ets.info(table) != :undefined, do: :ets.delete(table, orchestrator)
 
     clear_published_marker(orchestrator)
 
