@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerReleaseWakesTest do
       end)
 
     assert state.startup_claim_reconciliation_complete?
-    refute_receive {:alert, "ticket.5330.agent.attention.startup_orphan_claim_released", _opts}, 100
+    refute_receive {:alert, "ticket.5330.agent.attention.orphan_claim_released", _opts}, 100
   end
 
   test "a successful release that leaves labels unchanged does not wake the Executor" do
