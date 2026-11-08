@@ -135,6 +135,10 @@ Deploy a build that recognizes a new config key before adding that key to `.aiur
 
 [Read this section](./configuration-daemon#server).
 
+## dashboard
+
+[Read this section](./configuration-daemon#dashboard).
+
 ## dashboard_auth
 
 [Read this section](./configuration-daemon#dashboard-auth).
