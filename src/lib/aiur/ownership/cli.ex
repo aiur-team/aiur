@@ -11,6 +11,7 @@ defmodule Aiur.Ownership.CLI do
   """
 
   alias Aiur.Gateway.Identity, as: GatewayIdentity
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LandingWithdrawal
   alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Ownership.{GitHubRef, Liveness}
@@ -130,7 +131,12 @@ defmodule Aiur.Ownership.CLI do
   end
 
   defp identity do
-    key = case Aiur.Identity.instance_key() do {:ok, key} -> key; _ -> nil end
+    key =
+      case Aiur.Identity.instance_key() do
+        {:ok, key} -> key
+        _ -> nil
+      end
+
     Map.put(GatewayIdentity.current(), :daemon_key, key)
   end
 
@@ -226,7 +232,7 @@ defmodule Aiur.Ownership.CLI do
     end
   end
 
-  defp repo(opts), do: Keyword.get_lazy(opts, :repo, &Aiur.GitHub.Config.repo/0)
+  defp repo(opts), do: Keyword.get_lazy(opts, :repo, &GitHubConfig.repo/0)
   defp now(opts), do: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
   defp iso(dt), do: dt |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 

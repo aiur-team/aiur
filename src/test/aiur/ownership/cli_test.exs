@@ -48,7 +48,23 @@ defmodule Aiur.Ownership.CLITest do
       read_fun: fn "o/r", "12" -> {:ok, observed} end,
       transfer_fun: fn "o/r", "12", ^observed, owner ->
         send(test, {:transfer, owner})
-        {:ok, new} = Record.new(%{record() | epoch: 5, previous_epoch: 4, gateway_id: owner.gateway_id, gateway_label: owner.gateway_label, daemon_key: owner.daemon_key, actor: owner.actor, reason: "transfer", note: owner.note} |> Map.from_struct())
+
+        {:ok, new} =
+          Record.new(
+            %{
+              record()
+              | epoch: 5,
+                previous_epoch: 4,
+                gateway_id: owner.gateway_id,
+                gateway_label: owner.gateway_label,
+                daemon_key: owner.daemon_key,
+                actor: owner.actor,
+                reason: "transfer",
+                note: owner.note
+            }
+            |> Map.from_struct()
+          )
+
         {:won, new}
       end,
       open_pr_fun: fn "12" -> {:ok, %{"number" => 9}} end,
@@ -167,7 +183,14 @@ defmodule Aiur.Ownership.CLITest do
     test "json carries age_ms, freshness and liveness" do
       out = capture_io(fn -> CLI.owner(base_opts(json: true, liveness_fun: liveness(:online, :heartbeat, 4000))) end)
 
-      assert %{"schema" => "aiur.ticket-owner/v1", "state" => "owned", "epoch" => 4, "age_ms" => 5000, "freshness" => "fresh", "liveness" => %{"status" => "online", "source" => "heartbeat", "age_ms" => 4000}} =
+      assert %{
+               "schema" => "aiur.ticket-owner/v1",
+               "state" => "owned",
+               "epoch" => 4,
+               "age_ms" => 5000,
+               "freshness" => "fresh",
+               "liveness" => %{"status" => "online", "source" => "heartbeat", "age_ms" => 4000}
+             } =
                Jason.decode!(out)
     end
 
