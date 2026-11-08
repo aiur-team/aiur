@@ -10,7 +10,7 @@ test.setTimeout(180_000)
 function expectFlowLayout(g) {
   expect(g.lanes).toBe(0)
   expect(g.laneG).toBe('Colour = lane')
-  expect(g.edgesHidden).toBe(true)
+  expect(g.edgesHidden, 'flow keeps dependency lines visible (#7756)').toBe(false)
   expect(g.histLefts.length).toBeLessThanOrEqual(Math.max(2, Math.floor((g.vpW - 46 - 14) / 140)))
 }
 

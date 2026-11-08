@@ -41,14 +41,13 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
     assert {:error, {:invalid_query, {:requester, :invalid_value}}} = DecisionProvider.list(%{"requester" => "other"}, opts)
   end
 
-  test "filter link and detail navigation preserve requester and show badges instead of a synthetic ticket", %{store: store} do
+  test "requester query and detail navigation preserve requester and show badges instead of a synthetic ticket", %{store: store} do
     executor = request!(store, "executor", DateTime.utc_now())
     worker = request!(store, "979", DateTime.utc_now())
     {:ok, view, _html} = live(build_conn(), "/commands")
     assert has_element?(view, "#decision-#{worker.decision_id} .ticket-id", "#979 · agent-979")
     refute has_element?(view, "#decision-#{worker.decision_id} .requester-badge")
-    view |> element("a.filter-chip", "From Executor") |> render_click()
-    assert_patch(view, "/commands?requester=executor")
+    {:ok, view, _html} = live(build_conn(), "/commands?requester=executor")
     refute has_element?(view, "#decision-#{worker.decision_id}")
     assert has_element?(view, "[data-requester-count]", "1 from Executor on this retained page (not a total).")
     assert has_element?(view, "#decision-#{executor.decision_id} .ticket-id", "Executor")
@@ -66,15 +65,10 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
     assert has_element?(view, "#decision-detail-#{executor.decision_id} header .requester-badge", "From Executor")
     view |> element("#decision-detail-#{executor.decision_id} a", "Collapse details") |> render_click()
     assert_patch(view, "/commands?requester=executor")
-    view |> element("button[phx-value-filter=open]") |> render_click()
-    assert_patch(view, "/commands?filter=open&requester=executor")
+    view |> element("button[phx-value-filter=blocking]") |> render_click()
+    assert_patch(view, "/commands?filter=blocking&requester=executor")
     render_submit(view, "search-commands", %{"search" => ""})
     assert_patch(view, "/commands?requester=executor")
-    view |> element("button[phx-value-filter=open]") |> render_click()
-    assert_patch(view, "/commands?filter=open&requester=executor")
-    view |> element("a.filter-chip", "From Executor") |> render_click()
-    assert_patch(view, "/commands?filter=open")
-    assert has_element?(view, "#decision-#{worker.decision_id}")
   end
 
   test "partial and unavailable filtered pages never render a zero count or an empty claim", %{store: store} do
