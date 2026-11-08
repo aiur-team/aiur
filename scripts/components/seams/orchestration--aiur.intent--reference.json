@@ -1,0 +1,6 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Intent.*",
+  "kind": "reference",
+  "reason": "#7654 the effective pause reads the fleet.pause register and boot-pulls shared intent; the store stays optional and an unconfigured gateway reads never_synced"
+}
