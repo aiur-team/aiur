@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PrevalidatedDispatchDependencyTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Workflow}
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, StartupClaimReconciler, State}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", tracker_active_states: ["todo", "in-progress"])
@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.PrevalidatedDispatchDependencyTest do
     parent = self()
 
     {released_state, [%Issue{state: "todo"} = released]} =
-      Aiur.Orchestrator.StartupClaimReconciler.reconcile(state(), [in_progress],
+      StartupClaimReconciler.reconcile(state(), [in_progress],
         grace_ms: 0,
         open_pr_fetcher: fn _ -> {:ok, nil} end,
         create_comment_fun: fn _, _ -> :ok end,

@@ -21,19 +21,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Prevalidated do
     else
       hydrator = Keyword.get(opts, :blocked_by_hydrator, &Tracker.hydrate_blocked_by/1)
 
-      case hydrator.(issue) do
-        {:ok, %Issue{} = hydrated} ->
-          if DispatchPolicy.issue_held_by_dependency?(hydrated, DispatchPolicy.terminal_state_set()),
-            do: {:error, :waiting_for_dependencies},
-            else: {:ok, hydrated}
-
-        _unknown ->
-          {:error, :dependency_hydration_failed}
-      end
+      issue |> hydrator.() |> gate()
     end
   end
 
   def check(issue, _opts), do: {:ok, issue}
+
+  defp gate({:ok, %Issue{} = hydrated}) do
+    if DispatchPolicy.issue_held_by_dependency?(hydrated, DispatchPolicy.terminal_state_set()),
+      do: {:error, :waiting_for_dependencies},
+      else: {:ok, hydrated}
+  end
+
+  defp gate(_unknown), do: {:error, :dependency_hydration_failed}
 
   @doc false
   @spec dispatch_prevalidated_issue(State.t(), Issue.t(), keyword()) ::
