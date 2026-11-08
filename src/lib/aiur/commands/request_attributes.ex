@@ -4,13 +4,24 @@ defmodule Aiur.Commands.RequestAttributes do
   require Logger
 
   alias Aiur.Commands.RequestContent
+  alias Aiur.Commands.Tags
   alias Aiur.DecisionStore.Persistence
   alias Aiur.Signal
 
-  @keys [:requester, :origin, :native, :questions]
+  @keys [:requester, :origin, :native, :questions, :tags]
 
   @spec from_opts(keyword()) :: map()
   def from_opts(opts), do: opts |> Keyword.take(@keys) |> Map.new() |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+  @doc "Validates the request payload's caller `tags` into `opts[:tags]`."
+  @spec put_tags(keyword(), map()) :: {:ok, keyword()} | {:error, term()}
+  def put_tags(opts, payload) do
+    case Tags.normalize(Map.get(payload, "tags", Map.get(payload, :tags))) do
+      {:ok, []} -> {:ok, opts}
+      {:ok, tags} -> {:ok, Keyword.put(opts, :tags, tags)}
+      {:error, reason} -> {:error, {:decision_invalid, reason}}
+    end
+  end
 
   @spec normalize_opts(keyword()) :: {:ok, keyword()} | {:error, term()}
   def normalize_opts(opts) do
