@@ -92,4 +92,16 @@ defmodule AiurWeb.ProjectsHomeLiveTest do
     assert html =~ "unknown of unknown agents"
     refute html =~ "0 agents"
   end
+
+  test "local rows render agents, next queue entry and Decisions, and unreadable ones read unknown", %{workflow_path: path} do
+    projects_home!(path, true)
+
+    Application.put_env(:aiur, :gateway_summary_metadata, fn ->
+      %{"data" => %{"projects" => [%{"repo" => "a/b", "agents" => 2, "next_queue" => %{"number" => 41}, "pending_decisions" => 3}, %{"repo" => "c/d"}]}}
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/projects")
+    assert html =~ "agents 2 (0s ago) · next #41 (0s ago) · decisions 3 (0s ago)"
+    assert html =~ "agents unknown · next unknown · decisions unknown"
+  end
 end

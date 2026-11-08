@@ -65,7 +65,8 @@ defmodule AiurWeb.ProjectsHomeLive do
               <p :if={summary.projects == []}>No projects reported.</p>
               <ul>
                 <li :for={project <- summary.projects} data-project-row={project.repo}>
-                  {project.repo} · running {count(project.running)} · ready {count(project.ready)}
+                  {project.repo} · running {count(project.running)} · ready {count(project.ready)} ·
+                  <span data-signals>{signals(project)}</span>
                   <a href="/build">Build ›</a>
                 </li>
               </ul>
@@ -81,7 +82,6 @@ defmodule AiurWeb.ProjectsHomeLive do
           <p data-totals></p>
           <div data-cards></div>
         </div>
-        <p data-section="agents">Current agents, queue and Decisions: not in this gateway's summary yet.</p>
       </section>
     </DashboardShell.dashboard_shell>
     """
@@ -94,6 +94,22 @@ defmodule AiurWeb.ProjectsHomeLive do
   catch
     :exit, _ -> :unavailable
   end
+
+  defp signals(project) do
+    [
+      signal("agents", project.agents, &count/1),
+      signal("next", project.next_queue, fn
+        %{"number" => n} when is_integer(n) -> "##{n}"
+        %{"number" => nil} -> "none ready"
+        _ -> "unknown"
+      end),
+      signal("decisions", project.pending_decisions, &count/1)
+    ]
+    |> Enum.join(" · ")
+  end
+
+  defp signal(label, %{state: "known", value: value, age_ms: age}, fmt), do: "#{label} #{fmt.(value)} (#{div(age, 1000)}s ago)"
+  defp signal(label, _, _), do: "#{label} unknown"
 
   defp count(value) when is_integer(value), do: Integer.to_string(value)
   defp count(_), do: "unknown"
