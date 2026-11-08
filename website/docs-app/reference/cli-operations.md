@@ -348,19 +348,31 @@ Clear persists unmark intents before paced writes; crashes resume on restart. A 
 
 ## Ticket ownership
 
-`aiur ticket owner <n> [--json]` reads the ownership record (uncached) and prints the owner gateway and daemon, `epoch`, actor, reason, the record's age, and whether the owner is `online`, `offline` or `unknown`, with the source of that verdict (`self`, `heartbeat`, `hello`). A failed read prints `ownership unknown` with no owner fields and exits 75; it is never shown as unowned. `--json` is schema `aiur.ticket-owner/v1`. `owner` needs only the `read` grant.
+`aiur ticket owner <n> [--json]` reads the ownership record uncached and prints the owner, `epoch`, actor, reason, the record's age and the owner's liveness: `online`, `offline` or `unknown`, with its source (`self`, `heartbeat`, `hello`). It needs only the `read` grant.
 
-`aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`) and then disables auto-merge on the old owner's open PR. `--to` names the target; `--gateway` still selects where the command runs. It needs the `tickets` grant. Today `--to` accepts only the gateway the command runs on (label or id), so run it on the gateway taking the ticket; naming a peer needs the gateway registry and exits 64.
+A failed read prints `ownership unknown` with no owner fields and exits 75; it never shows as unowned. `--json` is schema `aiur.ticket-owner/v1`.
+
+`aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`), then disables auto-merge on the old owner's open PR. It needs the `tickets` grant.
+
+`--to` names the target; `--gateway` still selects where the command runs. Today `--to` accepts only the gateway the command runs on (label or id), so run it where the ticket is going. A peer name needs the gateway registry and exits 64.
+
+The owner's liveness decides:
 
 | Owner liveness | Result |
 |---|---|
-| `offline`: last heartbeat older than `coordination.offline_after_seconds` and no answering hello | transfer proceeds |
-| `online` (fresh heartbeat, answering hello, or this daemon) | exit 64 `owner is online; ask it to release` |
+| `offline`: heartbeat older than `coordination.offline_after_seconds`, no answering hello | transfer proceeds |
+| `online`: fresh heartbeat, answering hello, or this daemon | exit 64 `owner is online; ask it to release` |
 | `unknown`: store down, no heartbeat row, no hello | exit 64 `owner liveness unknown; treat as online` |
 
-`--force` overrides a live or unknown owner, is recorded as `forced: ` in the record's `note`, and is local and human only: it is refused with `--gateway`/`--instance` or `--as` (exit 64). The actor is derived, never supplied: `human` (`cli:$USER`) locally, `executor` with `--as <id>`, `executor` `remote` over `--gateway`. Heartbeats match by gateway id, so a live second daemon on the owner's machine keeps it `online`.
+`--force` overrides a live or unknown owner and records `forced: ` in the record's `note`. It is local and human only: with `--gateway`/`--instance` or `--as` it exits 64.
 
-Exit codes: 64 refusal or a lost compare-and-set (`ownership changed to <label> at epoch <n>`; re-read, do not blindly retry); 75 unknown outcome, including a transfer that stands but whose auto-merge disable failed (`auto_merge: "failed: ..."`). Retrying the same `assign` is safe: an already-owned target skips the write and retries the auto-merge disable.
+The actor is derived, never supplied: `human` (`cli:$USER`) locally, `executor` with `--as <id>`, and `executor` `remote` over `--gateway`.
+
+Heartbeats match by gateway id, so a live second daemon on the owner's machine keeps it `online`.
+
+Exit 64 is a refusal or a lost compare-and-set (`ownership changed to <label> at epoch <n>`): re-read before retrying. Exit 75 is an unknown outcome, including a transfer that stands whose auto-merge disable failed (`auto_merge: "failed: ..."`).
+
+Retrying the same `assign` is safe: an already-owned target skips the write and retries the auto-merge disable.
 
 ## `pr merge`
 
