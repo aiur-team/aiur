@@ -53,7 +53,8 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) test(`S-
         const { ctx, fx } = await import('/build-home/state.js')
         ctx.snapping = true
         const sec = id.includes('start') ? 'hist' : 'plan', it = ctx.L.secs[sec].items.find(it => it.t.id === id)
-        fx.scrollVP(Math.max(0, ctx.secs[sec].el.offsetTop + it.y - 100), false); fx.update()
+        // #7758: a planned card scrolled near the top sits under the pinned LIVE band, so clear it.
+        fx.scrollVP(Math.max(0, ctx.secs[sec].el.offsetTop + it.y - 100 - (sec === 'plan' ? ctx.bandEl.offsetHeight : 0)), false); fx.update()
       }, marker.id)
       const target = page.locator(`.bd-card[data-id="${marker.id}"]`)
       await waitForCard(page, target)

@@ -78,17 +78,18 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
 - **Outcome.** `Aiur.Ownership.GitHubRef` reads, claims, transfers and releases the ownership record (S1) with
   compare-and-set only, and classifies every response as `:won`, `:lost` or `:unknown`.
 - **Next action.** Create `src/lib/aiur/ownership/github_ref.ex` with `read/2`, `claim/3`, `transfer/4`,
-  `release/3`. Every write sends `beforeOid` (the observed head, or zeros for a first claim).
+  `release/3`, and `list_owned/3` (paged prefix listing: a failed page is `{:unknown, _}`, never a partial `:ok`). Every write sends `beforeOid` (the observed head, or zeros for a first claim).
 - **Files.** `src/lib/aiur/ownership/github_ref.ex`, `src/lib/aiur/ownership/record.ex` (new); reuse
   `src/lib/aiur/github/transport/graphql.ex` and `src/lib/aiur/github/client.ex`; tests
   `src/test/aiur/ownership/github_ref_test.exs`, `src/test/aiur/ownership/record_test.exs`.
 - **Acceptance.**
   - [ ] **[fails without]** Two concurrent `claim/3` calls against the stub that applies `beforeOid` atomically give exactly one `{:won, record}` and one `{:lost, current}`.
-  - [ ] A stub timeout after the write returns `{:unknown, :timeout}`, never `:won`.
+  - [ ] A stub timeout returns `:unknown` unless the re-read finds our commit (then `:won`); never `:won` otherwise.
   - [ ] A 422 whose message is not the MPG-101 "lost" signature returns `{:unknown, {:http, 422, msg}}`.
   - [ ] `claim/3` and `transfer/4` both write `epoch = previous_epoch + 1`, including a claim of a `released` ticket; a stale `beforeOid` returns `:lost`.
   - [ ] The record carries `daemon_key` (the instance key) beside `gateway_id`.
   - [ ] Ownership reads bypass `Aiur.GitHub.ReadCache` (test asserts no cache lookup).
+  - [ ] `list_owned/3` over 127 refs returns all 127 in two pages; a page-2 failure returns `{:unknown, _}`, not a partial list.
 - **Research MPG-102R** (complexity 2, depends on MPG-101). Request shapes, the tree/commit write sequence, budget
   attribution through the GitHub budget broker, and the `owner.json` encoder.
 
@@ -98,7 +99,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
 - **Outcome.** With `instance.ownership: github`, a ticket starts only if this gateway owns it or wins its claim.
   PR-anchored units claim `pr-<N>`. The two lease bypasses are gone.
 - **Next action.** In `src/lib/aiur/orchestrator/dispatcher/shared_lease_dispatch.ex`, call a new
-  `Aiur.Ownership.ensure_owned/2` before `dispatch_with_shared_lease`, for every issue including `pr_head_ref` ones.
+  `Aiur.Ownership.ensure_owned/2` after the Capacity admit check (`GatewayDemand.admit/2`, MPG-402) and before `dispatch_with_shared_lease`, for every issue including `pr_head_ref` ones.
 - **Files.** `src/lib/aiur/ownership.ex` (new facade); `shared_lease_dispatch.ex` (remove the `pr_head_ref` branch at
   lines 67-73); `src/lib/aiur/agent_runner.ex` (remove lines 27-30 bypass); `src/lib/aiur/config/schema/instance.ex`
   (key `ownership: off | github`, default `off`); tests `src/test/aiur/orchestrator/ownership_dispatch_test.exs`;
@@ -107,6 +108,7 @@ Acceptance checks marked **[fails without]** must fail on `main` before the chan
   - [ ] **[fails without]** Two orchestrators in one test, sharing the atomic stub, poll the same todo ticket: exactly one agent starts.
   - [ ] **[fails without]** A PR-anchored unit owned by another gateway is not dispatched.
   - [ ] **[fails without]** Two daemons with the same `gateway_id` and different `daemon_key` on one repository: only the claimant dispatches.
+  - [ ] A ticket Capacity denies makes no ownership reads or writes (claim runs after `admit/2`).
   - [ ] `:unknown` ownership declines dispatch with attention `ownership_unknown` and retries next poll.
   - [ ] With `instance.ownership: off`, the existing `shared_lease_dispatch_test.exs` passes unchanged.
 - **Research MPG-103R** (complexity 2, depends on MPG-101). Every caller of `do_dispatch_issue` and
