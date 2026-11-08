@@ -32,6 +32,7 @@ defmodule Aiur.Commands.HostApi do
   @default_limit 25
   @maximum_limit 100
   @maximum_answer_key_bytes 200
+  @note_max 2000
 
   @type scope :: Scope.t()
   @type read_error :: :not_found | :store_unavailable | {:invalid_query, term()}
@@ -183,10 +184,17 @@ defmodule Aiur.Commands.HostApi do
 
   def escalate(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
 
+  defp bounded_note(""), do: {:ok, nil}
+  defp bounded_note(note) when byte_size(note) > @note_max * 4, do: {:error, {:invalid_answer, {:note, :too_long}}}
+
+  defp bounded_note(note) do
+    if String.length(note) > @note_max, do: {:error, {:invalid_answer, {:note, :too_long}}}, else: {:ok, note}
+  end
+
   defp escalation_note(payload) do
     case Map.get(payload, "note") do
       nil -> {:ok, nil}
-      note when is_binary(note) -> {:ok, note}
+      note when is_binary(note) -> bounded_note(String.trim(note))
       _invalid -> {:error, {:invalid_answer, {:note, :invalid}}}
     end
   end

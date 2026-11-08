@@ -77,6 +77,13 @@ defmodule Aiur.Commands.HostApiEscalateTest do
              HostApi.escalate(scope, decision.decision_id, %{"expected_version" => decision.version}, store: store)
   end
 
+  test "escalate rejects an over-long note as invalid, not a store outage", %{store: store} do
+    decision = request!(store, "42", "escalate-long-note")
+    payload = %{"idempotency_key" => "k", "expected_version" => decision.version, "note" => String.duplicate("a", 2001)}
+
+    assert {:error, {:invalid_answer, {:note, :too_long}}} = HostApi.escalate(scope_for(["42"]), decision.decision_id, payload, store: store)
+  end
+
   test "a pending deferrable Command advertises the escalate action", %{store: store} do
     decision = request!(store, "42", "escalate-flag")
     assert {:ok, %{"command" => %{"actions" => %{"escalate" => true}}}} = HostApi.show(scope_for(["42"]), decision.decision_id, store: store)
