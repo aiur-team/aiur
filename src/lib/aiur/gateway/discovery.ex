@@ -48,7 +48,9 @@ defmodule Aiur.Gateway.Discovery do
     end
   end
 
-  defp hello_url(url), do: String.trim_trailing(url, "/") <> @hello_path
+  @doc false
+  @spec hello_url(String.t()) :: String.t()
+  def hello_url(url), do: String.trim_trailing(url, "/") <> @hello_path
 
   defp tailnet_targets(opts) do
     case Aiur.TailscaleFunnel.command(["status", "--json"], Keyword.take(opts, [:tailscale_executable, :tailscale_runner])) do
@@ -119,7 +121,9 @@ defmodule Aiur.Gateway.Discovery do
   defp row(target, status, id), do: %{name: target.name, url: target.url, status: status, gateway_id: id}
 
   # ponytail: the 4 KiB cap is checked after the read; switch to a streaming `into:` if a hostile peer matters.
-  defp http_get(url) do
+  @doc false
+  @spec http_get(String.t()) :: {:ok, map()} | {:error, term()}
+  def http_get(url) do
     case Req.get(url, receive_timeout: 2000, connect_options: [timeout: 2000], redirect: false, retry: false, decode_body: false, headers: []) do
       {:ok, %{status: 200, body: body}} when is_binary(body) and byte_size(body) <= @max_body ->
         case Jason.decode(body) do
