@@ -123,6 +123,8 @@ html .lr.completed :is(.c-id, .c-tt, .c-ep, .lr-mu, .c-ag) { color: var(--fg) !i
   .aiur-shell__rail.has-meters > .aiur-shell__nav { position: static; flex: none; }
   .aiur-shell__rail.has-meters > .aiur-shell__meters { display: block; margin-top: auto; flex: 0 1 auto; min-height: 0; overflow: hidden auto; padding: .5rem 0 0 .8rem; }
   html.nav-collapsed .aiur-shell__meters { display: none; }
+  /* #7774's fixed Executor footer spans the nav too; keep the meters above it. */
+  body:has(#executor-footer) .aiur-shell__rail.has-meters { height: calc(100vh - 56px - 1.4rem - var(--executor-footer-bar, 44px)); }
 }
 .ax-nu:empty { display: none; }
 .ax-nc + .ax-nc { margin-top: .55rem; }
