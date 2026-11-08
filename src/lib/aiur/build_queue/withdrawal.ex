@@ -10,7 +10,7 @@ defmodule Aiur.BuildQueue.Withdrawal do
     {_, actions} = Planner.plan(input)
     begins = for {:begin_withdraw, _} = action <- actions, do: action
     holds = Enum.reduce(begins, Keyword.fetch!(input.opts, :withdrawal_holds), fn {_, id}, holds -> MapSet.put(holds, id) end)
-    for id <- holds, do: :ets.insert(Hints.table_name(), {id, Hints.sort_key(id), true})
+    for id <- holds, do: :ets.insert(Hints.table_ref(), {id, Hints.sort_key(id), true})
     claims = probe.status(Enum.map(input.items, & &1.issue_id))
     claims = normalize(claims, holds)
     {%{input | claims: claims, opts: Keyword.put(input.opts, :withdrawal_holds, holds)}, begins}
