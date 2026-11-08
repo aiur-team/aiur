@@ -17,21 +17,14 @@ defmodule Aiur.Orchestrator do
     DispatchCycleLiveness,
     GlobalPause,
     StaleApprovedHead,
-    StaleOwner,
     TicketTransition
   }
 
   alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, StaleOwner, State, StatusReport}
 
-  alias Aiur.Orchestrator.{
-    TokenAccounting,
-    TrackedSet,
-    TrackerHealth,
-    TrackerTasks,
-    WorkspaceCleanup
-  }
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
