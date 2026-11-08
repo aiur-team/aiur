@@ -19,6 +19,7 @@ defmodule Aiur.DecisionApi.PublicLifecycleProjection do
       "supervisor_basis" => supervisor_basis(answer.supervisor_basis),
       "accepted_at" => timestamp(answer.accepted_at)
     }
+    |> then(&if(answer.feedback == [], do: &1, else: Map.put(&1, "feedback", answer.feedback)))
     |> then(&if(answer.rejected, do: Map.put(&1, "rejected", true), else: &1))
   end
 

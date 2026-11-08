@@ -73,6 +73,18 @@ defmodule AiurWeb.CommandsApiControllerTest do
     refute Map.has_key?(payload, "decision_id")
   end
 
+  test "answer forwards feedback and a rejected feedback is a 422" do
+    feedback = [%{"option_id" => "a", "verdict" => "like"}]
+    # Same shape HostApi.answer returns for a store-refused feedback (pinned in host_api_test.exs).
+    Process.put({FakeHostApi, :answer}, {:error, {:invalid_answer, {:feedback, :unknown_option}}})
+
+    conn = scoped_conn(:post) |> CommandsApiController.answer(%{"decision_id" => "dec_1", "option_id" => "a", "feedback" => feedback})
+
+    assert conn.status == 422
+    assert Jason.decode!(conn.resp_body)["command"]["reason"] == "validation_failed"
+    assert_receive {:host_api_called, :answer, [_scope, "dec_1", %{"feedback" => ^feedback}, _opts]}, 1_000
+  end
+
   test "reject passes the reason to the host API and an out-of-scope id is the same 404" do
     conn = scoped_conn(:post) |> CommandsApiController.reject(%{"decision_id" => "dec_hidden", "reason" => "wrong"})
     assert conn.status == 404
