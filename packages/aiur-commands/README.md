@@ -118,6 +118,7 @@ matching `aiur-command-*` class). Both are a public contract.
 | `recommendation` | the "Recommended: …" line |
 | `notice`, `conflict` | state notices |
 | `answer-form` | the answer `<form>` |
+| `escalate-form`, `escalate-note`, `escalate-submit` | the escalate `<form>`, its note field, its submit button |
 | `options`, `legend` | the option fieldset and its legend |
 | `option`, `option-copy`, `chip` | one option, its text, its "Recommended" chip |
 | `option-media` | media beside an option |
@@ -141,7 +142,8 @@ properties on any ancestor. All have defaults:
 | `--aiur-command-gap` | spacing |
 
 User-visible copy is set with the `labels` render option (escaped like all
-other text): `submit`, `legend`, `recommended`, `recorded`, `revised`.
+other text): `submit`, `legend`, `recommended`, `recorded`, `revised`, `rejected`,
+`escalate` (the escalate button) and `escalate_note` (its note label).
 
 ```js
 renderCommand(command, { labels: { submit: 'Send', legend: 'Pick one' } });

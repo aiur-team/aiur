@@ -41,6 +41,8 @@ export const DEFAULT_LABELS = {
   recorded: 'Recorded answer',
   revised: 'Revised answer',
   rejected: 'Rejection reason',
+  escalate: 'Escalate to Executor',
+  escalate_note: 'Note for the Executor (optional)',
 };
 
 function labelOf(options, key) {
@@ -311,9 +313,9 @@ function escalateForm(command, options) {
   const action = options.escalateUrl ? ` action="${escapeHtml(options.escalateUrl)}"` : '';
   const method = options.method ?? 'post';
 
-  return `<form class="aiur-command-escalate-form" data-aiur-command-escalate-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
-  <label>Note for the Executor (optional)<textarea name="note"></textarea></label>
-  <footer class="aiur-command-actions"><button type="submit">Escalate to Executor</button></footer>
+  return `<form class="aiur-command-escalate-form" data-part="escalate-form" data-aiur-command-escalate-form data-decision-id="${escapeHtml(command.decision_id)}" method="${escapeHtml(method)}"${action}>
+  <label class="aiur-command-escalate-note" data-part="escalate-note">${labelOf(options, 'escalate_note')}<textarea name="note"></textarea></label>
+  <footer class="aiur-command-actions" data-part="actions"><button type="submit" data-part="escalate-submit">${labelOf(options, 'escalate')}</button></footer>
 </form>`;
 }
 
@@ -321,7 +323,7 @@ function noticeMarkup(command) {
   const state = stateOf(command);
 
   if (state === 'escalated') {
-    return '<p class="aiur-command-notice" role="status">Escalated to the Executor. It is waiting on their decision.</p>';
+    return '<p class="aiur-command-notice" data-part="notice" role="status">Escalated to the Executor. It is waiting on their decision.</p>';
   }
 
   if (state === 'expired') {

@@ -310,6 +310,7 @@ test('a pending Command renders the escalate control only when actions.escalate 
   const on = renderCommand({ ...pending, actions: { ...pending.actions, escalate: true } }, { escalateUrl: '/api/v1/commands/dec_1/escalate' });
   assert.match(on, /Escalate to Executor/);
   assert.match(on, /data-aiur-command-escalate-form/);
+  for (const part of ['escalate-form', 'escalate-note', 'escalate-submit']) assert.match(on, new RegExp(`data-part="${part}"`));
   assert.match(on, /action="\/api\/v1\/commands\/dec_1\/escalate"/);
   assert.match(on, /<textarea name="note"/);
 
@@ -357,6 +358,8 @@ test('every documented part is in the README and rendered', () => {
   const html = [
     ...['pending', 'conflict', 'answered', 'expired', 'error'].map((s) => renderCommand({ ...rich, state: s }, { mediaBaseUrl: 'https://aiur.test' })),
     renderCommand({ ...rich, state: 'revised' }),
+    renderCommand({ ...rich, state: 'pending', actions: { ...rich.actions, escalate: true } }),
+    renderCommand({ ...rich, state: 'escalated' }),
     renderCommand({ ...rich, state: 'pending', media: [{ kind: 'video', mime_type: 'video/mp4', locator: { kind: 'attachment', attachment_id: 'x' } }, { kind: 'path', value: 'a' }] }),
     renderList({ status: 'empty' }),
     renderList({ status: 'ready', commands: [rich] }),
@@ -390,4 +393,11 @@ test('custom labels render and are escaped', () => {
   assert.match(answered, />Saved</);
   assert.match(revised, />Edited</);
   assert.ok(!pendingHtml.includes('Record answer'));
+});
+
+test('escalate button and note label honour the labels option, escaped', () => {
+  const html = renderCommand({ ...pending, actions: { ...pending.actions, escalate: true } }, { labels: { escalate: 'Ask <boss>', escalate_note: 'Why?' } });
+
+  assert.match(html, /data-part="escalate-submit">Ask &lt;boss&gt;</);
+  assert.match(html, /data-part="escalate-note">Why\?<textarea/);
 });
