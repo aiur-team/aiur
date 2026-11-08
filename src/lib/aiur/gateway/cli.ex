@@ -13,6 +13,8 @@ defmodule Aiur.Gateway.Cli do
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
   alias Aiur.Gateway.{Discovery, GrantRequest, Registry, Status}
+  alias Aiur.Project.Config, as: ProjectConfig
+  alias Aiur.Project.Supervisors
 
   @actor "cli_local"
 
@@ -67,8 +69,8 @@ defmodule Aiur.Gateway.Cli do
   def reload(_opts \\ []), do: guarded("gateway reload", fn -> exit_marker(do_reload()) end)
 
   defp do_reload do
-    if Process.whereis(Aiur.Project.Supervisors) do
-      result = Aiur.Project.Supervisors.reload(Aiur.Project.Config.configured())
+    if Process.whereis(Supervisors) do
+      result = Supervisors.reload(ProjectConfig.configured())
       failed = Enum.map(result.failed, fn {id, reason} -> "#{id} (#{inspect(reason, limit: 5, printable_limit: 120)})" end)
       Enum.each([started: result.started, stopped: result.stopped, unchanged: result.unchanged, failed: failed], fn {key, ids} -> IO.puts("#{key}: #{names(ids)}") end)
       0
