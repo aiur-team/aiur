@@ -136,7 +136,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   end
 
   defp fleet_snapshot do
-    case Aiur.Orchestrator.fleet_view(Aiur.Orchestrator, 2_000) do
+    case Aiur.Orchestrator.fleet_view(Aiur.Orchestrator.server(), 2_000) do
       {:ok, snapshot, _freshness} -> {snapshot, nil}
       _ -> {%{}, %{name: "dispatcher", status: "stalled"}}
     end

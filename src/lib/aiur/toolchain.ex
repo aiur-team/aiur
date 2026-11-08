@@ -229,7 +229,7 @@ defmodule Aiur.Toolchain do
   end
 
   defp running_backends do
-    case Aiur.Orchestrator.fleet_view(Aiur.Orchestrator, 2_000) do
+    case Aiur.Orchestrator.fleet_view(Aiur.Orchestrator.server(), 2_000) do
       {:ok, %{running: running}, _freshness} when is_list(running) -> Enum.map(running, &Map.get(&1, :backend))
       _unavailable -> :unavailable
     end

@@ -81,7 +81,7 @@ defmodule Aiur.GitHub.Listeners.Comments do
   def terminate(_reason, state), do: stop(state)
 
   defp refresh(state, input, opts) do
-    recipient = Keyword.get(opts, :recipient, Aiur.Orchestrator)
+    recipient = Keyword.get(opts, :recipient, Aiur.Project.whereis(Aiur.Orchestrator))
 
     ref =
       if recipient == state.recipient do

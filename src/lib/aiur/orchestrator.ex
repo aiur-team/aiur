@@ -28,14 +28,14 @@ defmodule Aiur.Orchestrator do
 
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def read_held_messages(identifier, max \\ 50),
-    do: HeldReads.read(Aiur.Project.whereis(__MODULE__), identifier, max)
+  def read_held_messages(identifier, max \\ 50), do: HeldReads.read(server(), identifier, max)
+
+  @doc "The current project's orchestrator, or the global one with no project."
+  @spec server() :: GenServer.server()
+  def server, do: Aiur.Project.whereis(__MODULE__)
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name)
-    GenServer.start_link(__MODULE__, opts, name: name)
-  end
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name))
 
   @impl true
   def init(opts), do: Lifecycle.init(opts, &issue_tracked?/1)
