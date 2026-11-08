@@ -22,16 +22,7 @@ defmodule Aiur.Commands.ComponentState do
   @states ~w(pending answered revised rejected escalated expired unavailable conflict error)
   @list_states ~w(loading empty ready unavailable error)
 
-  @type state ::
-          :pending
-          | :answered
-          | :revised
-          | :escalated
-          | :rejected
-          | :expired
-          | :unavailable
-          | :conflict
-          | :error
+  @type state :: :pending | :answered | :revised | :escalated | :rejected | :expired | :unavailable | :conflict | :error
 
   @type t :: %{String.t() => term()}
 
