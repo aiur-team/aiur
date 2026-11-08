@@ -5,6 +5,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.CommandSandbox
   alias Aiur.Config.SkillsMapping
 
   @doc false
@@ -380,6 +381,8 @@ defmodule Aiur.Config.Schema.AgentValidation do
     configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
 
     Enum.reduce(configs, changeset, fn {backend, config}, acc ->
+      acc = apply_backend_validation(acc, backend, CommandSandbox.validate_backend(config))
+
       case BackendCatalog.config_validator(backend) do
         validator when is_function(validator, 1) ->
           apply_backend_validation(acc, backend, validator.(config))

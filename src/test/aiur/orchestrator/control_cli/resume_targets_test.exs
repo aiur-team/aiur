@@ -189,7 +189,7 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeTargetsTest do
         output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
 
         assert output =~ "aiur: waiting for the orchestrator to become available (it is busy; mailbox="
-        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; Orchestrator"
+        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; The daemon is alive; the orchestrator did not answer in time. Orchestrator"
         assert output =~ "__AIUR_CONTROL_ERROR__:"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after

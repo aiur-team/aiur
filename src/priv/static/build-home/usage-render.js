@@ -29,11 +29,12 @@ function whoH(p) {
     `<span class="ax-mono"${Number.isFinite(p.hue) ? ` style="background:oklch(.6 .16 ${p.hue})"` : ''}>${esc(mono)}</span>`;
   return `<div class="ax-who" title="${esc(p.name)}">${image}<b>${esc(p.name)}</b>${p.accounts ? `<span class="ax-x">×${p.accounts.length}</span>` : ''}</div>`;
 }
-function winTip(p, w, label) {
-  const value = n => n == null ? 'not observed' : `${n}% left`;
-  return p.accounts ? p.accounts.map((name, i) => [name, value(w.acc[i])]) :
-    [[`${label} window${w.win === null ? '' : ' ' + w.win}`, w.acc[0] == null ? 'not observed' : `${w.acc[0]}% left`]];
-}
+const winTip = (w, label, n) => [[`${label} window${w.win == null ? '' : ' ' + w.win}`, n == null ? 'not observed' : `${n}% left`]];
+// One full-width line per login, stacked; the login name lives in the tooltip and aria-label.
+const accountLines = (p, w, label) => p.accounts.map((name, i) => {
+  const n = w.acc[i] ?? null;
+  return { ...w, acc: [n], pct: n, reset_at: w.resets?.[i] ?? w.reset_at, bar: bar([n]), head: `${p.name} ${name}`, rows: winTip(w, label, n), cls: i ? ' acct' : '' };
+});
 function lineHTML(p, o, key, now) {
   const ended = o.reset_at != null && now !== null && o.reset_at <= now;
   const reset = o.reset_at != null && now !== null && !ended ? fmtLeft(o.reset_at - now) : null;
@@ -48,7 +49,7 @@ function lineHTML(p, o, key, now) {
   const isApi = key.startsWith('api:');
   const tone = remainingTone;
   const percent = o.pct == null ? '' : `${o.pct}% left`;
-  return `<div class="ax-ln${o.tag ? ' t' : ''}${ended ? ' stale' : ''}" data-k="${key}" data-tip="${esc(JSON.stringify([head, rows]))}" tabindex="0" role="img" aria-label="${esc(aria)}">` +
+  return `<div class="ax-ln${o.tag ? ' t' : ''}${o.cls ?? ''}${ended ? ' stale' : ''}" data-k="${key}" data-tip="${esc(JSON.stringify([head, rows]))}" tabindex="0" role="img" aria-label="${esc(aria)}">` +
     (o.tag ? `<span class="ax-tg">${esc(o.tag)}</span>` : '') + `<span class="ax-pc${tone(o.pct)}">${percent}</span>${o.bar}<span class="ax-rs">${right}</span></div>`;
 }
 function rowHTML(p, key, now) {
@@ -57,9 +58,9 @@ function rowHTML(p, key, now) {
     head: p.name + (w.tag === 'credits' ? '' : ' ' + (w.tag === 'gql' ? 'GraphQL' : w.tag)), renew: w.tag === 'credits' }));
   else if (p.credits) lines = [{ pct: p.credits.pct, bar: bar([p.credits.pct]),
     right: p.credits.left === 'unknown' ? no('unknown') : `<b class="ax-usd">${esc(p.credits.left)}</b>`, head: p.name + ' · credits', rows: p.credits.tip }];
-  else if (!p.none && (p.session || p.weekly)) lines = [['Session', p.session], ['Weekly', p.weekly]].filter(([, w]) => w).map(([label, w]) =>
-    ({ ...w, pct: avgKnown(w.acc), bar: bar(w.acc), head: p.name, rows: winTip(p, w, label) }));
-  else lines = [{ pct: null, bar: '<span class="ax-bar none"></span>', right: no('not observed'), head: p.name,
+  else if (!p.none && (p.session || p.weekly)) lines = [['Session', p.session], ['Weekly', p.weekly]].filter(([, w]) => w).flatMap(([label, w]) =>
+    p.accounts ? accountLines(p, w, label) : [{ ...w, pct: avgKnown(w.acc), bar: bar(w.acc), head: p.name, rows: winTip(w, label, w.acc[0]) }]);
+  else lines = [{ pct: null, bar: '<span class="ax-bar none"></span>', right: no(p.stale ? 'unavailable' : 'not observed'), head: p.name,
     rows: [['Limits', p.note ?? (p.none ? 'not reported by provider' : 'not observed')]], none: true }];
   return `<div class="ax-r2${p.stale ? ' stale' : ''}">${whoH(p)}<div class="ax-lns">${lines.map((o, i) => lineHTML(p, o, `${key}:${i}`, now)).join('')}</div></div>`;
 }
