@@ -88,6 +88,10 @@
 - `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
   (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
   Set it to `null` to disable the hard ceiling.
+  Keep it below saturation so the daemon retains scheduler time for control
+  commands and event delivery: at 86–90% PSI, `status` took 8–11 seconds and
+  `alerts` timed out. Start with a 70–80% ceiling and lower the adaptive target
+  if the daemon remains CPU-bound.
 - `agent.target_cpu_pressure` sets the AIMD target (default `10.0` percent).
   Three fresh above-target samples halve capacity, bounded by the decrease
   cooldown and floored at the recorded safe level. Measured against the
