@@ -368,10 +368,7 @@ defmodule Aiur.Application.Children do
     if Aiur.Ownership.enabled?() do
       [
         Supervisor.child_spec(
-          {Aiur.GitHub.AgentBudgetSocket,
-           name: Aiur.Ownership.FenceSocket,
-           socket_path: Aiur.GitHub.AgentBudgetSocket.fence_socket_path(),
-           command_fun: &Aiur.Ownership.FenceCommand.execute/1},
+          {Aiur.GitHub.AgentBudgetSocket, name: Aiur.Ownership.FenceSocket, socket_path: Aiur.GitHub.AgentBudgetSocket.fence_socket_path(), command_fun: &Aiur.Ownership.FenceCommand.execute/1},
           id: Aiur.Ownership.FenceSocket
         )
       ]
