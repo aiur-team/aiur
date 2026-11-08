@@ -2,8 +2,12 @@ defmodule Aiur.Project.ConfigTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application.Children
+  alias Aiur.Project
   alias Aiur.Project.Config
   alias Aiur.Project.Config.ConfigError
+  alias Aiur.Project.Children, as: ProjectChildren
+  alias Aiur.Project.{Registry, Supervisors, Table, Watcher}
+  alias Aiur.TestSupport.WorkflowFiles
 
   setup do
     dir = Path.join(System.tmp_dir!(), "project-config-#{System.unique_integer([:positive])}")
@@ -63,18 +67,18 @@ defmodule Aiur.Project.ConfigTest do
 
     assert Enum.count(children, &(&1 == Aiur.Orchestrator)) == 1
     assert Aiur.GitHub.Listeners in children
-    refute Enum.any?([Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Boot], &(&1 in children))
+    refute Enum.any?([Supervisors, Watcher, Aiur.Project.Boot], &(&1 in children))
   end
 
   test "project trees come back after a machine child ahead of them crashes", %{dir: dir} do
     config = Path.join([dir, "repo", ".aiur", "config"])
     File.mkdir_p!(Path.dirname(config))
-    Aiur.TestSupport.WorkflowFiles.write_workflow_file!(config, tracker_kind: "memory")
+    WorkflowFiles.write_workflow_file!(config, tracker_kind: "memory")
     write_machine(dir, "projects:\n  - repo: o/boot\n    config: #{config}\n")
-    on_exit(fn -> Aiur.Project.Table.drop("o/boot") end)
+    on_exit(fn -> Table.drop("o/boot") end)
 
     machine = %{id: :machine_child, start: {Agent, :start_link, [fn -> nil end]}}
-    tree = [machine, Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Supervisors.boot_child_spec([])]
+    tree = [machine, Supervisors, Watcher, Supervisors.boot_child_spec([])]
     sup = start_supervised!(%{id: :machine, start: {Supervisor, :start_link, [tree, [strategy: :rest_for_one]]}, type: :supervisor})
 
     first = wait_for_root("o/boot")
@@ -85,7 +89,7 @@ defmodule Aiur.Project.ConfigTest do
   end
 
   defp wait_for_root(id, not_pid \\ nil, tries \\ 300) do
-    case Aiur.Project.Registry.root_pid(id) do
+    case Registry.root_pid(id) do
       pid when is_pid(pid) and pid != not_pid -> pid
       _ when tries > 0 -> Process.sleep(10) && wait_for_root(id, not_pid, tries - 1)
       _ -> flunk("no project root for #{id}")
@@ -93,12 +97,12 @@ defmodule Aiur.Project.ConfigTest do
   end
 
   test "projects drop the machine pollers and start one tree per project last" do
-    project = Aiur.Project.from_machine_entry(%{repo: "o/a", config: "/x/config"}, "/x/state")
+    project = Project.from_machine_entry(%{repo: "o/a", config: "/x/config"}, "/x/state")
     children = modules(Children.child_specs(shape() ++ [projects: [project]]))
 
-    refute Enum.any?(Aiur.Project.Children.pollers(), &(&1 in children))
-    assert Enum.take(children, -3) == [Aiur.Project.Supervisors, Aiur.Project.Watcher, Aiur.Project.Boot]
+    refute Enum.any?(ProjectChildren.pollers(), &(&1 in children))
+    assert Enum.take(children, -3) == [Supervisors, Watcher, Aiur.Project.Boot]
     # Machine-level stores stay ahead of the project trees.
-    assert Enum.find_index(children, &(&1 == Aiur.WorkflowStore)) < Enum.find_index(children, &(&1 == Aiur.Project.Supervisors))
+    assert Enum.find_index(children, &(&1 == Aiur.WorkflowStore)) < Enum.find_index(children, &(&1 == Supervisors))
   end
 end
