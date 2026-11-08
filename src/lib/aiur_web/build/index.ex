@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.Index do
   use GenServer
   alias Aiur.BuildOrder.Index, as: Core
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
-  alias AiurWeb.Build.Index.RefreshState
+  alias AiurWeb.Build.Index.{Drain, LastAgents, RefreshState}
   require Logger
   @window 250
   @max_backoff 60_000
@@ -151,6 +151,8 @@ defmodule AiurWeb.Build.Index do
   # Answers while the index still loads, so a mount can show the last daemon reading at once (#4915).
   def handle_call(:daemon, _from, state), do: {:reply, state.daemon, state}
 
+  def handle_call(:last_agent_snapshot, _from, state), do: {:reply, LastAgents.snapshot(state), state}
+
   def handle_call({:earlier, before, zone, days}, _from, state) do
     reply = with {:ok, index} <- state.index, do: Core.earlier(index, before, zone, days)
     {:reply, reply, state}
@@ -191,7 +193,7 @@ defmodule AiurWeb.Build.Index do
       do: {:noreply, state}
 
   def handle_info({tag, _payload}, state) when is_map_key(@signals, tag),
-    do: {:noreply, dirty(state, @signals[tag])}
+    do: {:noreply, dirty(state, Drain.keys(@signals, tag))}
 
   def handle_info(
         :fleet_changed,
@@ -200,7 +202,7 @@ defmodule AiurWeb.Build.Index do
       when map_size(subscribers) == 0,
       do: {:noreply, state}
 
-  def handle_info(:fleet_changed, state), do: {:noreply, dirty(state, [:capacity])}
+  def handle_info(:fleet_changed, state), do: {:noreply, dirty(state, Drain.keys(@signals, :poll_state_changed))}
   def handle_info(:flush, %{active?: false} = state), do: {:noreply, %{state | timer: nil}}
 
   def handle_info(:flush, %{task: nil} = state),
@@ -218,7 +220,7 @@ defmodule AiurWeb.Build.Index do
       match?({:error, :settings_loading}, Core.assemble(parts, now: clock(state)))
 
     failures =
-      if match?({:error, _}, parts[:now]) or settings_loading?, do: state.failures, else: 0
+      if RefreshState.needs_agent_retry?(parts[:now]) or settings_loading?, do: state.failures, else: 0
 
     {:noreply, finish(%{state | task: nil, failures: failures}, parts, dirty)}
   end
@@ -443,9 +445,9 @@ defmodule AiurWeb.Build.Index do
   end
 
   defp finish(state, parts, keys) do
-    {parts, history_at} =
-      HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
+    {parts, history_at} = HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
 
+    {parts, now_unavailable?} = RefreshState.retain_unavailable_agents(parts, state.parts)
     next = Core.assemble(parts, now: clock(state))
 
     {parts, next, settings_loading_since_ms} =
@@ -457,8 +459,7 @@ defmodule AiurWeb.Build.Index do
     if changes,
       do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
 
-    now_failed? = match?({:error, _}, parts[:now])
-    {failures, retry_dirty} = RefreshState.retry_after_finish(state, next, now_failed?, parts)
+    {failures, retry_dirty} = RefreshState.retry_after_finish(state, next, now_unavailable?, parts)
 
     state = %{
       state
@@ -477,11 +478,7 @@ defmodule AiurWeb.Build.Index do
 
     state = %{state | waiting: []}
 
-    cond do
-      MapSet.size(state.dirty) > 0 -> schedule(state)
-      now_failed? -> schedule(state)
-      true -> state
-    end
+    if MapSet.size(state.dirty) > 0 or now_unavailable?, do: schedule(state), else: state
   end
 
   defp broadcast(state, changes),

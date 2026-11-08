@@ -23,7 +23,8 @@ defmodule Aiur.Commands.Projection do
       origin: JSONSafe.normalize(Requester.origin(decision)),
       native: public_native(decision.native),
       questions: JSONSafe.normalize(decision.questions),
-      short_label: short_label(decision)
+      short_label: short_label(decision),
+      tags: decision.tags
     }
     |> Map.merge(Facts.public(decision))
   end
@@ -32,7 +33,7 @@ defmodule Aiur.Commands.Projection do
   @spec attributed?(Decision.t()) :: boolean()
   def attributed?(decision) do
     not is_nil(decision.requester) or not is_nil(decision.origin) or
-      not is_nil(decision.native) or decision.questions != [] or not is_nil(decision.short_label)
+      not is_nil(decision.native) or decision.questions != [] or not is_nil(decision.short_label) or decision.tags != []
   end
 
   defp public_requester(%{requester: nil} = decision) do
@@ -63,7 +64,7 @@ defmodule Aiur.Commands.Projection do
   @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
   def inherit_attributes(current, candidate) do
     # Enrichment snapshots omit delivery facts; retain them from the journal projection.
-    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :requester_notified_at, :overrides])
+    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :tags, :requester_notified_at, :overrides])
     Facts.inherit(current, struct!(candidate, fields))
   end
 

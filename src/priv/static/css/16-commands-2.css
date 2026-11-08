@@ -403,3 +403,16 @@
 }
 .fleet-overrides h2 { margin: 0 0 8px; font-size: 0.875rem; line-height: 1.25rem; }
 .fleet-overrides p { margin: 0; }
+
+/* The dismiss × sits in the card's top-right corner, not in the action row. */
+.decision-card .decision-dismiss {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+}
+.decision-card .decision-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.decision-card:has(.decision-dismiss) .decision-card-head { padding-right: 3rem; }

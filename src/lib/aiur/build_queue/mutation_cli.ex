@@ -355,7 +355,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp owning_queue(reason, _, _), do: reason
-  defp server(opts), do: Keyword.get(opts, :server, Aiur.BuildQueue.Server)
+  defp server(opts), do: Keyword.get(opts, :server, Aiur.Project.via(Aiur.BuildQueue.Server))
 
   defp call(command, opts) do
     GenServer.call(server(opts), command, 30_000)

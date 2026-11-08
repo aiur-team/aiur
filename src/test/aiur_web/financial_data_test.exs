@@ -362,7 +362,14 @@ defmodule AiurWeb.FinancialDataTest do
     assert :ok = FinancialData.broadcast_update()
 
     assert_receive {FinancialData, :updated, _identity}, 2_000
-    refute_receive {FinancialData, :updated, _identity}, 0
+
+    # Count registrations, not messages: the app's ChangeBridge may broadcast concurrently.
+    financial_topics =
+      Aiur.PubSub
+      |> Registry.keys(self())
+      |> Enum.filter(&String.starts_with?(&1, "observability:financial:"))
+
+    assert length(financial_topics) == 1
   end
 
   test "denied reads stay content-free when the cache is unavailable", %{cache: cache} do

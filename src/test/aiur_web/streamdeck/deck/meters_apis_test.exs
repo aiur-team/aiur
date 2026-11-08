@@ -22,6 +22,12 @@ defmodule AiurWeb.Streamdeck.Deck.MetersAPIsTest do
     end
   end
 
+  test "#7757 keyed Build API rows without budget lines stay off the deck, and unobserved families keep their meter" do
+    usage = read(%{github: {:error, :unavailable}, api_keys: [:openrouter, :deepseek, :openai], configured: []})
+    assert [%{name: "GitHub"}] = usage["apis"]
+    assert Map.has_key?(Meters.providers(usage), "codex")
+  end
+
   test "Build quota readings reach the Fleet model as remaining with GraphQL held" do
     usage = read(%{github: {:ok, I.quota(3950, 400)}, meters: %{codex: I.snapshot(:codex, %{"primary" => I.window(21, 300)})}})
     {_, model, frame} = FrameUpdates.frame(%Nav{view: :fleet}, %{agents: []}, usage)

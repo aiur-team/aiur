@@ -51,6 +51,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/memory_watchdog.ex
+    {"system.daemon.memory_high", "telemetry"},
+    # aiur/memory_watchdog.ex
+    {"system.daemon.memory_high.resolved", "telemetry"},
     # aiur/commands/request_attributes.ex
     {"system.decision.attributes.append_failed", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
@@ -187,6 +191,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.fallback", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable", "orchestration"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable.resolved", "orchestration"},
     # aiur/orchestrator/event_delivery.ex
     {"system.subscription_store.event_dead_lettered", "orchestration"},
     # aiur/supervision_health.ex

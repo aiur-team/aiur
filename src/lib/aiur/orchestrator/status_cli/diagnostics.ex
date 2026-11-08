@@ -16,10 +16,13 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   def print_global_pause_banner(opts, timeout_ms) do
     result =
       Keyword.get_lazy(opts, :global_pause_status, fn ->
-        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+        Orchestrator.global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms)
       end)
 
     case result do
+      {:ok, %{pause_scope: :fleet}} ->
+        IO.puts("paused (fleet) — no agents will be provisioned (run `aiur resume --all-gateways` to lift)")
+
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance =
           [format_pause_source(source), format_pause_time(paused_at)]
@@ -29,6 +32,8 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         suffix = if provenance == "", do: "", else: " (#{provenance})"
 
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+        if match?({:ok, %{pause_scope: :both}}, result), do: IO.puts("paused (fleet) — also held by the fleet pause")
+        :ok
 
       {:ok, _} ->
         :ok

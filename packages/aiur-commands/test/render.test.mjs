@@ -153,7 +153,7 @@ test('typed media renders as a link only for https values', () => {
     ],
   });
 
-  assert.match(html, /<a class="aiur-command-media" href="https:\/\/github.com\/aiur-team\/aiur\/issues\/42"/);
+  assert.match(html, /<a class="aiur-command-media" data-part="media" href="https:\/\/github.com\/aiur-team\/aiur\/issues\/42"/);
   assert.match(html, /data-media-kind="path"/);
   assert.doesNotMatch(html, /href="javascript:/);
 });
@@ -208,7 +208,7 @@ test('typed media renders accessible image, animated, video and audio elements',
   assert.match(html, /data-media-kind="image"/);
   assert.match(html, /<img src="https:\/\/aiur\.example\.test\/api\/v1\/commands\/dec_1\/media\/med_cover" alt="Cover art: bright meadow" loading="lazy" decoding="async" width="1200" height="630">/);
   assert.match(html, /data-media-kind="animated_image"/);
-  assert.match(html, /<figcaption class="aiur-command-media-caption"><span class="aiur-command-media-kind">Animated<\/span>Opening scene<\/figcaption>/);
+  assert.match(html, /<figcaption class="aiur-command-media-caption" data-part="media-caption"><span class="aiur-command-media-kind" data-part="media-kind">Animated<\/span>Opening scene<\/figcaption>/);
   assert.match(html, /<video controls[^>]*poster="https:\/\/aiur\.example\.test\/api\/v1\/commands\/dec_1\/media\/med_clip_poster"/);
   assert.match(html, /<source src="https:\/\/aiur\.example\.test\/api\/v1\/commands\/dec_1\/media\/med_clip" type="video\/mp4">/);
   assert.match(html, /<a href="https:\/\/aiur\.example\.test\/api\/v1\/commands\/dec_1\/media\/med_clip">Open video<\/a>/);
@@ -272,7 +272,7 @@ test('option media renders beside its option, not inside the label', () => {
   );
 
   assert.match(html, /data-option-media="approve"/);
-  assert.match(html, /<\/label><div class="aiur-command-option-media" data-option-media="approve">/);
+  assert.match(html, /<\/label><div class="aiur-command-option-media" data-option-media="approve" data-part="option-media">/);
   assert.doesNotMatch(html, /data-option-media="hold"/);
 });
 
@@ -304,4 +304,65 @@ test('list states cover loading, empty, ready and error', () => {
   const failed = renderList({ status: 'error', commands: [], count: 0, error: { reason: 'store_unavailable' } });
   assert.match(failed, /data-command-list-state="error"/);
   assert.match(failed, /store_unavailable/);
+});
+
+const pkg = (name) => readFileSync(join(here, '..', name), 'utf8');
+const rich = JSON.parse(readFileSync(join(here, 'fixtures/rich-command.json'), 'utf8'));
+
+test('default output is unchanged except for data-part attributes', () => {
+  const snapshot = JSON.parse(readFileSync(join(here, 'fixtures/default-output.json'), 'utf8'));
+  const strip = (html) => html.replace(/ data-part="[a-z-]+"/g, '');
+  const rendered = {};
+
+  for (const f of fixtures) rendered[`${f.expected_state}:${f.projection.decision_id}`] = renderCommand({ ...f.projection, state: f.expected_state });
+  for (const s of ['pending', 'conflict', 'answered']) rendered[`rich:${s}`] = renderCommand({ ...rich, state: s }, { answerUrl: '/a', mediaBaseUrl: 'https://aiur.test' });
+  for (const s of ['loading', 'empty', 'unavailable', 'error']) rendered[`list:${s}`] = renderList({ status: s, error: { reason: 'boom' } });
+  rendered['list:ready'] = renderList({ status: 'ready', commands: [rich] });
+
+  assert.deepEqual(Object.keys(rendered), Object.keys(snapshot));
+  for (const [key, html] of Object.entries(rendered)) assert.equal(strip(html), snapshot[key], key);
+});
+
+test('every documented part is in the README and rendered', () => {
+  const readme = pkg('README.md');
+  const theming = readme.slice(readme.indexOf('## Theming'), readme.indexOf('Import the optional stylesheet'));
+  const documented = [...theming.matchAll(/^\| ((?:`[a-z-]+`(?:, )?)+) \|/gm)]
+    .flatMap((m) => [...m[1].matchAll(/`([a-z-]+)`/g)].map((p) => p[1]))
+    .filter((p) => p !== 'data-part');
+  const html = [
+    ...['pending', 'conflict', 'answered', 'expired', 'error'].map((s) => renderCommand({ ...rich, state: s }, { mediaBaseUrl: 'https://aiur.test' })),
+    renderCommand({ ...rich, state: 'revised' }),
+    renderCommand({ ...rich, state: 'pending', media: [{ kind: 'video', mime_type: 'video/mp4', locator: { kind: 'attachment', attachment_id: 'x' } }, { kind: 'path', value: 'a' }] }),
+    renderList({ status: 'empty' }),
+    renderList({ status: 'ready', commands: [rich] }),
+  ].join('\n');
+
+  assert.ok(documented.length >= 25, `README documents ${documented.length} parts`);
+  for (const part of documented) assert.ok(html.includes(`data-part="${part}"`), `missing part ${part}`);
+  for (const [, part] of html.matchAll(/data-part="([a-z-]+)"/g)) assert.ok(documented.includes(part), `undocumented part ${part}`);
+});
+
+test('stylesheet uses only documented custom properties', () => {
+  const readme = pkg('README.md');
+  const used = new Set(pkg('src/theme.css').match(/--aiur-command-[a-z-]+/g));
+
+  assert.ok(used.size >= 8);
+  for (const prop of used) assert.ok(readme.includes(`\`${prop}\``), `undocumented ${prop}`);
+  for (const prop of readme.match(/--aiur-command-[a-z-]+/g)) assert.ok(used.has(prop), `unused ${prop}`);
+});
+
+test('custom labels render and are escaped', () => {
+  const labels = { submit: 'Go <b>now</b>', legend: 'Pick "one"', recommended: 'Top & best', recorded: 'Saved', revised: 'Edited' };
+  const pendingHtml = renderCommand(rich, { labels });
+  const answered = renderCommand({ ...rich, state: 'answered' }, { labels });
+  const revised = renderCommand({ ...rich, state: 'revised' }, { labels });
+
+  assert.match(pendingHtml, />Go &lt;b&gt;now&lt;\/b&gt;<\/button>/);
+  assert.match(pendingHtml, /<legend data-part="legend">Pick &quot;one&quot;<\/legend>/);
+  assert.match(pendingHtml, /chip">Top &amp; best</);
+  assert.match(pendingHtml, />Top &amp; best: Approve</);
+  assert.ok(!pendingHtml.includes('<b>now'));
+  assert.match(answered, />Saved</);
+  assert.match(revised, />Edited</);
+  assert.ok(!pendingHtml.includes('Record answer'));
 });

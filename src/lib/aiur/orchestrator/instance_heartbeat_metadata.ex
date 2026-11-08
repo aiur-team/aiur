@@ -95,7 +95,7 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
   defp ownership_data(_), do: %{}
 
   defp statuses do
-    case Aiur.Orchestrator.status(Aiur.Orchestrator, 1_000) do
+    case Aiur.Orchestrator.status(Aiur.Project.whereis(Aiur.Orchestrator), 1_000) do
       statuses when is_list(statuses) -> statuses
       _ -> nil
     end

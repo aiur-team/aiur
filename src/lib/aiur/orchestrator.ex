@@ -15,11 +15,12 @@ defmodule Aiur.Orchestrator do
     CommentPollingState,
     CommentWake,
     DispatchCycleLiveness,
+    GlobalPause,
     StaleApprovedHead,
     TicketTransition
   }
 
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
+  alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
 
@@ -34,7 +35,7 @@ defmodule Aiur.Orchestrator do
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def read_held_messages(identifier, max \\ 50),
-    do: HeldReads.read(__MODULE__, identifier, max)
+    do: HeldReads.read(Aiur.Project.whereis(__MODULE__), identifier, max)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -48,7 +49,7 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
   def has_live_owner?(identifier),
-    do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+    do: StatusReport.has_live_owner_api(Aiur.Project.whereis(__MODULE__), identifier, 1_000)
 
   @doc false
   @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
@@ -85,6 +86,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:dispatch_cycle_liveness_check, token}, state),
     do: DispatchCycleLiveness.handle_check(state, token)
+
+  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
+    do: GlobalPause.fleet_pause_info(state)
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
@@ -457,7 +461,7 @@ defmodule Aiur.Orchestrator do
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
-  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+  def note_agent_activity(server \\ Aiur.Project.whereis(__MODULE__), identifier) when is_binary(identifier) do
     GenServer.cast(server, {:note_agent_activity, identifier})
   end
 
@@ -479,6 +483,9 @@ defmodule Aiur.Orchestrator do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}
   end
+
+  @impl true
+  def handle_cast(message, state), do: Calls.handle_cast(message, state)
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()

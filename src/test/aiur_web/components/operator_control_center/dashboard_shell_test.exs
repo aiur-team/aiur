@@ -24,6 +24,13 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     assert Floki.attribute(Floki.find(doc, "#ax-drag"), "data-nav-collapsed") == ["false"]
   end
 
+  test "sidebar slot renders below the nav only when a page supplies it" do
+    assert shell() |> Floki.find(".aiur-shell__meters, .aiur-shell__rail") == []
+    assert shell() |> Floki.find("aside > nav.sidenav-nav") != []
+    doc = shell(sidebar: [%{__slot__: :sidebar, inner_block: fn _, _ -> "meters" end}])
+    assert doc |> Floki.find("aside .aiur-shell__rail.has-meters > nav.sidenav-nav + .aiur-shell__meters") |> Floki.text() == "meters"
+  end
+
   test "unknown pause is disabled without claiming a boolean state" do
     doc = shell(globally_paused: nil, writable: true)
     item = Floki.find(doc, "#ax-pause")

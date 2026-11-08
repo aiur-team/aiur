@@ -11,16 +11,19 @@ defmodule Aiur.Orchestrator.GlobalPause do
   All state mutation runs inside the orchestrator GenServer process.
   """
 
+  alias Aiur.Instance.LeaseStore
+  alias Aiur.Intent.{Registers, Sync}
   alias Aiur.Issue
   alias Aiur.ModelAvailability
-  alias Aiur.Orchestrator.{DispatchPolicy, GlobalPauseStore, Lifecycle, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, GlobalPauseStore, Lifecycle, PauseGuard, SnapshotStore, State, StatusReport}
   alias Aiur.Orchestrator.PauseResume.Resume
 
   @call_timeout 15_000
+  @boot_pull_timeout_ms 5_000
 
   @doc "Whether the daemon is currently globally paused, or whether that truth is unavailable."
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
-  def globally_paused?, do: globally_paused?(Aiur.Orchestrator)
+  def globally_paused?, do: globally_paused?(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec globally_paused?(GenServer.server()) :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?(server) do
@@ -35,11 +38,11 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc "Returns the global pause state and its recorded provenance."
   @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
-  def global_pause_status, do: global_pause_status(Aiur.Orchestrator)
+  def global_pause_status, do: global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec global_pause_status(GenServer.server()) ::
           {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
-  def global_pause_status(%State{} = state), do: global_pause_status_for_state(state)
+  def global_pause_status(%State{} = state), do: effective_status(state)
   def global_pause_status(server), do: global_pause_status(server, 5_000)
 
   @spec global_pause_status(GenServer.server(), pos_integer()) ::
@@ -61,7 +64,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
   """
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?),
-    do: set_global_pause(Aiur.Orchestrator, on?, "CLI")
+    do: set_global_pause(Aiur.Project.whereis(Aiur.Orchestrator), on?, "CLI")
 
   @spec set_global_pause(GenServer.server(), boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(server, on?) when is_boolean(on?), do: set_global_pause(server, on?, "CLI")
@@ -88,7 +91,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc false
   @spec globally_paused_call(State.t()) :: {:reply, boolean(), State.t()}
-  def globally_paused_call(%State{globally_paused: paused} = state), do: {:reply, paused, state}
+  def globally_paused_call(%State{} = state), do: {:reply, PauseGuard.paused?(state), state}
 
   @doc false
   @spec set_global_pause_call(State.t(), boolean()) ::
@@ -117,7 +120,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
           next_state
           |> maybe_refresh_after_global_pause_change(current, on?, opts)
 
-        Application.put_env(:aiur, :instance_globally_paused, state.globally_paused)
+        put_effective_env(state)
         publish_global_pause(state)
         StatusReport.notify_dashboard(state)
         {:reply, {:ok, global_pause_status_for_state(state)}, state}
@@ -184,8 +187,69 @@ defmodule Aiur.Orchestrator.GlobalPause do
     SnapshotStore.publish_global_pause(
       state.snapshot_key || self(),
       state.snapshot_generation,
-      global_pause_status_for_state(state)
+      effective_status(state)
     )
+  end
+
+  # Snapshots and status report the effective value (local OR fleet); only the local switch is ever persisted.
+  defp effective_status(%State{} = state) do
+    state
+    |> global_pause_status_for_state()
+    |> Map.merge(%{globally_paused: PauseGuard.paused?(state), fleet_paused: state.fleet_paused, pause_scope: pause_scope(state)})
+  end
+
+  @spec pause_scope(State.t()) :: :none | :local | :fleet | :both
+  defp pause_scope(%State{globally_paused: true, fleet_paused: true}), do: :both
+  defp pause_scope(%State{globally_paused: true}), do: :local
+  defp pause_scope(%State{fleet_paused: true}), do: :fleet
+  defp pause_scope(_state), do: :none
+
+  @doc "Heartbeat env: the effective value, so a fleet-paused gateway reports `dispatching: false`."
+  @spec put_effective_env(State.t()) :: :ok
+  def put_effective_env(%State{} = state), do: Application.put_env(:aiur, :instance_globally_paused, PauseGuard.paused?(state))
+
+  @doc """
+  Fleet pause at boot: pull shared intent (bounded) before the first dispatch, then read the register.
+  A never-synced gateway is not paused; a cached `true` stays paused with the store down.
+  """
+  @spec boot_fleet_paused(keyword()) :: boolean()
+  def boot_fleet_paused(opts \\ []) do
+    if LeaseStore.configured?(), do: Sync.pull(timeout_ms: @boot_pull_timeout_ms)
+    match?({:paused, _, _, _}, Registers.fleet_pause(opts))
+  end
+
+  @doc "Recompute the fleet switch from the folded register (after a local write, direct delivery, or pull)."
+  @spec sync_fleet_pause(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  def sync_fleet_pause(server \\ Aiur.Orchestrator) do
+    if GenServer.whereis(server), do: {:ok, GenServer.call(server, :sync_fleet_pause, @call_timeout)}, else: {:error, :orchestrator_unavailable}
+  catch
+    :exit, _ -> {:error, :orchestrator_unavailable}
+  end
+
+  @doc false
+  @spec sync_fleet_pause_call(State.t()) :: {:reply, map(), State.t()}
+  def sync_fleet_pause_call(%State{} = state) do
+    state = refresh_fleet_pause(state)
+    {:reply, effective_status(state), state}
+  end
+
+  @doc false
+  @spec fleet_pause_info(State.t(), keyword()) :: {:noreply, State.t()}
+  def fleet_pause_info(%State{} = state, opts \\ []), do: {:noreply, refresh_fleet_pause(state, opts)}
+
+  defp refresh_fleet_pause(%State{fleet_paused: before} = state, opts \\ []) do
+    fleet? = match?({:paused, _, _, _}, Registers.fleet_pause(opts))
+    state = %{state | fleet_paused: fleet?}
+
+    if fleet? == before do
+      state
+    else
+      put_effective_env(state)
+      publish_global_pause(state)
+      StatusReport.notify_dashboard(state)
+      # Like a local resume: an idle fleet may have a widened timer, so reconcile before any ticket dispatches.
+      if fleet?, do: state, else: state |> Lifecycle.request_refresh_state() |> elem(0)
+    end
   end
 
   @doc false

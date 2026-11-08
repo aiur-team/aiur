@@ -81,6 +81,8 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.BuildOrder.PackStatus,
     Aiur.OpenTicketSource,
     Aiur.GitHub.ViewStateSweep,
+    Aiur.Intent.Hlc,
+    Aiur.Intent.Store,
     Aiur.Orchestrator,
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -147,7 +149,8 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress",
     Aiur.ControlCall.ReplayStore => "Open the replay ledger before HttpServer accepts remote control calls",
     Aiur.Orchestrator.SpendCap.Store => "Seed fail-closed admission before Orchestrator starts its initial dispatch",
-    Aiur.PostDeployChecklist => "Subscribe before Orchestrator's initial poll so merged PR checklist events are not missed"
+    Aiur.PostDeployChecklist => "Subscribe before Orchestrator's initial poll so merged PR checklist events are not missed",
+    Aiur.ProjectRegistry => "Resolve project-scoped names before Orchestrator registers under one"
   }
   @flags [
     :interactive_cli?,

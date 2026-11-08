@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   # (#1837). They read the snapshot read model instead, so a fetch in flight
   # cannot delay them.
   defp fleet_view(opts, timeout_ms, view_opts \\ []) do
-    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Orchestrator, timeout_ms, view_opts) end)
+    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms, view_opts) end)
   end
 
   # A view with no rows in it is reported as unavailable, never rendered as an

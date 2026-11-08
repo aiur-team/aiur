@@ -68,9 +68,12 @@ defmodule AiurEnginePrePrTest do
     pr_json = Path.join(fixture, "pr.json")
 
     body =
-      "## Local tests\n\nPolicy: partial\nTested head: " <>
+      "## Summary\n\n- `kept` as written -> here\n\n## Local tests\n\nPolicy: partial\nTested head: " <>
         String.duplicate("a", 40) <>
-        "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n"
+        "\nBase: `main` @ `" <>
+        sha <>
+        "`\nSelection: focused\n- `mix test` -> pass\n" <>
+        "- `mix credo --strict` (changed files) -> no issues\n- `mix lint` on src -> pass\n"
 
     # Each refresh rewrites pr.json, so every run starts again from this seed.
     File.write!(
@@ -135,6 +138,11 @@ defmodule AiurEnginePrePrTest do
     assert refreshed =~ "Base: main @ #{sha}\n"
     refute refreshed =~ "Tested head: `"
     refute refreshed =~ "Base: `"
+    # #6143: the refresh moves a note out from between the closing backtick and ->, inside Local tests only.
+    assert refreshed =~ "- `mix credo --strict` -> no issues (changed files)\n"
+    assert refreshed =~ "- `mix lint` -> pass (on src)\n"
+    assert refreshed =~ "- `mix test` -> pass\n"
+    assert refreshed =~ "- `kept` as written -> here\n"
 
     {output, failed_refresh} = run_refresh(fixture, repo, [{"FAIL_EDIT", "1"}])
 
@@ -405,6 +413,8 @@ defmodule AiurEnginePrePrTest do
       env:
         [
           {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")},
+          # An agent shell hook would put the real gh guard back ahead of the fake gh.
+          {"BASH_ENV", nil},
           {"AIUR_PRE_PR_REFRESH_INTERVAL", "0"}
         ] ++ env,
       stderr_to_stdout: true

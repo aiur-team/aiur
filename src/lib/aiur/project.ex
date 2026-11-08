@@ -2,6 +2,7 @@ defmodule Aiur.Project do
   @moduledoc "One project (repository) the process serves: identity, config file and state directory."
 
   alias Aiur.Config.Paths
+  alias Aiur.Project.Context
 
   @enforce_keys [:id, :repo, :config_path, :state_root]
   defstruct [:id, :repo, :config_path, :state_root]
@@ -18,7 +19,47 @@ defmodule Aiur.Project do
     %__MODULE__{id: String.downcase(repo), repo: repo, config_path: Path.expand(config), state_root: state_root}
   end
 
+  @doc """
+  Name a project-scoped process registers under: `module` itself with no project,
+  else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.
+  """
+  @spec name(module(), id() | nil) :: GenServer.server()
+  def name(module, project_id \\ Context.current_id())
+  def name(module, nil), do: module
+  def name(module, id), do: {:via, Registry, {Aiur.ProjectRegistry, {String.downcase(id), module}}}
+
+  @doc "Lookup side of `name/2`; a function-head default evaluates it per call, so it follows the caller's project."
+  @spec whereis(module(), id() | nil) :: GenServer.server()
+  def whereis(module, project_id \\ Context.current_id()), do: name(module, project_id)
+
+  @doc "Project-owned state root: the current project's, else the machine's `decision_state_dir/0`."
+  @spec state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def state_dir do
+    case Context.current() do
+      %__MODULE__{state_root: root} -> {:ok, root}
+      nil -> Paths.decision_state_dir()
+    end
+  end
+
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
   def default_state_root, do: Paths.decision_state_dir()
+
+  @doc """
+  The GenServer name for `module` in the current project: a `Registry` via-tuple
+  with a project context, the bare module (today's `name: __MODULE__`) without.
+  """
+  @spec via(module()) :: GenServer.server()
+  def via(module), do: name(module)
+
+  @doc "Adds the caller's project to start options, for a server that must work for it."
+  @spec carry(keyword()) :: keyword()
+  def carry(opts), do: Keyword.put(opts, :project, Context.current())
+
+  @doc "Called in a server's `init/1`: takes on the project `carry/1` handed it."
+  @spec adopt(keyword()) :: :ok
+  def adopt(opts) do
+    if project = opts[:project], do: Context.put(project)
+    :ok
+  end
 end

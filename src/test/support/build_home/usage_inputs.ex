@@ -5,7 +5,19 @@ defmodule Aiur.TestSupport.BuildHome.UsageInputs do
   def now, do: @now
 
   def inputs(overrides \\ %{}) do
-    Map.merge(%{families: [:codex], meters: %{}, accounts: %{}, durable: %{}, github: {:ok, %{state: :unknown, windows: %{}, backoffs: []}}, elevenlabs: %{state: :unconfigured}}, overrides)
+    Map.merge(
+      %{
+        families: [:codex],
+        configured: [:claude, :codex],
+        api_keys: [],
+        meters: %{},
+        accounts: %{},
+        durable: %{},
+        github: {:ok, %{state: :unknown, windows: %{}, backoffs: []}},
+        elevenlabs: %{state: :unconfigured}
+      },
+      overrides
+    )
   end
 
   def snapshot(provider, windows, overrides \\ %{}) do

@@ -66,6 +66,10 @@
 .fp-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .fp-bar.done i { background: var(--good); }
 .fp-bar.all i { background: var(--attention); }
+/* Epic grouping: epic row first, its features indented under it, "No epic" last. */
+.lr.fp-epic-row .fp-name, .lr.fp-noepic-row .fp-name { font-weight: 700; }
+.lr.fp-noepic-row { color: var(--muted); }
+.lr.fp-feat .fp-name { padding-left: 1rem; }
 @media (max-width: 480px) {
   #build-root.feature-list #bd-usage { display: none; }
   #build-root.feature-list #bd-vp { height: auto; max-height: none; overflow: visible; }

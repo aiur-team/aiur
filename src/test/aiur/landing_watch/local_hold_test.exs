@@ -94,29 +94,29 @@ defmodule Aiur.LandingWatch.LocalHoldTest do
     hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), -1, :second)}
     failure = {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
 
-    log =
-      capture_log(fn ->
-        assert :ok =
-                 LandingWatch.poll(
-                   observe_fun: fn _ -> {:ok, [observation]} end,
-                   journal_prune_fun: fn _, _ ->
-                     send(parent, :journal_pruned)
-                     :ok
-                   end,
-                   approved_fun: fn _, _ -> {:ok, true} end,
-                   required_checks_fun: fn _ -> {:ok, []} end,
-                   ci_status_fun: fn _, _ ->
-                     attempt = Process.get(:landing_watch_ci_status_attempt, 0)
-                     Process.put(:landing_watch_ci_status_attempt, attempt + 1)
-                     send(parent, {:ci_status, attempt})
-                     if attempt == 0, do: failure, else: pending_ci()
-                   end,
-                   queue_reconcile_fun: fn _, _ -> :ok end,
-                   local_hold_sleep_fun: fn _ms -> flunk("an expired per-PR hold must retry without sleeping") end
-                 )
-      end)
+    # capture_log only silences output: it sees every process's logs, so asserting on it here
+    # trips on another async test's watcher (#7126). `assert :ok` is the outcome check.
+    capture_log(fn ->
+      assert :ok =
+               LandingWatch.poll(
+                 observe_fun: fn _ -> {:ok, [observation]} end,
+                 journal_prune_fun: fn _, _ ->
+                   send(parent, :journal_pruned)
+                   :ok
+                 end,
+                 approved_fun: fn _, _ -> {:ok, true} end,
+                 required_checks_fun: fn _ -> {:ok, []} end,
+                 ci_status_fun: fn _, _ ->
+                   attempt = Process.get(:landing_watch_ci_status_attempt, 0)
+                   Process.put(:landing_watch_ci_status_attempt, attempt + 1)
+                   send(parent, {:ci_status, attempt})
+                   if attempt == 0, do: failure, else: pending_ci()
+                 end,
+                 queue_reconcile_fun: fn _, _ -> :ok end,
+                 local_hold_sleep_fun: fn _ms -> flunk("an expired per-PR hold must retry without sleeping") end
+               )
+    end)
 
-    refute log =~ "landing watcher poll unavailable"
     assert_received :journal_pruned
     refute_received :journal_pruned
     assert_received {:ci_status, 0}

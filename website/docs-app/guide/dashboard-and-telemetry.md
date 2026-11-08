@@ -90,14 +90,11 @@ and the latest entries, with one retry after the next journal append.
 
 ### Build timeline filters
 
-Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
-Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
-hover.
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature Done, Weighted, and scope figures. Unknown figures show `—` with a reason on hover.
 
 Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
-
 
 The Build toolbar filters by Lane, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL as `lane=`, and the pre-rename `epic=` parameter still loads and is rewritten to `lane=` in the address bar.
 
@@ -122,6 +119,8 @@ Each registry feature and `feature:<slug>` label in history gets a row with its 
 Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label (logical ids such as `MP-E1` stripped), then the label description, then the title-cased slug. Descriptions come from the repository's label list, read hourly, so fully merged features keep their names.
 
 Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a shared ticket counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking one focuses the timeline on its features.
 
 The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
 
@@ -311,9 +310,9 @@ Spend is the known USD API-equivalent amount from the same usage aggregate as th
 
 Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
 
-If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce it again. Aiur does not stop an already-running agent for that, and there is no cap-specific grace timer: the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
 
-There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+If the spend-cap store itself cannot load, persist, or subscribe, dispatch closes for every tracked ticket and Aiur raises `system.spend_cap.unavailable` with the cause. It retries with backoff and emits `system.spend_cap.unavailable.resolved` once the store is healthy again.
 
 When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
 

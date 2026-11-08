@@ -84,6 +84,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-03 -->
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
+| `monitoring.daemon_memory_alert_fraction` | float | 0.5 | Share of host memory the daemon's BEAM may use before Aiur raises `system.daemon.memory_high` once, naming the processes that hold the most memory. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
 
 ## workspace
 
@@ -344,7 +345,7 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `server.dashboard_origins` | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` cross-origin with credentials; `http` only on loopback. Writes stay same-origin. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.public_url` | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+| `server.public_url` | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 | `server.trusted_proxies` | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
 
@@ -365,6 +366,11 @@ The target probe is a bounded liveness check, not proof of daemon identity or ro
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 
 The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
+
+## dashboard
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-25 -->
+| --- | --- | --- | --- |
+| `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 
 ## dashboard_auth
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->

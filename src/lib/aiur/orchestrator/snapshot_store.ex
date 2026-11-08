@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
           | :orchestrator_unavailable
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
 
   @doc """
   Starts a new producer generation without replacing a retained snapshot.
@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   """
   @spec publish_state(GenServer.server(), reference() | nil, Aiur.Orchestrator.State.t()) :: :ok
   def publish_state(orchestrator, generation, snapshot_input) do
-    GenServer.cast(__MODULE__, {:publish_state, orchestrator, generation, snapshot_input})
+    GenServer.cast(Aiur.Project.via(__MODULE__), {:publish_state, orchestrator, generation, snapshot_input})
     :ok
   end
 
@@ -207,7 +207,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   defp advance_dispatch_poll_age(snapshot, _elapsed_ms), do: snapshot
 
   @impl true
-  def init(_opts), do: {:ok, %{pending: %{}, task_ref: nil, monitor_ref: nil, timer_ref: nil}}
+  def init(opts) do
+    Aiur.Project.adopt(opts)
+    {:ok, %{pending: %{}, task_ref: nil, monitor_ref: nil, timer_ref: nil}}
+  end
 
   @impl true
   def handle_cast({:publish_state, orchestrator, generation, snapshot_input}, store) do
