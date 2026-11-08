@@ -7,6 +7,7 @@
     "src/lib/aiur/intent/dir.ex",
     "src/lib/aiur/intent/hlc.ex",
     "src/lib/aiur/intent/reconciler.ex",
+    "src/lib/aiur/intent/registers.ex",
     "src/lib/aiur/intent/store.ex",
     "src/lib/aiur/intent/sync.ex",
     "src/lib/aiur/intent/writer.ex"
@@ -14,6 +15,7 @@
   "facades": [
     "Aiur.Intent.Dir",
     "Aiur.Intent.Hlc",
+    "Aiur.Intent.Registers",
     "Aiur.Intent.Store",
     "Aiur.Intent.Sync",
     "Aiur.Intent.Writer"
