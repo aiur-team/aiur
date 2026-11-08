@@ -4,7 +4,8 @@ defmodule AiurWeb.Build.URLStateTest do
   alias AiurWeb.Build.URLState
 
   test "parse keeps every valid design key in canonical order" do
-    q = "view=gantt&list=lanes&fsort=left&trees=1&live=min&span=7&feature=f-docs&fmode=compact&lane=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+    q =
+      "view=gantt&list=lanes&fsort=left&trees=1&live=min&span=7&feature=f-docs&features=khala,pag&fmode=compact&lane=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
 
     assert URLState.parse(URI.decode_query(q)) == %{
              view: "gantt",
@@ -12,6 +13,7 @@ defmodule AiurWeb.Build.URLStateTest do
              fsort: "left",
              span: 7,
              feature: "f-docs",
+             features: ["khala", "pag"],
              fmode: "compact",
              lane: ["bugs", "docs"],
              model: ["claude"],
@@ -39,7 +41,7 @@ defmodule AiurWeb.Build.URLStateTest do
   test "invalid and non-string values are dropped" do
     assert canonical("view=Gantt&span=4&fmode=compact&astate=bogus,active,active&model=none&ticket=AIUR-12&zoom=2&models=7&example=dense") == "astate=active"
 
-    for key <- ~w(view list span feature fmode lane epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
+    for key <- ~w(view list span feature features fmode lane epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
       assert URLState.parse(%{key => value}) == URLState.defaults()
     end
 
@@ -148,6 +150,7 @@ defmodule AiurWeb.Build.URLStateTest do
             fsort <- member_of(["goal", "pct", "left"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),
             feature <- member_of([nil, "f-docs", "Outside-window._1"]),
+            features <- ordered_subset(["khala", "pag", "mp-e2"]),
             compact <- boolean(),
             trees <- boolean(),
             live_min <- boolean(),
@@ -164,6 +167,7 @@ defmodule AiurWeb.Build.URLStateTest do
         fsort: fsort,
         span: span,
         feature: feature,
+        features: features,
         fmode: if(feature && compact, do: "compact", else: "focus"),
         trees: trees,
         live_min: live_min,

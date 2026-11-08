@@ -31,7 +31,7 @@ defmodule AiurWeb.Streamdeck.Deck.MeterDetail do
 
   defp single(provider, inputs, now) do
     families = Usage.order_families(inputs.families)
-    rows = Usage.block({:ok, :streamdeck}, inputs, now).providers
+    rows = Usage.block({:ok, :streamdeck}, Map.put(inputs, :configured, inputs.families), now).providers
 
     case Enum.find(Enum.zip(families, rows), fn {family, _row} -> Atom.to_string(family) == provider end) do
       nil ->
