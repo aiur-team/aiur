@@ -109,16 +109,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
       {:ok, live_instances} when is_list(live_instances) ->
         instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
 
-        case Instance.eligible?(issue, instance_id, live_instances) do
-          # A peer's owns-rule must not beat a durable claim this gateway holds.
-          {:ineligible, :peer_owns_ticket} = peer ->
-            if ownership_on?(opts),
-              do: Instance.eligible?(issue, instance_id, live_instances, Aiur.Ownership.owner(issue, opts)),
-              else: peer
-
-          other ->
-            other
-        end
+        issue
+        |> Instance.eligible?(instance_id, live_instances)
+        |> recheck_peer_owner(issue, instance_id, live_instances, opts)
 
       {:error, :store_not_configured} ->
         if not ownership_on?(opts) and Instance.ownership_configured?(),
@@ -131,6 +124,15 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   rescue
     _ -> roster_unreadable(opts)
   end
+
+  # A peer's owns-rule must not beat a durable claim this gateway holds.
+  defp recheck_peer_owner({:ineligible, :peer_owns_ticket} = peer, issue, id, live, opts) do
+    if ownership_on?(opts),
+      do: Instance.eligible?(issue, id, live, Aiur.Ownership.owner(issue, opts)),
+      else: peer
+  end
+
+  defp recheck_peer_owner(other, _issue, _id, _live, _opts), do: other
 
   # Under durable ownership the roster is advisory: the GitHub claim decides.
   defp roster_unreadable(opts), do: if(ownership_on?(opts), do: :eligible, else: {:unavailable, :live_roster_unknown})

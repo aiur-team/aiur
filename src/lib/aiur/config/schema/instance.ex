@@ -51,7 +51,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:deployment_kind, :string, default: "operator")
 
     # @config-reference config-configuration-00 instance.id
-    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads, except under `instance.ownership: github`, where dispatch continues on the GitHub ownership claim. |
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.roster_stale_retention_ms
