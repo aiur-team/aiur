@@ -44,7 +44,7 @@ defmodule Aiur.Orchestrator.StaleOwnerTest do
 
     {:ok, workspace} = identifier |> Layout.safe_identifier() |> Layout.workspace_path_for_issue(nil)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     next = StaleOwner.handle(state, identifier, 3)
 

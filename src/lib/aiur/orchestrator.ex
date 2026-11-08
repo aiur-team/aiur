@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator do
     DispatchCycleLiveness,
     GlobalPause,
     StaleApprovedHead,
+    StaleOwner,
     TicketTransition
   }
 
@@ -91,7 +92,7 @@ defmodule Aiur.Orchestrator do
     do: GlobalPause.fleet_pause_info(state)
 
   def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
-    do: {:noreply, Aiur.Orchestrator.StaleOwner.handle(state, identifier, epoch)}
+    do: {:noreply, StaleOwner.handle(state, identifier, epoch)}
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.

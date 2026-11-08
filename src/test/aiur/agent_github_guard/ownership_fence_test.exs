@@ -28,7 +28,7 @@ defmodule Aiur.AgentGitHubGuard.OwnershipFenceTest do
     dir = Path.join(System.tmp_dir!(), "fence-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     path = Path.join(dir, "s.sock")
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     {:ok, _} =
       AgentBudgetSocket.start_link(name: nil, socket_path: path, command_fun: &FenceCommand.execute(&1, server: fence))
