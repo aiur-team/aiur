@@ -17,3 +17,5 @@ Not run.
 
 ## A6: Nook daemon stopped (R3, R3b)
 Not run.
+
+Run the counters' test with `bash scripts/acceptance/mpg-109-count-duplicates.test.sh` (no CI job runs it).

@@ -18,7 +18,7 @@ tab 12 pc 10:00 10:05 > "$tmp/c"; tab 12 nook 10:05 10:09 >> "$tmp/c"
 eq "T3 adjacency not overlap" "$("$S" overlaps "$tmp/c")" '[]'
 
 mkdir -p "$tmp/ws/13/logs"
-printf '%s\n' '{"event":"session_started","timestamp":"10:00"}' '{"event":"session_started","timestamp":"10:04"}' \
-  '{"event":"x","timestamp":"10:09"}' > "$tmp/ws/13/logs/agent.ndjson"
+printf '%s\n' '{"event":"session_started","timestamp":"10:00"}' '{"event":"turn_started","timestamp":"10:02"}' \
+  '{"event":"session_started","timestamp":"10:04"}' '{"event":"x","timestamp":"10:09"}' > "$tmp/ws/13/logs/agent.ndjson"
 eq "T4 transcript to rows" "$("$S" rows "$tmp/ws" pc | tr '\t\n' ' ;')" '13 pc 10:00 10:04;13 pc 10:04 10:09;'
 exit $fail

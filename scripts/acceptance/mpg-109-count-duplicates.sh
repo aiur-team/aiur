@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # MPG-109 duplicate counters. Usage:
-#   rows <workspace-root> <gateway> [T0 T1]   TSV: ticket gateway start end
+#   rows <workspace.root>/<repo> <gateway> [T0 T1]   TSV: ticket gateway start end
 #   overlaps <rows.tsv...>                    cross-gateway overlapping tickets (JSON array)
 #   same-overlaps <rows.tsv...>               same-gateway overlapping tickets (JSON array)
-#   refs <repo-dir>                           ownership-ref epoch duplicates/skips (JSON array)
+#   refs <repo-dir>  ownership-ref duplicates/skips; writes refs/aiur-check/* into that clone (use a scratch clone)
 #   prs <owner/repo> <T0> <T1>                tickets with more than one PR
 set -euo pipefail
 
