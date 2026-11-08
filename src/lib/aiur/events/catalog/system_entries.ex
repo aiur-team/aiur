@@ -121,6 +121,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.instance.ownership_unknown", "config"},
     # aiur/instance/lease_store.ex
     {"system.instance.ownership_unknown.resolved", "config"},
+    # aiur/orchestrator/stale_owner.ex
+    {"system.ownership.stale_agent", "orchestration"},
     # aiur/intent/store.ex
     {"system.intent.outbox_full", "config"},
     # aiur/landing_watch.ex

@@ -27,6 +27,15 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
     end
   end
 
+  @doc "Where the ownership fence listens. Lives here so the agent environment can name it without depending on the orchestration layer."
+  @spec fence_socket_path() :: Path.t()
+  def fence_socket_path do
+    case Paths.runtime_state_dir() do
+      {:ok, root} -> Path.join(root, "ownership-fence.sock")
+      _ -> Path.join(System.user_home!(), ".aiur/instances/ownership-fence.sock")
+    end
+  end
+
   @spec request(Path.t(), [String.t()], timeout()) :: {:ok, String.t()} | {:error, term()}
   def request(path, args, timeout \\ 120_000) when is_binary(path) and is_list(args) do
     case :gen_tcp.connect({:local, String.to_charlist(listen_path(path))}, 0, [:local, :binary, packet: :line, active: false], timeout) do
