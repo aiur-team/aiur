@@ -21,11 +21,11 @@ defmodule Aiur.Project.Table do
     if tid && :ets.info(tid) != :undefined, do: tid, else: create(key, name, opts)
   end
 
-  @doc "The table to read: the current project's tid, or `name` with no context. Unknown tables are `nil`, which `:ets` rejects with `ArgumentError`."
+  @doc "The table to read: the current project's tid, or `name` with no context. Unknown tables (including an unstarted named one) are `nil`, which `:ets` rejects with `ArgumentError`."
   @spec ref(atom()) :: :ets.table() | nil
   def ref(name) do
     case Context.current_id() do
-      nil -> name
+      nil -> if :ets.whereis(name) == :undefined, do: nil, else: name
       id -> :persistent_term.get({__MODULE__, id, name}, nil)
     end
   end

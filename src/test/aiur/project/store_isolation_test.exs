@@ -113,6 +113,21 @@ defmodule Aiur.Project.StoreIsolationTest do
     refute Map.has_key?(features, "f1")
   end
 
+  test "with no project context, ref is nil for an unstarted named table and the name once it exists" do
+    name = :"no_context_table_#{System.unique_integer([:positive])}"
+    assert Table.ref(name) == nil
+    Table.new(name, [:set, :public])
+    assert Table.ref(name) == name
+    :ets.delete(name)
+  end
+
+  test "with no project context and no publisher table, SnapshotPublisher write and clear are no-ops" do
+    if :ets.whereis(SnapshotPublisher) == :undefined do
+      assert SnapshotPublisher.write(:none, nil, %{}) == :ok
+      assert SnapshotPublisher.clear(:none) == :ok
+    end
+  end
+
   test "Table.new reuses a live table and drop forgets only one project", %{a: a, b: b} do
     tid = as(a, fn -> Table.new(:t, [:set, :public]) end)
     assert as(a, fn -> Table.new(:t, [:set, :public]) end) == tid
