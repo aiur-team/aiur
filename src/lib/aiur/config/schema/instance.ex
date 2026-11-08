@@ -68,7 +68,7 @@ defmodule Aiur.Config.Schema.Instance do
 
     # @config-reference config-configuration-00 instance.ownership
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail instance.ownership | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read once at daemon start; restart to change. |
+    # @config-detail instance.ownership | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. |
     field(:ownership, :string, default: "off")
 
     # @config-reference config-configuration-00 instance.role
