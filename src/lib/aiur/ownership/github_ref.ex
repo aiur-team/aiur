@@ -29,6 +29,17 @@ defmodule Aiur.Ownership.GitHubRef do
   }
   """
 
+  @list_query """
+  query($owner:String!,$name:String!,$prefix:String!,$after:String){
+    repository(owner:$owner,name:$name){
+      refs(refPrefix:$prefix, first:100, after:$after){
+        pageInfo{ hasNextPage endCursor }
+        nodes{ name target{ oid ... on Commit { tree { entries { name object { ... on Blob { text } } } } } } }
+      }
+    }
+  }
+  """
+
   @update_query """
   mutation($input:UpdateRefsInput!){ updateRefs(input:$input){ clientMutationId } }
   """
@@ -50,6 +61,64 @@ defmodule Aiur.Ownership.GitHubRef do
       {:error, reason} -> {:unknown, reason}
       {:unknown, _} = unknown -> unknown
     end
+  end
+
+  @doc """
+  Lists every ownership ref under `prefix` (e.g. `"refs/aiur/owners/"`), keyed by ticket.
+  Any failed page, a missing cursor, or more than `opts[:max_pages]` (default 10) pages is
+  `{:unknown, _}`: a partial list is never `:ok`. A malformed record marks only its own key.
+  """
+  @spec list_owned(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), {:ok, observed()} | {:unknown, term()}}]} | {:unknown, term()}
+  def list_owned(repo, prefix \\ @prefix, opts \\ []) do
+    with {:ok, owner, name} <- split_repo(repo),
+         {:ok, token} <- Access.require_token(opts) do
+      vars = %{"owner" => owner, "name" => name, "prefix" => prefix}
+      list_pages(vars, token, opts, Keyword.get(opts, :max_pages, 10), 1, nil, [])
+    else
+      {:error, reason} -> {:unknown, reason}
+    end
+  end
+
+  defp list_pages(_vars, _token, _opts, cap, n, _after, _acc) when n > cap, do: {:unknown, {:too_many_pages, cap}}
+
+  defp list_pages(vars, token, opts, cap, n, cursor, acc) do
+    with {:ok, body} <- graphql(@list_query, Map.put(vars, "after", cursor), :ownership_ref_read, token, opts),
+         {:ok, nodes, next} <- parse_page(body) do
+      acc = acc ++ Enum.map(nodes, &parse_node/1)
+
+      case next do
+        :done -> {:ok, acc}
+        {:more, cursor} -> list_pages(vars, token, opts, cap, n + 1, cursor, acc)
+      end
+    else
+      {:error, reason} -> {:unknown, {:page, n, reason}}
+      {:unknown, reason} -> {:unknown, {:page, n, reason}}
+    end
+  end
+
+  defp parse_page(%{"data" => %{"repository" => %{"refs" => %{"nodes" => nodes, "pageInfo" => info}}}}) when is_list(nodes) do
+    case info do
+      %{"hasNextPage" => false} -> {:ok, nodes, :done}
+      %{"hasNextPage" => true, "endCursor" => c} when is_binary(c) -> {:ok, nodes, {:more, c}}
+      _ -> {:unknown, :missing_cursor}
+    end
+  end
+
+  defp parse_page(_body), do: {:unknown, :invalid_response}
+
+  defp parse_node(node) do
+    ticket = node["name"]
+
+    entry = node |> get_in(["target", "tree", "entries"]) |> List.wrap() |> Enum.find(&(&1["name"] == "owner.json"))
+
+    result =
+      case {get_in(node, ["target", "oid"]), entry} do
+        {oid, %{"object" => %{"text" => text}}} when is_binary(oid) and is_binary(text) -> decode_head(oid, text, nil)
+        _ -> {:unknown, {:undecodable, :missing_blob}}
+      end
+
+    {ticket, result}
   end
 
   @doc """
@@ -136,29 +205,48 @@ defmodule Aiur.Ownership.GitHubRef do
       update = %{"name" => @prefix <> ticket, "beforeOid" => before || @zero_oid, "afterOid" => new}
       vars = %{"input" => %{"repositoryId" => observed.repository_id, "refUpdates" => [update]}}
 
-      case graphql(@update_query, vars, :ownership_ref_write, token, opts) do
-        {:ok, _body} -> {:won, record}
-        {:error, reason} -> classify_by_reread(repo, ticket, before, new, record, reason, opts)
-      end
+      ctx = %{repo: repo, ticket: ticket, before: before, new: new, record: record, vars: vars, token: token, opts: opts}
+      send_update(ctx, 1)
     else
       # Nothing reached the ref: the blob/tree/commit objects are unreachable garbage.
       {:error, reason} -> {:unknown, reason}
     end
   end
 
+  defp send_update(ctx, attempt) do
+    case graphql(@update_query, ctx.vars, :ownership_ref_write, ctx.token, ctx.opts) do
+      {:ok, _body} -> {:won, ctx.record}
+      {:error, reason} -> classify_by_reread(ctx, reason, attempt)
+    end
+  end
+
   # No response text is trusted: a held request was never sent, anything else is
   # settled by one uncached read of the ref.
-  defp classify_by_reread(_repo, _ticket, _before, _new, _record, {:github, :local_hold, _} = reason, _opts),
-    do: {:unknown, reason}
+  defp classify_by_reread(_ctx, {:github, :local_hold, _} = reason, _attempt), do: {:unknown, reason}
 
-  defp classify_by_reread(repo, ticket, before, new, record, reason, opts) do
+  defp classify_by_reread(%{repo: repo, ticket: ticket, before: before, new: new, record: record, opts: opts} = ctx, reason, attempt) do
     case read(repo, ticket, opts) do
       {:ok, %{oid: ^new}} -> {:won, record}
-      {:ok, %{oid: ^before}} -> {:unknown, reason}
+      {:ok, %{oid: ^before}} -> retry_or_unknown(ctx, reason, attempt)
       {:ok, %{record: %Record{} = current}} -> {:lost, current}
       {:unknown, error} -> {:unknown, {:reread, error}}
     end
   end
+
+  # Only a GraphQL `errors` result or a 422 can be a transient refusal of an update
+  # that did not apply; transport, 5xx, auth and rate errors are never retried.
+  defp retry_or_unknown(ctx, reason, attempt) do
+    if retriable?(reason) and attempt < Keyword.get(ctx.opts, :max_attempts, 3) do
+      Keyword.get(ctx.opts, :sleep_fun, &Process.sleep/1).(Enum.at([0, 250, 1000], attempt, 1000))
+      send_update(ctx, attempt + 1)
+    else
+      {:unknown, reason}
+    end
+  end
+
+  defp retriable?({:graphql, _}), do: true
+  defp retriable?({:http, 422, _}), do: true
+  defp retriable?(_reason), do: false
 
   defp parse_read(%{"data" => %{"repository" => %{"id" => id} = repository}}) when is_binary(id) do
     case repository do

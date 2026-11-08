@@ -17,7 +17,9 @@ defmodule Aiur.Ownership.GitHubRefTest do
 
     @zero String.duplicate("0", 40)
 
-    def start, do: Agent.start_link(fn -> %{refs: %{}, objects: %{}, log: [], inject: [], n: 0, barrier: nil, arrived: 0} end)
+    def start, do: Agent.start_link(fn -> %{refs: %{}, objects: %{}, log: [], inject: [], n: 0, fail_page: nil, refs_cap: nil, barrier: nil, arrived: 0} end)
+
+    def fail_page(agent, n), do: Agent.update(agent, &%{&1 | fail_page: n})
 
     def inject(agent, faults), do: Agent.update(agent, &%{&1 | inject: faults})
     def barrier(agent, n), do: Agent.update(agent, &%{&1 | barrier: n})
@@ -51,6 +53,7 @@ defmodule Aiur.Ownership.GitHubRefTest do
         String.ends_with?(req.url, "/git/trees") -> object(agent, "t", %{blob: hd(req.body["tree"])["sha"]})
         String.ends_with?(req.url, "/git/commits") -> object(agent, "c", %{tree: req.body["tree"], parents: req.body["parents"]})
         req.url == Transport.graphql_url() and req.body["query"] =~ "updateRefs" -> update(agent, req.body["variables"]["input"])
+        req.url == Transport.graphql_url() and req.body["query"] =~ "refPrefix" -> list(agent, req.body["variables"])
         req.url == Transport.graphql_url() -> read(agent, req.body["variables"])
       end
     end
@@ -63,6 +66,28 @@ defmodule Aiur.Ownership.GitHubRefTest do
     defp object(agent, prefix, object) do
       sha = Agent.get_and_update(agent, fn s -> store(s, prefix, object) |> then(fn {s, sha} -> {sha, s} end) end)
       {:ok, %{status: 201, body: %{"sha" => sha}}}
+    end
+
+    defp list(agent, %{"prefix" => prefix, "after" => after_cursor}) do
+      {page, fail} = {if(after_cursor, do: String.to_integer(after_cursor), else: 0), Agent.get(agent, & &1.fail_page)}
+
+      if fail == div(page, 100) + 1 do
+        {:ok, %{status: 502, headers: %{}, body: %{"message" => "bad gateway"}}}
+      else
+        all =
+          Agent.get(agent, fn s ->
+            for {name, sha} <- Enum.sort(s.refs), String.starts_with?(name, prefix) do
+              text = s.objects[s.objects[sha].tree].blob |> then(&s.objects[&1].content)
+              entries = [%{"name" => "owner.json", "object" => %{"text" => text}}]
+              %{"name" => String.replace_prefix(name, prefix, ""), "target" => %{"oid" => sha, "tree" => %{"entries" => entries}}}
+            end
+          end)
+
+        nodes = all |> Enum.drop(page) |> Enum.take(100)
+        more = length(all) > page + 100
+        info = %{"hasNextPage" => more, "endCursor" => if(more, do: Integer.to_string(page + 100))}
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"refs" => %{"pageInfo" => info, "nodes" => nodes}}}}}}
+      end
     end
 
     defp read(agent, %{"qualified" => name}) do
@@ -87,6 +112,7 @@ defmodule Aiur.Ownership.GitHubRefTest do
 
       case fault do
         :timeout_before -> {:error, %Req.TransportError{reason: :timeout}}
+        {:graphql_before, message} -> errors([%{"message" => message}])
         {:status_before, status, message} -> {:ok, %{status: status, headers: %{}, body: %{"message" => message}}}
         _ -> apply_update(agent, fault, name, before, new)
       end
@@ -171,8 +197,9 @@ defmodule Aiur.Ownership.GitHubRefTest do
   end
 
   test "a 422 that did not apply is unknown with the message, never lost", %{agent: agent, opts: opts} do
-    Stub.inject(agent, [{:status_before, 422, "Validation Failed"}])
+    Stub.inject(agent, List.duplicate({:status_before, 422, "Validation Failed"}, 3))
     assert {:unknown, {:http, 422, "Validation Failed"}} = GitHubRef.claim(@repo, "12", @pc, opts)
+    assert updates(agent) == 3
   end
 
   test "a 422 that applied is won", %{agent: agent, opts: opts} do
@@ -258,5 +285,95 @@ defmodule Aiur.Ownership.GitHubRefTest do
     assert Stub.log(agent) |> Enum.count() == 1 + 3 + 1
     assert writes(agent) == 3
     assert updates(agent) == 1
+  end
+
+  describe "retry of an update that did not apply" do
+    test "an untyped GraphQL error retries the same update and wins", %{agent: agent, opts: opts} do
+      Stub.inject(agent, [{:graphql_before, "Something went wrong"}])
+      test = self()
+      opts = Keyword.put(opts, :sleep_fun, &send(test, {:slept, &1}))
+
+      assert {:won, %Record{epoch: 1}} = GitHubRef.claim(@repo, "12", @pc, opts)
+      assert updates(agent) == 2
+      assert_received {:slept, 250}
+    end
+
+    test "a transport error is not retried", %{agent: agent, opts: opts} do
+      Stub.inject(agent, [:timeout_before])
+      assert {:unknown, :timeout} = GitHubRef.claim(@repo, "12", @pc, opts)
+      assert updates(agent) == 1
+    end
+  end
+
+  describe "list_owned/3" do
+    defp seed(agent, count), do: for(n <- 1..count, do: Stub.put_ref(agent, "refs/aiur/owners/#{n}", record_json(n)))
+
+    defp record_json(n) do
+      {:ok, r} =
+        Record.new(%{
+          repo: @repo,
+          ticket: "#{n}",
+          state: "owned",
+          gateway_id: String.duplicate("a", 26),
+          gateway_label: "pc",
+          daemon_key: "pc",
+          epoch: 1,
+          previous_epoch: 0,
+          actor: %{kind: "daemon", id: "pc"},
+          reason: "dispatch",
+          at: "2026-11-07T00:00:00Z"
+        })
+
+      Record.encode(r)
+    end
+
+    defp lists(agent), do: Enum.filter(Stub.log(agent), &query_has?(&1, "refPrefix"))
+
+    test "127 refs come back in two pages, uncached", %{agent: agent, opts: opts} do
+      seed(agent, 127)
+      assert {:ok, list} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", opts)
+      assert list |> Enum.map(&elem(&1, 0)) |> Enum.sort() == Enum.map(1..127, &Integer.to_string/1) |> Enum.sort()
+      assert Enum.all?(list, &match?({_, {:ok, %{record: %Record{}}}}, &1))
+      assert [first, second] = lists(agent)
+      assert first.body["variables"]["after"] == nil
+      assert second.body["variables"]["after"] == "100"
+      assert {:no_cache, _} = Policy.classify(first)
+      assert first.caller == "ownership_ref_read"
+    end
+
+    test "a page-2 failure is unknown, never the pages read so far", %{agent: agent, opts: opts} do
+      seed(agent, 127)
+      Stub.fail_page(agent, 2)
+      assert {:unknown, {:page, 2, _}} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", opts)
+    end
+
+    test "a malformed body marks only its key", %{agent: agent, opts: opts} do
+      seed(agent, 5)
+      Stub.put_ref(agent, "refs/aiur/owners/3", ~s({"schema":"x"}))
+      assert {:ok, list} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", opts)
+      assert {"3", {:unknown, {:undecodable, _}}} = List.keyfind(list, "3", 0)
+      assert 4 = Enum.count(list, &match?({_, {:ok, _}}, &1))
+    end
+
+    test "exceeding max_pages is unknown", %{agent: agent, opts: opts} do
+      seed(agent, 250)
+      assert {:unknown, {:too_many_pages, 2}} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", Keyword.put(opts, :max_pages, 2))
+    end
+
+    test "an empty prefix is an empty list", %{opts: opts} do
+      assert {:ok, []} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", opts)
+    end
+
+    test "hasNextPage with no cursor is unknown", %{opts: opts} do
+      page = %{"data" => %{"repository" => %{"refs" => %{"pageInfo" => %{"hasNextPage" => true, "endCursor" => nil}, "nodes" => []}}}}
+      opts = Keyword.put(opts, :request_fun, fn _ -> {:ok, %{status: 200, body: page}} end)
+      assert {:unknown, {:page, 1, :missing_cursor}} = GitHubRef.list_owned(@repo, "refs/aiur/owners/", opts)
+    end
+  end
+
+  test "no ownership caller is a leader-fenced global write" do
+    for caller <- ["ownership_ref_read", "ownership_ref_write"] do
+      refute LeaderFence.repo_global_write?(%{method: :post, caller: caller})
+    end
   end
 end
