@@ -78,7 +78,7 @@ defmodule Aiur.OpenAICompat.ViewImageTest do
                Enum.any?(List.wrap(m["content"]), &(is_map(&1) and &1["type"] == "image_url" and &1["image_url"]["url"] == url))
            end)
 
-    assert_receive {:event, %{event: :tool_result, payload: %{name: "view_image", output: output, success: true}}}
+    assert_receive {:event, %{event: :tool_result, payload: %{name: "view_image", output: output, success: true}}}, 1000
     assert output == "attached frame.png (#{byte_size(@png)} bytes)"
     refute output =~ Base.encode64(@png)
   end
