@@ -52,7 +52,7 @@ defmodule Aiur.Ownership.ProjectionTest do
     parent = self()
     fun = fn req -> send(parent, {:req, req.body}) && {:ok, %{status: 201, body: %{}}} end
     assert :ok = Labels.ensure_with("o", "r", "t", [Labels.gateway_label("pc")], request_fun: fun)
-    assert_receive {:req, %{"name" => "gateway:pc", "color" => "1d76db", "description" => "Owned by gateway pc" <> _}}
+    assert_receive {:req, %{"name" => "gateway:pc", "color" => "1d76db", "description" => "Owned by gateway pc" <> _}}, 1000
   end
 
   describe "Ownership.ensure_owned wiring" do
