@@ -23,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
   attr(:conversation_link, :map, default: nil)
+  attr(:question_heading_id, :string, default: nil)
 
   @spec decision_detail(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_detail(assigns) do
@@ -47,6 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
         writable={@writable}
         live_connected={@live_connected}
         voice_capabilities={@voice_capabilities}
+        question_heading_id={@question_heading_id}
       />
       <AiurWeb.OperatorControlCenter.DecisionOverrides.timeline decision={@decision} />
       <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} voice_capabilities={@voice_capabilities} live_connected={@live_connected} />

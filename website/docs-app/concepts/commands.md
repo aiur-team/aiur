@@ -119,7 +119,7 @@ That line counts the same Commands as `aiur command --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
 is older than 15 minutes.
 
-Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
+Deferred Commands stay on the dashboard and in its Blocking count until they are answered or retired. Their cards show the age of the outstanding Command; **Details** shows the deferred lifecycle.
 
 <span id="routing-and-escalation"></span>
 
@@ -128,7 +128,7 @@ Deferred Commands remain visible in the Open and Blocking dashboard counts until
 With `decisions.escalation.enabled` (default `true`), Commands use the live
 Executor roster to choose the first responder (a live Executor is active or idle).
 
-| Command and roster | First responder | Dashboard chip |
+| Command and roster | First responder | Dashboard routing label (card **Details**) |
 | --- | --- | --- |
 | Worker question the live Executor may answer | Executor | With Executor |
 | Human-required worker question, live Executor | You and the Executor; only you may answer | Needs you and Executor |
@@ -237,6 +237,16 @@ Command detail, history and `aiur commands <decision-id>` distinguish it as **an
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.
 
 <span id="who-can-replace-an-answer"></span>
+
+## Rejecting a Command
+
+A host can reject a Command with a free-text reason (`POST
+/api/v1/commands/:id/reject`, see [embedded Commands](../guide/embedded-commands.md)).
+Unlike dismissal, which delivers nothing and is refused for a blocking Command,
+a rejection is recorded as the answer.
+
+The reason is stored verbatim, the agent receives a message naming the
+rejection and the reason, and a blocking Command unblocks. The component state is `rejected`.
 
 ## Overriding an answer
 

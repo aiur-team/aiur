@@ -14,10 +14,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:compact, :boolean, default: false)
   attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
+  attr(:question_heading_id, :string, default: nil)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_action(assigns) do
-    assigns = assign(assigns, :voice_delivery, VoiceDelivery.command(assigns.decision, assigns.state))
+    assigns =
+      assigns
+      |> assign(:voice_delivery, VoiceDelivery.command(assigns.decision, assigns.state))
+      |> assign_new(:question_heading_id, fn -> nil end)
+
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
@@ -77,7 +82,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
       >
         <input type="hidden" name="decision_id" value={@decision.decision_id} />
 
-        <DecisionQuestionsForm.decision_questions_form questions={@questions} form={@form} disabled={@disabled? or not @live_connected} />
+        <DecisionQuestionsForm.decision_questions_form
+          questions={@questions}
+          form={@form}
+          disabled={@disabled? or not @live_connected}
+          heading={Map.get(@decision, :question)}
+          heading_id={@question_heading_id}
+        />
 
         <fieldset :if={@questions == [] and @decision.options != []} class="decision-choice-list" disabled={@disabled? or not @live_connected}>
           <legend class="sr-only">Choose an answer</legend>
