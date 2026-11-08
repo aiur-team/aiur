@@ -1,8 +1,8 @@
 defmodule AiurWeb.ExecutorView do
-  @moduledoc "Executor binding states layered over the shared conversation chronology."
+  @moduledoc "Executor binding states and the footer presentation layered over the shared conversation chronology."
   use Phoenix.Component
+  alias Aiur.Conversation.JumpPoints
   alias Aiur.Executor.Session
-  alias AiurWeb.Conversation.Components
 
   @spec present(map()) :: map()
   def present(assigns) do
@@ -22,18 +22,51 @@ defmodule AiurWeb.ExecutorView do
   defp state(%{state: state}, :none) when state in [:known_empty, :not_found], do: :not_opted_in
   defp state(assigns, _binding), do: assigns.state
 
+  # States whose meaning depends on how old the reading is.
+  @aged [:unknown, :restart_unknown, :degraded, :unavailable, :live, :idle]
+
+  @doc """
+  The footer's compact state line. Unknown and stale states carry their age, so a
+  missing reading is never shown as a plausible `idle`.
+  """
+  @spec summary(map()) :: String.t()
+  def summary(%{state: state, age: age}) do
+    case {short(state), age} do
+      {text, %{freshness: :unknown}} when state in @aged -> "#{text} · age unknown"
+      {text, %{freshness: :stale, age_ms: ms}} when state in @aged -> "#{text} #{compact(ms)}"
+      {text, _age} -> text
+    end
+  end
+
+  defp short(:live), do: "attached"
+  defp short(:idle), do: "idle"
+  defp short(:not_opted_in), do: "not attached"
+  defp short(:awaiting_hook), do: "waiting for session"
+  defp short(:ended), do: "ended"
+  defp short(:loading), do: "loading"
+  defp short(:known_empty), do: "attached · no messages yet"
+  defp short(:degraded), do: "stale"
+  defp short(:unavailable), do: "unavailable"
+  defp short(_state), do: "unknown"
+
+  defp compact(ms) when ms < 3_600_000, do: "#{div(ms, 60_000)}m"
+  defp compact(ms) when ms < 86_400_000, do: "#{div(ms, 3_600_000)}h"
+  defp compact(ms), do: "#{div(ms, 86_400_000)}d"
+
+  @spec event_label(map()) :: String.t()
+  def event_label(anchor), do: anchor["label"] || JumpPoints.label(anchor["kind"], %{})
+
   attr(:view, :map, required: true)
   attr(:writable, :boolean, required: true)
-  @spec header(map()) :: Phoenix.LiveView.Rendered.t()
-  def header(assigns) do
+  @spec notices(map()) :: Phoenix.LiveView.Rendered.t()
+  def notices(assigns) do
     ~H"""
-    <div id="executor-frame" class="executor-frame">
-      <Components.status title="Executor" state={@view.state} age={@view.age} reason={if @view.state != :not_opted_in, do: @view.reason} show_freshness={@view.state != :not_opted_in} state_label={if @view.state == :loading, do: "Loading Executor history…"} last_entry={@view.last_entry} />
-      <div :if={@view.state == :not_opted_in}>
-        <p>Attach your Executor session to read its conversation here. Transcript capture is opt in.</p>
-        <p>Run <code>aiur executor-attach --harness claude</code> or <code>aiur executor-attach --harness codex</code> in your repository.</p>
-        <a href="https://aiur.team/docs/guide/gui#executor">Executor setup and history</a>
-      </div>
+    <div id="executor-frame" class="executor-frame" data-state={@view.state}>
+      <p :if={@view.state == :not_opted_in}>
+        Not attached. Run <code>aiur executor-attach --harness claude</code> (or <code>--harness codex</code>) in your repository.
+        <a href="https://aiur.team/docs/guide/gui#executor">Setup</a>
+      </p>
+      <p :if={@view.state == :loading} role="status">Loading Executor history…</p>
       <p :if={@view.state == :awaiting_hook}>Waiting for the Executor session. Run <code>aiur executor-attach --check</code> to diagnose attachment and hook failures.</p>
       <p :if={@view.state == :ended}>Executor session ended or detached. Recorded history remains readable.</p>
       <p :if={@view.unreadable?} role="alert">Executor transcript unreadable (source_unreadable). Status may still work; check transcript access and the attached session.</p>

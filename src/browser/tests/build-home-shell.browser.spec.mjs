@@ -24,7 +24,7 @@ async function patch(page) {
   await expect(toggle).toHaveAttribute('data-nav-collapsed', previous === 'true' ? 'false' : 'true')
 }
 
-test('settings reaches Executor while Build is loading on phone and desktop', async ({ page }) => {
+test('settings reaches Talk to Executor while Build is loading on phone and desktop', async ({ page }) => {
   await page.context().setHTTPCredentials(dashboardCredentials)
   await page.routeWebSocket('**/live/websocket*', ws => {
     const server = ws.connectToServer()
@@ -50,7 +50,7 @@ test('settings reaches Executor while Build is loading on phone and desktop', as
     // Closed menus remain display:flex with opacity:0; visibility alone does
     // not prove that the hook opened it or that it wins hit testing.
     await expect.poll(() => menu.evaluate(element => {
-      const item = element.querySelector('[href="/executor"]')
+      const item = element.querySelector('[href="/voice"]')
       const itemRect = item.getBoundingClientRect()
       const hit = document.elementFromPoint(itemRect.x + itemRect.width / 2, itemRect.y + itemRect.height / 2)
       return {
@@ -59,10 +59,9 @@ test('settings reaches Executor while Build is loading on phone and desktop', as
         menuOwnsHit: Boolean(hit?.closest('#ax-menu'))
       }
     }), { message: 'Settings menu item must receive pointer hits over Build loading content' }).toMatchObject({ opacity: '1', pointerEvents: 'auto', menuOwnsHit: true })
-    const menuItem = page.getByRole('menuitem', { name: 'Executor conversation', exact: true })
+    const menuItem = page.getByRole('menuitem', { name: 'Talk to Executor', exact: true })
     await menuItem.click()
-    await expect(page).toHaveURL(/\/executor$/)
-    await expect(page.locator('#executor-frame h1')).toHaveText('Executor')
+    await expect(page).toHaveURL(/\/voice$/)
   }
 })
 
