@@ -2,6 +2,7 @@ defmodule Aiur.Project do
   @moduledoc "One project (repository) the process serves: identity, config file and state directory."
 
   alias Aiur.Config.Paths
+  alias Aiur.Project.Context
 
   @enforce_keys [:id, :repo, :config_path, :state_root]
   defstruct [:id, :repo, :config_path, :state_root]
@@ -23,13 +24,13 @@ defmodule Aiur.Project do
   else a via tuple over `Aiur.ProjectRegistry` keyed by the downcased project id.
   """
   @spec name(module(), id() | nil) :: GenServer.server()
-  def name(module, project_id \\ Aiur.Project.Context.current_id())
+  def name(module, project_id \\ Context.current_id())
   def name(module, nil), do: module
   def name(module, id), do: {:via, Registry, {Aiur.ProjectRegistry, {String.downcase(id), module}}}
 
   @doc "Lookup side of `name/2`; a function-head default evaluates it per call, so it follows the caller's project."
   @spec whereis(module(), id() | nil) :: GenServer.server()
-  def whereis(module, project_id \\ Aiur.Project.Context.current_id()), do: name(module, project_id)
+  def whereis(module, project_id \\ Context.current_id()), do: name(module, project_id)
 
   @doc "State root of the implicit (no-context) project."
   @spec default_state_root() :: {:ok, Path.t()} | {:error, atom()}
