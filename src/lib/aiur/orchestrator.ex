@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator do
     CommentPollingState,
     CommentWake,
     DispatchCycleLiveness,
+    GlobalPause,
     StaleApprovedHead,
     TicketTransition
   }
@@ -85,6 +86,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:dispatch_cycle_liveness_check, token}, state),
     do: DispatchCycleLiveness.handle_check(state, token)
+
+  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
+    do: GlobalPause.fleet_pause_info(state)
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.

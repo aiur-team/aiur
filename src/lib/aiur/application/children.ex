@@ -271,6 +271,8 @@ defmodule Aiur.Application.Children do
       # Seed the fail-closed admission table before the Orchestrator can perform
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
+      # Intent store and sync precede the Orchestrator: its boot reads the fleet pause after a bounded pull.
+      intent_children(),
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
@@ -321,7 +323,7 @@ defmodule Aiur.Application.Children do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(
       cli_children ++
-        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,
@@ -369,18 +371,16 @@ defmodule Aiur.Application.Children do
     ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
   end
 
+  defp intent_children do
+    [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+      if(LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+        else: []
+      )
+  end
+
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
-    store_children =
-      [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
-        if(LeaseStore.configured?(),
-          do: [
-            LeaseStore,
-            {Heartbeat, metadata_fun: &heartbeat_metadata/0},
-            Aiur.Intent.Sync,
-            Aiur.Gateway.Liveness
-          ],
-          else: []
-        )
+    store_children = if(LeaseStore.configured?(), do: [Aiur.Gateway.Liveness], else: [])
 
     services =
       []

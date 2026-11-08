@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.FeatureSupply do
 
   alias Aiur.Orchestrator.FeatureSupplySnapshot
   alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.State
   alias Aiur.RunTelemetry
   alias Aiur.Signal
@@ -13,7 +14,7 @@ defmodule Aiur.Orchestrator.FeatureSupply do
 
   @spec observe(State.t(), [Aiur.Issue.t()], keyword()) :: State.t()
   def observe(state, issues, opts \\ []) do
-    if state.globally_paused do
+    if PauseGuard.paused?(state) do
       unavailable(state)
     else
       sample = FeatureSupplySnapshot.build(state, issues)
