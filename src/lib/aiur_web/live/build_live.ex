@@ -225,6 +225,7 @@ defmodule AiurWeb.BuildLive do
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
       <:status><OverrideSummary.summary state={@fleet_overrides} /></:status>
+      <:sidebar><div id="bd-usage-nav" class="ax-nu" phx-update="ignore" aria-label="Usage" role="group"></div></:sidebar>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>

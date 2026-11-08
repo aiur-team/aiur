@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.Client do
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server), do: Lifecycle.request_refresh_api(server)
   @spec note_queued_demand([String.t()]) :: map() | :unavailable
-  def note_queued_demand(identifiers), do: note_queued_demand(Aiur.Orchestrator, identifiers)
+  def note_queued_demand(identifiers), do: note_queued_demand(Aiur.Project.whereis(Aiur.Orchestrator), identifiers)
   @spec note_queued_demand(GenServer.server(), [String.t()]) :: map() | :unavailable
   def note_queued_demand(server, identifiers) when is_list(identifiers),
     do: Lifecycle.note_queued_demand_api(server, identifiers)
@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.Client do
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
 
   @spec set_global_pause(boolean(), String.t()) :: {:ok, map()} | {:error, term()}
-  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Orchestrator, on?, source)
+  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Project.whereis(Aiur.Orchestrator), on?, source)
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(identifier), do: OM.control_capabilities(identifier)
@@ -179,7 +179,7 @@ defmodule Aiur.Orchestrator.Client do
 
   @spec operator_message_status(GenServer.server(), integer(), timeout()) ::
           {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
-  def operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000),
+  def operator_message_status(server \\ Aiur.Project.whereis(Aiur.Orchestrator), item_id, timeout \\ 5_000),
     do: OM.operator_message_status(server, item_id, timeout)
 
   @spec claim_next_queue_item(GenServer.server(), String.t()) ::
@@ -245,11 +245,11 @@ defmodule Aiur.Orchestrator.Client do
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: StatusReport.snapshot_api()
   @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+  def list_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
     do: StatusReport.list_active_identifiers_api(server, timeout)
 
   @spec list_running_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_running_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+  def list_running_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
     do: StatusReport.list_running_active_identifiers_api(server, timeout)
 
   @type poll_status :: %{
@@ -278,7 +278,7 @@ defmodule Aiur.Orchestrator.Client do
   before first publication it returns unavailable. See `SnapshotStore.read/2`.
   """
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
-  def dashboard_snapshot(server \\ Aiur.Orchestrator, timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
+  def dashboard_snapshot(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
 
   @doc """
   Reads the fleet view for a control query (`status`, `agents`, `watch`) from
@@ -286,13 +286,13 @@ defmodule Aiur.Orchestrator.Client do
   `Aiur.Orchestrator.StatusReport.fleet_view/2`.
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+  def fleet_view(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @doc false
   @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def listener_prompt_context(identifier, opts) do
     if Scheduler.routing(opts) == :listener do
-      server = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+      server = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
       reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context(&1, server))
       reader.(identifier)
     else

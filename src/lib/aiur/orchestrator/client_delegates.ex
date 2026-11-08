@@ -56,7 +56,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate ensure_remote_control_trust(workspace), to: Aiur.Orchestrator.Client
       defdelegate ensure_remote_control_trust(server, workspace), to: Aiur.Orchestrator.Client
 
-      defdelegate operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000),
+      defdelegate operator_message_status(server \\ Aiur.Project.whereis(Aiur.Orchestrator), item_id, timeout \\ 5_000),
         to: Aiur.Orchestrator.Client
 
       defdelegate claim_next_queue_item(server, identifier), to: Aiur.Orchestrator.Client
@@ -76,10 +76,10 @@ defmodule Aiur.Orchestrator.ClientDelegates do
 
       defdelegate claim_next_steer_queue_item(server, identifier), to: Aiur.Orchestrator.Client
 
-      defdelegate list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+      defdelegate list_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
         to: Aiur.Orchestrator.Client
 
-      defdelegate list_running_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+      defdelegate list_running_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
         to: Aiur.Orchestrator.Client
 
       defdelegate poll_status(), to: Aiur.Orchestrator.Client
@@ -89,10 +89,10 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate status_with_capacity(server, timeout), to: Aiur.Orchestrator.Client
       defdelegate snapshot(server, timeout), to: Aiur.Orchestrator.Client
 
-      defdelegate dashboard_snapshot(server \\ Aiur.Orchestrator, timeout \\ 15_000),
+      defdelegate dashboard_snapshot(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 15_000),
         to: Aiur.Orchestrator.Client
 
-      defdelegate fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []),
+      defdelegate fleet_view(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout, opts \\ []),
         to: Aiur.Orchestrator.Client
     end
   end

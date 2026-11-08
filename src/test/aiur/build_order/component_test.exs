@@ -33,6 +33,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.PubSub.Boot, [name: Aiur.PubSub]},
     Aiur.AgentPubSub.FleetRefresh,
     {Registry, [keys: :unique, name: Aiur.IssueLog.Registry]},
+    {Registry, [keys: :unique, name: Aiur.ProjectRegistry]},
     {Registry, [keys: :unique, name: Aiur.Opencode.PaneRegistry]},
     {Registry, [keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry]},
     {Registry, [keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry]},

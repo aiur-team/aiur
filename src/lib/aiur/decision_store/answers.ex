@@ -16,6 +16,7 @@ defmodule Aiur.DecisionStore.Answers do
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.DecisionStore.Withdrawals
 
   @spec handle_answer(term(), term(), term(), term()) :: term()
@@ -253,7 +254,7 @@ defmodule Aiur.DecisionStore.Answers do
   defp restore_request_attributes(request, nil), do: request
 
   defp restore_request_attributes(request, current),
-    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label]))
+    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label, :tags]))
 
   defp evaluate_answer_replay(decision, accepted, replayed, state) do
     cond do
@@ -288,6 +289,7 @@ defmodule Aiur.DecisionStore.Answers do
           next_state
           |> Dispatch.maybe_schedule_after_answer(updated, false)
           |> Dedup.supersede_duplicates(updated)
+          |> Siblings.moot_if_rejected(updated, answer)
 
         {:reply,
          {:ok,

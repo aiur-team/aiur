@@ -122,6 +122,15 @@
       ],
       "description": "At most 40 Unicode graphemes, matching the Command content validator."
     },
+    "tags": {
+      "type": "array",
+      "description": "At most 8 caller-supplied slugs from decision.requested, such as group:<id> or source:<name>. A group: tag joins sibling Commands on one ticket.",
+      "items": {
+        "type": "string",
+        "maxLength": 96,
+        "pattern": "^[a-z0-9][a-z0-9_-]{0,31}(:[a-z0-9][a-z0-9._-]*)?$"
+      }
+    },
     "payload_version": {
       "const": 2
     },

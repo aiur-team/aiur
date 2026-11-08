@@ -212,7 +212,7 @@
   gap: 1rem;
   padding: 1rem 1.05rem 1.15rem 1.25rem;
   border-top: 1px solid var(--hairline);
-  animation: detail-open 0.22s ease both;
+  animation: detail-open 0.22s ease backwards;
 }
 
 .decision-action {
