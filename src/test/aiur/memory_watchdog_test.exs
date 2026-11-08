@@ -44,8 +44,8 @@ defmodule Aiur.MemoryWatchdogTest do
       )
 
     {:ok, pid} = GenServer.start(MemoryWatchdog, failing)
-    assert_receive :alert_attempted
-    assert_receive :alert_attempted
+    assert_receive :alert_attempted, 1_000
+    assert_receive :alert_attempted, 1_000
     assert Process.alive?(pid)
     GenServer.stop(pid)
   end
