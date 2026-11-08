@@ -98,5 +98,29 @@ defmodule Aiur.Ownership.ProjectionTest do
       assert {:declined, :not_owner, {:assignment_request, ["pc"]}} =
                Ownership.ensure_owned(issue(["gateway:pc"]), opts({:ok, %{record: nil}}, {:won, @pc}))
     end
+
+    test "unreadable ref with a gateway label alerts once and declines" do
+      o = opts({:unknown, :timeout}, nil)
+      assert {:declined, :unknown, :timeout} = Ownership.ensure_owned(issue(["gateway:pc"]), o)
+      assert_received {:alert, "12", :ref_unreadable}
+      refute_received {:alert, _, _}
+    end
+
+    test "unreadable ref without a gateway label only declines" do
+      assert {:declined, :unknown, :timeout} = Ownership.ensure_owned(issue(["agent:todo"]), opts({:unknown, :timeout}, nil))
+      refute_received {:alert, _, _}
+    end
+
+    test "poll pass labels a running owned ticket that has no gateway label" do
+      Ownership.poll_reconcile(issue(["agent:in-progress"]), opts(nil, nil))
+      assert_received {:label, "pc"}
+    end
+
+    test "poll pass leaves a consistent label alone and alerts on a foreign one" do
+      Ownership.poll_reconcile(issue(["gateway:pc"]), opts(nil, nil))
+      refute_received {:label, _}
+      Ownership.poll_reconcile(issue(["gateway:nook"]), opts(nil, nil))
+      assert_received {:alert, "12", :label_disagrees}
+    end
   end
 end

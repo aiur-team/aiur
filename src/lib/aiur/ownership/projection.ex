@@ -127,7 +127,13 @@ defmodule Aiur.Ownership.Projection do
         severity: "warning",
         dedup_key: {:ownership_ambiguous, repo, to_string(issue.identifier)},
         bypass_contamination: true,
-        exchange_payload: %{"repo" => repo, "ticket" => to_string(issue.identifier), "reason" => to_string(reason)}
+        exchange_payload: %{
+          "repo" => repo,
+          "ticket" => to_string(issue.identifier),
+          "reason" => to_string(reason),
+          "ref_gateway_id" => Keyword.get(opts, :ref_gateway_id),
+          "labels" => gateway_labels(issue.labels)
+        }
       )
 
     :ok

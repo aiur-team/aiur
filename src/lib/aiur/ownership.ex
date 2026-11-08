@@ -43,6 +43,27 @@ defmodule Aiur.Ownership do
     end
   end
 
+  @doc """
+  Per-poll pass for a ticket this daemon is already running. The ref is not re-read: a running
+  ticket was owned at dispatch, so the polled labels are reconciled against our own identity.
+  """
+  @spec poll_reconcile(Aiur.Issue.t(), keyword()) :: :ok
+  def poll_reconcile(issue, opts \\ []) do
+    with true <- Keyword.get_lazy(opts, :ownership_enabled, &enabled?/0),
+         {:ok, self} <- self_identity(opts) do
+      case Projection.reconcile({:owned, self}, %{labels: issue.labels, self: self}) do
+        {:project, slug} -> Keyword.get(opts, :ownership_label_fun, &Projection.project/2).(issue, slug)
+        {:ambiguous, reason} -> alert(issue, reason, opts)
+        _ -> :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp ref_gateway_id({:owned, record}), do: record.gateway_id
+  defp ref_gateway_id(_other), do: nil
+
   defp ref_read({:ok, %{record: %{state: "owned"} = record}}), do: {:owned, record}
   defp ref_read({:ok, _absent_or_released}), do: :unowned
   defp ref_read({:unknown, why}), do: {:unreadable, why}
@@ -54,12 +75,17 @@ defmodule Aiur.Ownership do
     {:declined, :unknown, why}
   end
 
-  defp ambiguous(issue, reason, _observed, opts) do
-    alert(issue, reason, opts)
+  defp ambiguous(issue, reason, observed, opts) do
+    alert(issue, reason, opts, observed |> ref_read() |> ref_gateway_id())
     {:declined, :ambiguous, reason}
   end
 
-  defp alert(issue, reason, opts), do: Keyword.get(opts, :ownership_alert_fun, &Projection.alert_ambiguous/2).(issue, reason)
+  defp alert(issue, reason, opts, ref_gateway_id \\ nil) do
+    case Keyword.get(opts, :ownership_alert_fun) do
+      nil -> Projection.alert_ambiguous(issue, reason, ref_gateway_id: ref_gateway_id)
+      fun -> fun.(issue, reason)
+    end
+  end
 
   defp assignment_request(issue, slugs) do
     require Logger
