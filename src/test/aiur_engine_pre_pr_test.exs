@@ -70,7 +70,9 @@ defmodule AiurEnginePrePrTest do
     body =
       "## Summary\n\n- `kept` as written -> here\n\n## Local tests\n\nPolicy: partial\nTested head: " <>
         String.duplicate("a", 40) <>
-        "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n" <>
+        "\nBase: `main` @ `" <>
+        sha <>
+        "`\nSelection: focused\n- `mix test` -> pass\n" <>
         "- `mix credo --strict` (changed files) -> no issues\n- `mix lint` on src -> pass\n"
 
     # Each refresh rewrites pr.json, so every run starts again from this seed.
