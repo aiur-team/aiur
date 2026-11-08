@@ -29,7 +29,7 @@ defmodule Aiur.ControlCLI.Protocol do
   defp print_control_query_error(:timeout, query, timeout_ms) do
     IO.puts(
       "#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}" <>
-        "; outcome is unknown. #{orchestrator_liveness()}"
+        ". Outcome is unknown. #{orchestrator_liveness()}"
     )
   end
 
@@ -45,7 +45,8 @@ defmodule Aiur.ControlCLI.Protocol do
         "The orchestrator process is not registered, so the daemon is down or still starting."
 
       pid ->
-        describe_orchestrator(Process.info(pid, [:message_queue_len, :status, :current_function]))
+        "The daemon is alive; the orchestrator did not answer in time. " <>
+          describe_orchestrator(Process.info(pid, [:message_queue_len, :status, :current_function]))
     end
   end
 
