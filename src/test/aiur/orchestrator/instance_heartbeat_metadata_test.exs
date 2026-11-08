@@ -139,6 +139,8 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
       InstanceHeartbeatMetadata.metadata(
         @base_opts ++
           [
+            next_queue_fun: &__MODULE__.nil_fun/0,
+            pending_decisions_fun: &__MODULE__.nil_fun/0,
             statuses_fun: fn -> nil end,
             capacity_fun: fn -> nil end,
             held_tickets_fun: fn -> exit(:timeout) end,
@@ -157,7 +159,17 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
 
   test "zero and false are facts and survive" do
     data =
-      InstanceHeartbeatMetadata.metadata(@base_opts ++ [next_queue_fun: &__MODULE__.nil_fun/0, pending_decisions_fun: &__MODULE__.nil_fun/0, statuses_fun: fn -> [] end, capacity_fun: fn -> 2 end, held_tickets_fun: fn -> [] end, executor_fun: fn -> false end])["data"]
+      InstanceHeartbeatMetadata.metadata(
+        @base_opts ++
+          [
+            next_queue_fun: &__MODULE__.nil_fun/0,
+            pending_decisions_fun: &__MODULE__.nil_fun/0,
+            statuses_fun: fn -> [] end,
+            capacity_fun: fn -> 2 end,
+            held_tickets_fun: fn -> [] end,
+            executor_fun: fn -> false end
+          ]
+      )["data"]
 
     assert %{"agent_count" => 0, "held_tickets" => [], "executor_present" => false, "projects" => []} = data
   end
@@ -166,7 +178,16 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadataTest do
     rows = for i <- 1..20, do: %{identifier: "acme/r#{rem(i, 3)}##{i}", title: String.duplicate("t", 300), state: :running}
     held = for i <- 1..200, do: "acme/r#{rem(i, 3)}##{i}"
 
-    opts = @base_opts ++ [next_queue_fun: &__MODULE__.nil_fun/0, pending_decisions_fun: &__MODULE__.nil_fun/0, statuses_fun: fn -> rows end, capacity_fun: fn -> 20 end, held_tickets_fun: fn -> held end, executor_fun: fn -> true end]
+    opts =
+      @base_opts ++
+        [
+          next_queue_fun: &__MODULE__.nil_fun/0,
+          pending_decisions_fun: &__MODULE__.nil_fun/0,
+          statuses_fun: fn -> rows end,
+          capacity_fun: fn -> 20 end,
+          held_tickets_fun: fn -> held end,
+          executor_fun: fn -> true end
+        ]
 
     small = InstanceHeartbeatMetadata.metadata([max_bytes: 8_000] ++ opts)["data"]
     assert small["trimmed"] == ["agent_titles"]
