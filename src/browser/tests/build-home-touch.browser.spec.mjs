@@ -59,8 +59,10 @@ for (const [width, height] of [[390, 844], [360, 780], [430, 932], [844, 390]]) 
       const vp = document.querySelector('#bd-vp').getBoundingClientRect()
       const nav = document.querySelector('.sidenav')
       const navTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+      const bar = document.querySelector('.executor-footer__bar')
+      const barTop = bar && getComputedStyle(bar.closest('.executor-footer')).position === 'fixed' ? bar.getBoundingClientRect().top : innerHeight
       const live = document.querySelector('#bd-vp .bd-live')?.getBoundingClientRect()
-      return { top: r.top, bottom: r.bottom, headerBottom: document.querySelector('.ax-top').getBoundingClientRect().bottom, navTop,
+      return { top: r.top, bottom: r.bottom, headerBottom: document.querySelector('.ax-top').getBoundingClientRect().bottom, navTop: Math.min(navTop, barTop),
         vp: vp.height, inner: innerHeight, live: live && { top: live.top, vpTop: vp.top }, overflow: document.documentElement.scrollWidth > innerWidth }
     })
     expect(Math.abs(m.top - m.headerBottom)).toBeLessThanOrEqual(2)
