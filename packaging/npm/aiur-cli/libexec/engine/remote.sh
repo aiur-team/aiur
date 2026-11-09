@@ -37,7 +37,7 @@ ensure_remote_command_allowed() {
     history)
       [ "${2:-}" = label-writes ] || { echo "aiur: history export is local to the instance's host" >&2; return 64; }
       ;;
-    stop | restart)
+    stop | restart | gateway)
       if [ "${AIUR_REMOTE_SELECTOR_FLAG:-}" = --gateway ]; then
         echo "aiur: $command is local to the gateway's host; run it there" >&2
       else

@@ -187,6 +187,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr_health.stale_unreviewed", "pr-lifecycle"},
     # aiur/pr_lifecycle/health_scanner.ex
     {"system.pr_health.unmergeable_author", "pr-lifecycle"},
+    # aiur/project/watcher.ex
+    {"system.project.boot_failed", "orchestration"},
+    # aiur/project/watcher.ex
+    {"system.project.boot_failed.resolved", "orchestration"},
     # aiur/coding_agent/route_failure.ex
     {"system.provider.auth_rejected.*", "harness-adapters"},
     # aiur/agent_runner/turn_alerts.ex
