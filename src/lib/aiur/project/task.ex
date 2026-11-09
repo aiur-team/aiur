@@ -4,16 +4,12 @@ defmodule Aiur.Project.Task do
   alias Aiur.Project.Context
 
   @spec async((-> term())) :: Task.t()
-  def async(fun), do: fun |> bind() |> Task.async()
-
-  @doc "Wraps `fun` to run in the caller's project, for task starters this module does not wrap (LiveView `start_async`)."
-  @spec bind((-> result)) :: (-> result) when result: var
-  def bind(fun) do
+  def async(fun) do
     project = Context.current()
 
-    fn ->
+    Task.async(fn ->
       if project, do: Context.put(project)
       fun.()
-    end
+    end)
   end
 end

@@ -100,6 +100,22 @@ defmodule AiurWeb.ProjectScopeTest do
     end)
   end
 
+  test "a build home read after mount reaches the picked project", %{root: root} do
+    start_publishing(project("o/a", root, 3))
+    start_publishing(project("o/b", root, 5))
+
+    with_http_server(fn ->
+      {:ok, view, _html} = live(browser_conn(), "/build?project=o%2Fb")
+      assert %{build_state: :ready} = await_build(view)
+
+      # Skip the mount-snapshot cache so the resync reads again, through `Read.safe_read/1`'s bare `Task.async`.
+      :sys.replace_state(view.pid, fn state -> update_in(state.socket.assigns, &Map.put(&1, :build_generation, 1)) end)
+      render_hook(view, "build-resync", %{})
+      assert_reply(view, reply)
+      assert get_in(reply, ["capacity", "max"]) == 5, inspect(Map.take(reply, ["kind", "reason", "capacity"]))
+    end)
+  end
+
   defp project(repo, root, max_agents) do
     state_root = Path.join(root, String.replace(repo, "/", "-"))
     config = Path.join([state_root, "repo", ".aiur", "config"])

@@ -11,8 +11,11 @@ defmodule AiurWeb.ProjectScope do
   project-scoped LiveViews redirect to `/projects` to pick one. Without `projects:`
   this is a no-op.
 
-  Runs as an endpoint plug and as a LiveView `on_mount` hook. HTTP connection
-  processes serve many requests, so every call resets the previous selection.
+  Runs as an endpoint plug and as a LiveView `on_mount` hook. A picked process also
+  registers itself under the project in `Aiur.ProjectRegistry`, so every task it
+  starts (`start_async`, `Task.async`) resolves the same project through its
+  `$callers`. HTTP connection processes serve many requests, so every call resets
+  the previous selection and registration.
   """
   @behaviour Plug
 
@@ -21,6 +24,7 @@ defmodule AiurWeb.ProjectScope do
   alias Aiur.Project.{Context, Registry}
 
   @status {__MODULE__, :status}
+  @registered {__MODULE__, :registered}
   @session_key "aiur_project"
   # Machine-level pages that render without a project; every other dashboard page reads one.
   @machine_views [AiurWeb.ProjectsHomeLive, AiurWeb.GatewayLive, AiurWeb.InstanceRosterLive]
@@ -71,6 +75,7 @@ defmodule AiurWeb.ProjectScope do
   defp select(requested, remembered) do
     Context.delete()
     Process.delete(@status)
+    unregister()
     ids = Registry.project_ids()
 
     cond do
@@ -89,11 +94,23 @@ defmodule AiurWeb.ProjectScope do
     case Registry.project(id) do
       %Aiur.Project{} = project ->
         Context.put(project)
+        register(id)
         {:picked, id}
 
       nil ->
         unselect({:unknown, id})
     end
+  end
+
+  # `Context` resolves a task's project from any lineage pid registered as `{id, _}`; only `:root` keys list projects.
+  defp register(id) do
+    key = {id, {__MODULE__, self()}}
+    {:ok, _owner} = Elixir.Registry.register(Aiur.ProjectRegistry, key, nil)
+    Process.put(@registered, key)
+  end
+
+  defp unregister do
+    if key = Process.delete(@registered), do: Elixir.Registry.unregister(Aiur.ProjectRegistry, key)
   end
 
   # A request process has no project lineage, so a deleted Context reads as no project.
