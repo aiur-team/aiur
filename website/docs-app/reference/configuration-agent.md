@@ -71,6 +71,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.skills.by_label` | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
 | `agent.skills.by_lane` | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured lane's label matchers. |
 | `agent.skills.preload_max_bytes` | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
+| `agent.skills.recommended` | map | `%{}` | The same five `by_*` maps, for skills that fit the ticket but are not inlined: the worker sees each one's name, description and path, and loads it on demand. Never counts against `preload_max_bytes`. See [recommended skills](/skills#recommended-skills). |
 | `agent.stall_timeout_ms` | integer | 3600000 | Final watchdog; Codex probes every 60s, then replaces silence. 0 disables only this watchdog. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.synthetic_load_kill_detected` | boolean | false | When false, a busy loop detected by behaviour and any orphaned generator are report-only: logged with pid and command line and alerted once, but left running. Set true to kill them too (busy loops above the cap, orphans outright). |
@@ -155,6 +156,7 @@ Claude clock hints with an IANA timezone are converted to UTC; unknown reset tim
 | --- | --- |
 | **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
 | **Usage or rate limit (429)** | Advances to the next entry and records the backend in `model-usage.json` with its reset time. Self-healing. |
+| **Out of credit (402)** | Advances like a usage limit; the paused claim moves to the next available entry without the ten-minute wait. A fresh provider meter reading of a $0 balance skips the backend before any request. |
 | **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
 | **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
 

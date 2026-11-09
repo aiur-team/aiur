@@ -78,7 +78,7 @@ link for `https:` URLs; anything else renders as inert text.
 ### Media
 
 A Command's prompt and each of its options can carry typed media — `image`,
-`animated_image`, `video` or `audio`. A typed item carries a `locator`; a
+`animated_image`, `video`, `audio` or `embed`. A typed item carries a `locator`; a
 pre-existing artifact reference in the same list carries a bare `kind` + `value`.
 An item whose locator kind is `url` is already public. An item whose locator kind
 is `attachment` is a file Aiur serves, so tell the renderer where Aiur lives:
@@ -101,6 +101,16 @@ Images and animated images render with their alt text and caption; video and
 audio use native `controls` and take their `aria-label` from the alt text or
 caption. Option media renders beside the option, outside its `<label>`, so a
 playback control is never swallowed by the label's click target.
+
+An `embed` item is an interactive page, such as a playable build. Its locator is
+always a `url` on the operator's `decisions.embed_hosts` list. The renderer shows a
+Load button and keeps the iframe in an inert `<template>` until it is clicked;
+call `bindEmbeds(root)` once (or `loadEmbed(button)` yourself) to wire the click.
+
+The iframe runs with `sandbox="allow-scripts"` only, so it gets no same-origin
+access, top navigation or popups, and it sends no referrer. The alt text and an
+"Open in a new tab" link render beside it. A client that cannot frame pages
+passes `embeds: false` and gets only the alt text and the link.
 
 ## Theming
 
@@ -126,6 +136,7 @@ matching `aiur-command-*` class). Both are a public contract.
 | `actions`, `submit` | the footer and its submit button |
 | `answer`, `answer-label` | the recorded answer and its label |
 | `media-list`, `media`, `media-item`, `media-caption`, `media-kind`, `media-unavailable` | Command media |
+| `embed`, `embed-load`, `embed-frame`, `embed-fallback` | an embed's wrapper, Load button, inert iframe template, alt text and link |
 
 Import the optional stylesheet, `@aiur/commands/theme.css`, and set custom
 properties on any ancestor. All have defaults:
