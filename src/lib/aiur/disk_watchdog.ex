@@ -213,14 +213,22 @@ defmodule Aiur.DiskWatchdog do
       {output, _exit} ->
         output
         |> String.split("\n", trim: true)
-        |> Enum.flat_map(fn line ->
-          with [kb, path] <- String.split(line, "\t", parts: 2), {kb, ""} <- Integer.parse(kb), true <- path != root, do: [{Path.relative_to(path, root), kb * 1024}], else: (_ -> [])
-        end)
+        |> Enum.flat_map(&parse_du_line(&1, root))
         |> Enum.sort_by(&elem(&1, 1), :desc)
         |> Enum.take(@top)
     end
   rescue
     _error -> []
+  end
+
+  defp parse_du_line(line, root) do
+    with [kb, path] <- String.split(line, "\t", parts: 2),
+         {kb, ""} <- Integer.parse(kb),
+         true <- path != root do
+      [{Path.relative_to(path, root), kb * 1024}]
+    else
+      _ -> []
+    end
   end
 
   defp thresholds do

@@ -2,6 +2,7 @@ defmodule Aiur.DiskWatchdogTest do
   use Aiur.TestSupport
 
   alias Aiur.{DiskWatchdog, Workflow}
+  alias Aiur.Config.Schema.Monitoring
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
 
   @gib 1_073_741_824
@@ -98,7 +99,7 @@ defmodule Aiur.DiskWatchdogTest do
   end
 
   test "monitoring rejects a stop line below the alert line" do
-    changeset = Aiur.Config.Schema.Monitoring.changeset(%Aiur.Config.Schema.Monitoring{}, %{disk_alert_percent: 95, disk_stop_dispatch_percent: 90})
+    changeset = Monitoring.changeset(%Monitoring{}, %{disk_alert_percent: 95, disk_stop_dispatch_percent: 90})
     assert {"must be at least monitoring.disk_alert_percent", _} = changeset.errors[:disk_stop_dispatch_percent]
   end
 
