@@ -44,10 +44,15 @@ defmodule AiurWeb.CommandsApiController do
   end
 
   @spec reject(Conn.t(), map()) :: Conn.t()
-  def reject(conn, %{"decision_id" => decision_id} = params) do
+  def reject(conn, params), do: act(conn, :reject, params)
+
+  @spec escalate(Conn.t(), map()) :: Conn.t()
+  def escalate(conn, params), do: act(conn, :escalate, params)
+
+  defp act(conn, action, %{"decision_id" => decision_id} = params) do
     case scope(conn) do
       {:ok, scope} ->
-        case invoke(conn, :reject, [scope, decision_id, Map.delete(params, "decision_id"), api_opts(conn)]) do
+        case invoke(conn, action, [scope, decision_id, Map.delete(params, "decision_id"), api_opts(conn)]) do
           {:ok, body} -> json(conn, body)
           {:error, reason} -> render_answer_error(conn, reason)
         end

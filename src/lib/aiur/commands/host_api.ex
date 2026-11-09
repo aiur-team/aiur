@@ -26,11 +26,13 @@ defmodule Aiur.Commands.HostApi do
   alias Aiur.Commands.{Answering, ComponentState, Media, Scope}
   alias Aiur.DecisionApi.PublicProjection
   alias Aiur.DecisionQuery
+  alias Aiur.DecisionStore
   alias Aiur.JSONSafe
 
   @default_limit 25
   @maximum_limit 100
   @maximum_answer_key_bytes 200
+  @note_max 2000
   @answer_keys ~w(idempotency_key expected_version option_id custom_response question_answers rationale feedback)
 
   @type scope :: Scope.t()
@@ -38,6 +40,7 @@ defmodule Aiur.Commands.HostApi do
   @type answer_error ::
           :not_found
           | :store_unavailable
+          | :unknown
           | {:invalid_answer, term()}
           | {:conflict, term()}
 
@@ -189,6 +192,69 @@ defmodule Aiur.Commands.HostApi do
   end
 
   defp submit(_scope, _decision_id, _payload, _opts, _keys, _operation_fun), do: {:error, {:invalid_answer, :payload}}
+
+  @doc """
+  Escalates one scoped Command to the Executor as its authenticated user.
+
+  `payload` needs `idempotency_key` and `expected_version`, and may carry a
+  `note` the Executor sees on the deferred record. A repeat escalation of an
+  already-deferred Command is an idempotent success; a Command that policy
+  does not allow to defer is a `{:conflict, :not_deferrable}`.
+  """
+  @spec escalate(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
+  def escalate(scope, decision_id, payload, opts \\ [])
+
+  def escalate(%{subject: subject} = scope, decision_id, payload, opts) when is_map(payload) do
+    payload = Map.new(payload, fn {key, value} -> {to_string(key), value} end)
+
+    with {:ok, decision} <- scoped_decision(authorized_tickets(scope, opts), decision_id, opts),
+         {:ok, _key} <- required_binary(payload, "idempotency_key", :idempotency_key),
+         {:ok, version} <- expected_version(payload),
+         {:ok, note} <- escalation_note(payload),
+         :ok <- check_version(decision, version),
+         {:ok, %{decision: deferred}} <-
+           DecisionStore.defer(
+             decision.decision_id,
+             [actor: %{kind: :operator, id: subject}, actor_source: :host_api, note: note],
+             store(opts)
+           ) do
+      {:ok, %{"command" => component(deferred), "scope" => Scope.to_public(scope)}}
+    else
+      {:error, {:answer_invalid, reason}} -> {:error, {:invalid_answer, reason}}
+      {:error, {:conflict, _detail}} = conflict -> conflict
+      {:error, reason} when reason in [:not_found, :store_unavailable] -> {:error, reason}
+      {:error, {:invalid_answer, _detail}} = invalid -> invalid
+      # Cause-neutral: an unrecognised failure is not necessarily the store.
+      {:error, _other} -> {:error, :unknown}
+    end
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
+  def escalate(_scope, _decision_id, _payload, _opts), do: {:error, {:invalid_answer, :payload}}
+
+  defp bounded_note(""), do: {:ok, nil}
+  defp bounded_note(note) when byte_size(note) > @note_max * 4, do: {:error, {:invalid_answer, {:note, :too_long}}}
+
+  defp bounded_note(note) do
+    cond do
+      String.length(note) > @note_max -> {:error, {:invalid_answer, {:note, :too_long}}}
+      # Same set the event codec refuses, so it is a 422 here and not a failed write.
+      Regex.match?(~r/[\x00-\x08\x0B\x0C\x0E-\x1F]/, note) -> {:error, {:invalid_answer, {:note, :unsafe_characters}}}
+      true -> {:ok, note}
+    end
+  end
+
+  defp escalation_note(payload) do
+    case Map.get(payload, "note") do
+      nil -> {:ok, nil}
+      note when is_binary(note) -> bounded_note(String.trim(note))
+      _invalid -> {:error, {:invalid_answer, {:note, :invalid}}}
+    end
+  end
+
+  defp check_version(%{version: version}, version), do: :ok
+  defp check_version(%{version: current}, expected), do: {:error, {:conflict, {:stale_version, expected, current}}}
 
   @doc "Renders one canonical Decision as the documented component map."
   @spec component(Aiur.Decision.t()) :: ComponentState.t()

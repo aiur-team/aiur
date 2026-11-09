@@ -19,18 +19,10 @@ defmodule Aiur.Commands.ComponentState do
   alias Aiur.Commands.Answering.Outcome
   alias Aiur.Commands.ComponentState.Media, as: ComponentMedia
 
-  @states ~w(pending answered revised rejected expired unavailable conflict error)
+  @states ~w(pending answered revised rejected escalated expired unavailable conflict error)
   @list_states ~w(loading empty ready unavailable error)
 
-  @type state ::
-          :pending
-          | :answered
-          | :revised
-          | :rejected
-          | :expired
-          | :unavailable
-          | :conflict
-          | :error
+  @type state :: :pending | :answered | :revised | :escalated | :rejected | :expired | :unavailable | :conflict | :error
 
   @type t :: %{String.t() => term()}
 
@@ -73,7 +65,7 @@ defmodule Aiur.Commands.ComponentState do
       "answer" => answer(projection),
       "conflict" => conflict(projection),
       "media" => media(projection),
-      "actions" => actions(state, writable?),
+      "actions" => actions(state, writable?, projection),
       "source" => text(projection, "source"),
       "tags" => List.wrap(Map.get(projection, "tags"))
     }
@@ -100,7 +92,7 @@ defmodule Aiur.Commands.ComponentState do
       "answer" => nil,
       "conflict" => nil,
       "media" => [],
-      "actions" => actions(:error, false),
+      "actions" => actions(:error, false, %{}),
       "source" => nil,
       "message" => message
     }
@@ -306,8 +298,8 @@ defmodule Aiur.Commands.ComponentState do
       unavailable?(projection) -> {:unavailable, "store_unavailable"}
       rejected?(projection) -> {:rejected, rejection_reason(projection)}
       conflict?(projection) -> {:conflict, "stale_version"}
-      answered?(projection) and revised?(projection) -> {:revised, "superseded_answer"}
-      answered?(projection) -> {:answered, nil}
+      answered?(projection) -> if revised?(projection), do: {:revised, "superseded_answer"}, else: {:answered, nil}
+      projection["decision_status"] in [:deferred, "deferred"] -> {:escalated, nil}
       true -> {:pending, nil}
     end
   end
@@ -353,9 +345,10 @@ defmodule Aiur.Commands.ComponentState do
     end
   end
 
-  defp actions(state, writable?) do
+  defp actions(state, writable?, projection) do
     %{
       "answer" => writable? and state == :pending,
+      "escalate" => writable? and state == :pending and projection["authority"] not in [:human_required, "human_required"],
       "reject" => writable? and state == :pending,
       "revise" => writable? and state in [:answered, :revised],
       "enrich" => false
