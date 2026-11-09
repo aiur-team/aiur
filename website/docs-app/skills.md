@@ -121,6 +121,10 @@ agent:
 
 A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills only: a, b` line replaces the configured set for that ticket. A line inside a fenced code block is documentation and does not count.
 
+A `Premises: dec_0123456789abcdef, dec_fedcba9876543210` line names the Command decisions the ticket is built on. Each id is `dec_` plus 16 lowercase hex characters. Backticks are allowed; any other token is ignored with a warning in the daemon log. The same fenced-code rule applies.
+
+When one of those decisions is revised, superseded or mooted, Aiur adds `agent:premise-changed` to the open ticket and messages a running worker. The Executor gets one wake per changed decision: the new answer, the old one under `previous`, or the moot reason.
+
 ### Worker prompt and the index
 
 Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.

@@ -93,7 +93,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.UsageLedger,
     Aiur.UsageCompaction.Coordinator,
     Aiur.UsageAggregate.Store,
-    {Aiur.DecisionStore, [name: Aiur.DecisionStore]},
+    {Aiur.DecisionStore, [name: Aiur.DecisionStore, premise_notifier: &Aiur.Application.Children.premise_notifier/1]},
     {Aiur.DecisionMetrics.Writer, [path: @metrics_path]},
     Aiur.DecisionMetrics,
     Aiur.RecentMergeStore,

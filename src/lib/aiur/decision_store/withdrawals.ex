@@ -379,6 +379,13 @@ defmodule Aiur.DecisionStore.Withdrawals do
 
     case Persistence.build_and_persist_event(:decision_mooted, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
+        Map.get(next_state, :premise_notifier, fn _change -> :ok end).(%{
+          decision_id: decision.decision_id,
+          kind: :mooted,
+          old_answer: Decision.active_answer(decision),
+          moot_reason: moot.detail || to_string(moot.reason_class)
+        })
+
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 
       {:error, reason} ->

@@ -74,6 +74,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.paused-max_agent_duration", "orchestration"},
     # aiur/orchestrator/duration_cap_release.ex
     {"ticket.*.agent.attention.paused-max_agent_duration.resolved", "orchestration"},
+    # aiur/orchestrator/premise_changes.ex
+    {"ticket.*.agent.attention.premise-changed", "orchestration"},
     # aiur/ticket_reopen.ex
     {"ticket.*.agent.attention.reopened", "orchestration"},
     # aiur/orchestrator/comment_wake/reactivation.ex

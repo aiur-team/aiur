@@ -11,7 +11,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
-  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Orchestrator.{InstanceHeartbeatMetadata, PremiseChanges}
   alias Aiur.Ownership
   alias Aiur.Ownership.{Fence, FenceCommand}
   alias Aiur.Project.Supervisors, as: ProjectSupervisors
@@ -234,7 +234,8 @@ defmodule Aiur.Application.Children do
       # over it.
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
-      {Aiur.DecisionStore, name: Aiur.DecisionStore},
+      # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &__MODULE__.premise_notifier/1},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
@@ -459,6 +460,12 @@ defmodule Aiur.Application.Children do
     %{executors: executors} = Roster.build(record?: false)
     Enum.any?(executors, &(&1.state in [:active, :idle]))
   end
+
+  @doc false
+  # A named capture (not a closure) keeps the DecisionStore child spec comparable.
+  @spec premise_notifier(map()) :: :ok
+  def premise_notifier(change),
+    do: PremiseChanges.notify_async(change, wake: fn event -> Aiur.ExecutorWakeInbox.enqueue_attention(event, Aiur.ExecutorWakeInbox, &BuildOrders.feature_and_epic/1) end)
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
