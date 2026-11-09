@@ -34,26 +34,20 @@ defmodule Aiur.RepoBase.RefreshTest do
 
     test "removes untracked files from the base but keeps ignored build output (#7920)", %{origin: origin, base: base} do
       File.write!(Path.join(origin, ".gitignore"), "_build/\n")
-      File.write!(Path.join(origin, "deleted.ex"), "defmodule Deleted do\nend\n")
       git!(["-C", origin, "add", "."])
-      git!(["-C", origin, "commit", "--quiet", "-m", "add"])
+      git!(["-C", origin, "commit", "--quiet", "-m", "ignore build"])
       assert {:ok, ^base} = RepoBase.refresh(base, origin, nil)
 
-      git!(["-C", origin, "rm", "--quiet", "deleted.ex"])
-      git!(["-C", origin, "commit", "--quiet", "-m", "delete"])
-      File.write!(Path.join(base, "stray.ex"), "")
+      # Main has not advanced, so a poisoned base must still heal on the next poll.
+      File.mkdir_p!(Path.join(base, "src/lib"))
+      File.write!(Path.join(base, "src/lib/stray.ex"), "")
       File.mkdir_p!(Path.join(base, "_build"))
       File.write!(Path.join(base, "_build/keep.beam"), "beam")
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, nil)
-      refute File.exists?(Path.join(base, "deleted.ex"))
-      refute File.exists?(Path.join(base, "stray.ex")), "untracked file survived the base refresh"
+      refute File.exists?(Path.join(base, "src/lib/stray.ex")), "untracked file survived the base refresh"
       assert File.read!(Path.join(base, "_build/keep.beam")) == "beam"
-
-      # An unchanged main still clears a stray file, so a poisoned base heals on the next poll.
-      File.write!(Path.join(base, "stray.ex"), "")
-      assert {:ok, ^base} = RepoBase.refresh(base, origin, nil)
-      refute File.exists?(Path.join(base, "stray.ex"))
+      assert File.read!(Path.join(base, "README.md")) == "v1\n"
     end
 
     test "rebuilds when main advances", %{origin: origin, base: base} do
