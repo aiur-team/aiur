@@ -124,6 +124,8 @@ Before a worker starts, Aiur checks the mapped set. A mapped name with no instal
 - By default (`agent.skills.strict: false`) the worker still starts and the alert is a warning (`ticket.<id>.skills.warning`). The prompt lists a missing skill under `### Mapped skills not installed here`.
 - With `agent.skills.strict: true` no worker starts. The alert (`ticket.<id>.skills.blocked`) needs attention, and `aiur agents` / `aiur status` show the ticket paused as a preflight failure. Install the skill or fix the mapping; the paused ticket is retried automatically and starts once the check passes.
 
+The check reads skills from a local workspace; a worker on an SSH host is not checked.
+
 ```yaml
 agent:
   skills:
