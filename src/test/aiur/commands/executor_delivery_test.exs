@@ -115,7 +115,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
              "custom_response" => nil,
              "option_id" => nil,
              "actor" => %{"kind" => "operator", "id" => "operator-1"},
-             "actor_source" => nil
+             "actor_source" => "rpc"
            }
   end
 
