@@ -279,26 +279,32 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     test "a model set is a routing instruction, not an unsupported model" do
       issue = %Issue{id: "issue-set", identifier: "SET"}
 
-      assert ExUnit.CaptureLog.capture_log(fn ->
-               assert :ok =
-                        SessionLifecycle.maybe_alert_unsupported_model(
-                          issue,
-                          "/ws",
-                          nil,
-                          "openrouter",
-                          "{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"
-                        )
-             end) == ""
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   SessionLifecycle.maybe_alert_unsupported_model(
+                     issue,
+                     "/ws",
+                     nil,
+                     "openrouter",
+                     "{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"
+                   )
+        end)
+
+      refute_unsupported_model_logged(log)
     end
 
     test "a known model and an unpinned model stay silent" do
       issue = %Issue{id: "issue-known", identifier: "KNOWN"}
 
-      assert ExUnit.CaptureLog.capture_log(fn ->
-               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "sol")
-               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "gpt-5.4")
-               assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", nil)
-             end) == ""
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "sol")
+          assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", "gpt-5.4")
+          assert :ok = SessionLifecycle.maybe_alert_unsupported_model(issue, "/ws", nil, "codex", nil)
+        end)
+
+      refute_unsupported_model_logged(log)
     end
   end
 
@@ -389,5 +395,12 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert :ok = SessionLifecycle.track_session_containment(nil, session, nil)
     end
+  end
+
+  # capture_log collects every process's output, so an unrelated system alert
+  # can land in the window (#7936); assert only this function's own output.
+  defp refute_unsupported_model_logged(log) do
+    refute log =~ "Unknown model"
+    refute log =~ "unsupported_model"
   end
 end
