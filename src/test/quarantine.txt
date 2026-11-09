@@ -22,6 +22,7 @@ Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.PollAttentionSnapshotTest	standalone reads stay fresh and nested failures do not leak the poll snapshot	#7802	2026-11-22
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
+Aiur.Project.SupervisorTest	a crash-looping project stops alone and the dynamic supervisor survives	#7926	2026-11-23
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 Aiur.Scripts.AgentWorktreeTest	create checks out the PR head in a unique worktree with a unique branch	#7539	2026-11-20
 Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding pane ids	#7282	2026-11-13
