@@ -15,6 +15,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"agents", "cmd_agents", :read, []},
     {"agents all", "cmd_agents --all", :read, []},
     {"agents json", "cmd_agents --json", :read, []},
+    {"config explain", "cmd_config explain agent.priority --project o/a --json", :read, []},
     {"pause global", "cmd_pause_resume pause", :write, []},
     {"resume all", "cmd_pause_resume resume --all", :write, []},
     {"resume tickets", "cmd_pause_resume resume 123 456", :write, []},
