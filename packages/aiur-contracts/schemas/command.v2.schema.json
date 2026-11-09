@@ -222,7 +222,8 @@
             "image",
             "animated_image",
             "video",
-            "audio"
+            "audio",
+            "embed"
           ]
         },
         "mime_type": {
@@ -314,7 +315,7 @@
             "null"
           ],
           "maxLength": 400,
-          "description": "Required as accessible text for image and animated_image items."
+          "description": "Required as accessible text for image, animated_image and embed items; a client that cannot frame an embed shows it with a link."
         },
         "caption": {
           "type": [
