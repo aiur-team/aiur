@@ -11,6 +11,10 @@ defmodule Aiur.Gateway.Capacity do
   The ceiling is `--max-agents` when given, else `capacity.max_agents` in
   `~/.aiur/machine`; unset means no machine cap. `projects[].max_agents` bounds
   one project. Every call degrades to "no limit" when the broker is not running.
+  A broker that is running but too slow (a call times out at one second) fails
+  closed on `acquire/2`: the grant is refused and the next poll retries, so a
+  stall can never take the machine past the ceiling. `sync/2` and `snapshot/0`
+  time out to a no-op and are corrected by the next tick.
   """
   use GenServer
 
@@ -39,9 +43,9 @@ defmodule Aiur.Gateway.Capacity do
     ArgumentError -> :infinity
   end
 
-  @doc "Takes a slot for `issue_id`; idempotent. A missing or slow broker grants it."
-  @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full}
-  def acquire(project_id, issue_id), do: call({:acquire, project_id, issue_id, self()}, :ok)
+  @doc "Takes a slot for `issue_id`; idempotent. A missing broker grants it; a slow one refuses."
+  @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full | :broker_timeout}
+  def acquire(project_id, issue_id), do: call({:acquire, project_id, issue_id, self()}, :ok, {:error, :broker_timeout})
 
   @doc "Replaces the project's holders with `issue_ids`, the issues now occupying slots."
   @spec sync(project_id(), Enumerable.t()) :: :ok
@@ -54,10 +58,13 @@ defmodule Aiur.Gateway.Capacity do
   defp bound(nil, _held), do: :infinity
   defp bound(limit, held), do: max(limit - held, 0)
 
-  # Fail open: a stuck broker must not stop dispatch, so a missed ceiling beats a halted fleet.
-  defp call(request, fallback) do
+  defp call(request, fallback, on_timeout \\ nil) do
     GenServer.call(__MODULE__, request, @call_timeout)
   catch
+    :exit, {:timeout, _} when on_timeout != nil ->
+      Logger.warning("Gateway capacity broker timed out; refusing the grant until the next poll")
+      on_timeout
+
     :exit, reason ->
       Logger.warning("Gateway capacity broker unavailable (#{inspect(reason)}); using per-project limits")
       fallback

@@ -88,6 +88,16 @@ defmodule Aiur.Gateway.CapacityTest do
     end
   end
 
+  describe "a slow broker" do
+    test "refuses acquire instead of granting past the ceiling" do
+      pid = start_supervised!({Capacity, ceiling: 1, projects: %{"o/a" => nil}})
+      :sys.suspend(pid)
+      on_exit(fn -> if Process.alive?(pid), do: :sys.resume(pid) end)
+
+      assert Capacity.acquire("o/a", 1) == {:error, :broker_timeout}
+    end
+  end
+
   defp eventually(fun, tries \\ 20) do
     cond do
       fun.() -> true
