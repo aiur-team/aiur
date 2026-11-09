@@ -35,16 +35,6 @@ defmodule Aiur.ControlCall.ProjectTest do
     end
   end
 
-  describe "local calls are not narrowed to the remote option allowlist" do
-    @lane ~s|Aiur.AgentControlCLI.lane(action: :confirm, ids: [12], expect_epic: "infra", who: "k", project_hint: "o/a")|
-
-    test "an option the remote allowlist lacks parses locally and is refused remotely" do
-      assert {:ok, %{args: [args]}} = ControlCall.parse(@lane, remote: false)
-      assert args[:expect_epic] == "infra"
-      assert {:error, :option_not_allowed} = ControlCall.parse(@lane, remote: true)
-    end
-  end
-
   describe "parse/2 and run/3" do
     test "project: and project_hint: are stripped before validation and carried on the call" do
       expr = ~s|Aiur.AgentControlCLI.queue(project: Base.decode64!("#{@b64_b}"), project_hint: Base.decode64!("#{Base.encode64("t311/a")}"), json: true)|

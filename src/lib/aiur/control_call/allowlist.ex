@@ -11,7 +11,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @provenance [:Aiur, :ControlCLI, :ConfigExplain]
   @pr_merge [:Aiur, :PrMerge, :Record]
   @feature_options %{
-    op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :show]},
+    op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :confirm, :show]},
     slug: :non_empty_string,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
     ids: :feature_ids,
@@ -26,6 +26,9 @@ defmodule Aiur.ControlCall.Allowlist do
     epics: :epic_list,
     add_epics: :epic_list,
     epic_hues: :epic_hue_map,
+    epic_icons: :epic_icon_list,
+    in: :string,
+    unconfirmed: :boolean,
     json: :boolean
   }
   @lane_options %{
@@ -33,15 +36,25 @@ defmodule Aiur.ControlCall.Allowlist do
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    expect_epic: :non_empty_string,
     source: {:enum, [:cli, :"backfill-agent"]},
+    unconfirmed: :boolean,
     json: :boolean
   }
   @epic_options %{
-    action: {:enum, [:set, :clear, :confirm, :show, :list]},
+    action: {:enum, [:set, :clear, :confirm, :show, :list, :create, :edit, :add, :remove]},
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    expect_epic: :non_empty_string,
     source: {:enum, [:cli, :"backfill-agent"]},
+    slug: :non_empty_string,
+    label: :non_empty_string,
+    icon: :non_empty_string,
+    hue: {:range, 0, 359},
+    root: :positive,
+    features: :string_list,
+    unconfirmed: :boolean,
     json: :boolean
   }
 
@@ -98,7 +111,9 @@ defmodule Aiur.ControlCall.Allowlist do
        at: :non_negative,
        rank: :non_negative,
        to: :non_negative,
-       ids: :ticket_id_strings
+       ids: :ticket_id_strings,
+       feature: :non_empty_string,
+       epic: :non_empty_string
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
