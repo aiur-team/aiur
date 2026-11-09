@@ -297,5 +297,5 @@ shows the repo missing.
 - Dispatch never reads the label.
 
 `aiur gateway list` and `aiur gateway status <peer>` fill that cache with each answering peer's `daemon_key`
-and repos (matched case-insensitively). A peer never read exits 64; run `aiur gateway status <peer>` first.
+and repos (matched case-insensitively). Only entries with a pinned `gateway_id` are cached. A peer never read, or unpinned, exits 64; run `aiur gateway status <peer>` first.
 A peer on an older build reports neither, so assign refuses for the missing key.

@@ -26,10 +26,11 @@ defmodule Aiur.Gateway.Status do
          {:ok, targets} <- targets(view, opts[:peer]) do
       now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
       get = Keyword.get(opts, :http_get, &Discovery.http_get/1)
+      pins = for {_name, %{"gateway_id" => id}} <- view.instances, is_binary(id), do: id
 
       rows =
         targets
-        |> Task.async_stream(&row(&1, results, get, now), max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task, zip_input_on_exit: true)
+        |> Task.async_stream(&row(&1, results, get, pins, now), max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task, zip_input_on_exit: true)
         |> Enum.map(fn
           {:ok, row} -> row
           {:exit, {target, _reason}} -> build(target, :unreachable, StatusCache.read(target.name), now)
@@ -59,7 +60,7 @@ defmodule Aiur.Gateway.Status do
     if peer && picked == [], do: {:error, {66, "no such gateway: #{peer}"}}, else: {:ok, picked}
   end
 
-  defp row(target, results, get, now) do
+  defp row(target, results, get, pins, now) do
     outcome =
       case {agents(results, target.name), get.(target.url)} do
         {:transport, _hello} -> :unreachable
@@ -74,20 +75,21 @@ defmodule Aiur.Gateway.Status do
 
     with {:ok, running, hello} <- outcome do
       StatusCache.write(target.name, %{observed_at: DateTime.to_iso8601(now), agents: length(running), gateway_id: hello["gateway_id"], gateway_label: hello["gateway_label"], build: hello["build"]})
-      remember_peer(target.name, hello, now)
+      remember_peer(target, hello, pins, now)
     end
 
     build(target, outcome, cached, now)
   end
 
   # The delegation cache (`aiur ticket assign --to`): the peer's daemon key and the repos it runs, as last answered.
-  defp remember_peer(name, %{"gateway_id" => id} = facts, now) when is_binary(id) do
+  # Pinned entries only, keyed by the pin: the anonymous hello's id is not authenticated, so it never names a peer.
+  defp remember_peer(%{pin: id, name: name}, facts, pins, now) when is_binary(id) do
     projects = if is_list(facts["projects"]) and Enum.all?(facts["projects"], &is_binary/1), do: facts["projects"]
     key = if is_binary(facts["daemon_key"]), do: facts["daemon_key"]
-    PeerState.put_peer(id, %{name: name, label: facts["gateway_label"], daemon_key: key, projects: projects, observed_at: DateTime.to_iso8601(now)})
+    PeerState.put_peer(id, %{name: name, label: facts["gateway_label"], daemon_key: key, projects: projects, observed_at: DateTime.to_iso8601(now)}, pins)
   end
 
-  defp remember_peer(_name, _facts, _now), do: :ok
+  defp remember_peer(_target, _facts, _pins, _now), do: :ok
 
   defp agents(results, name) do
     case Enum.find(results, &(&1["name"] == name)) do

@@ -2,7 +2,8 @@ defmodule Aiur.Ownership.PeerState do
   @moduledoc """
   Local delegation state, one atomic file `ownership/delegation.json` under the Aiur home.
 
-  `peers` caches each peer's last project list, written by `aiur gateway list|status` (`gateway_id`, `name`, `label`, `daemon_key`, `projects`, `observed_at`);
+  `peers` caches each pinned registry entry's last project list, written by `aiur gateway list|status` (`gateway_id`, `name`, `label`, `daemon_key`, `projects`, `observed_at`);
+  each write drops peers whose id is no longer pinned in the registry, so `peers` is bounded by it.
   `delegations` records the transfers this gateway wrote (the delegator is not in the ownership ref).
   A missing or corrupt file reads as empty. At most 500 delegations are kept, oldest dropped.
   """
@@ -25,8 +26,10 @@ defmodule Aiur.Ownership.PeerState do
     end)
   end
 
-  @spec put_peer(String.t(), map()) :: :ok | {:error, term()}
-  def put_peer(gateway_id, %{} = fields), do: update(&put_in(&1, ["peers", gateway_id], stringify(fields)))
+  @doc "Writes one peer and keeps only the others whose id is in `pinned` (the registry's current pins)."
+  @spec put_peer(String.t(), map(), [String.t()]) :: :ok | {:error, term()}
+  def put_peer(gateway_id, %{} = fields, pinned),
+    do: update(&%{&1 | "peers" => &1["peers"] |> Map.take(pinned) |> Map.put(gateway_id, stringify(fields))})
 
   @spec add_delegation(map()) :: :ok | {:error, term()}
   def add_delegation(%{repo: repo, ticket: ticket} = d) do

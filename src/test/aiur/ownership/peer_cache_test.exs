@@ -20,21 +20,25 @@ defmodule Aiur.Ownership.PeerCacheTest do
     Application.put_env(:aiur, :gateway_registry_path, Path.join(dir, "remote-instances.yaml"))
     Application.put_env(:aiur, :remote_state_dir, Path.join(dir, "remote-state"))
     Application.put_env(:aiur, :ownership_state_dir, Path.join(dir, "ownership"))
-    File.write!(Path.join(dir, "remote-instances.yaml"), "version: 1\ninstances:\n  pc:\n    url: http://pc.test:4000\n    gateway_id: \"#{@pc}\"\n")
+    registry = Path.join(dir, "remote-instances.yaml")
+    File.write!(registry, "version: 1\ninstances:\n  pc:\n    url: http://pc.test:4000\n    gateway_id: \"#{@pc}\"\n  rogue:\n    url: http://rogue.test:4000\n")
 
     on_exit(fn ->
       for {k, v} <- previous, do: if(is_nil(v), do: Application.delete_env(:aiur, k), else: Application.put_env(:aiur, k, v))
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    :ok
+    %{registry: registry}
   end
 
   # The peer's own `agents --json` answer, produced by the real handler with its gateway facts injected.
-  defp read_pc(facts, now) do
+  defp read_pc(facts, now), do: read_entry("pc", @pc, facts, now)
+
+  # `name` answers the anonymous hello claiming gateway id `claimed`.
+  defp read_entry(name, claimed, facts, now) do
     output = capture_io(fn -> HandoffCLI.agents(snapshot: %{running: []}, gateway: facts) end)
-    hello = fn _url -> {:ok, %{"gateway_id" => @pc, "gateway_label" => "PC"}} end
-    capture_io(fn -> Status.run(data: Jason.encode!([%{"name" => "pc", "status" => 0, "output" => output}]), now: now, http_get: hello, json: true) end)
+    hello = fn _url -> {:ok, %{"gateway_id" => claimed, "gateway_label" => String.upcase(name)}} end
+    capture_io(fn -> Status.run(data: Jason.encode!([%{"name" => name, "status" => 0, "output" => output}]), peer: name, now: now, http_get: hello, json: true) end)
   end
 
   defp assign(now) do
@@ -120,5 +124,26 @@ defmodule Aiur.Ownership.PeerCacheTest do
     assert %{daemon_key: nil, projects: nil} = PeerState.peer(@pc)
     assert assign(now) == 64
     assert_received {:error, "aiur: PC's daemon key is unknown; nothing written"}
+  end
+
+  test "an unpinned entry claiming a pinned peer's id writes nothing" do
+    now = DateTime.utc_now()
+    read_pc(%{daemon_key: "pc-key", projects: ["o/r"]}, now)
+    read_entry("rogue", @pc, %{daemon_key: "rogue-key", projects: ["o/r"]}, now)
+    read_entry("rogue", "cccccccccccccccccccccccccc", %{daemon_key: "rogue-key", projects: ["o/r"]}, now)
+
+    assert %{gateway_id: @pc, daemon_key: "pc-key"} = PeerState.peer("pc")
+    assert PeerState.peer("rogue") == nil
+    assert PeerState.peer("cccccccccccccccccccccccccc") == nil
+  end
+
+  test "a peer whose pin left the registry is dropped on the next write", %{registry: registry} do
+    now = DateTime.utc_now()
+    read_pc(%{daemon_key: "pc-key", projects: ["o/r"]}, now)
+    File.write!(registry, "version: 1\ninstances:\n  nook:\n    url: http://nook.test:4000\n    gateway_id: \"#{@nook}\"\n")
+    read_entry("nook", @nook, %{daemon_key: "nook-key", projects: ["o/r"]}, now)
+
+    assert PeerState.peer("pc") == nil
+    assert %{gateway_id: @nook, daemon_key: "nook-key"} = PeerState.peer("nook")
   end
 end
