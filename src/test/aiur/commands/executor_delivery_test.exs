@@ -142,7 +142,8 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
   test "a registry that never replies still delivers the answer with null feature and epic, marked notified", ctx do
     d = executor_answer(ctx.store, "stalled", "Ship it")
-    silent = spawn(fn -> Process.sleep(:infinity) end)
+    # Selective receive leaves the registry's call unanswered.
+    silent = start_supervised!({Task, fn -> receive do: (:never -> :ok) end}, id: :silent_registry)
     pid = listener(ctx, feature_lookup: lookup(silent, 50))
     :sys.get_state(pid)
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(0, ctx.inbox)
