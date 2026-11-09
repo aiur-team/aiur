@@ -133,7 +133,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
   defp put_usage_limit_reset(entry, _status, _reason, _payload), do: Map.delete(entry, :usage_limit_reset_at)
 
   defp put_usage_limit_session(entry, :paused, :usage_limit_exhausted, payload),
-    do: Map.put(entry, :usage_limit_session, Map.take(payload, [:session_id, :account_name, :cwd, :backend]))
+    do: Map.put(entry, :usage_limit_session, Map.take(payload, [:session_id, :account_name, :cwd, :backend, :credit_limited]))
 
   defp put_usage_limit_session(entry, _status, _reason, _payload), do: entry
 

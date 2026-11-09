@@ -55,7 +55,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          effort: Map.get(session, :effort),
          account: Map.get(session, :account_name),
          account_selection_reason: Map.get(session, :account_selection_reason),
-         skills: skill_preload && Preload.summary(skill_preload)
+         skills: skill_preload && Preload.summary(skill_preload),
+         skill_preload: skill_preload && Preload.report(skill_preload)
        }}
     )
 

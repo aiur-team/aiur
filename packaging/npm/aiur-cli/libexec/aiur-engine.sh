@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all fleet_pause gateway gateway_enroll node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -164,6 +164,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
        aiur set <key> <json> | --list [--json] | --unset <key>   manage persistent runtime settings
        aiur set max-agents <n>   change the session concurrent-agent cap
+       aiur config explain <key> [--project owner/repo] [--json]   show which layer sets a config value
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
@@ -300,7 +301,7 @@ aiur_engine_main() {
       ;;
     # @cli-reference aiur command | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | aiur command
     # @cli-reference aiur command --filter open | Applies the existing Command filters through the canonical singular command. | aiur command --filter open
-    # @cli-reference aiur command DECISION-ID | Shows question, options, recommendation, context, status and delivery. | aiur command dec_123
+    # @cli-reference aiur command DECISION-ID | Shows question, options, recommendation, context, status and delivery; a multi-question Command adds every question and a fill-in answer template. | aiur command dec_123
     # @cli-reference aiur command DECISION-ID --option ID | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | aiur command dec_123 --option keep
     # @cli-reference aiur command DECISION-ID --custom-response TEXT | Records a local operator's bounded text answer after interactive confirmation. | aiur command dec_123 --custom-response 'Wait for a fresh build'
     # @cli-reference aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY] | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1
@@ -422,14 +423,7 @@ aiur_engine_main() {
       shift
       cmd_executor_revoke "$@"
       ;;
-    set)
-      shift
-      cmd_set "$@"
-      ;;
-    upgrade)
-      shift
-      cmd_upgrade "$@"
-      ;;
+    set | config | upgrade) shift; "cmd_$cmd" "$@" ;;
     pause | resume | park | take | release)
       shift
       case "$cmd" in

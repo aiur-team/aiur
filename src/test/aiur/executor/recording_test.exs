@@ -1,6 +1,7 @@
 defmodule Aiur.Executor.RecordingTest do
   use Aiur.TestSupport
 
+  alias Aiur.BuildOrder.Component
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Executor.{Claims, StatePaths}
   alias Aiur.{ExecutorListener, ExecutorWakeInbox}
@@ -43,7 +44,7 @@ defmodule Aiur.Executor.RecordingTest do
       )
 
     assert Aiur.ExecutorWakeInbox in specs
-    assert Aiur.ExecutorListener in specs
+    assert {Aiur.ExecutorListener, feature_lookup: &Component.feature_and_epic/1} in specs
     assert Aiur.Executor.Claims in specs
   end
 
