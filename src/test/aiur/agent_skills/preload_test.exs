@@ -2,7 +2,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
   @moduledoc """
   A worker's cold prompt should start with the skills that fit its ticket. This
   covers resolution (lane, feature, label, complexity, per-ticket override),
-  ordering, the inline byte budget, the index of everything else, and the
+  ordering, the index of everything else, and the
   never-silent warning for a name that is not installed.
   """
   use ExUnit.Case, async: true
@@ -367,39 +367,6 @@ defmodule Aiur.AgentSkills.PreloadTest do
   end
 
   defp position(text, needle), do: text |> :binary.match(needle) |> elem(0)
-
-  describe "inline byte budget" do
-    test "never moves a mapped skill to load on demand; an over-budget set is inlined whole and recorded", %{workspace: workspace} do
-      skill!(workspace, "first", "First.", String.duplicate("a", 200))
-      skill!(workspace, "second", "Second.", String.duplicate("b", 200))
-      skill!(workspace, "third", "Third.", String.duplicate("c", 200) <> "THIRD SENTINEL")
-
-      preload =
-        resolve(issue(["area:art"]), workspace, %{
-          "by_lane" => %{"art" => ["first", "second", "third"]},
-          "preload_max_bytes" => 500
-        })
-
-      block = Preload.prompt_block(preload)
-
-      assert Enum.map(preload.mapped, & &1.name) == ["first", "second", "third"]
-      assert preload.bytes > 500
-      assert Preload.over_budget?(preload)
-      assert block =~ "THIRD SENTINEL"
-      refute block =~ "load on demand)\n\n- `third`"
-      refute block =~ "over the inline budget"
-      assert Preload.summary(preload) =~ "over budget: #{preload.bytes}/500 bytes"
-      assert %{skills_over_budget: true, skills_max_bytes: 500} = Preload.dispatch_record(preload)
-    end
-
-    test "a mapped set inside the budget is not over budget", %{workspace: workspace} do
-      skill!(workspace, "first", "First.", "small")
-      preload = resolve(issue(["area:art"]), workspace, %{"by_lane" => %{"art" => ["first"]}})
-
-      refute Preload.over_budget?(preload)
-      refute Preload.summary(preload) =~ "over budget"
-    end
-  end
 
   describe "recommended skills" do
     test "list name, description and load path in their own section without inlining", %{workspace: workspace} do
