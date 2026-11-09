@@ -4,6 +4,42 @@ encode_control_value() {
   printf '%s' "$1" | base64 | tr -d '\n'
 }
 
+# Per-question answer flags for a multi-question Command, shared by
+# executor-answer, operator-relay-answer and `aiur command ID --relayed`.
+# QA_EXTRA is how many extra arguments the flag consumed.
+question_answer_flag() {
+  local flag="${1%%=*}" value
+  QA_EXTRA=0
+  case "$flag" in --answer | --answer-text | --answers-file) ;; *) return 1 ;; esac
+  if [ "$flag" = "$1" ]; then
+    [ "$#" -gt 1 ] || { echo "aiur: $flag requires a value" >&2; exit 64; }
+    value="$2"; QA_EXTRA=1
+  else
+    value="${1#*=}"
+  fi
+  [ -n "$value" ] || { echo "aiur: $flag requires a value" >&2; exit 64; }
+  case "$flag" in
+    --answer) QA_ANSWERS="${QA_ANSWERS:-}${QA_ANSWERS:+, }Base.decode64!(\"$(encode_control_value "$value")\")" ;;
+    --answer-text) QA_TEXTS="${QA_TEXTS:-}${QA_TEXTS:+, }Base.decode64!(\"$(encode_control_value "$value")\")" ;;
+    --answers-file)
+      # Read on the caller's machine; the daemon may run elsewhere.
+      [ -f "$value" ] && [ -r "$value" ] || { echo "aiur: --answers-file cannot read $value" >&2; exit 64; }
+      QA_FILE="$(cat -- "$value")" ;;
+  esac
+}
+
+question_answers_given() {
+  [ -n "${QA_ANSWERS:-}${QA_TEXTS:-}${QA_FILE:-}" ]
+}
+
+question_answer_argument() {
+  local out=""
+  [ -z "${QA_ANSWERS:-}" ] || out="$out, answers: [$QA_ANSWERS]"
+  [ -z "${QA_TEXTS:-}" ] || out="$out, answer_texts: [$QA_TEXTS]"
+  [ -z "${QA_FILE:-}" ] || out="$out, answers_json: Base.decode64!(\"$(encode_control_value "$QA_FILE")\")"
+  printf '%s' "$out"
+}
+
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
 cmd_executor_ack() {
@@ -75,6 +111,7 @@ cmd_executor_answer() {
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
       --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      --answer|--answer=*|--answer-text|--answer-text=*|--answers-file|--answers-file=*) question_answer_flag "$@"; shift "$QA_EXTRA" ;;
       --supersede) supersede=1 ;;
       -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
@@ -83,8 +120,10 @@ cmd_executor_answer() {
   done
 
   [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-answer --expected-version expects a positive integer" >&2; exit 64; }
-  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
-    echo "aiur: executor-answer requires exactly one of --option or --custom-response" >&2
+  if question_answers_given; then
+    [ -z "$option_id$custom_response" ] || { echo "aiur: executor-answer takes --answer/--answer-text/--answers-file or --option/--custom-response, not both" >&2; exit 64; }
+  elif { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: executor-answer requires exactly one of --option or --custom-response, or per-question --answer flags" >&2
     exit 64
   fi
   [ -n "$rationale" ] || { echo "aiur: executor-answer --rationale is required" >&2; exit 64; }
@@ -92,7 +131,9 @@ cmd_executor_answer() {
   [ -n "$executor_id" ] || { echo "aiur: executor-answer --executor-id must not be empty" >&2; exit 64; }
 
   local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
-  if [ -n "$option_id" ]; then
+  if question_answers_given; then
+    opts="$opts$(question_answer_argument)"
+  elif [ -n "$option_id" ]; then
     opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
   else
     opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
@@ -186,6 +227,7 @@ cmd_operator_relay_answer() {
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       --relayed-by) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --relayed-by requires a value" >&2; exit 64; }; shift; relayed_by="$1" ;;
       --relayed-by=*) relayed_by="${arg#--relayed-by=}" ;;
+      --answer|--answer=*|--answer-text|--answer-text=*|--answers-file|--answers-file=*) question_answer_flag "$@"; shift "$QA_EXTRA" ;;
       --supersede) supersede=1 ;;
       -*) echo "aiur: operator-relay-answer received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: operator-relay-answer expects exactly one decision ID" >&2; exit 64 ;;
@@ -194,8 +236,10 @@ cmd_operator_relay_answer() {
   done
 
   [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: operator-relay-answer --expected-version expects a positive integer" >&2; exit 64; }
-  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
-    echo "aiur: operator-relay-answer requires exactly one of --option or --custom-response" >&2
+  if question_answers_given; then
+    [ -z "$option_id$custom_response" ] || { echo "aiur: operator-relay-answer takes --answer/--answer-text/--answers-file or --option/--custom-response, not both" >&2; exit 64; }
+  elif { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: operator-relay-answer requires exactly one of --option or --custom-response, or per-question --answer flags" >&2
     exit 64
   fi
   [ -n "$quote" ] || { echo "aiur: operator-relay-answer --quote is required" >&2; exit 64; }
@@ -203,7 +247,9 @@ cmd_operator_relay_answer() {
   [ -n "$relayed_by" ] || { echo "aiur: operator-relay-answer --relayed-by must not be empty" >&2; exit 64; }
 
   local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
-  if [ -n "$option_id" ]; then
+  if question_answers_given; then
+    opts="$opts$(question_answer_argument)"
+  elif [ -n "$option_id" ]; then
     opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
   else
     opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
@@ -278,7 +324,7 @@ cmd_executor_reclassify() {
 }
 
 cmd_executor_moot() {
-  local decision_id="${1:-}" expected_version="" reason_class="" reason="" executor_id="aiur-cli" arg
+  local decision_id="${1:-}" expected_version="" reason_class="" reason="" idempotency_key="" rationale="" executor_id="aiur-cli" arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
     echo "aiur: executor-moot expects exactly one decision ID" >&2
     exit 64
@@ -294,6 +340,10 @@ cmd_executor_moot() {
       --reason-class=*) reason_class="${arg#--reason-class=}" ;;
       --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
       --reason=*) reason="${arg#--reason=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --rationale) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --rationale requires a value" >&2; exit 64; }; shift; rationale="$1" ;;
+      --rationale=*) rationale="${arg#--rationale=}" ;;
       --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
       --executor-id=*) executor_id="${arg#--executor-id=}" ;;
       -*) echo "aiur: executor-moot received an unknown option: $arg" >&2; exit 64 ;;
@@ -311,6 +361,8 @@ cmd_executor_moot() {
   if [ -n "$reason" ]; then
     opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
   fi
+  [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  [ -z "$rationale" ] || opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
   opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
   run_control_rpc "Aiur.AgentControlCLI.executor_moot([$opts])"

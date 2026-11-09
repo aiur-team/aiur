@@ -2,6 +2,7 @@ defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
   alias Aiur.{Commands, ExecutorCommandAck, ExecutorCommandAttention}
+  alias Aiur.Commands.CLIAnswers
 
   @default_executor_id "aiur-cli"
 
@@ -18,8 +19,8 @@ defmodule Aiur.ExecutorCommandCLI do
   def answer(params, deps \\ [])
 
   def answer(params, deps) when is_list(params) and is_list(deps) do
-    with {:ok, normalized} <- normalize_answer(params),
-         {:ok, result} <- call_answer(normalized, deps) do
+    with {:ok, normalized} <- normalize_answer(params, deps),
+         {:ok, result} <- call_answer(normalized, deps) |> name_unanswered(normalized.decision_id, deps) do
       ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
@@ -114,13 +115,13 @@ defmodule Aiur.ExecutorCommandCLI do
   def escalation_resolution_topic(decision_id, ticket_id),
     do: escalation_topic(decision_id, ticket_id) <> ".resolved"
 
-  defp normalize_answer(params) do
+  defp normalize_answer(params, deps) do
     with {:ok, decision_id} <- present(params, :decision_id),
          {:ok, expected_version} <- positive_integer(params, :expected_version),
          {:ok, rationale} <- present(params, :rationale),
          {:ok, idempotency_key} <- present(params, :idempotency_key),
          {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id),
-         {:ok, answer} <- one_answer(params) do
+         {:ok, answer} <- answer_payload(params, decision_id, deps) do
       {:ok,
        %{
          decision_id: decision_id,
@@ -154,6 +155,8 @@ defmodule Aiur.ExecutorCommandCLI do
          {:ok, expected_version} <- positive_integer(params, :expected_version),
          {:ok, reason_class} <- present(params, :reason_class),
          {:ok, reason} <- optional_present(params, :reason, nil),
+         {:ok, idempotency_key} <- optional_present(params, :idempotency_key, nil),
+         {:ok, rationale} <- optional_present(params, :rationale, nil),
          {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id) do
       {:ok,
        %{
@@ -161,10 +164,56 @@ defmodule Aiur.ExecutorCommandCLI do
          expected_version: expected_version,
          reason_class: reason_class,
          reason: reason,
+         idempotency_key: idempotency_key,
+         rationale: rationale,
          executor_id: executor_id
        }}
     end
   end
+
+  @doc false
+  # Per-question flags resolve against the Command's stored questions; the
+  # legacy single answer is passed through unchanged.
+  @spec answer_payload(keyword(), String.t(), keyword()) :: {:ok, map()} | {:usage, String.t()} | {:error, term()}
+  def answer_payload(params, decision_id, deps) do
+    cond do
+      not CLIAnswers.requested?(params) ->
+        one_answer(params)
+
+      trimmed(Keyword.get(params, :option_id)) || trimmed(Keyword.get(params, :custom_response)) ->
+        {:usage, "answer takes --answer/--answer-text/--answers-file or --option/--custom-response, not both"}
+
+      true ->
+        with {:ok, decision} <- fetch_decision(decision_id, deps), do: CLIAnswers.encode(params, decision.questions)
+    end
+  end
+
+  defp fetch_decision(decision_id, deps) do
+    get_fun = Keyword.get(deps, :get_fun, fn id, store -> Commands.get(id, store: store) end)
+
+    case get_fun.(decision_id, Keyword.get(deps, :decision_store, Commands.default_store())) do
+      {:ok, %{decision: decision}} -> {:ok, decision}
+      {:error, reason} -> {:error, reason}
+    end
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  @doc false
+  # A legacy single answer to a multi-question Command covers only the first question.
+  @spec name_unanswered(term(), String.t(), keyword()) :: term()
+  def name_unanswered({:error, {:answer_invalid, {:question_answers, :incomplete}}} = error, decision_id, deps) do
+    case fetch_decision(decision_id, deps) do
+      {:ok, %{questions: [first | _rest] = questions}} ->
+        missing = CLIAnswers.describe_missing(questions, [Map.get(first, :question_id)])
+        {:usage, "every question needs an answer; unanswered: #{missing}. Use --answer/--answer-text or --answers-file; aiur command #{decision_id} prints the template"}
+
+      _unavailable ->
+        error
+    end
+  end
+
+  def name_unanswered(result, _decision_id, _deps), do: result
 
   defp one_answer(params) do
     option_id = trimmed(Keyword.get(params, :option_id))
@@ -223,11 +272,14 @@ defmodule Aiur.ExecutorCommandCLI do
   end
 
   defp call_mooting(normalized, deps) do
-    payload = %{
-      expected_version: normalized.expected_version,
-      reason_class: normalized.reason_class,
-      reason: normalized.reason
-    }
+    optional = Map.reject(%{idempotency_key: normalized.idempotency_key, rationale: normalized.rationale}, &is_nil(elem(&1, 1)))
+
+    payload =
+      Map.merge(optional, %{
+        expected_version: normalized.expected_version,
+        reason_class: normalized.reason_class,
+        reason: normalized.reason
+      })
 
     moot_fun =
       Keyword.get(deps, :moot_fun, fn decision_id, moot_payload, opts, store ->
@@ -402,6 +454,11 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error("answer", {:answer_invalid, {field, reason}}, deps) when is_atom(field) do
     write_error(deps, "aiur: cannot answer Command: answer field #{field} is #{invalid_detail(reason)}; correct the answer and retry")
+    1
+  end
+
+  defp command_error("moot", {:conflict, {:idempotency_conflict, _id}}, deps) do
+    write_error(deps, "aiur: cannot moot Command: --idempotency-key was already used for a different moot; reuse it only to retry the same moot")
     1
   end
 
