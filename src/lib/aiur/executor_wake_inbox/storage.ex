@@ -75,7 +75,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   def pending_key(%{"topic" => "executor.decision.answered"} = record), do: {record["topic_class"], record["decision_id"]}
 
   # One pending wake per changed premise, so two decisions on one ticket keep both answers.
-  def pending_key(%{"topic_class" => "ticket.agent.attention.premise-changed", "decision_id" => id} = record) when is_binary(id),
+  def pending_key(%{"premise_change" => change, "decision_id" => id} = record) when is_binary(change) and is_binary(id),
     do: {record["topic_class"], "#{record["ticket"]}:#{id}"}
 
   def pending_key(%{"topic" => "executor.voice.session_ended", "event_id" => id} = record),

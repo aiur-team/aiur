@@ -2,6 +2,7 @@ defmodule Aiur.Application.ChildrenTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Application.Children
   alias Aiur.Executor.StatePaths
 
   describe "child_specs/1 run-shape gating" do
@@ -453,7 +454,7 @@ defmodule Aiur.Application.ChildrenTest do
       assert {Aiur.Tmux, name: Aiur.Tmux} in specs
       assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
       assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
-      assert {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &Aiur.Application.Children.premise_notifier/1} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &Children.premise_notifier/1} in specs
       assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 

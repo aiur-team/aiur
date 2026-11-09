@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.PremiseChanges do
   alias Aiur.{Config, DecisionAnswer, Tracker}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Labels
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.{DispatchPolicy, TicketTransition}
 
   @type change :: %{
           required(:decision_id) => String.t(),
@@ -96,7 +96,7 @@ defmodule Aiur.Orchestrator.PremiseChanges do
   @spec flag(change(), keyword()) :: [String.t()]
   def flag(%{decision_id: decision_id} = change, opts \\ []) do
     fetch = Keyword.get(opts, :fetch_issues, &fetch_open_issues/0)
-    add_label = Keyword.get(opts, :add_label, &Tracker.add_label/2)
+    add_label = Keyword.get(opts, :add_label, &TicketTransition.write_marker(&1, :add, &2, writer: :premise_changes))
     wake = Keyword.get(opts, :wake, fn _event -> :ok end)
     message = Keyword.get(opts, :message_worker, &message_worker/2)
     label = Keyword.get_lazy(opts, :label, &label/0)
