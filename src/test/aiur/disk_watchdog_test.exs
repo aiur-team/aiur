@@ -1,8 +1,8 @@
 defmodule Aiur.DiskWatchdogTest do
   use Aiur.TestSupport
 
-  alias Aiur.{DiskWatchdog, Workflow}
   alias Aiur.Config.Schema.Monitoring
+  alias Aiur.{DiskWatchdog, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
 
   @gib 1_073_741_824
