@@ -30,7 +30,7 @@ defmodule Aiur.DiskWatchdogTest do
 
   test "a du that never returns cannot delay the stop status, and the alert says it timed out" do
     test_pid = self()
-    blocking_du = fn -> send(test_pid, :du_started) && Process.sleep(:infinity) end
+    blocking_du = fn -> send(test_pid, :du_started) && receive(do: (:never -> :ok)) end
 
     {:stop, _status} = check(:ok, [fs(98)], largest_fun: blocking_du, du_timeout_ms: 50)
 
@@ -41,7 +41,7 @@ defmodule Aiur.DiskWatchdogTest do
   end
 
   test "a df that hangs is an unknown sample, not a frozen watchdog" do
-    {:warn, :unknown} = check(:warn, nil, sample_fun: fn -> Process.sleep(:infinity) end, df_timeout_ms: 50)
+    {:warn, :unknown} = check(:warn, nil, sample_fun: fn -> receive(do: (:never -> :ok)) end, df_timeout_ms: 50)
     assert_received {:published, :unknown}
   end
 
