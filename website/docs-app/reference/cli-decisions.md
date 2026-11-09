@@ -12,16 +12,16 @@ JSON includes `default_hours` and `planned` (true, false, or `"unknown"`); overr
 
 A timeout leaves the outcome unknown (repeat the show form); an unavailable store refuses writes, so restore or remove the quarantined file and restart after corruption.
 
-`aiur ticket reopen <id> --reason <text> [--state todo|rework] [--json]` reopens a closed ticket for redo (daemon required); `--state` defaults to `todo`. A missing or blank reason exits 64 with usage, and an open ticket is refused before any write.
+`aiur ticket reopen <id> --reason <text> [--state todo|rework] [--json]` reopens a closed ticket for redo (daemon required); `--state` defaults to `todo`. A missing or blank reason exits 64 with usage, and an open ticket, a ticket that was never in a Build Order, or an unavailable or stale build queue is refused before any write.
 
-Closing keeps feature membership and native `blocked_by` edges. Reopen re-adds the `<prefix>:queued` marker so a build-queue item keeps its position, and re-declares each recorded queue edge to an open ticket whose GitHub edge was removed, so open dependents wait behind it again.
+Closing keeps feature membership and native `blocked_by` edges. Reopen re-adds the `<prefix>:queued` marker so a build-queue item keeps its position, which puts its list, feature and epic edges back in force, and re-declares each Build Order graph edge to an open ticket whose GitHub edge was removed, so open dependents wait behind it again. Planner edges are never written to GitHub.
 
 Reopen posts the reason on the issue and raises a `ticket.<id>.agent.attention.reopened` attention listing every link; dependents that already started keep running.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur ticket estimate <id> [<hours> or --clear] [--reason <text>] [--by <who>] [--json]` | Show, set or clear durable estimate overrides; writes require a reason. See the validation and recovery details above. | `aiur ticket estimate 2412 7 --reason "Three design rounds"` |
-| `aiur ticket reopen <id> --reason <text> [--state todo or rework] [--json]` | Reopens a closed ticket, restores its queue marker and recorded dependency edges, and alerts the Executor. Refuses an open ticket. | `aiur ticket reopen 12 --reason "Premise changed"` |
+| `aiur ticket reopen <id> --reason <text> [--state todo or rework] [--json]` | Reopens a closed ticket, restores its queue marker and Build Order graph edges, and alerts the Executor. Refuses an open ticket or one never in a Build Order. | `aiur ticket reopen 12 --reason "Premise changed"` |
 | `aiur ask "Title"` | Deprecated alias for `aiur command request`: raises a human-directed Executor Command (daemon required). Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
 | `aiur ask "Title" --body "Context"` | Stores supporting Markdown as the Command’s long context. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
 | `aiur ask "Title" --body-file request.md` | Reads the supporting body from a UTF-8 file. | `aiur ask "Approve production cutover" --body-file request.md` |

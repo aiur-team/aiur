@@ -5,9 +5,14 @@ defmodule Aiur.TicketReopen do
   Closing a ticket keeps its feature membership and its native `blocked_by` edges, but two links
   can still be lost. A completed build-queue item loses its `<prefix>:queued` marker, so once it is
   open again the queue planner would dequeue it, dropping its position and its queue edges. An
-  agent's `aiur_unblock` can also have removed a native edge the queue still records. Reopen re-marks
-  the item before the issue opens, then re-declares every recorded edge between this ticket and an
-  open ticket whose native edge is missing, so open dependents are held behind it again.
+  agent's `aiur_unblock` can also have removed a native edge the Build Order graph still records.
+  Reopen re-marks the item before the issue opens, which puts the planner's list, feature and epic
+  edges back in force, then re-declares only Build Order graph edges whose native GitHub edge is
+  missing, so open dependents are held behind it again. Planner edges are never written to GitHub:
+  they belong to the queue, and `queue reorder` / `queue remove` must still be able to drop them.
+
+  Reopen refuses before any write when the queue read model is unavailable or stale (the planner
+  would dequeue the unmarked item) and when the ticket was never in a Build Order.
   The reason is posted on the issue and raised as an Executor attention.
   """
 
@@ -44,14 +49,17 @@ defmodule Aiur.TicketReopen do
     with {:ok, request} <- request(opts),
          id = Integer.to_string(request.id),
          :ok <- closed(tracker, id),
-         {placement, edges} = recorded(id, Keyword.get(opts, :queue_fun, &BuildQueue.show/0).()),
+         {:ok, model} <- usable(Keyword.get(opts, :queue_fun, &BuildQueue.show/0).()),
+         {placement, edges} = recorded(id, model),
+         feature = feature(request.id, placement, opts),
+         :ok <- member(placement, feature, edges),
          :ok <- step(:queue_marker, mark_queued(placement, id, tracker, opts)),
          :ok <- step(:reopen, tracker.reopen_issue(id)),
          :ok <- step(:state, TicketTransition.write_state(id, request.state, writer: :ticket_reopen, tracker: tracker)),
          :ok <- step(:comment, tracker.create_comment(id, comment(request))) do
       declare = Keyword.get(opts, :declare_fun, &IssueDependencies.declare/2)
       links = Enum.map(edges, &restore(&1, id, tracker, declare))
-      result = %{id: request.id, state: request.state, reason: request.reason, feature: feature(request.id, placement, opts), queue: placement, links: links}
+      result = %{id: request.id, state: request.state, reason: request.reason, feature: feature, queue: placement, links: links}
       alert(result, Keyword.get(opts, :alert_fun, &Signal.alert/2))
       {:ok, result}
     end
@@ -80,6 +88,13 @@ defmodule Aiur.TicketReopen do
     end
   end
 
+  # Without a current read model the item looks unqueued, and reopen would skip its marker.
+  defp usable(%{status: :running, sources: %{"tracker_observation" => %{freshness: :current}}} = model), do: {:ok, model}
+  defp usable(_model), do: {:error, :queue_unavailable}
+
+  defp member(nil, nil, []), do: {:error, :not_in_build_order}
+  defp member(_placement, _feature, _edges), do: :ok
+
   # The queue read model carries Aiur's recorded edges beside the native ones it mirrors.
   defp recorded(id, model) do
     queues = Map.get(model, :queues, [])
@@ -92,7 +107,7 @@ defmodule Aiur.TicketReopen do
 
     edges =
       for queue <- queues, edge <- queue.edges, edge.source != :native, id in [edge.prerequisite, edge.dependent], uniq: true do
-        {edge.prerequisite, edge.dependent}
+        {edge.prerequisite, edge.dependent, edge.source}
       end
 
     {placement, edges}
@@ -112,7 +127,11 @@ defmodule Aiur.TicketReopen do
     "Reopened as `#{request.state}` by `aiur ticket reopen` (#{request.by}).\n\nReason: #{request.reason}"
   end
 
-  defp restore({prerequisite, dependent}, id, tracker, declare) do
+  # List, feature and epic edges are the planner's own; the restored queue marker holds them.
+  defp restore({prerequisite, dependent, source}, _id, _tracker, _declare) when source != :build_order,
+    do: %{prerequisite: prerequisite, dependent: dependent, outcome: :held_by_queue}
+
+  defp restore({prerequisite, dependent, :build_order}, id, tracker, declare) do
     other = if prerequisite == id, do: dependent, else: prerequisite
     link = %{prerequisite: prerequisite, dependent: dependent}
 
@@ -165,6 +184,8 @@ defmodule Aiur.TicketReopen do
   end
 
   defp error(:already_open, id), do: "ticket ##{id} is already open; reopen only applies to a closed ticket"
+  defp error(:queue_unavailable, _id), do: "build queue unavailable; retry"
+  defp error(:not_in_build_order, id), do: "ticket ##{id} was never in a Build Order; reopen it with gh issue reopen"
   defp error(:invalid_reason, _id), do: "--reason requires 1..500 characters without controls"
   defp error(:invalid_state, _id), do: "--state must be todo or rework"
   defp error(:invalid_id, _id), do: "ticket reopen expects a positive numeric id"
