@@ -16,7 +16,7 @@ defmodule Aiur.Ownership.Delegation do
 
   def check_target(%{projects: projects} = list, repo, to, now) do
     cond do
-      repo in projects -> :ok
+      runs?(projects, repo) -> :ok
       fresh?(list, now) -> {:refuse, "#{to} does not run #{repo}"}
       true -> {:warn, "#{to} did not answer; its last list (#{div(age(list, now), 60_000)} min old) lacked #{repo}; transfer written"}
     end
@@ -34,7 +34,7 @@ defmodule Aiur.Ownership.Delegation do
   defp listed(list, repo, now) do
     cond do
       list == nil or not fresh?(list, now) -> :unknown
-      repo in list.projects -> :has
+      runs?(list.projects, repo) -> :has
       true -> :missing
     end
   end
@@ -50,6 +50,9 @@ defmodule Aiur.Ownership.Delegation do
 
   defp clear?(r, delegation, self_id, has?),
     do: r.gateway_id == self_id or has? or (delegation != nil and r.epoch > delegation.epoch)
+
+  # GitHub repo names are case-insensitive; peers report theirs downcased.
+  defp runs?(projects, repo), do: String.downcase(repo) in Enum.map(projects, &String.downcase/1)
 
   defp fresh?(%{observed_at: at}, now), do: age(%{observed_at: at}, now) <= @fresh_ms
   defp age(%{observed_at: at}, now), do: max(DateTime.diff(now, at, :millisecond), 0)

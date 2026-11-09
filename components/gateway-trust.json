@@ -26,6 +26,7 @@
     "gateway-registry",
     "identity",
     "kernel",
+    "orchestration",
     "web-shell"
   ],
   "optional": [],

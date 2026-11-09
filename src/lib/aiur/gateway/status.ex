@@ -14,6 +14,7 @@ defmodule Aiur.Gateway.Status do
   import Aiur.ControlCLI.Protocol, only: [control_error: 1]
 
   alias Aiur.Gateway.{Discovery, Registry, StatusCache, Workload}
+  alias Aiur.Ownership.PeerState
 
   # Launcher exit codes that mean "no answer" (69 unreachable, 124 timeout); any other failure is a refusal.
   @transport [69, 124]
@@ -25,10 +26,11 @@ defmodule Aiur.Gateway.Status do
          {:ok, targets} <- targets(view, opts[:peer]) do
       now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
       get = Keyword.get(opts, :http_get, &Discovery.http_get/1)
+      pins = for {_name, %{"gateway_id" => id}} <- view.instances, is_binary(id), do: id
 
       rows =
         targets
-        |> Task.async_stream(&row(&1, results, get, now), max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task, zip_input_on_exit: true)
+        |> Task.async_stream(&row(&1, results, get, pins, now), max_concurrency: 8, timeout: 15_000, on_timeout: :kill_task, zip_input_on_exit: true)
         |> Enum.map(fn
           {:ok, row} -> row
           {:exit, {target, _reason}} -> build(target, :unreachable, StatusCache.read(target.name), now)
@@ -58,14 +60,14 @@ defmodule Aiur.Gateway.Status do
     if peer && picked == [], do: {:error, {66, "no such gateway: #{peer}"}}, else: {:ok, picked}
   end
 
-  defp row(target, results, get, now) do
+  defp row(target, results, get, pins, now) do
     outcome =
       case {agents(results, target.name), get.(target.url)} do
         {:transport, _hello} -> :unreachable
-        {{:ok, running}, {:ok, %{} = hello}} -> if target.pin && hello["gateway_id"] != target.pin, do: {:error, "pin mismatch"}, else: {:ok, running, hello}
-        {{:ok, _running}, {:error, :hello_disabled}} -> {:error, "hello disabled"}
-        {{:ok, _running}, {:error, :unrecognised}} -> {:error, "invalid hello"}
-        {{:ok, _running}, _transport_failure} -> :unreachable
+        {{:ok, running, facts}, {:ok, %{} = hello}} -> if target.pin && hello["gateway_id"] != target.pin, do: {:error, "pin mismatch"}, else: {:ok, running, Map.merge(hello, facts)}
+        {{:ok, _running, _facts}, {:error, :hello_disabled}} -> {:error, "hello disabled"}
+        {{:ok, _running, _facts}, {:error, :unrecognised}} -> {:error, "invalid hello"}
+        {{:ok, _running, _facts}, _transport_failure} -> :unreachable
         {:refused, _hello} -> {:error, "refused"}
       end
 
@@ -73,10 +75,21 @@ defmodule Aiur.Gateway.Status do
 
     with {:ok, running, hello} <- outcome do
       StatusCache.write(target.name, %{observed_at: DateTime.to_iso8601(now), agents: length(running), gateway_id: hello["gateway_id"], gateway_label: hello["gateway_label"], build: hello["build"]})
+      remember_peer(target, hello, pins, now)
     end
 
     build(target, outcome, cached, now)
   end
+
+  # The delegation cache (`aiur ticket assign --to`): the peer's daemon key and the repos it runs, as last answered.
+  # Pinned entries only, keyed by the pin: the anonymous hello's id is not authenticated, so it never names a peer.
+  defp remember_peer(%{pin: id, name: name}, facts, pins, now) when is_binary(id) do
+    projects = if is_list(facts["projects"]) and Enum.all?(facts["projects"], &is_binary/1), do: facts["projects"]
+    key = if is_binary(facts["daemon_key"]), do: facts["daemon_key"]
+    PeerState.put_peer(id, %{name: name, label: facts["gateway_label"], daemon_key: key, projects: projects, observed_at: DateTime.to_iso8601(now)}, pins)
+  end
+
+  defp remember_peer(_target, _facts, _pins, _now), do: :ok
 
   defp agents(results, name) do
     case Enum.find(results, &(&1["name"] == name)) do
@@ -90,7 +103,7 @@ defmodule Aiur.Gateway.Status do
   defp parse_agents(output) do
     Enum.find_value(String.split(output || "", "\n"), :refused, fn line ->
       case Jason.decode(String.trim(line)) do
-        {:ok, %{"contract" => "aiur.agents", "running" => running}} when is_list(running) -> {:ok, running}
+        {:ok, %{"contract" => "aiur.agents", "running" => running} = payload} when is_list(running) -> {:ok, running, Map.take(payload, ["daemon_key", "projects"])}
         _ -> nil
       end
     end)

@@ -356,7 +356,7 @@ A failed read prints `ownership unknown` with no owner fields and exits 75; it n
 
 `aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`), then disables auto-merge on the old owner's open PR. It needs the `tickets` grant.
 
-`--to` names the target; `--gateway` still selects where the command runs. Today `--to` accepts only the gateway the command runs on (label or id), so run it where the ticket is going. A peer name needs the gateway registry and exits 64.
+`--to` names the target; `--gateway` still selects where the command runs. `--to` accepts this gateway or a peer by registry name, label or id, judged on what `aiur gateway status <peer>` last cached. See [Delegating a ticket](/concepts/executor#delegating-a-ticket-to-another-gateway).
 
 The owner's liveness decides:
 
