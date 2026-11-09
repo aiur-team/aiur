@@ -164,6 +164,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
        aiur set <key> <json> | --list [--json] | --unset <key>   manage persistent runtime settings
        aiur set max-agents <n>   change the session concurrent-agent cap
+       aiur config explain <key> [--project owner/repo] [--json]   show which layer sets a config value
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
@@ -425,6 +426,10 @@ aiur_engine_main() {
     set)
       shift
       cmd_set "$@"
+      ;;
+    config)
+      shift
+      cmd_config "$@"
       ;;
     upgrade)
       shift

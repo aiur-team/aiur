@@ -8,6 +8,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @usage [:Aiur, :Usage, :CLI]
   @ticket_usage [:Aiur, :TicketUsageCLI]
   @sweep [:Aiur, :ExecutorSweep, :CLI]
+  @provenance [:Aiur, :Config, :ProvenanceCLI]
   @pr_merge [:Aiur, :PrMerge, :Record]
   @feature_options %{
     op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :show]},
@@ -268,6 +269,7 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},
             {{@sweep, :rpc, 1}, %{class: &__MODULE__.sweep_category/1, positional: [:keyword], options: %{argv: :literal_list, json: :boolean}}},
+            {{@provenance, :explain, 2}, %{class: :read, positional: [:string, :keyword], options: %{project: :string, json: :boolean}}},
             {{@pr_merge, :print_watcher_state, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
