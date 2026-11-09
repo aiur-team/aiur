@@ -44,8 +44,6 @@ defmodule Aiur.Events.Catalog.Entries do
     %Entry{pattern: "system.newsletter.ready", class: :journaled, owner: "newsletter"},
     # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
     %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
-    # aiur/control_cli/pending_commands.ex — a pending `--after` Command dropped by a not-planned blocker.
-    %Entry{pattern: "executor.command.dropped", class: :journaled, owner: "control-cli"},
     # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex
     Entry.alert("ticket.*.agent.attention.#", "harness-adapters", export?: true),
     Entry.alert("system.#", "signal", export?: true)

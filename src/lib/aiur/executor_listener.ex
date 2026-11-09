@@ -250,9 +250,6 @@ defmodule Aiur.ExecutorListener do
   defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _store),
     do: deliver_projection(event, inbox)
 
-  defp deliver_executor_event(%{topic: "executor.command.dropped"} = event, inbox, _store), do: deliver_projection(event, inbox)
-  defp deliver_executor_event(%{"topic" => "executor.command.dropped"} = event, inbox, _store), do: deliver_projection(event, inbox)
-
   defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
   defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
 

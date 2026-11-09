@@ -87,15 +87,23 @@ defmodule Aiur.GitHub.Tracker do
 
   @impl Aiur.Tracker.IssueTracker
   @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
-  def issue_closure(issue_id, max_age_ms) do
-    with {:ok, body, _source} <- client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: "build_queue_observe") do
-      case body do
-        %{"state" => state, "state_reason" => reason} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
-          {:ok, %{open?: state == "open", state_reason: reason}}
+  def issue_closure(issue_id, max_age_ms), do: issue_closure(issue_id, max_age_ms, "build_queue_observe")
 
-        _ ->
-          {:error, :invalid_issue_closure}
-      end
+  @doc "Reads closure evidence attributed to `caller` in the GitHub cost ledger."
+  @spec issue_closure(String.t(), pos_integer(), String.t()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms, caller) do
+    case client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: caller) do
+      {:ok, %{"state" => state, "state_reason" => reason}, _source} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
+        {:ok, %{open?: state == "open", state_reason: reason}}
+
+      {:ok, _body, _source} ->
+        {:error, :invalid_issue_closure}
+
+      {:error, {:github, _class, %{status: status}}} when status in [404, 410] ->
+        {:error, :not_found}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -3,21 +3,29 @@ defmodule Aiur.ControlCLI.PendingCommands do
   Executor Commands held until their blocker tickets merge (`aiur command request --after`).
 
   A pending Command lives only in this durable file, so it reaches no inbox until
-  every blocker is closed as completed. A blocker closed as not planned (or as a
-  duplicate) drops the Command and wakes the Executor with `executor.command.dropped`.
+  every blocker is closed as `completed`. Any other closure (`not_planned`,
+  `duplicate`, no reason, another reason) or a deleted ticket drops it and raises
+  a `ticket.<blocker>.agent.attention.command_dropped` attention for the Executor.
+
+  There is no polling timer. A blocker is read once when the request is made, once
+  when the daemon sees that ticket's PR merge or its agent state move to done or
+  cancelled, and once at daemon start for blockers still open.
   """
 
   use GenServer
   require Logger
 
   alias Aiur.ControlCLI.ExecutorRequest
+  alias Aiur.Events.Exchange
   alias Aiur.Executor.StatePaths
-  alias Aiur.{ExecutorEvents, JsonStore, Tracker}
+  alias Aiur.{JsonStore, Signal, Tracker}
 
-  @poll_ms 60_000
-  # The tracker read may be served from cache; a minute of staleness only delays publication.
+  # One cached minute keeps a burst of events for one ticket to one GitHub read.
   @closure_max_age_ms 60_000
-  @dropped_reasons ["not_planned", "duplicate"]
+  @caller "pending_commands"
+  # Retries a failed publish or attention; it never reads the tracker.
+  @retry_ms 60_000
+  @triggers ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.done", "ticket.*.issue.label.added.agent.cancelled", "ticket.*.issue.label.added.agent.canceled"]
   @ticket ~r/\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/
   @param_keys ~w(question options media recommend blocking urgency ticket long_context_markdown short_summary executor_id idempotency_key)a
 
@@ -31,13 +39,13 @@ defmodule Aiur.ControlCLI.PendingCommands do
     if ids != [] and Enum.all?(ids, &Regex.match?(@ticket, &1)), do: {:ok, ids}, else: {:error, "--after expects ticket[,ticket...]"}
   end
 
-  @doc "Stores a validated request until its blockers merge."
+  @doc "Checks every blocker exists and is not closed unmerged, then stores the request."
   @spec defer(keyword(), [String.t()], GenServer.server()) :: {:ok, map()} | {:error, term()}
   def defer(params, blockers, server \\ __MODULE__) do
     stored = params |> Keyword.take(@param_keys) |> Keyword.put_new_lazy(:idempotency_key, fn -> "exec-#{Ecto.UUID.generate()}" end)
     # The same string-keyed shape in memory and after a restart.
     stored = stored |> Map.new() |> Jason.encode!() |> Jason.decode!()
-    GenServer.call(server, {:defer, stored, blockers})
+    GenServer.call(server, {:defer, stored, blockers}, 60_000)
   catch
     :exit, _reason -> {:error, :daemon_unavailable}
   end
@@ -45,92 +53,145 @@ defmodule Aiur.ControlCLI.PendingCommands do
   @spec list(GenServer.server()) :: [map()]
   def list(server \\ __MODULE__), do: GenServer.call(server, :list)
 
-  @doc false
-  @spec poll(GenServer.server()) :: :ok
-  def poll(server \\ __MODULE__), do: GenServer.call(server, :poll, 60_000)
+  @doc "Removes a pending Command before it publishes."
+  @spec cancel(String.t(), GenServer.server()) :: {:ok, map()} | {:error, :not_found | :daemon_unavailable}
+  def cancel(id, server \\ __MODULE__) do
+    GenServer.call(server, {:cancel, id})
+  catch
+    :exit, _reason -> {:error, :daemon_unavailable}
+  end
 
   @impl true
   def init(opts) do
     path = Keyword.get_lazy(opts, :path, &StatePaths.pending_commands_path/0)
+    Keyword.get(opts, :subscribe_fun, &subscribe/0).()
 
     state = %{
       path: path,
       entries: load(path),
-      poll_ms: Keyword.get(opts, :poll_ms, @poll_ms),
-      closure_fun: Keyword.get(opts, :closure_fun, &Tracker.issue_closure(&1, @closure_max_age_ms)),
+      retry_ms: Keyword.get(opts, :retry_ms, @retry_ms),
+      retry_ref: nil,
+      closure_fun: Keyword.get(opts, :closure_fun, &Tracker.issue_closure(&1, @closure_max_age_ms, @caller)),
       publish_fun: Keyword.get(opts, :publish_fun, &publish(&1, Keyword.get(opts, :request_deps, []))),
       wake_fun: Keyword.get(opts, :wake_fun, &wake/3)
     }
 
-    schedule(state.poll_ms)
-    {:ok, state}
+    {:ok, state, {:continue, :catch_up}}
+  end
+
+  @impl true
+  def handle_continue(:catch_up, state) do
+    blockers = state.entries |> Map.values() |> Enum.flat_map(&waiting_on/1) |> Enum.uniq()
+    {:noreply, Enum.reduce(blockers, state, &observe(&2, &1)) |> settle()}
   end
 
   @impl true
   def handle_call({:defer, params, blockers}, _from, state) do
-    entry = %{"id" => "pend_" <> String.slice(Ecto.UUID.generate(), 0, 8), "after" => blockers, "params" => params, "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()}
-    entries = Map.put(state.entries, entry["id"], entry)
-    persist(state.path, entries)
-    {:reply, {:ok, entry}, %{state | entries: entries}}
+    observations = Enum.map(blockers, &{&1, classify(state.closure_fun.(&1))})
+
+    case Enum.find(observations, fn {_id, observation} -> not match?({:closed, _}, observation) and observation != :open end) do
+      nil ->
+        closed = for {id, {:closed, reason}} <- observations, into: %{}, do: {id, reason}
+        entry = %{"id" => "pend_" <> String.slice(Ecto.UUID.generate(), 0, 8), "after" => blockers, "params" => params, "closed" => closed, "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()}
+        entries = Map.put(state.entries, entry["id"], entry)
+        persist(state.path, entries)
+        state = settle(%{state | entries: entries})
+        {:reply, {:ok, Map.put(entry, "status", if(Map.has_key?(state.entries, entry["id"]), do: "pending", else: "published"))}, state}
+
+      {id, observation} ->
+        {:reply, {:error, refusal(id, observation)}, state}
+    end
   end
 
   def handle_call(:list, _from, state), do: {:reply, state.entries |> Map.values() |> Enum.sort_by(& &1["created_at"]), state}
-  def handle_call(:poll, _from, state), do: {:reply, :ok, check(state)}
 
-  @impl true
-  def handle_info(:poll, state) do
-    schedule(state.poll_ms)
-    {:noreply, check(state)}
+  def handle_call({:cancel, id}, _from, state) do
+    case Map.pop(state.entries, id) do
+      {nil, _entries} ->
+        {:reply, {:error, :not_found}, state}
+
+      {entry, entries} ->
+        persist(state.path, entries)
+        {:reply, {:ok, entry}, %{state | entries: entries}}
+    end
   end
 
-  defp schedule(:infinity), do: :ok
-  defp schedule(ms), do: Process.send_after(self(), :poll, ms)
+  @impl true
+  def handle_info({:event, event}, state) do
+    with topic when is_binary(topic) <- event[:topic] || event["topic"],
+         ["ticket", ticket | _rest] <- String.split(topic, "."),
+         true <- Enum.any?(Map.values(state.entries), &(ticket in waiting_on(&1))) do
+      {:noreply, state |> observe(ticket) |> settle()}
+    else
+      _ignored -> {:noreply, state}
+    end
+  end
 
-  defp check(state) do
-    entries = Enum.reduce(state.entries, state.entries, fn {id, entry}, acc -> if settle(entry, state), do: Map.delete(acc, id), else: acc end)
-    if map_size(entries) != map_size(state.entries), do: persist(state.path, entries)
+  def handle_info(:retry, state), do: {:noreply, settle(%{state | retry_ref: nil})}
+
+  defp subscribe, do: Enum.each(@triggers, &Exchange.subscribe/1)
+
+  defp waiting_on(%{"dropped" => _}), do: []
+  defp waiting_on(entry), do: entry["after"] -- Map.keys(entry["closed"] || %{})
+
+  # One read per blocker, applied to every entry waiting on it.
+  defp observe(state, blocker) do
+    case classify(state.closure_fun.(blocker)) do
+      {:closed, reason} -> update_waiting(state, blocker, &Map.update(&1, "closed", %{blocker => reason}, fn closed -> Map.put(closed, blocker, reason) end))
+      {:dropped, reason} -> update_waiting(state, blocker, &Map.put(&1, "dropped", %{"blocker" => blocker, "reason" => reason}))
+      _open_or_unknown -> state
+    end
+  end
+
+  defp update_waiting(state, blocker, fun) do
+    entries = Map.new(state.entries, fn {id, entry} -> {id, if(blocker in waiting_on(entry), do: fun.(entry), else: entry)} end)
+    persist(state.path, entries)
     %{state | entries: entries}
   end
 
-  # Returns true once the entry has left the store, published or dropped.
-  defp settle(entry, state) do
-    case resolve(entry["after"], state.closure_fun) do
-      :waiting ->
-        false
+  # Merged means closed as completed. Every other closure, or a deleted ticket, drops the Command.
+  defp classify({:ok, %{open?: true}}), do: :open
+  defp classify({:ok, %{open?: false, state_reason: "completed"}}), do: {:closed, "completed"}
+  defp classify({:ok, %{open?: false, state_reason: reason}}), do: {:dropped, reason || "closed_without_reason"}
+  defp classify({:error, :not_found}), do: {:dropped, "not_found"}
+  defp classify({:error, :unsupported}), do: :unsupported
+  defp classify(other), do: {:unknown, other}
 
-      {:dropped, blocker, reason} ->
-        state.wake_fun.(entry, blocker, reason)
-        true
+  defp refusal(_id, :unsupported), do: "the configured tracker cannot report ticket closure, so --after is unavailable"
+  defp refusal(id, {:dropped, "not_found"}), do: "ticket #{id} was not found"
+  defp refusal(id, {:dropped, reason}), do: "ticket #{id} is already closed without merging (#{reason})"
+  defp refusal(id, {:unknown, reason}), do: "cannot read ticket #{id}: #{inspect(reason)}"
 
-      :ready ->
-        published?(entry, state)
+  defp settle(state) do
+    {entries, retry?} = Enum.reduce(state.entries, {state.entries, false}, &settle_entry(&1, &2, state))
+    if map_size(entries) != map_size(state.entries), do: persist(state.path, entries)
+    schedule_retry(%{state | entries: entries}, retry?)
+  end
+
+  defp settle_entry({id, %{"dropped" => %{"blocker" => blocker, "reason" => reason}} = entry}, {entries, retry?}, state),
+    do: finish(state.wake_fun.(entry, blocker, reason), id, entries, retry?)
+
+  defp settle_entry({id, entry}, {entries, retry?}, state) do
+    if waiting_on(entry) == [] do
+      case state.publish_fun.(entry["params"]) do
+        0 -> {Map.delete(entries, id), retry?}
+        # The daemon refused the stored request; nothing a retry can fix.
+        64 -> finish(state.wake_fun.(entry, hd(entry["after"]), "refused"), id, entries, retry?)
+        _transient -> {entries, true}
+      end
+    else
+      {entries, retry?}
     end
   end
 
-  defp resolve(blockers, closure_fun) do
-    closures = Enum.map(blockers, &{&1, closure_fun.(&1)})
+  # The entry leaves the store only once the Executor has been told.
+  defp finish(:ok, id, entries, retry?), do: {Map.delete(entries, id), retry?}
+  defp finish(_failed, _id, entries, _retry?), do: {entries, true}
 
-    case Enum.find(closures, &match?({_id, {:ok, %{open?: false, state_reason: reason}}} when reason in @dropped_reasons, &1)) do
-      {id, {:ok, %{state_reason: reason}}} -> {:dropped, id, reason}
-      nil -> if Enum.all?(closures, &match?({_id, {:ok, %{open?: false}}}, &1)), do: :ready, else: :waiting
-    end
-  end
+  defp schedule_retry(%{retry_ref: nil} = state, true), do: %{state | retry_ref: Process.send_after(self(), :retry, state.retry_ms)}
+  defp schedule_retry(state, _retry?), do: state
 
   # The stored idempotency key makes a retried publish return the same Command.
-  defp published?(entry, state) do
-    case state.publish_fun.(entry["params"]) do
-      0 ->
-        true
-
-      64 ->
-        state.wake_fun.(entry, nil, "refused")
-        true
-
-      _transient ->
-        false
-    end
-  end
-
   defp publish(params, deps) do
     params = Enum.flat_map(@param_keys, fn key -> if Map.has_key?(params, Atom.to_string(key)), do: [{key, params[Atom.to_string(key)]}], else: [] end)
     deps = Keyword.merge([result_fun: fn _decision, _status, _source, _json -> :ok end, error_fun: &Logger.warning/1], deps)
@@ -138,13 +199,14 @@ defmodule Aiur.ControlCLI.PendingCommands do
   end
 
   defp wake(entry, blocker, reason) do
-    params = entry["params"]
-    payload = %{pending_id: entry["id"], blocker: blocker, reason: reason, after: entry["after"], question: params["question"], short_summary: params["short_summary"]}
+    title = entry["params"]["short_summary"] || entry["params"]["question"]
 
-    case ExecutorEvents.publish("executor.command.dropped", payload, source: :internal) do
-      {:ok, _id, _delivered} -> :ok
-      {:error, error} -> Logger.error("pending Command #{entry["id"]} dropped (#{reason}) but the Executor wake failed: #{inspect(error)}")
-    end
+    Signal.alert("ticket.#{blocker}.agent.attention.command_dropped",
+      message: "Pending Command #{entry["id"]} dropped: ticket #{blocker} #{reason}",
+      reason: "#{title} (after #{Enum.map_join(entry["after"], ", ", &"##{&1}")}) will not be published",
+      needs_attention: true,
+      durable: true
+    )
   end
 
   defp load(path) do

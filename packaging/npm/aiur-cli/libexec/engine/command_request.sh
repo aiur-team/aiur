@@ -1,10 +1,16 @@
 # Executor-originated Command requests. Context files are read on the caller's machine.
 # @cli-reference aiur command request <question> --media FILE-OR-URL[,kind=K,alt=TEXT,caption=TEXT,option=ID] | Attaches typed media to the prompt, or to one option with `option=ID`; repeatable. Local files must sit under a configured root and become attachments; HTTPS URLs must be allowlisted; expiring URLs are refused. MIME type and kind are inferred from the extension unless `mime=` or `kind=` is given. | aiur command request 'Which sprite?' --option a=Left --option b=Right --media shots/a.png,option=a,alt='Left sprite'
-# @cli-reference aiur command request <question> --after TICKET[,TICKET...] | Holds the Command as pending until every listed ticket is closed as completed, then publishes it. A ticket closed as not planned drops it and wakes the Executor. `aiur command` lists pending Commands. | aiur command request 'Which build feels better?' --option a=First --option b=Second --after 5,6
+# @cli-reference aiur command request <question> --after TICKET[,TICKET...] | Holds the Command as pending until every listed ticket is closed as completed, then publishes it. Unknown tickets and trackers that cannot report closure are refused. Any other closure drops it and raises an Executor attention. `aiur command` lists pending Commands. | aiur command request 'Which build feels better?' --option a=First --option b=Second --after 5,6
+# @cli-reference aiur command cancel PENDING-ID | Removes a pending `--after` Command before it publishes. | aiur command cancel pend_1a2b3c4d
 cmd_command() {
   if [ "${1:-}" = request ]; then
     shift
     cmd_command_request "$@"
+    return
+  fi
+  if [ "${1:-}" = cancel ]; then
+    [ "$#" -eq 2 ] && [[ "$2" =~ ^pend_[0-9a-f]{8}$ ]] || { echo "aiur: command cancel expects one pending ID (pend_xxxxxxxx)" >&2; exit 64; }
+    run_control_rpc "Aiur.AgentControlCLI.command_cancel([pending_id: \"$2\"])"
     return
   fi
 

@@ -27,6 +27,18 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
     assert {:ok, %{function: :command_request}} = Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.command_request(question: "Q?", after: "5,6")|)
   end
 
+  test "command cancel sends one pending ID and refuses anything else before RPC" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_command cancel pend_1a2b3c4d|, [])
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.command_cancel([pending_id: "pend_1a2b3c4d"])|
+    assert {:ok, %{function: :command_cancel}} = Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.command_cancel([pending_id: "pend_1a2b3c4d"])|)
+
+    for args <- ["cancel", "cancel dec_123", "cancel 'pend_1a2b3c4d\"]); x(['", "cancel pend_1a2b3c4d extra"] do
+      {out, 64} = run_sourced_engine("run_control_rpc() { echo RPC_CALLED; }\ncmd_command #{args}", [])
+      assert out =~ "expects one pending ID"
+      refute out =~ "RPC_CALLED"
+    end
+  end
+
   @tag :tmp_dir
   test "passes repeatable media and resolves a relative file on the caller's machine", %{tmp_dir: dir} do
     script = ~s|run_control_rpc() { echo "RPC:$1"; }\ncd "$MEDIA_DIR" && cmd_command request 'Ship?' --media 'shot.png,alt=A, b' --media=https://github.com/a.gif|

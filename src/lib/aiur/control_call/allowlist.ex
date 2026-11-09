@@ -146,6 +146,7 @@ defmodule Aiur.ControlCall.Allowlist do
        after: :non_empty_string,
        json: :boolean
      }},
+    {:command_cancel, 1, :message, [:keyword], %{pending_id: {:regex, ~r/^pend_[0-9a-f]{8}$/}}},
     {:executor_ack, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_claim_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
     {:executor_release_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
