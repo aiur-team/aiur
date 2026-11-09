@@ -1,6 +1,8 @@
 defmodule Aiur.CommandsCLI.Printer do
   @moduledoc false
 
+  alias Aiur.Commands.CLIAnswers
+
   @spec print_human(map()) :: :ok
   def print_human(envelope) do
     IO.puts("Commands captured #{get_in(envelope, ["snapshot", "captured_at"])}")
@@ -94,6 +96,7 @@ defmodule Aiur.CommandsCLI.Printer do
     IO.puts("Recommendation: #{recommendation(decision["recommendation"])}")
 
     Enum.each(decision["options"] || [], &print_option/1)
+    print_questions(decision)
 
     print_relay(decision["answer"])
     print_history(Enum.filter(history, &(&1["decision_id"] == decision["decision_id"])))
@@ -105,6 +108,24 @@ defmodule Aiur.CommandsCLI.Printer do
     IO.puts("  Benefits: #{option["benefits"] || "none"}")
     IO.puts("  Drawbacks: #{option["drawbacks"] || "none"}")
   end
+
+  defp print_questions(%{"questions" => [_ | _] = questions} = decision) do
+    IO.puts("Questions (answer every one):")
+
+    Enum.each(questions, fn question ->
+      header = if question["header"] in [nil, ""], do: "", else: " [#{question["header"]}]"
+      IO.puts("Question #{question["question_id"]}#{header}: #{question["question"]}")
+      IO.puts("  multi_select: #{question["multi_select"] == true}; allow_other: #{question["allow_other"] != false}")
+      Enum.each(question["options"] || [], &IO.puts("  Option #{&1["id"] || &1["label"]}: #{&1["label"]}"))
+    end)
+
+    template = CLIAnswers.template(questions)
+    IO.puts("Answer template: aiur executor-answer #{decision["decision_id"]} --expected-version #{decision["version"]} #{template.flags}")
+    IO.puts("  Free text for an allow_other question: --answer-text QUESTION-ID=TEXT")
+    IO.puts("Answers file template (--answers-file): #{template.json}")
+  end
+
+  defp print_questions(_decision), do: :ok
 
   defp age(created_at, captured_at) when is_binary(created_at) and is_binary(captured_at) do
     with {:ok, created_at, _offset} <- DateTime.from_iso8601(created_at),

@@ -46,6 +46,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur command --filter open` | Applies the existing Command filters through the canonical singular command. | `aiur command --filter open` |
 | `aiur command cancel PENDING-ID` | Removes a pending `--after` Command before it publishes. | `aiur command cancel pend_1a2b3c4d` |
 | `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery. | `aiur command dec_123` |
+| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery; a multi-question Command adds every question and a fill-in answer template. | `aiur command dec_123` |
 | `aiur command DECISION-ID --custom-response TEXT` | Records a local operator's bounded text answer after interactive confirmation. | `aiur command dec_123 --custom-response 'Wait for a fresh build'` |
 | `aiur command DECISION-ID --option ID` | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | `aiur command dec_123 --option keep` |
 | `aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY]` | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | `aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1` |
@@ -60,6 +61,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur executor-attach --harness claude --print-config` | Prints hooks instead of installing them; Codex always prints. | `aiur executor-attach --harness claude --print-config` |
 | `aiur executor-attach --harness claude --takeover` | Replaces a live binding; off by default. | `aiur executor-attach --harness claude --takeover` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
+| `aiur operator-relay-answer ID --answer Q=ID --answer-text Q=TEXT --answers-file PATH` | Per-question answers for a multi-question Command, with the same rules as `executor-answer`. | `aiur operator-relay-answer dec_123 --expected-version 1 --answer scope=core --answer order=last --quote "core, last" --relayed-by exec-1 --idempotency-key relay-1` |
 | `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 | `aiur redispatch 142 --backend codex` | Selects a backend for a ticket redispatch. | `aiur redispatch 142 --backend codex` |
 
