@@ -22,7 +22,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     prompt =
       case first_turn_mode(issue, prompt_opts) do
         :resumed ->
-          resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
+          skills_pointer(skill_preload(issue, prompt_opts)) <> resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
 
         :continuation ->
           PromptBuilder.skills_block(skill_preload(issue, prompt_opts)) <> continuation_turn_prompt(issue, prompt_opts, continuation_reason(issue))
@@ -58,8 +58,11 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   end
 
   # A continuation first turn belongs to a new session that still needs the
-  # skills its ticket maps to; a resumed session already carries the original
-  # prompt in its thread and is deliberately left alone.
+  # skills its ticket maps to. A resumed session's thread once held them, but
+  # compaction may have dropped the text, so it gets only a pointer (#7868).
+  defp skills_pointer(nil), do: ""
+  defp skills_pointer(%Preload{} = preload), do: Preload.pointer_block(preload)
+
   defp skill_preload(issue, opts) do
     case Keyword.get(opts, :skill_preload) do
       %Preload{} = preload ->

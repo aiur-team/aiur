@@ -4,6 +4,7 @@ defmodule Aiur.Application.Children do
   """
 
   alias Aiur.Application.ExportChildren
+  alias Aiur.Application.ProjectChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Executor.Roster
@@ -13,6 +14,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
   alias Aiur.Ownership
   alias Aiur.Ownership.{Fence, FenceCommand}
+  alias Aiur.Project.Supervisors, as: ProjectSupervisors
 
   @doc """
   Build the supervision children for the given run shape.
@@ -68,6 +70,7 @@ defmodule Aiur.Application.Children do
       Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
 
     recording_children = recording_children(recording?)
+    projects = Keyword.get_lazy(opts, :projects, &configured_projects/0)
 
     cli_children =
       if interactive_cli? do
@@ -349,7 +352,25 @@ defmodule Aiur.Application.Children do
           )
         )
     )
+    |> with_projects(projects, recording?)
   end
+
+  # `projects:` empty leaves today's tree untouched. Otherwise the machine list drops
+  # what polls or dispatches one repository, and one project tree per entry starts last.
+  defp with_projects(children, [], _recording?), do: children
+
+  defp with_projects(children, _projects, recording?) do
+    pollers = ProjectChildren.pollers()
+
+    Enum.reject(children, &(child_module(&1) in pollers)) ++
+      [ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+  end
+
+  defp child_module({module, _opts}), do: module
+  defp child_module(module) when is_atom(module), do: module
+  defp child_module(_spec), do: nil
+
+  defp configured_projects, do: if(Application.get_env(:aiur, :projects_enabled?, true), do: Aiur.Project.Config.configured(), else: [])
 
   # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
   # and holds nothing until the first probe lands. Off wherever the boot
