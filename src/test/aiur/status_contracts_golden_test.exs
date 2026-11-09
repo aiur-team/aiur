@@ -73,6 +73,21 @@ defmodule Aiur.StatusContractsGoldenTest do
           session_id: "session-5698",
           provider_pid: 12_345,
           codex_app_server_pid: nil,
+          adopted_from: "handoff-7",
+          skill_preload: %{
+            mapped: [%{name: "pixel-art", reason: "lane:art"}],
+            truncated: ["palette"],
+            missing: ["ghost-skill"],
+            bytes: 812,
+            max_bytes: 4_096
+          }
+        },
+        %{
+          identifier: "5699",
+          issue_id: "I_5699",
+          session_id: "session-5699",
+          provider_pid: nil,
+          codex_app_server_pid: nil,
           adopted_from: "handoff-7"
         }
       ]
