@@ -2,7 +2,34 @@ defmodule Aiur.BuildOrder.IndexTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Epic, Index, Lifecycle, ProviderHealth}
+  alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
+
+  test "legacy feature epics without stored colors receive distinct palette hues" do
+    row = row(7)
+    feature = %{slug: "legacy", label: "Legacy", hue: 175, epics: [%{key: "first", label: "First"}, %{key: "second", label: "Second"}], from: row.created_at, to: :none, baseline: :none}
+    features = %{features: %{"legacy" => feature}, owners: %{}, also: %{}, health: health()}
+    p = parts([row])
+    p = put_in(p[:features], {:ok, features})
+
+    assert {:ok, index} = assemble(p)
+    assert index.lanes["first"].hue == 280
+    assert index.lanes["second"].hue == 170
+    assert index.lanes["first"].hue != index.lanes["second"].hue
+  end
+
+  test "legacy epic colours follow creation order, not day-of-month" do
+    # "early" starts on the 28th and "late" on the 3rd of the next month, so a
+    # raw DateTime struct comparison (day-of-month first) would order "late"
+    # first and recolour "early" as more features appear.
+    early = %{slug: "early", label: "Early", hue: 175, epics: [%{key: "f-early", label: "Early"}], from: ~U[2026-09-28 00:00:00Z], to: :none, baseline: :none}
+    late = %{slug: "late", label: "Late", hue: 175, epics: [%{key: "f-late", label: "Late"}], from: ~U[2026-10-03 00:00:00Z], to: :none, baseline: :none}
+    p = parts([row(7)]) |> put_in([:features], {:ok, %{features: %{"early" => early, "late" => late}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.lanes["f-early"].hue == 280
+    assert index.lanes["f-late"].hue == 170
+  end
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
     r = row(7, %{labels: ["bug", "complexity:2"], merged_at: ~U[2026-10-07 14:20:00Z], pr_number: 233, agent_model: "codex", agent_effort: "high"})
@@ -34,6 +61,7 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert {:ok, index} = assemble(p)
     assert map_size(index.all) == 3
     assert index.sources.features.state == "unavailable"
+    assert index.feature_progress.reason == "states unavailable · planned count unavailable"
     assert index.all["12"].sec == "now"
 
     for {_id, row} <- index.all do
@@ -81,12 +109,33 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, cx: 3, pts: 3}])
     feature = fn slug, date -> %{slug: slug, label: slug, hue: 42, epics: [%{key: "f-#{slug}", label: slug}], from: date, to: :none, baseline: :none} end
     p = put_in(p, [:features], {:ok, %{features: %{"aaa" => feature.("aaa", ~U[2026-10-01 00:00:00Z]), "zzz" => feature.("zzz", ~U[2026-09-01 00:00:00Z])}, owners: %{}, also: %{}, health: health()}})
+    p = Map.put(p, :pack_metadata, %{"workstreams" => [%{"id" => "aaa", "icon" => "home", "summary" => "Feature summary", "wave" => "0b"}]})
     assert {:ok, index} = assemble(p)
     assert index.order == ~w(bugs design infra docs f-zzz f-aaa unsorted)
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
-    for key <- ~w(bugs design infra docs), do: assert(Payload.scrub(index.epics[key]) == design["epics"][key])
-    assert index.epics["f-aaa"] == %{key: "f-aaa", label: "aaa", hue: 42, icon: "layers", feature: "aaa", temp: true}
+    for key <- ~w(bugs design infra docs) do
+      assert Payload.scrub(Map.delete(index.lanes[key], :svg)) |> Map.delete("hue") == Map.delete(design["lanes"][key], "hue")
+      assert index.lanes[key].svg =~ "<svg"
+    end
+
+    assert Enum.map(~w(bugs design infra docs), &index.lanes[&1].hue) == [8, 120, 55, 215]
+
+    assert index.lanes["f-aaa"] == %{
+             key: "f-aaa",
+             label: "aaa",
+             hue: 170,
+             icon: "home",
+             svg: Heroicons.svg("home"),
+             summary: "Feature summary",
+             wave: "0b",
+             feature: "aaa",
+             temp: true
+           }
+
+    assert index.features["aaa"].icon == "home"
+    assert index.features["aaa"].summary == "Feature summary"
+    assert index.features["aaa"].wave == "0b"
     assert index.counts == Map.new(index.order, &{&1, if(&1 == "unsorted", do: 4, else: 0)})
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
   end

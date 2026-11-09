@@ -53,16 +53,17 @@ defmodule Aiur.ExecutorAttentionCliAlertsTest do
 
       log = Path.join(workspace_root, "repo/51/logs/agent.ndjson")
       File.mkdir_p!(Path.dirname(log))
+      recent_timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
 
       File.write!(log, """
-      {"event":"alert","timestamp":"2026-06-25T01:00:00Z","name":"ticket.51.agent.phase.work.start","message":"work","reason":"work phase started","needs_attention":false}
-      {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
+      {"event":"alert","timestamp":"#{recent_timestamp}","name":"ticket.51.agent.phase.work.start","message":"work","reason":"work phase started","needs_attention":false}
+      {"event":"alert","timestamp":"#{recent_timestamp}","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
       """)
 
       ledger = Path.join(workspace_root, "ledger.ndjson")
 
       File.write!(ledger, """
-      {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
+      {"event":"alert","timestamp":"#{recent_timestamp}","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
       """)
 
       output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, ledger_paths: [ledger]) end)

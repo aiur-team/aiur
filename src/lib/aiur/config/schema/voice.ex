@@ -1,5 +1,7 @@
 defmodule Aiur.Config.Schema.Voice do
   @moduledoc false
+
+  @external_resource Path.relative_to(Path.join(__DIR__, "voice_conversation.ex"), File.cwd!(), force: true)
   use Ecto.Schema
   import Ecto.Changeset
 

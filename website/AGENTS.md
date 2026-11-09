@@ -22,6 +22,8 @@ Prefer editing an existing page over adding one; a wrong page is worse than a
 missing one. A genuinely new page also needs a sidebar entry in
 `docs-app/.vitepress/config.ts` or it is unreachable.
 
+Shared UI belongs in `packages/aiur-style`; consume its tokens, fonts, assets and scripts instead of copying them into the website or docs.
+
 ## Guards
 
 Run before every push:

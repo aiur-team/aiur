@@ -5,6 +5,9 @@ configuration. Claude and Codex support isolated profile directories. Kimi,
 DeepSeek, and OpenRouter support named API keys. Muse uses its native single
 login and does not support isolated accounts.
 
+The Stream Deck server detail model shows each Claude account’s 5h and weekly
+windows; see [Read provider accounts](/guide/stream-deck#read-provider-accounts) for the Fleet entry and rollout status.
+
 ## Add an account
 
 Create a Claude or Codex profile and sign in interactively:
@@ -40,22 +43,42 @@ account name. Keys remain in the env file; the machine account registry stores
 only the variable name. Per-key identity and usage are unavailable for these
 backends and are shown as unavailable.
 
-List account identity and usage without exposing credentials:
+The compatibility command `aiur accounts` now prints the shared provider usage
+summary and is deprecated. Use `aiur usage` or `aiur usage claude --json` for
+provider-level readings. Account-level identities remain available from the
+authenticated endpoint below; credentials are never returned:
 
 ```sh
-aiur accounts
-aiur accounts codex --json
+aiur usage
+aiur usage claude --json
 ```
 
-Usage percentages and freshness come from the daemon's last poll. If Aiur is
-not running, the command still shows account identity and reports usage as
-unavailable; it does not make a separate usage request.
+Usage percentages and freshness come from the daemon's last poll. The usage
+command requires the daemon and does not make a separate provider request.
+
+The daemon polls Claude usage every `polling.usage_interval_seconds` while
+agents run or a dashboard is in focus, in any `account_selection` mode. A
+shorter `agent.headroom_reading_max_age_seconds` clamps that cadence down to
+the provider's 120-second polling floor. A max age below 120 seconds can become
+stale between probes. Older readings show as `stale`.
+
+When polls fail, Claude rows show `last_error` and `last_error_at`, the time
+of the latest failed poll. After an earlier good reading the row is `stale`
+with that reading's age.
+
+A signed-out profile (no OAuth token, an expired token, or a 401/403 from the
+usage endpoint) also gets `fix`, such as `aiur login claude work`. The `aiur
+usage` and `aiur status` commands print a failure line for each account.
+
+Three failures in a row raise
+`system.claude_account.<name>.usage_probe_failing`. The next good poll
+resolves the alert.
 
 A running daemon serves the same rows over HTTP, behind dashboard basic auth:
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Each row is the matching `aiur accounts --json` row, limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at` and `age_ms`. |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Per-account rows are limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`, `last_error_at` and `fix`. |
 | `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
 
 Every row has a `freshness` value:
@@ -63,7 +86,7 @@ Every row has a `freshness` value:
 | `freshness` | Numbers |
 | --- | --- |
 | `fresh`, `cached` | Current Claude meter reading. |
-| `stale` | Claude reading older than `agent.headroom_reading_max_age_seconds`; numbers are kept and `age_ms` shows how old they are. |
+| `stale` | Claude reading older than `agent.headroom_reading_max_age_seconds`; numbers are kept and `age_ms` shows how old they are. A failing poll after an earlier good reading is also `stale`, with numbers `null`. |
 | `ledger` | Read from the usage ledger (a backend with one account). |
 | `stale_ledger` | Ledger reading past the max age; numbers are `null`, `age_ms` is kept. |
 | `usage_not_observed` | Claude account the daemon has not polled yet. |
@@ -94,6 +117,12 @@ agent:
 five-hour utilization to break ties. `priority` uses the first configured
 account. Usage-aware selection currently applies to Claude and Codex.
 
+Removing an account from `agent.accounts` takes effect at the next session
+start once the hot reload is accepted. A session already running stays on its
+account until its run ends, because the agent process holds that profile's
+credentials. The ticket's next session, a new run or a retry, selects again
+among the accounts still configured.
+
 `headroom` looks across backends as well as accounts: each new ticket goes to
 the backend and account with the most usage left, within the routes its
 complexity level allows. See
@@ -117,12 +146,14 @@ session.
 If no other configured account has room, Aiur keeps the existing
 wait-for-reset behavior.
 
-The dashboard shows a named weekly usage bar for each Claude account, with
-freshness and observation age. Missing readings remain unknown.
+The dashboard shows a named weekly remaining bar for each Claude account, with
+freshness and observation age. A full bar is 100% left; an empty bar is
+unusable until reset. Missing readings remain unknown.
 
 The CLI and Stream Deck summary selects the highest weekly utilization, falling
-back to the highest reported window when weekly usage is absent. It names the
-selected account and labels complete readings “worst of N accounts”.
+back to the highest reported window when weekly usage is absent. The displayed
+bars and percentages show the remaining share, so the summary names the least
+remaining account when all weekly readings are available.
 
 If an account could not be read, the summary names the selected account and the
 observed account count instead.

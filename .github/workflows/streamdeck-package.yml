@@ -6,7 +6,8 @@ name: Stream Deck package
 #   pull_request   build + clean-install smoke only; nothing is published.
 #   push to main   remove legacy per-commit releases after this workflow change
 #                  merges; do not build or publish.
-#   nightly        the schedule, or workflow_dispatch with publish=true. There
+#   nightly        workflow_dispatch with publish=true; nightly-release.yml
+#                  dispatches it once main is green after midnight. There
 #                  is exactly ONE rolling pre-release, `streamdeck-nightly`,
 #                  updated in place: the tag moves to the built commit and the
 #                  two fixed-name assets are replaced with --clobber. The gate
@@ -28,10 +29,6 @@ on:
     paths:
       - "packages/streamdeck/**"
       - ".github/workflows/streamdeck-package.yml"
-  schedule:
-    # Same slot as the npm nightly in release-npm.yml (07:00 UTC). The gate keys
-    # off the last published commit, not the calendar, so DST drift is inert.
-    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       publish:
@@ -46,7 +43,7 @@ on:
 # release. Initial PR runs share a stable group; reruns and release events get a
 # unique group so they cannot replace another pending or in-progress run.
 concurrency:
-  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'nightly' || format('{0}-{1}-{2}', github.event_name, (github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number) || github.run_id, github.run_attempt) }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'nightly' || format('{0}-{1}-{2}', github.event_name, (github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number) || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 permissions:
@@ -62,7 +59,7 @@ jobs:
   # then means nothing to publish.
   gate:
     name: nightly change gate
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
@@ -154,7 +151,7 @@ jobs:
               echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
               echo "asset_base=" >> "$GITHUB_OUTPUT"
               ;;
-            schedule|workflow_dispatch)
+            workflow_dispatch)
               echo "version=0.0.0-nightly.${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
               echo "release_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
               echo "asset_base=${NIGHTLY_ASSET_BASE}" >> "$GITHUB_OUTPUT"
@@ -200,7 +197,7 @@ jobs:
   # first so the release always describes the commit its assets came from, then
   # the two fixed-name assets are replaced, then everything is read back.
   publish-nightly:
-    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish)) }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'workflow_dispatch' && inputs.publish) }}
     needs: [gate, build]
     runs-on: ubuntu-24.04
     permissions:

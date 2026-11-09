@@ -258,7 +258,7 @@ defmodule Aiur.AgentRunner.QueueDrain.DeliveryTest do
                  run_turn: run_turn
                )
 
-      assert_receive {:event, %{ticket_observation: observation}}, 2_000
+      assert_receive {:event, %{progress_source: "progress.checkin", ticket_observation: observation}}, 2_000
       assert observation.tracker_identity == identity
       assert observation.provenance.attempt == 7
       assert observation.provenance.session_id == "queue-thread"

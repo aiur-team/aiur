@@ -103,8 +103,10 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
         end
       end
 
-      setup_timeout = 2_000
-      target_timeout = 2_000
+      # Elapsed time is simulated below, so the real deadlines only need to
+      # outlast a loaded scheduler while the test holds setup and target open.
+      setup_timeout = poll_start_timeout_ms()
+      target_timeout = poll_start_timeout_ms()
 
       opts =
         comment_poll_opts(review_issue_fetcher) ++
@@ -129,7 +131,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
         |> CommentPolling.start_async(opts)
       end)
 
-      assert_receive {:slow_setup_started, setup_worker}, 5_000
+      assert_receive {:slow_setup_started, setup_worker}, poll_start_timeout_ms()
       poll = comment_cursor().poll
       assert poll.abandon_after_ms == setup_timeout + 3 * target_timeout + 30_000
 
@@ -138,7 +140,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
       assert_same_poll_at_elapsed(pid, opts, poll, setup_timeout - 1)
       send(setup_worker, :finish_slow_setup)
 
-      assert_receive {:slow_target_started, target_worker}, 5_000
+      assert_receive {:slow_target_started, target_worker}, poll_start_timeout_ms()
       assert_orchestrator_answers(pid)
       assert :sys.get_state(pid).running["57"].identifier == "57"
 
@@ -224,7 +226,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
 
       CommentPolling.start_async(state, opts)
       first_poll = await_comment_poll()
-      assert_receive {:comment_request_started, first_target, first_request}, 5_000
+      assert_receive {:comment_request_started, first_target, first_request}, poll_start_timeout_ms()
 
       expired_at = System.monotonic_time(:millisecond) - first_poll.abandon_after_ms - 1
       :sys.replace_state(Comments, &put_in(&1.cursor.poll.started_at_ms, expired_at))
@@ -234,7 +236,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
 
       wait_until(fn -> not Process.alive?(first_target) end)
       wait_until(fn -> not Process.alive?(first_request) end)
-      assert_receive {:comment_request_started, second_target, second_request}, 5_000
+      assert_receive {:comment_request_started, second_target, second_request}, poll_start_timeout_ms()
       assert second_target != first_target
 
       Process.exit(second_poll.pid, :kill)
@@ -405,10 +407,12 @@ defmodule Aiur.Regression.OrchestratorBlockingHttp.CommentFanoutTest do
     end
 
     test "drops a straggler from a poll the listener is no longer waiting for" do
-      cursor = %Cursor{since: %{"57" => "2026-06-24T11:00:00Z"}}
+      since = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+      cursor = %Cursor{since: %{"57" => since}}
       :sys.replace_state(Comments, &%{&1 | cursor: cursor})
       send(Comments, {:github_comments_polled, make_ref(), {:error, :boom}})
       assert comment_cursor() == cursor
+      assert comment_cursor().since["57"] == since
       refute_receive {:github_listener_outcome, :comments, _outcome}, 100
     end
   end

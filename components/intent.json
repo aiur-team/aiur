@@ -1,0 +1,51 @@
+{
+  "id": "intent",
+  "name": "Shared intent",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/intent/dir.ex",
+    "src/lib/aiur/intent/hlc.ex",
+    "src/lib/aiur/intent/publish.ex",
+    "src/lib/aiur/intent/reconciler.ex",
+    "src/lib/aiur/intent/registers.ex",
+    "src/lib/aiur/intent/store.ex",
+    "src/lib/aiur/intent/sync.ex",
+    "src/lib/aiur/intent/writer.ex"
+  ],
+  "facades": [
+    "Aiur.Intent.Dir",
+    "Aiur.Intent.Hlc",
+    "Aiur.Intent.Publish",
+    "Aiur.Intent.Registers",
+    "Aiur.Intent.Store",
+    "Aiur.Intent.Sync",
+    "Aiur.Intent.Writer"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "config",
+    "executor-attention",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Stores and syncs operator intent changes shared across gateways.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
+}

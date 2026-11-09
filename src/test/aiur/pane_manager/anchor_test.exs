@@ -47,10 +47,6 @@ defmodule Aiur.PaneManager.AnchorTest do
     assert {:ok, "test:0"} = Task.await(task, 2000)
   end
 
-  test "publish_control_url returns ok when dashboard is unbound" do
-    assert Anchor.publish_control_url(:unused) == :ok
-  end
-
   defp start_tmux do
     test_pid = self()
     name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")

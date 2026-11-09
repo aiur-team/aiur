@@ -116,6 +116,21 @@ defmodule Aiur.Config.SemanticChecksTest do
     refute_received :opencode_check
   end
 
+  test "registered hosted check rejects a live instance mode change before dispatch" do
+    booted_mode = Application.get_env(:aiur, :booted_instance_mode)
+    Application.put_env(:aiur, :booted_instance_mode, "local")
+
+    on_exit(fn ->
+      if is_nil(booted_mode),
+        do: Application.delete_env(:aiur, :booted_instance_mode),
+        else: Application.put_env(:aiur, :booted_instance_mode, booted_mode)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), instance_mode: "hosted")
+
+    assert Config.validate!() == {:error, {:instance_mode_change_requires_restart, "local", "hosted"}}
+  end
+
   test "GitHub validation error propagates without reaching Claude or Opencode" do
     spy_registry()
     System.delete_env("GITHUB_TOKEN")

@@ -12,17 +12,35 @@ defmodule Aiur.Codex.UsageLimitTest do
   # The refusal as Codex CLI 0.154.0 recorded it for turn 01a0b3bc on
   # 2026-09-18T09:20:37Z (task_complete.error in the rollout). The app-server
   # sends it as an ErrorNotification and as the failed turn's TurnError.
-  @banner "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 21st, 2026 6:26 PM."
+  # Every instant below derives from @observed_at, the one literal the time-bomb
+  # checker shifts. A hand-written epoch or printed date cannot be shifted, so
+  # writing them out would leave them 35 days away from the moved instant and
+  # fail the merge-group rerun (#7549).
   @thread "01a0b3b2-f413-7bf1-a724-c492e3c9be3c"
   @observed_turn "01a0b3bc-83ca-7970-bbe2-eed2e9eeb3fc"
   @observed_at ~U[2026-09-18 09:20:37Z]
-  # The rollout's rate-limit snapshot: primary window at 100 percent with
-  # resetsAt 1790040385. The pause takes this exact value, not the text.
-  @resets_at_epoch 1_790_040_385
-  @reset_at "2026-09-22T01:26:25Z"
-  # With no exhausted window known, the text "Sep 21st, 2026 6:26 PM" (PDT) is
-  # rounded up to the end of its minute.
-  @text_reset_at "2026-09-22T01:27:00Z"
+  # The rollout's rate-limit snapshot: primary window at 100 percent, resetting
+  # 3 d 16 h 5 min 48 s after the refusal. Its resetsAt is 1790040385. The pause
+  # takes this exact instant, not the text.
+  @reset_after_seconds 317_148
+  @reset_at_time DateTime.add(@observed_at, @reset_after_seconds, :second)
+  @reset_at DateTime.to_iso8601(@reset_at_time)
+  @resets_at_epoch DateTime.to_unix(@reset_at_time)
+  # Codex prints the reset in the app-server host's zone at minute precision:
+  # "Sep 21st, 2026 6:26 PM" for the instant above. With no exhausted window
+  # known, the parser resumes at the end of the printed minute, never inside it.
+  @reset_local DateTime.shift_zone!(@reset_at_time, "America/Los_Angeles", Tz.TimeZoneDatabase)
+  @reset_hint Calendar.strftime(@reset_local, "%b ") <>
+                "#{@reset_local.day}" <>
+                Map.get(
+                  %{1 => "st", 2 => "nd", 3 => "rd", 21 => "st", 22 => "nd", 23 => "rd", 31 => "st"},
+                  @reset_local.day,
+                  "th"
+                ) <> Calendar.strftime(@reset_local, ", %Y %-I:%M %p")
+  @banner "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at " <>
+            @reset_hint <> "."
+  @printed_minute %DateTime{@reset_at_time | second: 0, microsecond: {0, 0}}
+  @text_reset_at DateTime.to_iso8601(DateTime.add(@printed_minute, 60, :second))
   @turn_timeout_ms 400
 
   setup do
@@ -61,7 +79,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert {:paused, pause} = CodexAgent.run_turn(session, "review", issue, on_message: on_message)
     assert pause.kind == :usage_limit_exhausted
     assert pause.reason =~ "usage limit"
-    assert pause.reset_hint == "Sep 21st, 2026 6:26 PM"
+    assert pause.reset_hint == @reset_hint
     assert pause.reset_at == @reset_at
     refute_received {:agent_message, :turn_ended_with_error}
 
@@ -84,7 +102,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     # 4. Assistant and tool text that quotes the refusal is not a refusal.
     assert {:ok, _session} = CodexAgent.run_turn(session, "quote the banner", issue, on_message: on_message)
 
-    # 5. A turn that goes silent is surfaced within the no-progress bound.
+    # 5. A turn that goes silent is surfaced within the bounded turn timeout.
     started = System.monotonic_time(:millisecond)
     assert {:error, :turn_timeout} = CodexAgent.run_turn(session, "silent", issue, on_message: on_message)
     elapsed = System.monotonic_time(:millisecond) - started
@@ -138,9 +156,12 @@ defmodule Aiur.Codex.UsageLimitTest do
     {:ok, reset, 0} = DateTime.from_iso8601(@reset_at)
     opts = [primary_backend: "codex", fallback_backend: nil, current_backend: "codex", marker_label: "agent:rate-limit-fallback", state: %{"backends" => %{}}]
 
-    # A configured fallback takes the ticket; without one it holds until the reset.
-    assert RateLimitFallback.decide(paused_entry, issue, Keyword.merge(opts, fallback_backend: "claude", now: DateTime.add(reset, -1))) ==
-             :engage
+    # A configured fallback takes the ticket after the bounded wait; without
+    # one the ticket holds until the recorded provider reset.
+    paused_entry = Map.put(paused_entry, :paused_at, @observed_at)
+    fallback_opts = Keyword.merge(opts, fallback_backend: "claude")
+    assert RateLimitFallback.decide(paused_entry, issue, Keyword.put(fallback_opts, :now, DateTime.add(@observed_at, 599))) == :noop
+    assert RateLimitFallback.decide(paused_entry, issue, Keyword.put(fallback_opts, :now, DateTime.add(@observed_at, 600))) == :engage
 
     assert RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, DateTime.add(reset, -1))) == paused
     refute_received {:resume_agent, _request_id}
@@ -156,7 +177,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     test "a #{reason} survives a usage-limit report and is not resumed at the reset", %{issue: issue} do
       reason = unquote(reason)
       {:ok, reset, 0} = DateTime.from_iso8601(@reset_at)
-      pause = %{kind: :usage_limit_exhausted, reason: "error: " <> @banner, reset_hint: "Sep 21st, 2026 6:26 PM", reset_at: @reset_at}
+      pause = %{kind: :usage_limit_exhausted, reason: "error: " <> @banner, reset_hint: @reset_hint, reset_at: @reset_at}
 
       for status <- [:working, :paused] do
         entry = %{

@@ -1,12 +1,14 @@
 defmodule Aiur.GitHub.CIPollBatchReadyReview do
   @moduledoc false
 
+  alias Aiur.GitHub.{AgentMarker, Config}
+
   @doc false
   @spec fields() :: String.t()
   def fields do
     """
     timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100) { nodes { __typename ... on ReopenedEvent { createdAt } ... on ReadyForReviewEvent { createdAt } } }
-    reviews(last: 100) { nodes { state commit { oid } } }
+    reviews(last: 100) { nodes { state body commit { oid } } }
     """
   end
 
@@ -38,10 +40,15 @@ defmodule Aiur.GitHub.CIPollBatchReadyReview do
     node
     |> get_in(["reviews", "nodes"])
     |> List.wrap()
-    |> Enum.any?(fn review -> get_in(review, ["commit", "oid"]) == head_sha end)
+    |> Enum.any?(fn review ->
+      Map.get(review, "state") in ["APPROVED", "CHANGES_REQUESTED"] and
+        get_in(review, ["commit", "oid"]) == head_sha and not agent_review?(review)
+    end)
   end
 
   defp reviewed_head?(_node), do: false
+
+  defp agent_review?(review), do: Config.single_account?() and AgentMarker.marked?(Map.get(review, "body"))
 
   defp approved_review_head_sha(node) do
     with %{} = reviews <- Map.get(node, "reviews"),

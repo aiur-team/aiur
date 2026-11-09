@@ -86,6 +86,7 @@ defmodule Aiur.Projections.UnitsPolicy do
   def in_scope?(_row, _scope), do: false
 
   @spec condition?(condition() | term(), map()) :: boolean()
+  def condition?(:waiting_on_you, row) when is_map(row), do: live?(row) and is_map(get_in(row, [:reasons, :native_hold]))
   def condition?(:active, row) when is_map(row), do: active?(row)
   def condition?(:alert, row) when is_map(row), do: alert?(row)
   def condition?(:paused, row) when is_map(row), do: paused?(row)
@@ -98,10 +99,10 @@ defmodule Aiur.Projections.UnitsPolicy do
 
   defp unfinished?(row), do: not finished?(row) and (live?(row) or queued?(row))
 
-  defp active?(row), do: live?(row) and work_state(row) in [:allocated, :working]
+  defp active?(row), do: live?(row) and not condition?(:waiting_on_you, row) and work_state(row) in [:allocated, :working]
 
   defp alert?(row) do
-    present?(reason(row, :alert)) or open_command_count(row) > 0
+    condition?(:waiting_on_you, row) or present?(reason(row, :alert)) or open_command_count(row) > 0
   end
 
   defp paused?(row) do

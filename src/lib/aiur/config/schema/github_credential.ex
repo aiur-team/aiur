@@ -27,7 +27,7 @@ defmodule Aiur.Config.Schema.GithubCredential do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-01 tracker.github.credentials.id
-    # @config-detail tracker.github.credentials.id | string | required | Lowercase identifier naming this credential in `aiur github-usage` and `aiur github-cost`. Must be unique. |
+    # @config-detail tracker.github.credentials.id | string | required | Lowercase identifier naming this credential in the deprecated `aiur github-usage` and `aiur github-cost` reports. Must be unique. |
     field(:id, :string)
     # @config-reference config-configuration-01 tracker.github.credentials.kind
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

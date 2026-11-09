@@ -9,7 +9,7 @@ from typing import Any
 from . import sources
 
 
-SUPPORTED_KINDS = ("restart", "run_context", "lifecycle", "resource", "warning")
+SUPPORTED_KINDS = ("feature_supply", "restart", "run_context", "lifecycle", "resource", "warning")
 IGNORED_KINDS = frozenset(("firehose_poll", "capacity_hold", "capacity_resumed"))
 _RECORD_REQUIRED = ("kind", "timestamp", "boot_id", "sequence", "record_id", "attributes")
 

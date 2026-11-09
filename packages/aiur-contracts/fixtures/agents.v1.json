@@ -1,0 +1,14 @@
+{
+  "contract": "aiur.agents",
+  "contract_version": 1,
+  "running": [
+    {
+      "adopted_from": "handoff-7",
+      "codex_app_server_pid": null,
+      "identifier": "5698",
+      "issue_id": "I_5698",
+      "provider_pid": "12345",
+      "session_id": "session-5698"
+    }
+  ]
+}

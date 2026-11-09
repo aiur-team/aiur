@@ -30,9 +30,10 @@ def report_for(
     data: object,
     approved_expectations: ApprovedIssueExpectations | None = None,
     publication_authority: PublicationAuthority | None = None,
+    general_epics: list[dict[str, Any]] | None = None,
 ):
     return validate_data(
-        data, REFERENCES, approved_expectations, publication_authority,
+        data, REFERENCES, approved_expectations, publication_authority, general_epics,
     )
 
 

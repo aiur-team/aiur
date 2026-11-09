@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.DispatchCycleLiveness do
   @moduledoc false
 
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.Signal
 
   @retry_ms 1_000
 
@@ -78,7 +78,7 @@ defmodule Aiur.Orchestrator.DispatchCycleLiveness do
     reason = "Dispatch cycle has not completed for #{seconds}s (stage: #{stage})."
     started_at_ms = state.dispatch_cycle_started_at_ms || idle_stall_started_at(state)
 
-    case Alerts.emit_system("system.dispatch.cycle_stalled", message: reason, reason: reason, needs_attention: true, severity: "warning") do
+    case Signal.alert("system.dispatch.cycle_stalled", message: reason, reason: reason, needs_attention: true, severity: "warning") do
       :ok ->
         %{state | dispatch_cycle_stalled?: true, dispatch_cycle_stage: stage, dispatch_cycle_started_at_ms: started_at_ms, dispatch_cycle_watchdog_timer_ref: nil}
 
@@ -97,7 +97,7 @@ defmodule Aiur.Orchestrator.DispatchCycleLiveness do
     do: Enum.any?(state.tracker_tasks, fn {_ref, task} -> task.key == :startup_workspace_cleanup end)
 
   defp resolve_stall(%State{dispatch_cycle_stalled?: true} = state, message) do
-    _ = Alerts.emit_system("system.dispatch.cycle_stalled.resolved", message: message, reason: message, needs_attention: false, severity: "info")
+    _ = Signal.alert("system.dispatch.cycle_stalled.resolved", message: message, reason: message, needs_attention: false, severity: "info")
     %{state | dispatch_cycle_stalled?: false, dispatch_cycle_stage: nil, dispatch_cycle_started_at_ms: nil}
   end
 

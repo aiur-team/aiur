@@ -74,5 +74,6 @@
   "capabilities": [
     "experiments",
     "experiments.metric_packs"
-  ]
+  ],
+  "goal": "steer"
 }

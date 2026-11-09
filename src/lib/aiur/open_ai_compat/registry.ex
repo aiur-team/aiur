@@ -1,6 +1,7 @@
 defmodule Aiur.OpenAICompat.Registry do
   @moduledoc false
 
+  alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.ModelDiscovery
   alias Aiur.OpenAICompat.{CodingAgent, ProviderMeterProbe, Transcript}
 
@@ -84,12 +85,17 @@ defmodule Aiur.OpenAICompat.Registry do
           # also before any usage event exists to attribute. See
           # `Aiur.CodingAgent.resolve_model/2`.
           model_aliases: :derived,
+          config_validator: &OpenRouterBackend.validate/1,
           openai_compat: %{
             base_url: "https://openrouter.ai/api/v1",
             api_key_env: "OPENROUTER_API_KEY",
             management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
             models_endpoint: ModelDiscovery.Source.OpenRouter,
             transport: :chat_completions,
+            # OpenRouter's own routing fields (provider preferences, model sets)
+            # are forwarded; every other OpenAI-compatible backend would reject
+            # them. See `Aiur.Config.Schema.OpenRouterBackend`.
+            provider_preferences: true,
             quirks: %{openrouter_metadata: true}
           },
           presentation:
@@ -115,8 +121,14 @@ defmodule Aiur.OpenAICompat.Registry do
         family: family,
         # In-process HTTP; Checkpoint.defer/flush injects between tools; ToolSpec exposes aiur tools.
         delivery: %{transport: :in_process_http, mid_turn_inject: :native, pull_tool: true, hook_boundaries: [], native_question: :none},
+        hosted_execution: %{permission_boundary: :enforced, network_boundary: :unrestricted, credential_boundary: :daemon},
         can_interrupt: false,
         safe_checkpoints: [:notification, :tool_result],
+        # The conversation lives in this daemon's `Aiur.OpenAICompat.Session`
+        # agent rather than a child process, so a keep-agents restart snapshots
+        # it at a safe step boundary and seeds a fresh session in the successor
+        # daemon. See `Aiur.CodingAgent.handoff_kind/1`.
+        handoff: :in_daemon,
         # The OpenAI-compat worker implements the correlated unit-control
         # protocol: `pause_state/0` echoes the orchestrator's `request_id` and
         # `generation` in its `{:paused, ...}` payload, and the runner forwards

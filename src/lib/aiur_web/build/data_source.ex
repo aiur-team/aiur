@@ -3,11 +3,13 @@ defmodule AiurWeb.Build.DataSource do
 
   @callback subscribe(keyword()) :: :ok | {:error, term()}
   @callback snapshot(keyword()) :: {:ok, map()} | {:error, term()}
+  @callback last_agents(keyword()) :: {:ok, map()} | {:error, term()}
   @callback earlier(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback ticket_doc_identity(String.t(), keyword()) :: {:ok, Aiur.TrackerIdentity.t()} | :no_identity | {:error, term()}
   @callback daemon(keyword()) :: map() | nil
-  @optional_callbacks daemon: 1, ticket_doc_identity: 2
+  @callback unit_row(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @optional_callbacks daemon: 1, unit_row: 2, ticket_doc_identity: 2, last_agents: 1
 
   @spec source() :: module() | {module(), keyword()}
   def source, do: Application.get_env(:aiur, :build_data_source, AiurWeb.Build.IndexSource)
@@ -25,6 +27,13 @@ defmodule AiurWeb.Build.DataSource do
     if Code.ensure_loaded?(module) and function_exported?(module, :daemon, 1), do: call(source, :daemon, [opts])
   end
 
+  @doc "Returns retained agent rows with their original source observation time."
+  @spec last_agents(module() | {module(), keyword()}, keyword()) :: {:ok, map()} | {:error, term()}
+  def last_agents(source, opts) do
+    module = with {module, _} <- source, do: module
+    if Code.ensure_loaded?(module) and function_exported?(module, :last_agents, 1), do: call(source, :last_agents, [opts]), else: {:error, :unavailable}
+  end
+
   @spec subscribe(keyword()) :: :ok
   def subscribe(_opts), do: :ok
 
@@ -35,6 +44,9 @@ defmodule AiurWeb.Build.DataSource do
 
   @spec ticket(String.t(), keyword()) :: {:error, :not_wired}
   def ticket(_id, _opts), do: {:error, :not_wired}
+
+  @spec unit_row(String.t(), keyword()) :: {:error, :not_wired}
+  def unit_row(_id, _opts), do: {:error, :not_wired}
 
   @spec ticket_doc_identity(String.t(), keyword()) :: {:ok, Aiur.TrackerIdentity.t()} | :no_identity | {:error, term()}
   defdelegate ticket_doc_identity(id, opts), to: AiurWeb.Build.TicketDoc, as: :live_identity

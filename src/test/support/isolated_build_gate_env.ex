@@ -5,7 +5,8 @@ defmodule Aiur.TestSupport.IsolatedBuildGateEnv do
     gate = Path.join(root, "build-gate")
     locks = gate <> ".locks"
     hook = Path.expand("../../priv/build_gate.bash", __DIR__)
-    bin = Path.expand("../../.aiur-runtime/build-bin", File.cwd!())
+    bin = Path.expand("../.aiur-runtime/build-bin", File.cwd!())
+
     for path <- [gate, locks], do: File.mkdir_p!(path)
     for slot <- 1..2, do: File.write!(Path.join(locks, "slot-#{slot}.lock"), "")
     File.write!(Path.join(locks, "phase-start.lock"), "")
@@ -32,6 +33,7 @@ defmodule Aiur.TestSupport.IsolatedBuildGateEnv do
 
     Map.fetch!(values, "AIUR_BUILD_GATE_DIR") == gate and
       Map.fetch!(values, "AIUR_BUILD_GATE_LOCK_DIR") == locks and
+      Map.fetch!(values, "AIUR_BUILD_GATE_BIN") == Path.expand("../.aiur-runtime/build-bin", File.cwd!()) and
       Map.fetch!(values, "BASH_ENV") == Path.expand("../../priv/build_gate.bash", __DIR__) and
       Map.fetch!(values, "AIUR_BUILD_GATE_LEASE_PATH") == nil and
       Map.fetch!(values, "AIUR_BUILD_GATE_LEASE_TOKEN") == nil

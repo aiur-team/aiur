@@ -52,20 +52,29 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
     assert observe(row) == {@checkpoint, false}
   end
 
-  test "R7-C1-F1: control flags follow the dispatched backend, not the running transport" do
+  test "R7-C1-F1 fixed by MP-E7-C2-T04: control flags follow the running transport" do
     row = %{harness: "claude-repl", requested: :auto, fallback: nil, entry_state: :working_active, transport: "claude"}
-    assert observe(row) == {@immediate, true}
+    assert observe(row) == {@checkpoint, false}
   end
 
-  test "no running entry rejects messages without enqueuing or waking" do
+  test "ticket without a running entry queues for the next worker without waking" do
     state = %State{queue_store: AgentQueueStore.new()}
-    assert {:reply, {:error, :no_running_agent}, ^state} = OperatorMessages.send_operator_message_call(state, "missing-r7", %{kind: :text, body: "x"})
+
+    assert {:reply, {:ok, item_id}, updated} =
+             OperatorMessages.send_operator_message_call(state, "missing-r7", %{kind: :text, body: "x"})
+
     refute_received {:agent_queue_updated, "missing-r7", _, _}
+    assert [item] = AgentQueueStore.list_pending(updated.queue_store, "missing-r7")
+    assert item.id == item_id
+    assert item.body == %{text: "x"}
+    assert item.delivery == @checkpoint
   end
 
   defp observe(row) do
     identifier = "r7-matrix-#{System.unique_integer([:positive])}"
     state = state_for(row, identifier)
+    # Report fallback through the production handler rather than hand-stamping control flags.
+    state = if row[:transport], do: elem(State.handle_session_execution_info(state, identifier, %{backend: row.transport}), 1), else: state
     :ok = ActiveTurns.put(identifier, "active")
     if row.entry_state == :working_idle, do: ActiveTurns.mark_closed(identifier, "active", :idle)
 
@@ -107,7 +116,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryMatrixTest do
       immediate_delivery: CodingAgent.immediate_delivery?(row.harness)
     }
 
-    entry = %{identifier: identifier, issue: %Issue{id: identifier, identifier: identifier}, pid: self(), control: control, session_execution: %{backend: Map.get(row, :transport, row.harness)}}
+    entry = %{
+      identifier: identifier,
+      issue: %Issue{id: identifier, identifier: identifier, selected_backend: row.harness},
+      pid: self(),
+      control: control,
+      session_execution: %{backend: Map.get(row, :transport, row.harness)}
+    }
+
     entry = if row.entry_state in [:self_paused, :self_paused_pending], do: Map.put(entry, :paused_reason, :agent_pause_request), else: entry
     state = %State{queue_store: AgentQueueStore.new(), running: %{identifier => entry}}
     if row.entry_state in [:self_paused_pending, :working_pending], do: pending_pause(state, identifier), else: state

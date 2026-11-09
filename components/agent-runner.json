@@ -11,11 +11,13 @@
     "src/lib/aiur/agent_runner.ex",
     "src/lib/aiur/agent_runner/**",
     "src/lib/aiur/agent_skills.ex",
+    "src/lib/aiur/agent_skills/**",
     "src/lib/aiur/agent_status_note.ex",
     "src/lib/aiur/event_publication_log.ex",
     "src/lib/aiur/issue_context.ex",
     "src/lib/aiur/issue_log.ex",
     "src/lib/aiur/issue_log/**",
+    "src/lib/aiur/lane.ex",
     "src/lib/aiur/live_conversation.ex",
     "src/lib/aiur/live_conversation/**",
     "src/lib/aiur/logs/**",
@@ -38,7 +40,8 @@
     "workspace"
   ],
   "optional": [
-    "build-orders"
+    "build-orders",
+    "conversations"
   ],
   "owns": {
     "config": [],
@@ -62,5 +65,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

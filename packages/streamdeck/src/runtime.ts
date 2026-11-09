@@ -11,6 +11,7 @@
  * {@link file://./main.ts}.
  */
 
+import { createDeckBrightness, type DeckSettings } from "./deck-settings.js";
 import type { HidBackend } from "./backend.js";
 import { classifyRead } from "./read.js";
 import { acquireLock, createAbstractSocketBinding, DEFAULT_LOCK_NAME, type LockHandle, type NetLike } from "./lock.js";
@@ -70,6 +71,8 @@ export interface RuntimeEnv {
 
 /** A started runtime; {@link stop} tears down sources and the lock. */
 export interface Runtime {
+  flash(): void;
+  applySettings(settings: Pick<DeckSettings, "brightness" | "dim_after_seconds">): void;
   stop(): void;
   /**
    * Reports a failed device write (a heartbeat write the renderer performs).
@@ -96,6 +99,11 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
   // serialized here so, e.g., the startup key-stream reset lands before the
   // first repaint.
   let effectChain: Promise<void> = Promise.resolve();
+
+  const brightness = createDeckBrightness({
+    defaultBrightness: env.brightness, setTimer: env.setTimer, clearTimer: env.clearTimer,
+    write: (value) => { void sendFeature(setBrightness(value), "brightness"); },
+  });
 
   const stopPolling = (): void => {
     if (pollTimer !== null) {
@@ -145,6 +153,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
       return;
     }
     if (outcome.type === "input") {
+      brightness.input();
       env.onInput?.(outcome.data);
       // Read again immediately rather than waiting out the interval: a backend
       // may have several reports buffered, and draining one per interval makes
@@ -176,6 +185,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
 
   const closeDevice = async (): Promise<void> => {
     stopPolling();
+    brightness.stop();
     cancelReopen();
     const closing = backend;
     backend = null;
@@ -203,7 +213,8 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
           env.log({ level: "warn", message: "key-stream reset failed", cause }),
         );
       case "apply-brightness":
-        return sendFeature(setBrightness(env.brightness), "brightness");
+        brightness.opened();
+        return;
       case "repaint":
         // repaint is only ever emitted immediately after a successful open
         // (device-opened), so the handle is non-null here by construction.
@@ -307,6 +318,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
   );
 
   const cleanup = (): void => {
+    brightness.stop();
     stopPolling();
     cancelReopen();
     sleepSource.stop();
@@ -321,6 +333,8 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
   }
 
   return {
+    flash: brightness.flash,
+    applySettings: brightness.apply,
     stop: cleanup,
     notifyWriteFailure: (error) => dispatch({ type: "write-failed", error }),
   };

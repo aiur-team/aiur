@@ -1,0 +1,39 @@
+{
+  "timezone": "America/Los_Angeles",
+  "branch": "main",
+  "required_workflows": ["ci.yml"],
+  "retain": 14,
+  "packages": [
+    {
+      "name": "aiur",
+      "kind": "dispatch",
+      "paths": ["src", "packaging", "mise.toml", "LICENSE", "NOTICE", ".github/workflows/release-npm.yml"],
+      "version_file": "src/mix.exs",
+      "version": "{base}-nightly.{sha7}",
+      "workflow": "release-npm.yml",
+      "inputs": { "channel": "nightly" }
+    },
+    {
+      "name": "aiur-image",
+      "kind": "docker",
+      "paths": ["src", "Dockerfile", ".dockerignore", "mise.toml"],
+      "version_file": "src/mix.exs",
+      "image": "ghcr.io/aiur-team/aiur"
+    },
+    {
+      "name": "streamdeck",
+      "kind": "dispatch",
+      "paths": ["packages/streamdeck", ".github/workflows/streamdeck-package.yml"],
+      "version_file": "packages/streamdeck/package.json",
+      "workflow": "streamdeck-package.yml",
+      "inputs": { "publish": "true" },
+      "prerelease": false
+    },
+    {
+      "name": "voice_converse",
+      "kind": "git-tag",
+      "paths": ["packages/elixir/voice_converse"],
+      "version_file": "packages/elixir/voice_converse/mix.exs"
+    }
+  ]
+}

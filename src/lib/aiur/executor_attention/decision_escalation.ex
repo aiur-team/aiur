@@ -118,16 +118,17 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
   @spec status_line([Decision.t()], DateTime.t(), (String.t() -> non_neg_integer())) :: String.t()
   def status_line(decisions, now, gates_fun \\ &gates/1) do
     open = decisions |> Enum.filter(&Commands.open?/1) |> Enum.sort_by(&DateTime.to_unix(&1.created_at, :microsecond))
+    ids = open |> Enum.map(& &1.decision_id) |> Enum.sort()
 
     case open do
       [] ->
-        "DECISIONS open 0"
+        "DECISIONS open 0 ids=[]"
 
       [oldest | _] ->
         ticket = oldest.ticket.identifier
         expired = Enum.count(open, &(&1.decision_status == :expired))
         expired_label = if expired > 0, do: " (#{expired} expired)", else: ""
-        line = "DECISIONS open #{length(open)}#{expired_label} oldest #{age_label(age(oldest, now))} (##{ticket}, gates #{gates_fun.(ticket)})"
+        line = "DECISIONS open #{length(open)}#{expired_label} ids=[#{Enum.join(ids, ",")}] oldest #{age_label(age(oldest, now))} (##{ticket}, gates #{gates_fun.(ticket)})"
         if aged?(oldest, now), do: line <> " ATTENTION (answer with `aiur commands`)", else: line
     end
   end

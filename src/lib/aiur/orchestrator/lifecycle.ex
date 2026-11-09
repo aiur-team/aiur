@@ -16,8 +16,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
     ControlLifecycleStore,
     DispatchPolicy,
     EnvelopeResume,
+    GlobalPause,
     GlobalPauseStore,
+    OperatorMessages.PendingStore,
     OrphanedWorkers,
+    PauseGuard,
     PauseResume,
     RemoteControlMode,
     Slots,
@@ -29,6 +32,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackerTasks,
     WorkspaceCleanup
   }
+
+  alias Aiur.Project.Context
 
   @poll_transition_render_delay_ms 20
   @control_ack_timeout_ms 30_000
@@ -42,6 +47,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.failed",
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
+    "ticket.*.agent.progress",
+    "ticket.*.agent.progress.checkin",
+    "ticket.*.agent.progress.phase",
     "ticket.*.agent.unblocked",
     "ticket.*.optimistic.integrated",
     "ticket.*.agent.decision.answered",
@@ -57,7 +65,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @spec request_refresh_api() :: map() | :unavailable
-  def request_refresh_api, do: request_refresh_api(Aiur.Orchestrator)
+  def request_refresh_api, do: request_refresh_api(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec request_refresh_api(GenServer.server()) :: map() | :unavailable
   def request_refresh_api(server) do
@@ -87,9 +95,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+    :ok = Aiur.Project.adopt(opts)
     :ok = TestTicketScope.validate!()
     :ok = Protection.reset()
-    if Process.whereis(Listeners), do: Listeners.reset()
+    if GenServer.whereis(Aiur.Project.whereis(Listeners)), do: Listeners.reset()
     :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
@@ -132,6 +141,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
+      fleet_paused: GlobalPause.boot_fleet_paused(),
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
       load_envelope_state: EnvelopeResume.boot(config.agent),
@@ -144,6 +154,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
+        |> Map.put(:ci_observed_at_ms, %{})
         |> Map.put(:rewakes, %{})
         # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
         # the first CI poll after boot reloads still-active alerts from the
@@ -151,14 +162,17 @@ defmodule Aiur.Orchestrator.Lifecycle do
         |> Map.put(:parked_ready_alerts, nil),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
-      control_lifecycle: control_lifecycle
+      control_lifecycle: control_lifecycle,
+      queue_store: PendingStore.load()
     }
+
+    GlobalPause.put_effective_env(state)
 
     :ok =
       SnapshotStore.publish_global_pause(
         snapshot_key,
         state.snapshot_generation,
-        Map.put(state.global_pause, :globally_paused, state.globally_paused)
+        Map.put(state.global_pause, :globally_paused, PauseGuard.paused?(state))
       )
 
     # Runner tasks survive an Orchestrator-only restart, but this generation
@@ -167,10 +181,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
     state = state |> Adopter.adopt() |> OrphanedWorkers.stop_untracked_runners()
     state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
-    TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
+    TrackedSet.refresh(state)
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
+    _ = Phoenix.PubSub.subscribe(Aiur.PubSub, "intent:registers")
     _ = LiveConversation.subscribe_restarts()
 
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
@@ -219,13 +234,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # drain: false is load-bearing — terminate/2 also runs on a supervised
     # crash-restart, and latching the app-lifetime reaper into draining
     # there would kill every agent the restarted orchestrator spawns.
-    _ = ProcessReaper.reap([:agent], drain: false)
+    _ = ProcessReaper.reap([:agent], Keyword.merge([drain: false], project_opt()))
     Enum.each(running, fn {id, entry} -> unless Protection.protected?(id), do: AgentTeardown.kill_repl_session(entry) end)
     discard_unnamed_snapshot(state)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  # With a project context only that project's agents are reaped; none reaps everything, as before.
+  defp project_opt do
+    case Context.current_id() do
+      nil -> []
+      id -> [project: id]
+    end
+  end
 
   defp discard_unnamed_snapshot(%State{snapshot_key: snapshot_key}) when is_pid(snapshot_key),
     do: SnapshotStore.discard(snapshot_key)
@@ -413,7 +436,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
-    if Process.whereis(Events.exchange_server()) do
+    if GenServer.whereis(Events.exchange_server()) do
       Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 
@@ -430,7 +453,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp subscribe_to_prewarm(opts) do
-    if Keyword.get(opts, :name) == Aiur.Orchestrator, do: AgentPubSub.subscribe_prewarm(), else: :ok
+    if Keyword.get(opts, :name) == Aiur.Project.name(Aiur.Orchestrator), do: AgentPubSub.subscribe_prewarm(), else: :ok
   end
 
   @doc false

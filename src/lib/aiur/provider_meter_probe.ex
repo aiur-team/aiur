@@ -25,6 +25,8 @@ defmodule Aiur.ProviderMeterProbe do
   displaying with its true age, and the outcome names why.
   """
 
+  require Logger
+
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
   alias Aiur.Claude.UsageApi
@@ -232,6 +234,7 @@ defmodule Aiur.ProviderMeterProbe do
 
         {usage_result, account_observed_at, freshness} = result
         Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
+        Accounts.UsageReadings.alert_if_failing(name, Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3))
         {name, usage_result}
       end)
 

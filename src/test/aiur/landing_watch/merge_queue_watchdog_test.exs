@@ -118,6 +118,26 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogTest do
     refute_received :dequeued
   end
 
+  test "a queued interval restarts the twenty-minute UNMERGEABLE timer" do
+    path = temp_journal()
+    parent = self()
+    unmergeable = observation(55)
+    queued = observation(55, merge_queue_entry: %{"id" => "entry-55", "state" => "QUEUED"})
+    opts = [journal_path: path, token: "test-gh-token"] ++ check_opts(parent, 55)
+    at = &Keyword.put(opts, :now_ms, &1)
+
+    assert :ok = MergeQueueWatchdog.reconcile([unmergeable], at.(1_000))
+    assert :ok = MergeQueueWatchdog.reconcile([queued], at.(1_501_000))
+    assert :ok = MergeQueueWatchdog.reconcile([unmergeable], at.(1_502_000))
+    refute_received :dequeued
+
+    assert :ok = MergeQueueWatchdog.reconcile([unmergeable], at.(2_701_000))
+    refute_received :dequeued
+
+    assert :ok = MergeQueueWatchdog.reconcile([unmergeable], at.(2_702_000))
+    assert_received :dequeued
+  end
+
   test "does not requeue a failure selected by the PR diff" do
     path = temp_journal()
     observation = observation(48)

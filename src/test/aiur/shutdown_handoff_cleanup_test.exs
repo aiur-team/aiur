@@ -113,7 +113,7 @@ defmodule Aiur.ShutdownHandoffCleanupTest do
   end
 
   defp protect(agents) do
-    Protection.store(self(), %{agents: agents}, MapSet.new(["held"]))
+    Protection.store(self(), %{agents: agents, handoff_id: "test-handoff"}, MapSet.new(["held"]), [], 600_000)
   end
 
   defp spawn_tree(cwd) do

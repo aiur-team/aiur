@@ -53,7 +53,7 @@ defmodule Aiur.ProgressCheckin.Worker do
   def init(opts) do
     state = %{
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
-      orchestrator: Keyword.get(opts, :orchestrator, Aiur.Orchestrator),
+      orchestrator: Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)),
       publisher: Keyword.get(opts, :publisher),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }

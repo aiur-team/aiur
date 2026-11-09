@@ -37,6 +37,26 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Enum.sum(Enum.map(records, & &1["count"])) == 40
   end
 
+  test "pending reads cached journal records after startup", %{opts: opts} do
+    File.mkdir_p!(Path.dirname(opts[:path]))
+    File.write!(opts[:path], Jason.encode!(record(1, "42")) <> "\n")
+    test_pid = self()
+
+    replay_fun = fn path, validator ->
+      send(test_pid, :journal_replayed)
+      Aiur.Journal.replay(path, validator)
+    end
+
+    start_supervised!({ExecutorWakeInbox, Keyword.put(opts, :replay_fun, replay_fun)})
+
+    assert [%{"wake_id" => 1, "ticket" => "42"}] = ExecutorWakeInbox.pending(__MODULE__)
+    refute_received :journal_replayed
+
+    :ok = Aiur.Journal.append(opts[:path], record(2, "43"))
+    assert [%{"wake_id" => 1}, %{"wake_id" => 2}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_received :journal_replayed
+  end
+
   test "coalesces by topic class and ticket while keeping the latest identifiers", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 60_000)
     start_supervised!({ExecutorWakeInbox, opts})
@@ -81,12 +101,25 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert :ok = ack_as_owner(records, __MODULE__)
   end
 
+  test "a deferred wait supersedes the previous wait for the same consumer", %{opts: opts} do
+    start_supervised!({ExecutorWakeInbox, opts})
+    first = Task.async(fn -> ExecutorWakeInbox.wait(5_000, "remote", true, __MODULE__) end)
+    assert eventually(fn -> map_size(:sys.get_state(__MODULE__).waiters) == 1 end)
+
+    second = Task.async(fn -> ExecutorWakeInbox.wait(5_000, "remote", true, __MODULE__) end)
+    assert :superseded = Task.await(first)
+    assert eventually(fn -> map_size(:sys.get_state(__MODULE__).waiters) == 1 end)
+
+    :ok = ExecutorWakeInbox.enqueue(record(1, "42"), __MODULE__)
+    assert {:ok, [%{"ticket" => "42"}]} = Task.await(second)
+  end
+
   test "a wake stream faster than the debounce still reaches a blocked waiter (#2600)", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 200)
     start_supervised!({ExecutorWakeInbox, opts})
 
-    waiter = Task.async(fn -> {ExecutorWakeInbox.wait(3_000, __MODULE__), System.monotonic_time(:millisecond)} end)
-    started_at = System.monotonic_time(:millisecond)
+    waiter = Task.async(fn -> ExecutorWakeInbox.wait(3_000, __MODULE__) end)
+    assert eventually(fn -> map_size(:sys.get_state(__MODULE__).waiters) == 1 end)
 
     # Wakes arriving closer together than the debounce window used to restart it
     # on every enqueue, so the flush was deferred for as long as the stream ran
@@ -99,12 +132,13 @@ defmodule Aiur.ExecutorWakeInboxTest do
         end
       end)
 
-    assert {{:ok, [_ | _] = records}, served_at} = Task.await(waiter, 5_000)
-    # Two independent discriminators. The starved implementation flushed only
-    # after the last enqueue, so it served one batch of all twenty records at
-    # ~1.2s; the bounded window serves the first few within one window.
+    assert {:ok, [_ | _] = records} = Task.await(waiter, 5_000)
+    # The starved implementation flushed only after the last enqueue, so it
+    # served one batch of all twenty records. The bounded window serves the
+    # waiter while the stream is still running; avoid a wall-clock threshold,
+    # which flakes when the CI host is under load.
     assert length(records) < 20, "the waiter was served only after the whole stream had been enqueued"
-    assert served_at - started_at < 700, "the waiter was starved until the wake stream went quiet"
+    assert Task.yield(stream, 0) == nil, "the waiter was served only after the wake stream went quiet"
     Task.await(stream, 5_000)
     assert :ok = ack_as_owner(records, __MODULE__)
   end
@@ -221,7 +255,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert {:ok, %{from: 2, through: 2, acknowledged_count: 0, pending_count: 1}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
 
-    assert {:error, {:beyond_latest_wake, 3}} =
+    assert {:error, :journal_reset} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 4, __MODULE__)
 
     assert ExecutorWakeInbox.cursor(__MODULE__) == 2
@@ -305,15 +339,17 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
-  test "refuses an absent wake id below the cursor", %{opts: opts} do
+  test "acknowledging an absent wake id below the cursor is a no-op", %{opts: opts} do
     :ok = Aiur.Journal.prepare(Path.dirname(opts[:path]), opts[:path])
     :ok = Aiur.Journal.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
     :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
     start_supervised!({ExecutorWakeInbox, opts})
     assert {:ok, _claim} = Claims.claim("covered-window")
 
-    assert {:error, {:wake_not_found, 2}} =
+    assert {:ok, %{from: 3, through: 3, acknowledged_count: 0}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
   end
 
   test "normal shutdown flushes a debounce window for restart", %{opts: opts} do

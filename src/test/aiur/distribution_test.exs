@@ -9,6 +9,51 @@ defmodule Aiur.DistributionTest do
     end
   end
 
+  describe "check/1" do
+    test "does not constrain non-distributed boots" do
+      assert :ok = Distribution.check(alive?: false)
+    end
+
+    test "rejects epmd bound beyond loopback" do
+      assert {:error, :epmd_not_local} =
+               Distribution.check(alive?: true, epmd_address: {0, 0, 0, 0}, dist_address: {127, 0, 0, 1})
+    end
+
+    test "rejects any epmd listener in a multi-socket bind" do
+      assert {:error, :epmd_not_local} =
+               Distribution.check(
+                 alive?: true,
+                 epmd_address: [{127, 0, 0, 1}, {0, 0, 0, 0}],
+                 dist_address: {127, 0, 0, 1}
+               )
+    end
+
+    test "rejects distribution listener bound beyond loopback" do
+      assert {:error, :dist_not_local} =
+               Distribution.check(alive?: true, epmd_address: {127, 0, 0, 1}, dist_address: {0, 0, 0, 0})
+    end
+
+    test "rejects any listener in a multi-socket distribution bind" do
+      assert {:error, :dist_not_local} =
+               Distribution.check(
+                 alive?: true,
+                 epmd_address: {127, 0, 0, 1},
+                 dist_address: [{127, 0, 0, 1}, {0, 0, 0, 0}]
+               )
+    end
+
+    test "rejects the release's baked cookie" do
+      assert {:error, :baked_cookie} =
+               Distribution.check(
+                 alive?: true,
+                 epmd_address: {127, 0, 0, 1},
+                 dist_address: {127, 0, 0, 1},
+                 running_cookie: ~c"default-cookie",
+                 release_cookie: ~c"default-cookie"
+               )
+    end
+  end
+
   describe "node_name/0" do
     test "returns nil when running on :nonode@nohost" do
       # In the default mix test runtime the BEAM is not distributed.
@@ -30,6 +75,50 @@ defmodule Aiur.DistributionTest do
       assert Distribution.epmd_address() == ""
 
       if original, do: System.put_env("ERL_EPMD_ADDRESS", original)
+    end
+  end
+
+  describe "parse_epmd_output/1" do
+    test "parses an IPv4 loopback address from lsof output" do
+      output = "lsof: WARNING: can't stat() fuse.sshfs file system\nepmd 123 root 3u IPv4 123 0t0 TCP 127.0.0.1:4369 (LISTEN)\n"
+
+      assert {:ok, [{127, 0, 0, 1}]} = Distribution.parse_epmd_output(output)
+    end
+
+    test "parses IPv6 and wildcard listeners from lsof output" do
+      output = "epmd 123 root 3u IPv6 123 0t0 TCP [::1]:4369 (LISTEN)\nepmd 123 root 4u IPv4 124 0t0 TCP *:4369 (LISTEN)\n"
+
+      assert {:ok, [{0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 0, 0}]} = Distribution.parse_epmd_output(output)
+
+      assert {:error, :epmd_not_local} =
+               Distribution.check(
+                 alive?: true,
+                 epmd_address: [{0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 0, 0}],
+                 dist_address: {127, 0, 0, 1}
+               )
+    end
+
+    test "treats stderr warnings as noise and rejects output without a listener" do
+      assert {:error, :epmd_unverifiable} = Distribution.parse_epmd_output("lsof: WARNING: unable to read process details\n")
+    end
+  end
+
+  describe "parse_proc_listeners/3" do
+    test "decodes IPv4, IPv6, and wildcard listen sockets on the EPMD port" do
+      tcp4 =
+        "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n0: 0100007F:1111 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 1\n1: 00000000:1111 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 2\n2: 0100007F:1112 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 3\n"
+
+      tcp6 =
+        "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n0: 00000000000000000000000001000000:1111 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 4\n"
+
+      assert {:ok, [{127, 0, 0, 1}, {0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 1}]} =
+               Distribution.parse_proc_listeners(tcp4, tcp6, 4369)
+    end
+
+    test "reports an unverifiable state when procfs has no EPMD listener" do
+      header = "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n"
+
+      assert {:error, :epmd_unverifiable} = Distribution.parse_proc_listeners(header, header, 4369)
     end
   end
 

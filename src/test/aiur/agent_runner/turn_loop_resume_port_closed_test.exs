@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.SessionHandle
   alias Aiur.Workspace.Provisioner
 
@@ -44,15 +45,20 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
   end
 
   test "two dispatches whose resumed first turn loses the port drop the thread", ctx do
-    capture_log(fn ->
-      assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
-      assert {:ok, %{thread_id: "big"}} = SessionHandle.load(ctx.issue.identifier, "codex")
+    StreamDiagnostics.record(self(), "provider startup banner: thread transport closed")
 
-      assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
-    end)
+    log =
+      capture_log(fn ->
+        assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
+        assert {:ok, %{thread_id: "big"}} = SessionHandle.load(ctx.issue.identifier, "codex")
+
+        assert @port_closed = dispatch(ctx, fn _turn -> @port_closed end)
+      end)
 
     assert SessionHandle.load(ctx.issue.identifier, "codex") == :none
     assert SessionHandle.abandoned_thread?(ctx.issue.identifier)
+    assert log =~ ~s(stream_diagnostics="provider startup banner: thread transport closed")
+    StreamDiagnostics.clear(self())
   end
 
   test "a port loss after the first turn completed does not count", ctx do
@@ -68,6 +74,31 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     assert {:ok, %{thread_id: "big"}} = SessionHandle.load(ctx.issue.identifier, "codex")
   end
 
+  test "a successful fresh turn clears the abandoned marker", ctx do
+    :ok = SessionHandle.drop_thread(ctx.issue.identifier)
+    assert SessionHandle.abandoned_thread?(ctx.issue.identifier)
+
+    run_turn = fn _session, _prompt, _issue, _opts -> {:ok, %{thread_id: "fresh"}} end
+
+    assert {:completed, %Aiur.Issue{identifier: identifier}} =
+             TurnLoop.run_turns(
+               %{backend: "codex", resumed: false, thread_id: "fresh", workspace: ctx.workspace, worker_host: nil},
+               ctx.workspace,
+               ctx.issue,
+               nil,
+               [resumed: false, run_turn: run_turn],
+               fn _ids -> {:ok, [ctx.issue]} end,
+               ctx.orchestrator,
+               nil,
+               1,
+               1
+             )
+
+    assert identifier == ctx.issue.identifier
+
+    refute SessionHandle.abandoned_thread?(ctx.issue.identifier)
+  end
+
   # One dispatch of a resumed codex session, with up to two turns.
   defp dispatch(ctx, turn_result) do
     run_turn = fn _session, prompt, _issue, _opts ->
@@ -75,7 +106,7 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     end
 
     TurnLoop.run_turns(
-      %{backend: "codex", resumed: true, thread_id: "big", workspace: ctx.workspace, worker_host: nil},
+      %{backend: "codex", resumed: true, thread_id: "big", port: self(), workspace: ctx.workspace, worker_host: nil},
       ctx.workspace,
       ctx.issue,
       nil,

@@ -15,9 +15,13 @@ defmodule Aiur.CodingAgent.Providers.Fake do
       models: ["fake-1"],
       model_aliases: :native,
       efforts: [],
+      hosted_execution: %{permission_boundary: :enforced, network_boundary: :denied, credential_boundary: :daemon},
       can_interrupt: false,
       safe_checkpoints: [],
       control_application_confirmation: :confirmed,
+      # The fake backend runs the Codex adapter, so its live provider is a relay
+      # process a keep-agents restart can hand over.
+      handoff: :relay,
       remote_control: false,
       resumable: false,
       presentation: %{

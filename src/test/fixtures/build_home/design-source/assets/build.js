@@ -987,7 +987,7 @@
   /* ---------- top controls ---------- */
   /* every row: [who] [top labels / bar slot / bottom labels] — identical height + bar span everywhere */
   const CL = "assets/claude-symbol.svg", CX_ = "assets/codex-color.svg", KI = "assets/kimi-logo.png", DS = "assets/deepseek-logo.png";
-  const sw = (acc, reset, win) => ({ acc, reset, win });
+  const sw = (acc, reset, win) => ({ acc: acc.map((used) => 100 - used), reset, win });
   const PSETS = {
     2: [
       { name: "Claude", logo: CL, session: sw([18], "1h 27m", "5h"), weekly: sw([73], "1d 2h", "7d") },
@@ -997,27 +997,27 @@
       { name: "Claude", logo: CL, accounts: ["Max · work", "Pro · personal"], session: sw([1, 3], "1h 27m", "5h"), weekly: sw([96, 86], "1d 2h", "7d") },
       { name: "Codex", logo: CX_, session: sw([0], "4h 10m", "5h"), weekly: sw([0], "6d 23h", "7d") },
       { name: "Kimi", logo: KI, fill: true, session: sw([9], "3h 02m", "5h"), weekly: sw([14], "3d 4h", "7d") },
-      { name: "DeepSeek", logo: DS, fill: true, credits: { pct: 2, left: "$10.40", tip: [["Prepaid credits", "$10.40 of $10.65 left"]] } },
+      { name: "DeepSeek", logo: DS, fill: true, credits: { pct: 98, left: "$10.40", tip: [["Prepaid credits", "$10.40 of $10.65 left"]] } },
     ],
     7: [
       { name: "Claude", logo: CL, accounts: ["Max · work", "Max · lab", "Pro · personal"], session: sw([38, 71, 4], "1h 27m", "5h"), weekly: sw([96, 64, 30], "1d 2h", "7d") },
       { name: "Codex", logo: CX_, accounts: ["Pro · work", "Plus · personal"], session: sw([55, 12], "2h 41m", "5h"), weekly: sw([81, 40], "4d 9h", "7d") },
       { name: "Kimi", logo: KI, fill: true, accounts: ["Team", "Personal"], session: sw([9, 0], "3h 02m", "5h"), weekly: sw([14, 2], "3d 4h", "7d") },
       { name: "Gemini", mono: "G", hue: 250, session: sw([22], "58m", "1d"), weekly: sw([47], "5d 1h", "7d") },
-      { name: "DeepSeek", logo: DS, fill: true, credits: { pct: 2, left: "$10.40", tip: [["Prepaid credits", "$10.40 of $10.65 left"]] } },
-      { name: "Qwen", mono: "Q", hue: 290, credits: { pct: 63, left: "$3.70", tip: [["Prepaid credits", "$3.70 of $10.00 left"]] } },
+      { name: "DeepSeek", logo: DS, fill: true, credits: { pct: 98, left: "$10.40", tip: [["Prepaid credits", "$10.40 of $10.65 left"]] } },
+      { name: "Qwen", mono: "Q", hue: 290, credits: { pct: 37, left: "$3.70", tip: [["Prepaid credits", "$3.70 of $10.00 left"]] } },
       { name: "Mistral", mono: "M", hue: 45, session: sw([6], "2h 15m", "5h"), weekly: sw([19], "2d 6h", "7d") },
     ],
   };
-  const tone = (p) => p >= 95 ? " max" : p >= 80 ? " hi" : "";
+  const tone = (p) => p <= 10 ? " max" : p <= 20 ? " hi" : "", apiTone = (p) => p <= 10 ? " max" : p <= 20 ? " hi" : "";
   const avg = (a) => Math.round(a.reduce((s, p) => s + p, 0) / a.length);
-  const bar = (acc, cls) => '<span class="ax-bar' + (cls ? " " + cls : "") + '">' + acc.map((p) => '<span class="ax-seg"><i class="' + (p ? "" : "z") + tone(p) + '" style="width:' + p + '%"></i></span>').join("") + "</span>";
+  const bar = (acc, cls, api = false) => '<span class="ax-bar' + (cls ? " " + cls : "") + '">' + acc.map((p) => '<span class="ax-seg"><i class="' + (p ? "" : "z") + (api ? apiTone(p) : tone(p)) + '" style="width:' + p + '%"></i></span>').join("") + "</span>";
   const tipA = (head, rows) => esc(JSON.stringify([head, rows]));
   const ln = (o) => '<div class="ax-ln' + (o.tag ? " t" : "") + '" data-tip="' + tipA(o.head, o.rows) + '">' + (o.tag ? '<span class="ax-tg">' + o.tag + "</span>" : "") +
-    '<span class="ax-pc' + tone(o.pct) + '">' + (o.pct == null ? "" : o.pct + "%") + "</span>" + o.bar + '<span class="ax-rs">' + (o.reset ? "<span>" + o.reset + (o.win ? "<em>/" + o.win + "</em>" : "") + "</span>" + I.cycle : o.right || "") + "</span></div>";
+    '<span class="ax-pc' + (o.api ? apiTone(o.pct) : tone(o.pct)) + '">' + (o.pct == null ? "" : o.pct + "% left") + "</span>" + o.bar + '<span class="ax-rs">' + (o.reset ? "<span>" + o.reset + (o.win ? "<em>/" + o.win + "</em>" : "") + "</span>" + I.cycle : o.right || "") + "</span></div>";
   const whoH = (p) => '<div class="ax-who" title="' + esc(p.name) + '">' + (p.logo ? '<img class="' + (p.fill ? "fill" : "") + '" src="' + p.logo + '" alt="">' : p.icon ? '<span class="ax-ic">' + p.icon + "</span>" : '<span class="ax-mono"' + (p.hue ? ' style="background:oklch(.6 .16 ' + p.hue + ')"' : "") + ">" + p.mono + "</span>") + "<b>" + p.name + "</b>" +
     (p.accounts ? '<span class="ax-x">×' + p.accounts.length + "</span>" : "") + "</div>";
-  const winTip = (p, w, label) => p.accounts ? p.accounts.map((n, i) => [n, w.acc[i] + "%"]) : [[label + " window " + w.win, w.acc[0] + "% used"]];
+  const winTip = (p, w, label) => p.accounts ? p.accounts.map((n, i) => [n, w.acc[i] + "% left"]) : [[label + " window " + w.win, w.acc[0] + "% left"]];
   const prow = (p) => {
     let lines;
     if (p.credits) lines = ln({ pct: p.credits.pct, bar: bar([p.credits.pct]), right: '<b class="ax-usd">' + p.credits.left + "</b>", head: p.name + " · credits", rows: p.credits.tip });
@@ -1030,10 +1030,10 @@
     const P = PSETS[S.models], lay = P.length >= 7 ? "cols" : "rows";
     const apis =
       '<div class="ax-r2">' + whoH({ name: "GitHub", icon: I.github }) + '<div class="ax-lns">' +
-        ln({ tag: "core", pct: 5, bar: bar([5]), reset: "37m", win: "1h", head: "GitHub core · resets in 37m", rows: [["Requests left", "4,736 of 5,000"]] }) +
-        ln({ tag: "gql", pct: 0, bar: bar([0]), reset: "20m", win: "1h", head: "GitHub GraphQL · resets in 20m", rows: [["Points left", "4,998 of 5,000"]] }) + "</div></div>" +
+        ln({ api: true, tag: "core", pct: 95, bar: bar([95], null, true), reset: "37m", win: "1h", head: "GitHub core · resets in 37m", rows: [["Requests left", "4,736 of 5,000 left · 95% left"]] }) +
+        ln({ api: true, tag: "gql", pct: 100, bar: bar([100], null, true), reset: "20m", win: "1h", head: "GitHub GraphQL · resets in 20m", rows: [["Points left", "4,998 of 5,000 left · 100% left"]] }) + "</div></div>" +
       '<div class="ax-r2">' + whoH({ name: "Search", icon: I.bars }) + '<div class="ax-lns">' +
-        ln({ tag: "credits", pct: 0, bar: bar([0]), reset: "22d", win: "30d", head: "Search · renews in 22d", rows: [["Credits left", "90.0K"]] }) + "</div></div>";
+        ln({ api: true, tag: "credits", pct: 100, bar: bar([100], null, true), reset: "22d", win: "30d", head: "Search · renews in 22d", rows: [["Credits left", "90.0K left · 100% left"]] }) + "</div></div>";
     $("#bd-usage").innerHTML = '<div class="ax-usage n' + P.length + " lay-" + lay + '">' +
       '<section class="ax-uc api"><div class="ax-uh">APIs<span>2 APIs</span></div><div class="ax-rows2">' + apis + "</div></section>" +
       '<section class="ax-uc mdl"><div class="ax-uh">Models<button type="button" class="ax-cnt" id="ax-cnt" title="Demo · cycle 2 / 4 / 7 models">' + P.length + " models</button></div>" +

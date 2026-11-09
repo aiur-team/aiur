@@ -80,7 +80,8 @@ def valid_rfc3339_utc(value: object) -> bool:
 
 
 def strict_object(
-    value: object, label: str, required: set[str], report: Report
+    value: object, label: str, required: set[str], report: Report,
+    *, optional: set[str] | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         report.error(f"{label} must be an object")
@@ -88,7 +89,7 @@ def strict_object(
     keys = set(value)
     for key in sorted(required - keys):
         report.error(f"{label}: missing required key {key}")
-    for key in sorted(keys - required):
+    for key in sorted(keys - required - (optional or set())):
         report.error(f"{label}: unknown key {key}")
     return value
 

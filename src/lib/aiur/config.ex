@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, SettingsSnapshot, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -21,6 +21,24 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
+  @doc "Whether the Executor may answer reversible human-required engineering decisions."
+  @spec allow_reversible_human_required_answers?() :: boolean()
+  def allow_reversible_human_required_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.allow_reversible_human_required_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
@@ -36,7 +54,9 @@ defmodule Aiur.Config do
       same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
+  def settings, do: SettingsSnapshot.read(&live_settings/0)
+
+  defp live_settings do
     case Workflow.current_with_cache_identity() do
       {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
         cached_settings(workflow, {generation, publication})
@@ -179,9 +199,16 @@ defmodule Aiur.Config do
   @spec instance_role() :: String.t()
   def instance_role, do: settings!().instance.role
 
+  @spec instance_mode() :: String.t()
+  def instance_mode, do: settings!().instance.mode
+
   # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
   @spec booted_instance_role() :: String.t()
   def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
+
+  # Hosted safety is evaluated against the mode selected at boot; reloads may not cross this boundary.
+  @spec booted_instance_mode() :: String.t()
+  def booted_instance_mode, do: Application.get_env(:aiur, :booted_instance_mode) || instance_mode()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -192,11 +219,18 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_webhook_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
@@ -212,6 +246,22 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  @spec decisions_native_capture?(:codex | :claude) :: boolean()
+  def decisions_native_capture?(harness) when harness in [:codex, :claude], do: Map.get(settings!().decisions.native_capture, harness, false)
+
+  @spec decisions_require_suggested_responses?() :: boolean()
+  def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
+
+  @doc "Hosts allowed to serve `embed` Command media; `[]` (embeds off) when config cannot be read."
+  @spec decisions_embed_hosts() :: [String.t()]
+  def decisions_embed_hosts do
+    case settings() do
+      {:ok, settings} -> settings.decisions.embed_hosts
+      {:error, _reason} -> []
+    end
+  end
+
+  defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_render_interval_ms(), to: Aiur.Config.ObservabilitySettings
@@ -225,6 +275,7 @@ defmodule Aiur.Config do
   defdelegate backend_config(backend), to: Aiur.Config.AgentSettings
   defdelegate agent_backend_configs(), to: Aiur.Config.AgentSettings
   defdelegate agent_routing(), to: Aiur.Config.AgentSettings
+  defdelegate agent_routing_candidates(), to: Aiur.Config.AgentSettings
   defdelegate switch_model_on_ratelimit(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_fallback_backend(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_primary_backend(), to: Aiur.Config.AgentSettings
@@ -233,6 +284,7 @@ defmodule Aiur.Config do
   defdelegate agent_prior_work_continuation?(), to: Aiur.Config.AgentSettings
   defdelegate agent_complexity_prompts(), to: Aiur.Config.AgentSettings
   defdelegate agent_max_turns_by_complexity(), to: Aiur.Config.AgentSettings
+  defdelegate agent_skills(), to: Aiur.Config.AgentSettings
   defdelegate alerts_settings(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_first_alert_hours(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_continuous_alert_hours(), to: Aiur.Config.AgentSettings
@@ -250,14 +302,21 @@ defmodule Aiur.Config do
   defdelegate ci_recovery_enabled?(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_poll(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_hour(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(settings), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent_for(backend), to: Aiur.Config.AgentSettings
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings
-  defdelegate default_max_concurrent_agents(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers, memory_max_bytes), to: Aiur.Config.CapacitySettings
+  defdelegate default_agent_memory_estimate_mb(), to: Aiur.Config.CapacitySettings
   defdelegate run_queue_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_builds(), to: Aiur.Config.CapacitySettings
   defdelegate build_start_stagger_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate min_free_memory_mb(), to: Aiur.Config.CapacitySettings
+  defdelegate cgroup_memory_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_max_hold_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_retain_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate mix_scheduler_cap(), to: Aiur.Config.CapacitySettings
@@ -383,6 +442,14 @@ defmodule Aiur.Config do
 
   @doc false
   @spec format_config_error(term()) :: String.t()
+  def format_config_error({:instance_mode_change_requires_restart, booted, configured}) do
+    "instance.mode cannot change from #{booted} to #{configured} while Aiur is running; restart the daemon"
+  end
+
+  def format_config_error({:unsafe_hosted_mode, violations}) do
+    "Hosted mode safety checks failed:\n- #{Enum.join(violations, "\n- ")}"
+  end
+
   def format_config_error(reason) do
     label = config_file_label()
 

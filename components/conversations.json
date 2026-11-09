@@ -7,18 +7,27 @@
     "src/lib/aiur/agent_event_feed.ex",
     "src/lib/aiur/agent_log.ex",
     "src/lib/aiur/agent_log/**",
-    "src/lib/aiur/conversation/anchors.ex",
-    "src/lib/aiur/conversation/history.ex"
+    "src/lib/aiur/conversation/**"
   ],
   "facades": [
     "Aiur.AgentEventFeed",
+    "Aiur.Conversation.AnchorResolver",
     "Aiur.Conversation.Anchors",
-    "Aiur.Conversation.History"
+    "Aiur.Conversation.Entry",
+    "Aiur.Conversation.HeadTable",
+    "Aiur.Conversation.History",
+    "Aiur.Conversation.Ingest",
+    "Aiur.Conversation.JumpPoints",
+    "Aiur.Conversation.Ref",
+    "Aiur.Conversation.Session",
+    "Aiur.Conversation.Store"
   ],
   "facade_pending": null,
   "requires": [
     "agent-runner",
+    "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel"
   ],
@@ -28,7 +37,9 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "conversation_state_dir"
+    ],
     "capabilities": [
       "conversations.read"
     ]
@@ -51,5 +62,6 @@
   "env": [],
   "capabilities": [
     "conversations.read"
-  ]
+  ],
+  "goal": "steer"
 }

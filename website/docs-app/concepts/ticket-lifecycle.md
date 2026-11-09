@@ -1,5 +1,7 @@
 # How a ticket flows
 
+For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle). This page remains the label and lifecycle reference.
+
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at
@@ -15,10 +17,10 @@ signal trustworthy.
 
 ### State labels
 
-There are exactly **ten** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
+There are exactly **eleven** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
 
 ```text
-todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled
+todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled  budget-exhausted
 ```
 | Label | Meaning |
 | --- | --- |
@@ -30,9 +32,10 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
 | `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
+| `agent:budget-exhausted` | The ticket reached its configured USD spend cap. Aiur persisted the exhaustion fence, stopped its agent, and closed the ticket. This is terminal and distinct from failure or cancellation. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
-The terminal states are exactly `done | cancelled | canceled`
+The built-in terminal states are `done | cancelled | canceled | budget-exhausted`
 (`src/lib/aiur/github/state_policy.ex:23,31`). The two `@no_agent_work_states`
 — `merging` and `ci-wait` — stay active for polling and fence purposes but are
 never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:27,63`).
@@ -84,8 +87,11 @@ leaves the state unchanged when no PR head moved.
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
-push starts fresh checks. A rework handback without a push leaves those runs
-cancelled, and CI recovery raises an attention for that head.
+push starts fresh checks.
+
+A rework handback without a push leaves those runs cancelled: an approved head's
+runs are rerun once so auto-merge can queue, and otherwise CI recovery raises an
+attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -115,14 +121,24 @@ The state tool reports the applied `state` and the
 `result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
 or that the worker must update its branch.
 
-A rework handback to `ci-wait` or `human-review` must answer the latest
-blocking review. Its numbered `file:line` items form the rework prompt's
-checklist. The agent passes one `review_findings` answer per item: `fixed`
-with a commit, or `disputed` with evidence.
+A handback to `ci-wait` or `human-review` must answer the latest blocking
+review. This applies while that review has numbered items, even if the worker
+moved the ticket to `in-progress` first. Every numbered item in the review becomes an
+entry in the rework prompt's checklist, whether or not it names a `file:line`.
 
-The write is refused if an item has no answer. It is refused if a `fixed`
-commit is not a branch commit since the review, or if no such commit changed
-the item's file. Merge commits do not count.
+The agent passes one `review_findings` answer per item: `fixed` with a commit,
+or `disputed` with evidence. An item that names no file may instead be `fixed`
+by a PR body edit made after the review.
+
+The write is refused if an item has no answer, and the refusal names each
+unanswered item. It is refused if a `fixed` commit is not a branch commit since
+the review, or if no such commit changed the item's file. Merge commits do not
+count.
+
+A run that stops at `agent.max_turns` or the no-op bound is not handed back
+automatically while the review still has findings. The ticket stays in
+`rework`. A `ticket.<id>.agent.rework_findings_open` alert lists the items that
+remain.
 
 The write is also refused with no commit since the review, unless every item
 is disputed or the PR body was edited after the review. A body edit covers a
@@ -146,9 +162,12 @@ state, or `todo` if only a released claim survives. Parked or untriaged tickets
 without it are alerted and left alone. An open workflow ticket with no live
 agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+Agents use `aiur_set_lane` for local lane overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
-marks an unconfirmed guess. See [epic commands](../reference/cli.md#build-history-epic-commands).
+marks an unconfirmed guess.
+
+`aiur_history_export` gives only `history-backfill`
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [lane commands](../reference/build-history-commands#lanes).
 
 ### Model labels
 
@@ -243,11 +262,14 @@ stateDiagram-v2
     done --> [*]
 
     inprogress --> error: retry exhausted
+    inprogress --> budgetexhausted: ticket spend cap reached
     rework --> error: retry exhausted
     error --> todo: latch reset
+    budgetexhausted --> [*]
 
     todo: agent:todo
     inprogress: agent:in-progress
+    budgetexhausted: agent:budget-exhausted
     ciwait: agent:ci-wait
     humanreview: agent:human-review
     rework: agent:rework

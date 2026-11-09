@@ -1,0 +1,63 @@
+# Mechanical citation edits
+
+Each replaced range was checked against its recorded source baseline and a unique byte-identical destination. This is evidence of a mechanical move, not a claim about surrounding semantics.
+
+| Ticket | Before | After | Source baseline |
+| --- | --- | --- | --- |
+| MP-R2-C6-T01 | `src/lib/aiur/config.ex:198-201` | `src/lib/aiur/config.ex:207-210` | 761756f394e6783794c777668fc1a26a540e4059 |
+| MP-R2-C6-T02 | `src/lib/aiur/application/children.ex:166-167` | `src/lib/aiur/application/children.ex:165-166` | 761756f394e6783794c777668fc1a26a540e4059 |
+| MP-R2-C7-T04 | `src/lib/aiur/agent_control_cli.ex:46-60` | `src/lib/aiur/agent_control_cli.ex:47-61` | 761756f394e6783794c777668fc1a26a540e4059 |
+| MP-E2-C1-T03 | `src/lib/aiur/executor_events.ex:64` | `src/lib/aiur/executor_events.ex:62` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E2-C3-T04 | `src/lib/aiur_web/streamdeck_channel.ex:154-171` | `src/lib/aiur_web/streamdeck_channel.ex:157-174` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C4-T04 | `src/lib/aiur/app_server/turn_loop.ex:25-32` | `src/lib/aiur/app_server/turn_loop.ex:73-80` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C5-T03 | `src/lib/aiur/coding_agent/providers/claude.ex:35-41` | `src/lib/aiur/coding_agent/providers/claude.ex:41-47` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C6-T02 | `src/lib/aiur/executor_wake_inbox.ex:25` | `src/lib/aiur/executor_wake_inbox.ex:20` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C6-T02 | `src/lib/aiur/executor_events.ex:207-223` | `src/lib/aiur/executor_events.ex:208-224` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C6-T02 | `src/lib/aiur/decision.ex:234-240` | `src/lib/aiur/decision.ex:238-244` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E2-C7-T03 | `src/lib/aiur_web/operator_control_center/units_presenter.ex:29-44` | `src/lib/aiur_web/operator_control_center/units_presenter.ex:31-46` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C7-T03 | `src/lib/aiur_web/components/operator_control_center/units_table.ex:295-316` | `src/lib/aiur_web/components/operator_control_center/units_table.ex:321-342` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C7-T04 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:231` | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:274` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E2-C7-T05 | `src/lib/aiur_web/streamdeck_channel.ex:154-171` | `src/lib/aiur_web/streamdeck_channel.ex:157-174` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E3-C4-T04 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:111` | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:127` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E5-C1-T01 | `src/test/aiur_web/operator_control_center/conversation_drawer_test.exs:200` | `src/test/aiur_web/operator_control_center/conversation_drawer_test.exs:203` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E6-C10-T03 | `src/lib/aiur/claude/repl/command.ex:50-60` | `src/lib/aiur/claude/repl/command.ex:52-62` | 0972f02977ecc77fbcce4ae30cae80aa2c879a18 |
+| MP-E6-C2-T04 | `src/lib/aiur/alerts.ex:108-119` | `src/lib/aiur/alerts.ex:57-68` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E6-C3-T01 | `website/docs-app/reference/configuration.md:315` | `website/docs-app/reference/configuration.md:313` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E6-C4-T04 | `src/mix.exs:177` | `src/mix.exs:189` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E7-C2-T01 | `src/lib/aiur/orchestrator/state.ex:235` | `src/lib/aiur/orchestrator/state.ex:274` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E7-C2-T05 | `src/lib/aiur/events/publisher.ex:339-352` | `src/lib/aiur/events/publisher.ex:267-280` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E7-C3-T02 | `src/config/config.exs:19-24` | `src/config/config.exs:134-139` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E7-C4-T01 | `src/lib/aiur/coding_agent/providers/claude.ex:22` | `src/lib/aiur/coding_agent/providers/claude.ex:25` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E7-C5-T01 | `src/test/aiur/codex/dynamic_tool_test.exs` | `src/test/aiur/agent_tools/dispatch_test.exs` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E7-C5-T01 | `src/test/aiur/codex/dynamic_tool/handler_test.exs` | `src/test/aiur/agent_tools/handler_test.exs` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-E7-C6-T02 | `packaging/npm/aiur-cli/package.json:31-33` | `packaging/npm/aiur-cli/package.json:34-36` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-E7-C7-T03 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:337` | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:399` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N1-C3-T01 | `src/lib/aiur_web/components/operator_control_center/overview.ex:81-91` | `src/lib/aiur_web/components/operator_control_center/overview.ex:59-69` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N1-C4-T04 | `src/lib/aiur_web/financial_data_access.ex:98-111` | `src/lib/aiur_web/financial_data_access.ex:123-136` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N1-C4-T05 | `src/priv/static/conversation-voice-controller.js:18-19` | `src/priv/static/conversation-voice-controller.js:17-18` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C1-T01 | `src/lib/aiur/env/schema.ex:180` | `src/lib/aiur/env/schema.ex:201` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C10-T01 | `src/lib/aiur/claude/hook_settings.ex:68` | `src/lib/aiur/claude/hook_settings.ex:94` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C10-T03 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:219` | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:262` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N2-C2-T01 | `src/lib/aiur/config/paths.ex:439` | `src/lib/aiur/config/paths.ex:455` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N2-C2-T01 | `src/lib/aiur/cli.ex:417-423` | `src/lib/aiur/cli.ex:355-361` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N2-C2-T02 | `src/lib/aiur.ex:197-203` | `src/lib/aiur.ex:210-216` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N2-C3-T01 | `src/lib/aiur/workflow.ex:84-93` | `src/lib/aiur/workflow.ex:85-94` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C3-T04 | `src/lib/aiur/init.ex:170` | `src/lib/aiur/init.ex:171` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C4-T01 | `src/lib/aiur/distribution.ex:46-48` | `src/lib/aiur/distribution.ex:323-325` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C4-T01 | `src/lib/aiur/pane_manager.ex:398-400` | `src/lib/aiur/pane_manager.ex:396-398` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C4-T04 | `src/lib/aiur/http_server.ex:67` | `src/lib/aiur/http_server.ex:140` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C5-T01 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:219` | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:262` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N2-C5-T02 | `src/lib/aiur/alerts.ex:103-106` | `src/lib/aiur/alerts.ex:52-55` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N2-C6-T03 | `src/lib/aiur_web/router.ex:46-58` | `src/lib/aiur_web/router.ex:65-77` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N3-C1-T01 | `src/lib/aiur/agent_control_cli.ex:103` | `src/lib/aiur/agent_control_cli.ex:9` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N3-C1-T01 | `src/lib/aiur_web/financial_data_access.ex:143-152` | `src/lib/aiur_web/financial_data_access.ex:168-177` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N3-C3-T01 | `src/lib/aiur_web/components/operator_control_center/overview.ex:81-91` | `src/lib/aiur_web/components/operator_control_center/overview.ex:59-69` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N4-C1-T01 | `src/mix.exs:158` | `src/mix.exs:168` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N4-C1-T01 | `src/lib/aiur_web/financial_data_access/proof.ex:149` | `src/lib/aiur_web/financial_data_access/proof.ex:156` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N4-C3-T01 | `src/lib/aiur/workflow.ex:84-93` | `src/lib/aiur/workflow.ex:85-94` | 45a290e3053423100a73b534c620fdd12ebe11ad |
+| MP-N4-C3-T02 | `src/lib/aiur/decision_store.ex:153` | `src/lib/aiur/decision_store.ex:70` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N4-C3-T02 | `src/lib/aiur/config/paths.ex:298` | `src/lib/aiur/config/paths.ex:314` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N4-C3-T06 | `src/mix.exs:158` | `src/mix.exs:168` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N4-C3-T07 | `src/lib/aiur/agent_control_cli.ex:103` | `src/lib/aiur/agent_control_cli.ex:9` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N7-C1-T01 | `src/lib/aiur_web/components/operator_control_center/overview.ex:172-173` | `src/lib/aiur_web/components/operator_control_center/overview.ex:118-119` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |
+| MP-N7-C2-T02 | `src/lib/aiur_web/components/operator_control_center/overview.ex:172-173` | `src/lib/aiur_web/components/operator_control_center/overview.ex:118-119` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f |

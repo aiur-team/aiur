@@ -4,7 +4,7 @@ import { projectDirectory } from '../reference/components-projection.mjs'
 
 function component(overrides = {}) {
   return {
-    id: 'example', name: 'Example', summary: 'An example component.', status: 'core', kind: 'in-app',
+    id: 'example', name: 'Example', summary: 'An example component.', status: 'core', goal: 'run-agents', kind: 'in-app',
     install: { type: 'included' }, requires: [], optional: [], capabilities: [], config: [], env: [], docs: [],
     ...overrides
   }
@@ -63,4 +63,18 @@ test('sorts_names_case_insensitively_within_status', () => {
   const values = [component({ id: 'b', name: 'Beta' }), component({ id: 'a', name: 'alpha' }), component({ id: 'o', name: 'Aardvark', status: 'optional' })]
   assert.deepEqual(project(values).components.map((entry) => entry.id), ['a', 'b', 'o'])
   assert.deepEqual(project(undefined, [feature({ name: 'Beta' }), feature({ name: 'alpha' })]).planned.map((entry) => entry.name), ['alpha', 'Beta'])
+})
+
+
+test('groups_by_goal_in_approved_order', () => {
+  const goals = ['hardware', 'voice', 'notify', 'steer', 'run-agents']
+  const result = project(goals.map((goal, i) => component({ id: goal, name: String(i), goal })))
+  assert.deepEqual(result.groups.map((group) => [group.goal, group.components.map((entry) => entry.id)]),
+    ['run-agents', 'steer', 'notify', 'voice', 'hardware'].map((goal) => [goal, [goal]]))
+})
+
+test('goal_required_for_non_planned', () => {
+  assert.throws(() => project([component({ goal: undefined })]), /invalid or missing goal/)
+  assert.throws(() => project([component({ goal: 'other' })]), /invalid or missing goal/)
+  assert.deepEqual(project([component({ status: 'planned', goal: undefined })]).components, [])
 })

@@ -39,6 +39,8 @@ defmodule AiurWeb.Api.Usage.TicketUsageTest do
   test "reports only the asked ticket's ledger numbers, never another ticket's or repository's" do
     assert {:ok, payload} = TicketUsage.fetch("5692", opts(records()))
 
+    assert payload["contract"] == "aiur.ticket_usage"
+    assert payload["contract_version"] == 1
     assert payload["schema_version"] == 1
     assert payload["ticket"] == %{"owner" => "its-everdred", "repository" => "aiur", "identifier" => "5692"}
     assert payload["totals"]["tokens"] == %{"input" => 150, "output" => 20}
@@ -76,7 +78,7 @@ defmodule AiurWeb.Api.Usage.TicketUsageTest do
     assert {:ok, payload} = TicketUsage.fetch("5692", opts(records()))
     measure = ~w(api_equivalent provider_reported tokens)
 
-    assert keys(payload) == ~w(authority by_model by_provider currency freshness schema_version sessions state ticket totals)
+    assert keys(payload) == ~w(authority by_model by_provider contract contract_version currency freshness schema_version sessions state ticket totals)
     assert keys(payload["ticket"]) == ~w(identifier owner repository)
     assert keys(payload["authority"]) == ~w(aggregate_generation price_table_revision schema_version source_generation source_position)
     assert keys(payload["freshness"]) == ~w(ledger_position projected_position status)

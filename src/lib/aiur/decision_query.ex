@@ -14,6 +14,22 @@ defmodule Aiur.DecisionQuery do
 
   @default_store DecisionStore
 
+  # Retained counts are fleet-wide index facts. A ticket-scoped read must not
+  # publish them: they would describe Commands the caller may not enumerate.
+  @count_keys [
+    :open,
+    :blocking,
+    :total,
+    :awaiting,
+    :awaiting_blocking,
+    :deferred,
+    :needs_you,
+    :needs_you_blocking,
+    :with_executor,
+    :from_executor,
+    :needs_you_by_ticket
+  ]
+
   @doc false
   @spec default_store() :: module()
   def default_store, do: @default_store
@@ -43,16 +59,136 @@ defmodule Aiur.DecisionQuery do
 
   def list(params, opts) when is_map(params) and is_list(opts) do
     with {:ok, query} <- Params.parse(params) do
-      query = Map.put(query, :ordering, ordering(opts))
-
-      case StoreReader.read_query(query, store(opts)) do
-        {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
-        {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
-      end
+      read_page(apply_label_scope(query, opts), opts)
     end
   end
 
   def list(_params, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
+  @doc """
+  Returns one retained page narrowed to an explicit ticket set.
+
+  The set is applied inside the store query, not to the returned page, so the
+  counts, total, and cursor continuation describe only the allowed tickets.
+  An out-of-scope ticket filter is therefore empty rather than revealing that
+  other Commands exist. A `labels` query parameter narrows the page further: it
+  keeps only the tickets in the set that currently carry one of those labels, so
+  request labels can never widen the set a caller was granted.
+  """
+  @spec list_scoped(map(), Enumerable.t(), keyword()) ::
+          {:ok, map()} | {:error, {:invalid_query, term()}}
+  def list_scoped(params, tickets, opts \\ [])
+
+  def list_scoped(params, tickets, opts) when is_map(params) and is_list(opts) do
+    with {:ok, ticket_set} <- ticket_set(tickets),
+         {:ok, query} <- Params.parse(params) do
+      read_page(query |> Map.put(:tickets, ticket_set) |> narrow_by_labels(opts), opts)
+    end
+  end
+
+  def list_scoped(_params, _tickets, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
+  defp read_page(query, opts) do
+    query = Map.put(query, :ordering, ordering(opts))
+
+    case StoreReader.read_query(query, store(opts)) do
+      {:ok, snapshot, health} -> {:ok, retained_page(snapshot, query, health)}
+      {:error, :store_unavailable} -> {:ok, unavailable_page(query)}
+    end
+  end
+
+  defp ticket_set(%MapSet{} = tickets), do: {:ok, downcase_set(tickets)}
+
+  defp ticket_set(tickets) when is_list(tickets) do
+    if Enum.all?(tickets, &is_binary/1), do: {:ok, downcase_set(tickets)}, else: invalid_ticket_set()
+  end
+
+  defp ticket_set(_tickets), do: invalid_ticket_set()
+
+  defp downcase_set(tickets) do
+    MapSet.new(tickets, fn ticket -> ticket |> String.trim() |> String.downcase() end)
+  end
+
+  defp invalid_ticket_set, do: {:error, {:invalid_query, {:tickets, :invalid}}}
+
+  @doc """
+  The tickets an explicit set and a label scope authorize together.
+
+  A label scope contributes the tickets the tracker currently observes to carry
+  one of `labels`. When no usable observation exists the label scope contributes
+  nothing, so a caller can never widen its scope by asking for a label Aiur has
+  not seen.
+  """
+  @spec scoped_tickets(Enumerable.t(), Enumerable.t(), keyword()) :: MapSet.t(String.t())
+  def scoped_tickets(tickets, labels, opts \\ []) do
+    MapSet.union(ticket_set!(tickets), label_tickets(labels, opts))
+  end
+
+  defp ticket_set!(%MapSet{} = tickets), do: downcase_set(tickets)
+  defp ticket_set!(tickets) when is_list(tickets), do: downcase_set(tickets)
+
+  defp apply_label_scope(%{labels: labels} = query, opts) when is_list(labels) and labels != [] do
+    tickets = Map.get(query, :tickets) || MapSet.new()
+    Map.put(query, :tickets, MapSet.union(tickets, label_tickets(labels, opts)))
+  end
+
+  defp apply_label_scope(query, _opts), do: query
+
+  # A request label narrows a scoped read; it never widens the ticket set. A
+  # label the grant did not authorize resolves to tickets the set does not
+  # contain, so the page is empty instead of exposing another game's Commands.
+  defp narrow_by_labels(%{labels: labels} = query, opts) when is_list(labels) and labels != [] do
+    tickets = Map.get(query, :tickets) || MapSet.new()
+    Map.put(query, :tickets, MapSet.intersection(tickets, label_tickets(labels, opts)))
+  end
+
+  defp narrow_by_labels(query, _opts), do: query
+
+  @doc false
+  @spec label_tickets(Enumerable.t(), keyword()) :: MapSet.t(String.t())
+  def label_tickets(labels, opts \\ []) do
+    label_set = MapSet.new(labels, &(to_string(&1) |> String.downcase()))
+
+    if MapSet.size(label_set) == 0 do
+      MapSet.new()
+    else
+      label_set |> labelled_tickets(observe_labels(opts))
+    end
+  end
+
+  defp observe_labels(opts) do
+    fun = Keyword.get(opts, :labels_fun, fn -> Aiur.Tracker.open_issue_labels(120_000) end)
+
+    case fun.() do
+      {:ok, observed, _observed_at} when is_map(observed) -> observed
+      _unavailable -> %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    :exit, _reason -> %{}
+  end
+
+  defp labelled_tickets(label_set, observed) when is_map(observed) do
+    Enum.reduce(observed, MapSet.new(), fn {identifier, observation}, acc ->
+      ticket_labels = observation |> labels_of() |> Enum.map(&String.downcase/1)
+
+      if Enum.any?(ticket_labels, &MapSet.member?(label_set, &1)) do
+        MapSet.put(acc, identifier |> to_string() |> String.downcase())
+      else
+        acc
+      end
+    end)
+  end
+
+  defp labels_of(%{} = observation) do
+    case Map.get(observation, :labels) || Map.get(observation, "labels") do
+      labels when is_list(labels) -> Enum.filter(labels, &is_binary/1)
+      _missing -> []
+    end
+  end
+
+  defp labels_of(_observation), do: []
 
   @doc false
   @spec legacy_page(map(), non_neg_integer(), pos_integer(), keyword()) ::
@@ -83,6 +219,11 @@ defmodule Aiur.DecisionQuery do
       {:error, :store_unavailable} ->
         {:ok,
          %{
+           needs_you: nil,
+           needs_you_blocking: nil,
+           with_executor: nil,
+           from_executor: nil,
+           needs_you_by_ticket: nil,
            open: nil,
            blocking: nil,
            total: nil,
@@ -124,10 +265,13 @@ defmodule Aiur.DecisionQuery do
         partial_reason: partial_reason,
         label: pagination_label(query.limit, snapshot.has_next?, partial_reason)
       },
-      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket]),
-      counts: snapshot.counts
+      filters: Map.take(query, [:authority, :blocking, :kind, :labels, :lifecycle, :route, :search, :ticket]),
+      counts: counts(snapshot.counts, query)
     }
   end
+
+  defp counts(_counts, %{tickets: %MapSet{}}), do: Map.new(@count_keys, &{&1, nil})
+  defp counts(counts, _query), do: counts
 
   defp unavailable_page(query) do
     %{
@@ -144,7 +288,7 @@ defmodule Aiur.DecisionQuery do
         partial_reason: :retained_store_unavailable,
         label: "Retained Decision page unavailable"
       },
-      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket])
+      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :route, :search, :ticket])
     }
   end
 

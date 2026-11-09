@@ -209,6 +209,7 @@ defmodule Aiur.DecisionEnrichment do
   defp validation_opts(current, now, opts) do
     [
       ticket: current.ticket,
+      requester: current.requester,
       source: current.source,
       now: now,
       legacy_attention: current.legacy_attention,

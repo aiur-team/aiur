@@ -10,22 +10,35 @@ defmodule Aiur.IssueLogEventHistoryTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.EventsDigest
+  alias Aiur.IssueLog.{CommandRecorder, Paths}
 
+  alias Aiur.Events.GithubWebhook.Triples
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.{TicketObservation, TrackerIdentity}
+  alias Aiur.{Issue, TicketObservation, TrackerIdentity}
+  alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
+  alias Aiur.Orchestrator.IssueSync.TransitionAlerts
+  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TrackedSet
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
     identifier = "test-event-history-#{System.unique_integer([:positive])}"
     tmp = Aiur.TestSupport.tmp_root!("aiur-event-history")
     File.mkdir_p!(Path.join(tmp, "log"))
 
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp, "state"))
 
     on_exit(fn ->
       case original_log_file do
         nil -> Application.delete_env(:aiur, :log_file)
         value -> Application.put_env(:aiur, :log_file, value)
+      end
+
+      case original_runtime_state_dir do
+        nil -> Application.delete_env(:aiur, :runtime_state_dir)
+        value -> Application.put_env(:aiur, :runtime_state_dir, value)
       end
 
       Aiur.TestCleanup.rm_rf!(tmp)
@@ -263,6 +276,127 @@ defmodule Aiur.IssueLogEventHistoryTest do
 
     assert {:ok, [%{id: 6}]} = Aiur.IssueLog.event_history(first_identity)
     assert {:ok, [%{id: 7}]} = Aiur.IssueLog.event_history(second_identity)
+  end
+
+  test "ticket timeline markers survive writer restart in a new launch directory", %{tmp: tmp} do
+    number = Integer.to_string(System.unique_integer([:positive]))
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I#{number}", "number" => number}, {"owner", "repo"}, {"owner", "repo"})
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    :ok =
+      Aiur.IssueLog.record_event(identity.identifier, :emit, %{
+        id: 8,
+        topic: "ticket.#{identity.identifier}.pr.opened",
+        ticket_observation: %TicketObservation{status: :joinable, tracker_identity: identity}
+      })
+
+    _ = :sys.get_state(pid)
+    assert {:ok, %{events: [%{id: 8}]}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    :ok = Aiur.TestSupport.safe_stop(pid)
+    Application.put_env(:aiur, :log_file, Path.join([tmp, "next-launch", "log", "aiur.log"]))
+    :ok = Aiur.IssueLog.attach(identity)
+    restarted_pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(restarted_pid) end)
+    assert {:ok, %{events: [%{id: 8}], high_water: 8}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+  end
+
+  test "published CI failures reach the durable ticket timeline through the event sink" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    assert {:ok, _id, _subscribers} =
+             Aiur.Events.publish(
+               "ticket.#{identity.identifier}.ci.failed",
+               %{message: "test-linux failed", checks: [%{name: "test-linux", url: "https://github.com/owner/repo/actions/runs/123"}]},
+               issue_number: identity.identifier,
+               identity: identity,
+               bypass_contamination: true
+             )
+
+    _ = :sys.get_state(pid)
+
+    assert {:ok,
+            %{
+              events: [
+                %{
+                  topic: topic,
+                  summary: "test-linux failed",
+                  ci_checks: [%{name: "test-linux", url: "https://github.com/owner/repo/actions/runs/123"}]
+                }
+              ]
+            }} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0)
+
+    assert topic == "ticket.#{identity.identifier}.ci.failed"
+  end
+
+  test "real CI review and label producers preserve ticket identity in the durable timeline" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    :ok = Aiur.IssueLog.attach(identity)
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+    issue = %Issue{id: identity.identifier, identifier: identity.identifier, tracker_identity: identity}
+
+    _state =
+      TerminalEvent.publish_ci_terminal_event(
+        %State{},
+        issue,
+        %{head_sha: String.duplicate("a", 40), pr_number: 44, failures: [%{name: "test", result: "failure"}]},
+        :failed
+      )
+
+    webhook_payload = %{
+      "pull_request" => %{
+        "number" => 44,
+        "head" => %{"ref" => "aiur/#{identity.identifier}"},
+        "body" => "Closes #" <> identity.identifier
+      }
+    }
+
+    on_exit(fn -> TrackedSet.reset([]) end)
+    _ = TrackedSet.refresh(%State{running: %{identity.identifier => %{identifier: identity.identifier, issue: issue}}})
+
+    review = %{
+      "id" => System.unique_integer([:positive]),
+      "state" => "CHANGES_REQUESTED",
+      "body" => "Request changes at deadbeef",
+      "submitted_at" => "2026-10-30T08:00:00Z"
+    }
+
+    assert {:publish, [{review_topic, review_payload, review_opts}]} = Triples.review_submission_triple(webhook_payload, review, "owner/repo")
+    assert {:ok, _id, _subscribers} = Aiur.Events.publish(review_topic, review_payload, review_opts)
+
+    previous = %{issue | state: "human-review"}
+    current = %{issue | state: "rework"}
+    _state = TransitionAlerts.emit_task_state_transition_alert(%State{}, previous, current)
+
+    _ = :sys.get_state(pid)
+
+    assert {:ok, %{events: events}} = Aiur.IssueLog.event_history_page(identity, after_id: 0)
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.ci.failed"))
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.pr.review_comment" and &1.review_state == "CHANGES_REQUESTED"))
+    assert Enum.any?(events, &(&1.topic == "ticket.#{identity.identifier}.issue.label.added.agent.rework"))
+  end
+
+  test "command records redact credentials before persisting the timeline marker" do
+    identity = identity(identifier: Integer.to_string(System.unique_integer([:positive])))
+    token = "ghp_123456789012345678901234567890123456"
+
+    CommandRecorder.record_command(identity, "GH_TOKEN=#{token} gh issue view 12", observed_at: DateTime.utc_now())
+    pid = writer_pid(Aiur.IssueLog.event_log_path(identity))
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    _ = :sys.get_state(pid)
+
+    assert {:ok, %{events: [%{kind: "command", summary: "GH_TOKEN=[REDACTED:credential] gh issue view 12"}]}} =
+             Aiur.IssueLog.event_history_page(identity, after_id: 0, kinds: [:command])
+
+    refute File.read!(Paths.timeline_event_log_path(identity)) =~ token
   end
 
   test "lines without [event:*] tag are ignored", %{identifier: id} do

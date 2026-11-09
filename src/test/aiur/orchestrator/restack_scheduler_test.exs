@@ -58,6 +58,13 @@ defmodule Aiur.Orchestrator.RestackSchedulerTest do
     refute_received {:started, _worker}
   end
 
+  test "budget-exhausted dependents never restack", ctx do
+    exhausted = %{ctx.issue | state: "budget-exhausted"}
+
+    assert RestackScheduler.reconcile(%State{}, [exhausted], ctx.opts) == %State{}
+    refute_received {:started, _worker}
+  end
+
   test "conflict reporting is scheduled once with blocker and paths", ctx do
     owner = self()
 

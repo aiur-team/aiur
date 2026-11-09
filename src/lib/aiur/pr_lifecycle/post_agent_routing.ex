@@ -10,7 +10,8 @@ defmodule Aiur.PRLifecycle.PostAgentRouting do
   @spec route(map(), String.t(), keyword()) :: String.t()
   def route(pr, fallback, opts \\ []) do
     number = Map.get(pr, "number") || Map.get(pr, :number)
-    fetcher = Keyword.get(opts, :reviews_fetcher, &CodeHost.fetch_classified_pr_reviews/1)
+    # `||`, not a Keyword.get default: callers forward `reviews_fetcher: nil` (#6053).
+    fetcher = Keyword.get(opts, :reviews_fetcher) || (&CodeHost.fetch_classified_pr_reviews/1)
 
     case if(is_integer(number), do: fetcher.(number), else: {:error, :missing_number}) do
       {:ok, reviews} when is_list(reviews) -> target(pr, reviews, fallback, opts)

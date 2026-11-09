@@ -1,0 +1,443 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 28,
+  "first_id": "tests-6-15",
+  "last_id": "web-occ-16",
+  "findings": [
+    {
+      "id": "tests-6-15",
+      "status": "present",
+      "anchor": "src/test/aiur_web/streamdeck_channel_test.exs:85",
+      "note": "Channel suites still directly install/restore Endpoint config and mix app-env restoration with config_change callbacks. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-16",
+      "status": "present",
+      "anchor": "src/test/aiur/build_order/bounded_test.exs:67",
+      "note": "Bounded/catalog suites still implement separate TrackerIdentity constructors with different synthetic provider IDs. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-16",
+        "tests-5-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-17",
+      "status": "present",
+      "anchor": "src/test/manual/executor_control_center_docs_fixture.exs:179",
+      "note": "Docs fixture still emulates retained-query protocol and excludes :moot from historic statuses, unlike production QueryPlan. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-18",
+      "status": "present",
+      "anchor": "src/test/aiur_web/presenter_test.exs:51",
+      "note": "Presenter tests still read/write private runtime state; graph recovery tests target private timer/state shape. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-20",
+      "status": "present",
+      "anchor": "src/test/aiur_web/streamdeck_projection_test.exs:184",
+      "note": "Streamdeck projection test still sets global workflow path to nonexistent config solely to place availability ledger. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-21",
+      "status": "present",
+      "anchor": "src/test/aiur_web/operator_control_center_components_test.exs:1",
+      "note": "Pure component/presenter suites still use heavy serial TestSupport and global workflow setup. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-22",
+      "status": "present",
+      "anchor": "src/test/aiur/build_order/github_graph_test.exs:1",
+      "note": "GitHubGraph and component/channel suites still span many behaviors with inline fakes and substring assertions. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-23",
+      "status": "changed",
+      "anchor": "src/test/support/test_support.exs:1272",
+      "note": "TestSupport still mirrors schema defaults through manually concatenated YAML and retains dead timeout bindings. Duplicate inspector key removed; concern partly repaired. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-24",
+      "status": "present",
+      "anchor": "src/test/support/test_support.exs:798",
+      "note": "TestSupport still repeats application-child recovery routines with differing restart/fallback semantics. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-25",
+      "status": "present",
+      "anchor": "src/test/support/test_support.exs:1167",
+      "note": "Latest-run fixture still uses VM-local unique integer temp directory; shared default workflow root also remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-26",
+      "status": "present",
+      "anchor": "src/test/aiur/build_order/ticket_detail_test.exs:664",
+      "note": "Missing-token fixture clears PAT/cache but not App credentials; Config.token still chooses configured App credentials first, and helper does not scrub them.",
+      "source_ids": [
+        "tests-6-26"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-27",
+      "status": "unchanged",
+      "anchor": "src/test/manual/pause_resume_scenarios.exs:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-6-27"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-6-28",
+      "status": "present",
+      "anchor": "src/test/test_helper.exs:71",
+      "note": "Support loading still mixes ex/exs and script tests retain root/subdirectory placement; fake usage adapter still uses Aiur.Usage namespace.",
+      "source_ids": [
+        "tests-6-28"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-29",
+      "status": "present",
+      "anchor": "src/test/support/test_support.exs:43",
+      "note": "receive_barrier remains a generated receive with no after clause; absence waits for outer ExUnit timeout rather than a pattern-specific deadline.",
+      "source_ids": [
+        "tests-6-29"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-30",
+      "status": "present",
+      "anchor": "src/test/aiur/workspace/ownership_runner_test.exs:215",
+      "note": "Inode fixture still uses GNU stat -c; HostLock dead_os_pid still obtains an exited shell PID then checks actual OS liveness, leaving reuse race.",
+      "source_ids": [
+        "tests-6-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-31",
+      "status": "present",
+      "anchor": "src/test/aiur/build_order/github_graph_test.exs:1637",
+      "note": "GitHubGraph/reconciliation fixtures independently reconstruct connection and rateLimit payload shapes with different paging options. Provisional disposition retained.",
+      "source_ids": [
+        "tests-6-31"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-6-32",
+      "status": "changed",
+      "anchor": "src/test/aiur/config/max_turns_by_complexity_test.exs:11",
+      "note": "Plain File.write! and manual Workflow selection remain; file is initially written before selection, so actual truncation/poll incidence is unproven and must not be inferred from writer choice alone.",
+      "source_ids": [
+        "tests-6-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/current_run_projections/units_builder.ex:5",
+      "note": "Daemon projections still alias web UnitsRow and snapshot callback; web-domain truth creates reverse dependency. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-01",
+        "web-rest-05",
+        "loose-2-17",
+        "orch-b-36",
+        "platform-misc-12",
+        "loose-1-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-02",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/units_policy.ex:11",
+      "note": "UnitsControlPolicy paused predicate still requires running_ish and runtime flag while UnitsPolicy/FleetFilters classify independently. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-03",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/operator_control_center/ticket_search.ex:33",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-occ-03"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-occ-04",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/decision_commands.ex:113",
+      "note": "Selected command clause still excludes dismissed status while rendered action includes it and overview fallback excludes selected id. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-occ-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-05",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/decision_commands.ex:300",
+      "note": "safe_answer still maps all call exits to store_unavailable and put_error removes idempotency key; revision path retains its key. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-occ-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-06",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/operator_control_center/decision_presenter.ex:25",
+      "note": "Presenter still drops failing decision rows and provider detail labels empty result storage unavailable; historical lexical counts are not current census and blanket no-debug logging-loss premise is repaired. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-occ-06"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-07",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex:1061",
+      "note": "Unavailable cap facts still substitute safe_cap config/default value; concurrency chart unconditionally draws that value without checking cap_available. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-occ-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-08",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex:27",
+      "note": "Analytics presenter still invents 32 GiB host memory on unavailable /proc and uses schedulers_online as machine core ceiling. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-09",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex:587",
+      "note": "Provider meter labels now explicitly say Stale and BuildOrder catalog unavailable copy changed; UsageSummary/RunSummary/Outcomes still label stale freshness Healthy. Original cross-surface inconsistency partly repaired. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-10",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex:1",
+      "note": "Analytics presenter still combines loading/runtime probing, bucketing, pressure merging, KPI and lifecycle presentation. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-11",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/charts.ex:495",
+      "note": "GithubCache chart/style modules removed by #2841; cross-module copies no longer coexist. Analytics chart functions still repeat geometry and formatting. Original duplication scope contracted. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-12",
+      "status": "repaired",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/charts.ex:617",
+      "note": "text/4 and title/1 now HTML-escape all bodies via escape_text. Repaired by 7c9af3316 (#2905); no dedicated U1..U7 finding-owner ticket; retain the existing regression guard and do not reapply this repair. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-13",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex:1",
+      "note": "Production grep still finds FleetTable/RecentOutcomes/LifecycleComponents/CapacityControl/DecisionLatency only at definitions; dead-component concern remains. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-14",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex:174",
+      "note": "Dashboard still subscribes/debounces outcomes and assigns announcements without rendering outcome region; computed-but-unrendered path remains. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-15",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/units_table.ex:138",
+      "note": "Pinned production grep finds remote_control_url only in renderer/presentation readers, no row producer; link remains unwired. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-16",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/units_presentation.ex:49",
+      "note": "Units age formatter still emits minutes plus seconds while run duration formatter emits whole minutes/under 1m; policies remain scattered. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

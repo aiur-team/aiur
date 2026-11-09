@@ -11,10 +11,10 @@ defmodule Aiur.Claude.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   require Logger
-  alias Aiur.AgentTools.Catalog
-  alias Aiur.AppServer.{Adapter, Messages, Rpc, Transport}
+  alias Aiur.AppServer.{Adapter, Rpc, Transport}
   alias Aiur.Claude.{AccountGeneration, NotificationPolicy}
-  alias Aiur.Claude.CodingAgent.Methods
+  alias Aiur.Claude.CodingAgent.{Handshake, Methods}
+  alias Aiur.Commands.NativeCapture.Claude, as: NativeCapture
   alias Aiur.Config
   alias Aiur.ProcessTree
 
@@ -31,7 +31,6 @@ defmodule Aiur.Claude.CodingAgent do
     })
   end
 
-  @thread_start_id 2
   @turn_start_id 3
 
   @type session :: %{
@@ -81,6 +80,7 @@ defmodule Aiur.Claude.CodingAgent do
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
         account_generation_server: account_generation_server,
+        instance_mode: Keyword.get_lazy(opts, :instance_mode, &Config.booted_instance_mode/0),
         account_name: Keyword.get(opts, :account_name),
         account_selection_reason: Keyword.get(opts, :account_selection_reason),
         provider_meter_ingester: Keyword.get(opts, :provider_meter_ingester, &Aiur.ProviderMeters.ingest/1),
@@ -88,10 +88,12 @@ defmodule Aiur.Claude.CodingAgent do
       }
 
       case do_start_session(port, expanded_workspace) do
-        {:ok, thread_id} ->
+        {:ok, thread_id, native_capability} ->
           {:ok,
            Map.merge(lifecycle_session, %{
              thread_id: thread_id,
+             native_question_capability: native_capability,
+             metadata: Map.put(metadata, :native_question_capability, native_capability),
              workspace: expanded_workspace,
              model: model,
              clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
@@ -215,49 +217,13 @@ defmodule Aiur.Claude.CodingAgent do
 
   defp maybe_put_process_group(provider, _group), do: provider
 
-  defp send_initialize(port) do
-    send_frame(port, Messages.initialize_frame())
-
-    with {:ok, _} <- await_response(port, Messages.initialize_id()) do
-      send_frame(port, Messages.initialized_frame())
-      :ok
-    end
-  end
-
-  defp do_start_session(port, workspace) do
-    case send_initialize(port) do
-      :ok -> start_thread(port, workspace)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp start_thread(port, workspace) do
-    send_frame(port, %{
-      "method" => "thread/start",
-      "id" => @thread_start_id,
-      "params" => %{
-        "permissionMode" => Aiur.Claude.Config.permission_mode(),
-        "cwd" => Path.expand(workspace),
-        "dynamicTools" => Catalog.specs()
-      }
-    })
-
-    case await_response(port, @thread_start_id) do
-      {:ok, %{"thread" => thread_payload}} ->
-        case thread_payload do
-          %{"id" => thread_id} -> {:ok, thread_id}
-          _ -> {:error, {:invalid_thread_payload, thread_payload}}
-        end
-
-      other ->
-        other
-    end
-  end
+  defp do_start_session(port, workspace), do: Handshake.start(port, workspace)
 
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec start_turn(session(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def start_turn(%{port: port, thread_id: thread_id, workspace: workspace} = session, prompt, issue) do
+    NativeCapture.release_stale(session, issue)
     model = Map.get(session, :model)
 
     params =

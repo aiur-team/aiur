@@ -5,6 +5,8 @@ defmodule Aiur.ControlCLI.CiWait do
   def print(snapshot) do
     snapshot
     |> Map.get(:ci_wait, [])
+    # The snapshot also carries human-review rows for the Executor sweep.
+    |> Enum.filter(&(&1[:tracker_state] in [nil, "ci-wait"]))
     |> Enum.sort_by(& &1.identifier)
     |> Enum.each(fn ci ->
       failures = ci |> Map.get(:failures, []) |> Enum.map_join(", ", & &1.name)

@@ -130,7 +130,7 @@ for (const theme of ['dark', 'light']) test(`design indicator regression guard i
   await open(page, 'live'); await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme)
   const rows = await page.evaluate(async () => (await import('/build-home/state.js')).ctx.D.now.map(t => ({ id: t.id, state: t.agent.state, model: t.agent.model })))
   for (const row of rows) {
-    const cls = row.state === 'active' ? 'active' : ['paused', 'parked'].includes(row.state) ? 'idle' : 'stuck'
+    const cls = row.state === 'active' ? 'active' : ['paused', 'parked', 'usage_limited', 'ci_wait'].includes(row.state) ? 'idle' : 'stuck'
     const card = await draw(page, row.id)
     expect(await card.evaluate(el => [...el.classList].filter(c => c.startsWith('ag-')))).toEqual(['ag-' + cls])
     await expect(card.locator(':scope > .bd-glow:first-child')).toHaveCount(1)

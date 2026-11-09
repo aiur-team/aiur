@@ -14,7 +14,7 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   """
 
   alias Aiur.Config
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @type hunk :: %{file: String.t(), side: :approved | :current, header: String.t(), lines: [String.t()]}
   @type verdict :: :carried | {:changed, %{reason: term(), hunks: [hunk()]}}
@@ -50,13 +50,13 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarry do
   end
 
   defp contribution_comparison(approved_head, head, pr_number, opts) do
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, repo}} <- Transport.parse_repo() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, repo}} <- Access.parse_repo() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       base = URI.encode(Config.base_branch(opts), &URI.char_unreserved?/1)
 
       fetch = fn path ->
-        Transport.fetch_json_map(request_fun, token, "#{Transport.base_url()}/repos/#{owner}/#{repo}/#{path}", caller: "approval_carry")
+        Access.fetch_json_map(request_fun, token, "#{Access.base_url()}/repos/#{owner}/#{repo}/#{path}", caller: "approval_carry")
       end
 
       with {:ok, pr} <- fetch.("pulls/#{pr_number}"),

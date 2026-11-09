@@ -2,7 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPath do
   @moduledoc false
 
   @filters [:open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
-  @query_keys [:cursor, :search, :sort, :ticket]
+  @query_keys [:cursor, :requester, :search, :sort, :ticket]
 
   @spec inbox(atom()) :: String.t()
   def inbox(filter), do: inbox(filter, %{})
@@ -31,6 +31,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPath do
 
     if map_size(params) == 0, do: path, else: path <> "?" <> URI.encode_query(params)
   end
+
+  defp maybe_put_filter(params, filter) when filter in [:needs_you, :with_executor, :from_executor, :resolved],
+    do: Map.put(params, "route", Atom.to_string(filter))
 
   defp maybe_put_filter(params, filter) when filter in @filters,
     do: Map.put(params, "filter", Atom.to_string(filter))

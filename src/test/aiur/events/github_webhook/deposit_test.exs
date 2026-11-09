@@ -114,7 +114,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
 
       # A conditional reader fetches, recording GitHub's real ETag for the body.
-      ResourceStore.put_resource(key, pull_request(), etag: ~s("github-real"))
+      {:ok, %{data: held_body}} = ResourceStore.fetch(key)
+      ResourceStore.put_resource(key, held_body, etag: ~s("github-real"))
       assert ResourceStore.etag(key) == ~s("github-real")
 
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
@@ -320,7 +321,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   @lib_root Path.expand("../../../../lib", __DIR__)
 
   defp reader_sites(type) do
-    pattern = ~r/ResourceStore\.key(_for_repo)?\(:#{type}\b/
+    pattern = ~r/(?:Access|ResourceStore)\.key(_for_repo)?\(:#{type}\b/
 
     @lib_root
     |> Path.join("**/*.ex")

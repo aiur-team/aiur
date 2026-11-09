@@ -67,7 +67,7 @@ defmodule VoiceConverse.AgentForkStubs do
           ~S"""
           echo '{"type":"system","subtype":"init"}'
           echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It"}}}'
-          echo '{"type":"result","subtype":"success","is_error":false,"result":"It hid the real error.","usage":{"input_tokens":10,"output_tokens":5},"total_cost_usd":0.01}'
+          echo '{"type":"result","subtype":"success","is_error":false,"result":"It hid the real error.","session_id":"child-session-1","usage":{"input_tokens":10,"output_tokens":5},"total_cost_usd":0.01}'
           sleep 30
           """
 

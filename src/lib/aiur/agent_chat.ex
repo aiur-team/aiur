@@ -1,6 +1,6 @@
 defmodule Aiur.AgentChat do
   @moduledoc """
-  Public facade for Executor messages sent to active agent sessions.
+  Public facade for Executor messages sent to active or next agent sessions.
   """
 
   require Logger
@@ -24,25 +24,9 @@ defmodule Aiur.AgentChat do
   # then returns the first item instead of queueing a copy. Without an id,
   # every send is a new message.
   defp do_send(target, issue_identifier, text, opts) do
-    delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
-    fallback = Keyword.get(opts, :fallback, :queue_next)
-    turn_id = Keyword.get(opts, :turn_id)
-    message_id = Keyword.get(opts, :message_id)
-
     Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
-    result =
-      Orchestrator.send_operator_message(
-        target,
-        %{
-          kind: :text,
-          body: text,
-          delivery_policy: delivery_policy,
-          fallback: fallback,
-          turn_id: turn_id,
-          message_id: message_id
-        }
-      )
+    result = Aiur.Listener.send(target, text, Keyword.put_new(opts, :origin, :agent_chat))
 
     log_send_result(issue_identifier, result)
     result
@@ -75,7 +59,7 @@ defmodule Aiur.AgentChat do
   @spec delivery_status(integer(), timeout()) ::
           {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
   def delivery_status(request_id, timeout \\ 5_000) when is_integer(request_id) do
-    Orchestrator.operator_message_status(Orchestrator, request_id, timeout)
+    Orchestrator.operator_message_status(Orchestrator.server(), request_id, timeout)
   end
 
   @spec interrupt(String.t()) :: :ok | {:error, term()}

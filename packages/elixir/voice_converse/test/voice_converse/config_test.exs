@@ -7,6 +7,32 @@ defmodule VoiceConverse.ConfigTest do
   @base [transcript_root: "/tmp/vc", credentials: StaticCredentials, briefing_source: FakeBriefingSource]
   @ready @base ++ [provider: {Nope, []}, llm: "some-model", cloud_disclosure_accepted: true]
 
+  test "ask confirmation policy defaults to first and rejects unknown policies" do
+    assert {:ok, %{ask_requires_confirm: :first_in_session}} = Config.new(@base)
+
+    assert {:error, %{field: :ask_requires_confirm, reason: :invalid}} =
+             Config.new(@base ++ [ask_requires_confirm: :sometimes])
+  end
+
+  test "no-transcript provider cleanup requires cleanup_root" do
+    opts = [
+      transcript: :none,
+      provider_cleanup: true,
+      credentials: StaticCredentials,
+      briefing_source: FakeBriefingSource
+    ]
+
+    assert {:error, %{field: :cleanup_root, reason: :missing}} = Config.new(opts)
+
+    assert {:ok, %Config{transcript: :none, cleanup_root: "/tmp/cleanup"}} =
+             Config.new(Keyword.put(opts, :cleanup_root, "/tmp/cleanup"))
+  end
+
+  test "file transcripts reject cleanup_root" do
+    assert {:error, %{field: :cleanup_root, reason: :not_allowed}} =
+             Config.new(Keyword.put(@base, :cleanup_root, "/tmp/cleanup"))
+  end
+
   # The LLM and the cloud disclosure are operator decisions (E6-OQ7) with no default, so an
   # instance boots without them but no session may start until both are set.
   describe "session start without the operator's decisions" do
@@ -68,6 +94,27 @@ defmodule VoiceConverse.ConfigTest do
     test "a negative cap is rejected with the limit key" do
       assert {:error, %{field: :limits, key: :daily_minutes_cap}} =
                Config.new(@base ++ [limits: %{daily_minutes_cap: -1}])
+    end
+  end
+
+  describe "provider preferences" do
+    test "rejects a cascade llm without a provider prefix" do
+      assert {:error, %{field: :providers, reason: :invalid, key: :llm}} =
+               Config.new(@base ++ [providers: %{cascade: %{llm: "claude"}}])
+    end
+
+    test "rejects speech parts assigned to the wrong direction" do
+      assert {:error, %{field: :providers, reason: :invalid, key: :stt}} =
+               Config.new(@base ++ [providers: %{cascade: %{stt: [:openai_tts]}}])
+
+      assert {:error, %{field: :providers, reason: :invalid, key: :tts}} =
+               Config.new(@base ++ [providers: %{cascade: %{tts: [:openai_stt]}}])
+    end
+
+    test "returns a validation error for a partial providers map in a Config struct" do
+      config = struct(Config, Keyword.merge(@base, providers: %{}))
+
+      assert {:error, %{field: :providers, reason: :invalid, key: :preference}} = Config.new(config)
     end
   end
 end

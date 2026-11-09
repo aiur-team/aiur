@@ -1,6 +1,7 @@
+export const goals = ['run-agents', 'steer', 'notify', 'voice', 'hardware']
 const statuses = ['core', 'optional', 'experimental', 'planned', 'deprecated']
 const kinds = ['in-app', 'package', 'repository', 'client']
-const componentFields = ['id', 'name', 'summary', 'status', 'kind', 'install', 'requires', 'optional', 'capabilities', 'config', 'env', 'docs']
+const componentFields = ['id', 'name', 'summary', 'status', 'goal', 'kind', 'install', 'requires', 'optional', 'capabilities', 'config', 'env', 'docs']
 const featureFields = ['name', 'summary', 'extends', 'adds']
 
 function fail(id, field) {
@@ -32,6 +33,7 @@ export function projectDirectory(manifest) {
     const id = component?.id ?? 'unknown component'
     for (const field of ['id', 'name', 'summary']) string(component?.[field], id, field)
     if (!statuses.includes(component.status)) fail(id, 'status')
+    if (component.status !== 'planned' && !goals.includes(component.goal)) fail(id, 'goal')
     if (!kinds.includes(component.kind)) fail(id, 'kind')
     for (const field of ['requires', 'optional', 'capabilities', 'config', 'env', 'docs']) strings(component[field], id, field)
     const install = component.install
@@ -49,5 +51,6 @@ export function projectDirectory(manifest) {
       for (const field of ['extends', 'adds']) strings(feature[field], id, field)
       return pick(feature, featureFields)
     }).sort(byName)
-  return { components, planned }
+  const groups = goals.map((goal) => ({ goal, components: components.filter((entry) => entry.goal === goal) }))
+  return { components, groups, planned }
 }

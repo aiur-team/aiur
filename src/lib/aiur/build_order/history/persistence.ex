@@ -86,8 +86,10 @@ defmodule Aiur.BuildOrder.History.Persistence do
     end
   end
 
-  @spec write(map()) :: :ok | {:error, term()}
+  @spec write(map()) :: {:ok, map()} | {:error, term()}
   def write(state) do
+    encoded_rows = encode_rows(state.rows, state.encoded_rows)
+
     record = %{
       version: 1,
       repository: state.repository,
@@ -95,16 +97,36 @@ defmodule Aiur.BuildOrder.History.Persistence do
       complete: state.health.complete?,
       generation: state.health.generation,
       checkpoints: state.checkpoints,
-      rows: state.rows |> Map.values() |> Enum.sort_by(& &1.number) |> Enum.map(&Row.to_json/1)
+      rows: encoded_rows |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {_number, {_row, json}} -> Jason.Fragment.new(json) end)
     }
 
-    with {:ok, json} <- Jason.encode(record), true <- byte_size(json) <= @max_file_bytes, :ok <- regular_path(state.path), :ok <- Fs.atomic_write(state.path, json, fsync: true, mode: 0o600) do
-      if state.synced?, do: :ok, else: Fs.sync_filesystem()
+    with {:ok, json} <- Jason.encode_to_iodata(record),
+         true <- IO.iodata_length(json) <= @max_file_bytes,
+         :ok <- regular_path(state.path),
+         :ok <- Fs.atomic_write(state.path, json, fsync: true, mode: 0o600),
+         :ok <- sync_filesystem(state) do
+      {:ok, encoded_rows}
     else
       false -> {:error, :record_too_large}
       {:error, _reason} = error -> error
     end
   end
+
+  # Keep the atomic v1 file; only changed rows pay the codec/JSON cost again.
+  defp encode_rows(rows, cached) do
+    Map.new(rows, fn {number, row} ->
+      encoded =
+        case Map.get(cached, number) do
+          {^row, _json} = held -> held
+          _ -> {row, row |> Row.to_json() |> Jason.encode!()}
+        end
+
+      {number, encoded}
+    end)
+  end
+
+  defp sync_filesystem(%{synced?: true}), do: :ok
+  defp sync_filesystem(_state), do: Fs.sync_filesystem()
 
   defp regular_path(path) do
     case File.lstat(path) do

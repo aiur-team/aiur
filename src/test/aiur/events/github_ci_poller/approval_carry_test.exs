@@ -62,6 +62,17 @@ defmodule Aiur.Events.GithubCIPoller.ApprovalCarryTest do
     assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
   end
 
+  # #5752: PR #5619's ci.yml hunk, where main rewrote `runs-on` inside its trailing context.
+  test "a base edit to a context line in place does not invalidate the Tested head" do
+    pr_hunk = "@@ -423,4 +423,4 @@ jobs:\n   browser:\n-    name: shard/8\n+    name: shard/9\n     needs: changes\n     runs-on: "
+    approved = comparison([{".github/workflows/ci.yml", "a1", pr_hunk <> "ubuntu-latest"}])
+    current = comparison([{".github/workflows/ci.yml", "a2", pr_hunk <> "ubuntu-24.04"}])
+    main = comparison([{".github/workflows/ci.yml", "m1", "@@ -425,3 +425,3 @@ jobs:\n     needs: changes\n-    runs-on: ubuntu-latest\n+    runs-on: ubuntu-24.04\n     container:"}])
+
+    assert :identical = ApprovalCarry.classify_contribution_diffs(approved, current, main)
+    assert :carried = ApprovalCarry.classify_diffs(approved, current, main, @body, @head)
+  end
+
   test "a moved hunk header does not hide a changed removed line" do
     approved =
       comparison([

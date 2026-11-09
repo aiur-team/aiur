@@ -1,7 +1,6 @@
 defmodule Aiur.LandingWatch.Attribution do
+  alias Aiur.GitHub.Access
   @moduledoc "Checks current PR commits for AI co-author trailers before queueing."
-
-  alias Aiur.GitHub.{Errors, Transport}
 
   @max_pages 100
 
@@ -17,10 +16,10 @@ defmodule Aiur.LandingWatch.Attribution do
   def pull_request_clean?(number, opts \\ [])
 
   def pull_request_clean?(number, opts) when is_integer(number) and number > 0 do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}/commits?per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}/commits?per_page=100"
       read_commits(request_fun, token, url, 0)
     end
   end
@@ -38,10 +37,10 @@ defmodule Aiur.LandingWatch.Attribution do
         {:error, :pull_request_has_no_commits}
 
       {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -59,7 +58,7 @@ defmodule Aiur.LandingWatch.Attribution do
   end
 
   defp follow_page(response, request_fun, token, page) do
-    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+    case Access.parse_next_page_url(Map.get(response, :headers, [])) do
       nil -> {:ok, :clean}
       next -> read_commits(request_fun, token, next, page + 1)
     end

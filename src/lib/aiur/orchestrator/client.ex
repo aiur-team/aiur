@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
-  alias Aiur.Orchestrator.{GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
+  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -11,7 +12,7 @@ defmodule Aiur.Orchestrator.Client do
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server), do: Lifecycle.request_refresh_api(server)
   @spec note_queued_demand([String.t()]) :: map() | :unavailable
-  def note_queued_demand(identifiers), do: note_queued_demand(Aiur.Orchestrator, identifiers)
+  def note_queued_demand(identifiers), do: note_queued_demand(Aiur.Project.whereis(Aiur.Orchestrator), identifiers)
   @spec note_queued_demand(GenServer.server(), [String.t()]) :: map() | :unavailable
   def note_queued_demand(server, identifiers) when is_list(identifiers),
     do: Lifecycle.note_queued_demand_api(server, identifiers)
@@ -33,6 +34,13 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | {:error, term()}
   def send_correlated_operator_message(server, identifier, payload),
     do: OM.send_correlated_operator_message(server, identifier, payload)
+
+  @spec cancel_agent(String.t()) :: {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(identifier), do: Cancellation.cancel_agent(identifier)
+
+  @spec cancel_agent(GenServer.server(), String.t()) ::
+          {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(server, identifier), do: Cancellation.cancel_agent(server, identifier)
 
   @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
@@ -144,7 +152,7 @@ defmodule Aiur.Orchestrator.Client do
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
 
   @spec set_global_pause(boolean(), String.t()) :: {:ok, map()} | {:error, term()}
-  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Orchestrator, on?, source)
+  def set_global_pause(on?, source) when is_boolean(on?) and is_binary(source), do: GlobalPause.set_global_pause(Aiur.Project.whereis(Aiur.Orchestrator), on?, source)
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(identifier), do: OM.control_capabilities(identifier)
@@ -160,6 +168,9 @@ defmodule Aiur.Orchestrator.Client do
   def set_remote_control(server, identifier, on?),
     do: RC.set_remote_control(server, identifier, on?)
 
+  @spec redispatch(String.t(), String.t() | nil) :: {:ok, atom()} | {:error, term()}
+  def redispatch(identifier, backend \\ nil), do: RC.redispatch(identifier, backend)
+
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(workspace), do: RC.ensure_remote_control_trust(workspace)
   @spec ensure_remote_control_trust(GenServer.server(), Path.t()) :: :ok | {:error, term()}
@@ -168,7 +179,7 @@ defmodule Aiur.Orchestrator.Client do
 
   @spec operator_message_status(GenServer.server(), integer(), timeout()) ::
           {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
-  def operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000),
+  def operator_message_status(server \\ Aiur.Project.whereis(Aiur.Orchestrator), item_id, timeout \\ 5_000),
     do: OM.operator_message_status(server, item_id, timeout)
 
   @spec claim_next_queue_item(GenServer.server(), String.t()) ::
@@ -181,6 +192,11 @@ defmodule Aiur.Orchestrator.Client do
   def claim_next_checkpoint_queue_item(server, identifier),
     do: OM.claim_next_checkpoint_queue_item(server, identifier)
 
+  @spec claim_next_steer_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_steer_queue_item(server, identifier),
+    do: OM.claim_next_steer_queue_item(server, identifier)
+
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, identifier),
@@ -190,6 +206,9 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
+
+  @spec claim_native_reply_item(GenServer.server(), String.t(), [String.t()]) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_native_reply_item(server, identifier, refs), do: OM.claim_native_reply_item(server, identifier, refs)
 
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
@@ -226,11 +245,11 @@ defmodule Aiur.Orchestrator.Client do
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: StatusReport.snapshot_api()
   @spec list_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+  def list_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
     do: StatusReport.list_active_identifiers_api(server, timeout)
 
   @spec list_running_active_identifiers(GenServer.server(), timeout()) :: [String.t()]
-  def list_running_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
+  def list_running_active_identifiers(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 1_000),
     do: StatusReport.list_running_active_identifiers_api(server, timeout)
 
   @type poll_status :: %{
@@ -259,7 +278,7 @@ defmodule Aiur.Orchestrator.Client do
   before first publication it returns unavailable. See `SnapshotStore.read/2`.
   """
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
-  def dashboard_snapshot(server \\ Aiur.Orchestrator, timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
+  def dashboard_snapshot(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 15_000), do: SnapshotStore.read(server, timeout) |> TelemetryEvents.binding_snapshot()
 
   @doc """
   Reads the fleet view for a control query (`status`, `agents`, `watch`) from
@@ -267,5 +286,32 @@ defmodule Aiur.Orchestrator.Client do
   `Aiur.Orchestrator.StatusReport.fleet_view/2`.
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+  def fleet_view(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+
+  @doc false
+  @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def listener_prompt_context(identifier, opts) do
+    if Scheduler.routing(opts) == :listener do
+      server = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
+      reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context(&1, server))
+      reader.(identifier)
+    else
+      {:error, :listener_mode_unavailable}
+    end
+  end
+
+  defp read_listener_prompt_context(identifier, server) do
+    with {:ok, %{effective: :async}} <- GenServer.call(server, {:listener_get_mode, identifier}, 5_000) do
+      count =
+        case control_capabilities(server, identifier) do
+          {:ok, %{listener: %{unread_count: count}}} -> count
+          _unavailable -> nil
+        end
+
+      {:ok, %{effective: :async, unread_count: count}}
+    end
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    :exit, _ -> {:error, :unavailable}
+  end
 end

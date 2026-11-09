@@ -1,3 +1,4 @@
+# These cases cover GitHub support repair and PATH selection across turns.
 defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
   # #2697: a live session starts later turns without re-running before_run:
   # continuation turns, and the turn after a pause is resumed. Each turn must
@@ -5,7 +6,9 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
   # or refuse the turn without calling the provider at all.
   use Aiur.TestSupport
 
+  alias Aiur.AgentEnvironment
   alias Aiur.AgentGitHubGuard
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.AgentRunner.TurnLoop
   alias Aiur.Workspace.Provisioner
 
@@ -71,6 +74,23 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       assert_receive {:provider_called, 2, []}, 1000
     end
+
+    test "a resumed turn resolves gh from the workspace wrapper first", ctx do
+      assert {:completed, _issue} = continue_after_resume(ctx, report_missing_run_turn(ctx.workspace))
+      env = AgentEnvironment.workspace_env(ctx.workspace)
+      assert {~c"PATH", path} = List.keyfind(env, ~c"PATH", 0)
+      assert List.first(String.split(List.to_string(path), ":")) == AgentGitHubGuard.bin_dir(ctx.workspace)
+
+      assert {resolved, 0} = System.cmd("sh", ["-c", "command -v gh"], env: Enum.map(env, fn {name, value} -> {List.to_string(name), if(value == false, do: nil, else: List.to_string(value))} end))
+      assert String.trim(resolved) == Path.join(AgentGitHubGuard.bin_dir(ctx.workspace), "gh")
+    end
+
+    test "an adopted handoff repairs support before the provider resumes", ctx do
+      put_active_handoff_resume()
+
+      assert {:completed, _issue} = run_first_turn(ctx, report_missing_run_turn(ctx.workspace))
+      assert_receive {:provider_called, 1, []}, 1000
+    end
   end
 
   describe "a gh config dir replaced by a symlink" do
@@ -94,12 +114,17 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
       refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
-    test "the turn after a resume is refused without a provider call", ctx do
+    test "an adopted active handoff refusal restores work after stopping the session", ctx do
+      put_active_handoff_resume()
+
       assert {:error, {:agent_support_repair_failed, _workspace, missing, _reason}} =
-               continue_after_resume(ctx, refusing_run_turn())
+               run_first_turn(ctx, refusing_run_turn())
 
       assert ".aiur-runtime/gh" in missing
       refute_received {:provider_called, _turn, _missing}
+      assert_receive {:queue_item_restored, identifier}, 1000
+      assert identifier == ctx.issue.identifier
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
   end
 
@@ -204,5 +229,12 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
       send(parent, {:provider_called, 0, :must_not_run})
       {:ok, %{session_id: "must-not-run"}}
     end
+  end
+
+  defp put_active_handoff_resume do
+    Process.put(:handoff_resume, %{
+      "turn_state" => Handoff.encode(%{current_turn_id: "turn-1"}),
+      "turn_context" => Handoff.encode(%{prompt: "adopted provider turn"})
+    })
   end
 end

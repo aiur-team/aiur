@@ -5,15 +5,15 @@ defmodule Aiur.GitHub.Comments do
 
   require Logger
   alias Aiur.Codeowners
-  alias Aiur.GitHub.{AgentMarker, Errors, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, AgentMarker, WriteThrough}
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_comment(issue_number, body, opts \\ [])
       when is_binary(issue_number) and is_binary(body) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments"
       # Single-account mode has no other way to tell this comment from one the
       # operator typed under the same login, so the provenance has to be written
       # into the body at the moment it is posted — after that the fact is gone.
@@ -36,21 +36,21 @@ defmodule Aiur.GitHub.Comments do
 
         {:ok, %{status: status} = response} ->
           Logger.error("GitHub create_comment failed status=#{status}")
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
 
   @spec fetch_recent_repo_review_comments(keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_review_comments(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       query = repo_comment_stream_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/comments?#{query}"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/comments?#{query}"
       fetch_repo_comment_stream(request_fun, token, url, [])
     end
   end
@@ -63,11 +63,11 @@ defmodule Aiur.GitHub.Comments do
 
   @spec fetch_recent_repo_issue_comments(keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_issue_comments(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       query = repo_comment_stream_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/comments?#{query}"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/comments?#{query}"
       fetch_repo_comment_stream(request_fun, token, url, [])
     end
   end
@@ -89,11 +89,11 @@ defmodule Aiur.GitHub.Comments do
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_issue_comments_conditional(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       query = comment_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
       etag = Keyword.get(opts, :etag)
       request = %{method: :get, url: url, token: token}
       request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
@@ -110,13 +110,13 @@ defmodule Aiur.GitHub.Comments do
           conditional_stream_pages(request_fun, token, response, body, etag, false)
 
         {:ok, %{status: 304} = response} ->
-          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+          {:not_modified, Access.header(Map.get(response, :headers, []), "etag") || etag}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -124,11 +124,11 @@ defmodule Aiur.GitHub.Comments do
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(),
          context when is_map(context) <- Codeowners.repo_ownership(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
 
       case fetch_repo_comment_stream(request_fun, token, url, [], caller: "classified_issue_comments") do
         {:ok, comments} ->
@@ -143,7 +143,7 @@ defmodule Aiur.GitHub.Comments do
   @spec repo_comment_stream_query(keyword()) :: String.t()
   def repo_comment_stream_query(opts) do
     %{"sort" => "updated", "direction" => "desc", "per_page" => "100"}
-    |> Transport.maybe_put_query("since", Keyword.get(opts, :since))
+    |> Access.maybe_put_query("since", Keyword.get(opts, :since))
     |> URI.encode_query()
   end
 
@@ -154,32 +154,32 @@ defmodule Aiur.GitHub.Comments do
   def fetch_repo_comment_stream(_request_fun, _token, nil, acc, _opts), do: {:ok, acc}
 
   def fetch_repo_comment_stream(request_fun, token, url, acc, opts) do
-    request = Transport.put_caller(%{method: :get, url: url, token: token}, opts)
+    request = Access.put_caller(%{method: :get, url: url, token: token}, opts)
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-        next = Transport.parse_next_page_url(headers)
+        next = Access.parse_next_page_url(headers)
         fetch_repo_comment_stream(request_fun, token, next, acc ++ body, opts)
 
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, acc ++ body}
 
       {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, {:aiur, :locally_held, _hold}} = error ->
         error
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
   defp fetch_recent_repo_comment_stream_conditional(path, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/#{path}?#{repo_comment_stream_query(opts)}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/#{path}?#{repo_comment_stream_query(opts)}"
       etag = Keyword.get(opts, :etag)
       request = %{method: :get, url: url, token: token}
       request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
@@ -194,13 +194,13 @@ defmodule Aiur.GitHub.Comments do
           conditional_stream_pages(request_fun, token, response, body, etag, true)
 
         {:ok, %{status: 304} = response} ->
-          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+          {:not_modified, Access.header(Map.get(response, :headers, []), "etag") || etag}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -217,12 +217,12 @@ defmodule Aiur.GitHub.Comments do
   # page-1 `304` would otherwise hide comments appended to the last page
   # forever (website/docs-app/apis/github.md).
   defp conditional_stream_pages(request_fun, token, response, body, etag, trust_paginated_etag?) do
-    next = Transport.parse_next_page_url(Map.get(response, :headers, []))
+    next = Access.parse_next_page_url(Map.get(response, :headers, []))
 
     with {:ok, comments} <- fetch_repo_comment_stream(request_fun, token, next, body) do
       retained =
         if is_nil(next) or trust_paginated_etag? do
-          Transport.header(Map.get(response, :headers, []), "etag") || etag
+          Access.header(Map.get(response, :headers, []), "etag") || etag
         else
           nil
         end
@@ -234,7 +234,7 @@ defmodule Aiur.GitHub.Comments do
   @spec comment_query(keyword()) :: String.t()
   def comment_query(opts) do
     %{"per_page" => Keyword.get(opts, :per_page, 100), "page" => Keyword.get(opts, :page, 1)}
-    |> Transport.maybe_put_query("since", Keyword.get(opts, :since))
+    |> Access.maybe_put_query("since", Keyword.get(opts, :since))
     |> URI.encode_query()
   end
 end

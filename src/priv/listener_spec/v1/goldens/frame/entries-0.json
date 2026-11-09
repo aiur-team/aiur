@@ -1,0 +1,11 @@
+{
+  "consumed": 0,
+  "entries": [],
+  "frame": null,
+  "suffix": "…",
+  "template": {
+    "close": "</frame>",
+    "open": "<frame>",
+    "separator": "\n"
+  }
+}

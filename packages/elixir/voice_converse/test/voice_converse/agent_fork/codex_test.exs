@@ -21,6 +21,7 @@ defmodule VoiceConverse.AgentFork.CodexTest do
       assert {:ok, ref} = AgentFork.fork(codex_handle(parent), "why that test?", codex_executable: exe)
       assert_receive {:fork_answer, ^ref, "It covers the retry.", :native, usage}, 5_000
       assert is_integer(usage.first_token_ms)
+      assert usage.session_id == @fork_thread
       assert usage.tokens["total"]["totalTokens"] == 42
 
       assert recorded(ctx.root, "argv") == ["app-server", "--disable", "hooks", "-c", "notify=[]"]

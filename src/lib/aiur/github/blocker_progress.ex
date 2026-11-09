@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.BlockerProgress do
   @moduledoc false
-  alias Aiur.GitHub.{HumanReviewGate, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, HumanReviewGate}
 
   @spec approval(String.t(), map() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
   def approval(id, row, opts \\ [])
@@ -21,8 +21,8 @@ defmodule Aiur.GitHub.BlockerProgress do
 
   @spec identity(String.t()) :: map() | nil
   def identity(id) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, %{data: %{"number" => number, "state" => state, "draft" => false} = pr}} <- ResourceStore.fetch(ResourceStore.key(:branch_pull_request, owner, repo, id)),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, %{data: %{"number" => number, "state" => state, "draft" => false} = pr}} <- Access.fetch_resource(Access.key(:branch_pull_request, owner, repo, id)),
          true <- is_integer(number) and number > 0 and state in ["open", "closed"],
          true <- same_repo?(pr, "#{owner}/#{repo}") do
       %{

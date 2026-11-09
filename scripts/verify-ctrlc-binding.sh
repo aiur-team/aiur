@@ -62,7 +62,10 @@ tmux -L "$INNER" kill-server 2>/dev/null || true
 tmux -L "$INNER" new-session -d -s s -x 120 -y 30 "sleep 600"
 tmux -L "$INNER" source-file "$CONF"
 tmux -L "$INNER" set -g @aiur_ctrlc "$STUB"
-tmux -L "$INNER" set -g @aiur_control_url "http://127.0.0.1:4000"
+published_url="http://127.0.0.1:4000"
+tmux -L "$INNER" set -g @aiur_control_url "$published_url"
+# The launcher supplies this path separately from the static config.
+tmux -L "$INNER" set -g @aiur_ctrlc "$STUB"
 # A second pane so the active pane is NOT the agent-list (index 0) pane.
 tmux -L "$INNER" split-window -h -t s "sleep 600"
 

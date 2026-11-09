@@ -4,8 +4,7 @@ defmodule Aiur.Codeowners do
   """
 
   alias Aiur.GitHub
-  alias Aiur.GitHub.{ChangedPaths, CodeOwners, CodeownersFile, CodeownersPattern, Comments, Teams}
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{Access, ChangedPaths, CodeOwners, CodeownersFile, CodeownersPattern, Comments, Teams}
 
   @type owner_entry :: %{
           required(:handle) => String.t(),
@@ -382,7 +381,7 @@ defmodule Aiur.Codeowners do
 
   defp fetch_pr_changed_paths(pr_number, opts) do
     with {:ok, {owner, repo}} <- parse_repo(opts),
-         {:ok, token} <- Transport.require_token(opts) do
+         {:ok, token} <- Access.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
@@ -494,6 +493,6 @@ defmodule Aiur.Codeowners do
         do: request,
         else: Map.put(request, :anonymous, true)
 
-    Transport.default_request_fun(request)
+    Access.default_request_fun(request)
   end
 end

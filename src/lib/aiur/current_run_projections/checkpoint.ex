@@ -195,7 +195,7 @@ defmodule Aiur.CurrentRunProjections.Checkpoint do
 
   defp bounded_map(value) when is_map(value) do
     value
-    |> Enum.sort_by(fn {key, _fact} -> inspect(key) end)
+    |> Enum.sort_by(fn {key, _fact} -> key end)
     |> Enum.take(@max_fallback_entries)
     |> Map.new()
   end

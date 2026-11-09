@@ -93,11 +93,14 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   end
 
   test "a tracked runner survives repeated ticks on the same lease generation" do
-    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked", "Todo")
+    %{issue: %Issue{id: issue_id, identifier: identifier}} =
+      prepare_workflow!("tracked", "Todo", tracker_active_states: ["todo", "in-progress"])
+
     orchestrator = start_supervised!({Orchestrator, []})
 
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
     kill_on_exit(runner)
+    runner_ref = Process.monitor(runner)
     {:ok, %{generation: generation}} = Ownership.current(identifier)
     cycles = :sys.get_state(orchestrator).poll_cycles_completed
 
@@ -106,6 +109,11 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     for tick <- 1..2 do
       _ = Orchestrator.request_refresh(orchestrator)
       assert eventually(fn -> :sys.get_state(orchestrator).poll_cycles_completed >= cycles + tick end, 15_000)
+    end
+
+    if not Process.alive?(runner) do
+      assert_receive {:DOWN, ^runner_ref, :process, ^runner, reason}, 1_000
+      flunk("tracked runner exited during refreshes: #{inspect(reason)}")
     end
 
     assert Process.alive?(runner)
@@ -324,7 +332,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     end
   end
 
-  defp prepare_workflow!(name, state \\ "In Progress") do
+  defp prepare_workflow!(name, state \\ "In Progress", opts \\ []) do
     test_root = Aiur.TestSupport.tmp_root!("orphaned-workers-#{name}")
     workspace_root = Path.join(test_root, "workspaces")
     identifier = "ORPH-#{System.unique_integer([:positive])}"
@@ -344,6 +352,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     # state that holds its workspace lease until something stops it.
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
+      tracker_active_states: Keyword.get(opts, :tracker_active_states, ["Todo", "In Progress"]),
       workspace_root: workspace_root,
       hook_after_create: """
       git init --quiet -b main

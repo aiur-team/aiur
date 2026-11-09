@@ -9,7 +9,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   require Logger
 
-  alias Aiur.Alerts
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -18,11 +19,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # Refreshes the open-blocking-Command ticket set in State from the local store.
@@ -43,7 +46,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   @spec fetch_candidate_issues(State.t(), keyword()) :: {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
   def fetch_candidate_issues(state, opts \\ [])
 
-  def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}
+  def fetch_candidate_issues(%State{} = state, _opts) when effective_paused?(state), do: {:paused, state}
 
   def fetch_candidate_issues(%State{} = state, opts) when is_list(opts) do
     # Dispatch labels are mutable authority. Keep this cache separate from the
@@ -58,7 +61,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   @doc false
   @spec apply_candidate_result(State.t(), {:ok, [Issue.t()], map()} | {:error, term()}) ::
           {:paused, State.t()} | {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()}
-  def apply_candidate_result(%State{globally_paused: true} = state, _result), do: {:paused, state}
+  def apply_candidate_result(%State{} = state, _result) when effective_paused?(state), do: {:paused, state}
 
   def apply_candidate_result(state, result) do
     case result do
@@ -150,7 +153,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   @doc false
   @spec hold_cached_dependencies(State.t(), [Issue.t()], term(), term()) :: State.t()
-  def hold_cached_dependencies(%State{globally_paused: true} = state, _held, _active, _terminal), do: state
+  def hold_cached_dependencies(%State{} = state, _held, _active, _terminal) when effective_paused?(state), do: state
 
   def hold_cached_dependencies(state, held, active, terminal) do
     Enum.reduce(held, state, fn issue, state ->
@@ -229,7 +232,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     next =
       cond do
         dispatch_input(current, issue.id) != expected -> current
-        current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        PauseGuard.paused?(current) -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
         true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
       end
 
@@ -387,8 +390,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
+      # #7797: names the blockers the gate saw so a dispatch with an open blocker can be traced.
+      blockers = Enum.map(hydrated.blocked_by, &{Map.get(&1, :id), Map.get(&1, :state)})
+      Logger.info("Dependency gate passed #{State.issue_context(hydrated)} blockers=#{inspect(blockers)}")
+
       if OptimisticSlots.available?(hydrated, state, terminal_states) do
-        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, Keyword.put(opts, :dependency_checked, true))
       else
         maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
       end
@@ -436,7 +443,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     else
       state = maybe_resolve_dispatch_decline(state, issue)
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         dispatch_decline_topic(issue, attention?),
         "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
         issue: issue.identifier,
@@ -458,7 +465,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
       reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :rework_claim_failed, :dependency_hydration_failed] ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",
           issue: issue.identifier,

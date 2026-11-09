@@ -3,14 +3,16 @@ defmodule AiurWeb.Build.Usage do
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
-  alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.Access
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  alias AiurWeb.RemainingMeter
   import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
   @logos [:claude, :codex, :kimi, :deepseek]
+  @api_key_envs [openrouter: "OPENROUTER_API_KEY", openrouter_management: "OPENROUTER_MANAGEMENT_KEY", deepseek: "DEEPSEEK_API_KEY", openai: "OPENAI_API_KEY"]
 
   @spec read({:ok, term()} | :locked, keyword()) :: map()
   def read(financial, opts \\ [])
@@ -38,19 +40,34 @@ defmodule AiurWeb.Build.Usage do
     # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
     {github, github_snapshot_observed_at} = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
-    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, github_snapshot_observed_at: github_snapshot_observed_at, elevenlabs: elevenlabs}
+    routed = isolated(Keyword.get(opts, :configured_fun, &ModelProviders.configured_families/0), [])
+    # A keyed OpenAI-compatible family is configured by its key; a session-login family by routing.
+    configured = Enum.filter(families, &(&1 in routed or compat(&1) != nil))
+    api_keys = for {key, env} <- @api_key_envs, System.get_env(env) not in [nil, ""], do: key
+
+    %{
+      families: families,
+      configured: configured,
+      api_keys: api_keys,
+      meters: meters,
+      accounts: accounts,
+      durable: durable,
+      github: github,
+      github_snapshot_observed_at: github_snapshot_observed_at,
+      elevenlabs: elevenlabs
+    }
   end
 
   defp github_snapshot(opts) do
-    server = Keyword.get(opts, :github_server, GitHubQuota)
+    server = Keyword.get(opts, :github_server, Access.quota_server())
     now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
 
-    case GitHubQuota.cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+    case Access.quota_cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
       {:ok, snapshot, _age_ms, observed_at_ms} ->
         {{:ok, snapshot}, observed_at_ms}
 
       :miss ->
-        github = isolated(fn -> {:ok, GitHubQuota.snapshot!(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        github = isolated(fn -> {:ok, Access.cost_report(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
         {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
     end
   end
@@ -83,11 +100,13 @@ defmodule AiurWeb.Build.Usage do
   @doc false
   @spec keyed?(atom()) :: boolean()
   def keyed?(provider) do
-    case get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]) do
+    case compat(provider) do
       %{} = compat -> ModelProviders.keyed?(compat)
       _ -> true
     end
   end
+
+  defp compat(provider), do: get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat])
 
   @doc false
   @spec durable(atom(), Path.t()) :: map() | nil
@@ -109,9 +128,39 @@ defmodule AiurWeb.Build.Usage do
 
   def block({:ok, _}, inputs, now) do
     cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
-    providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
-    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at))
+
+    providers =
+      for family <- order_families(inputs.families),
+          card = Enum.find(cards, &(&1.provider == family)),
+          card != nil and (family in Map.get(inputs, :configured, []) or observed?(card, inputs)),
+          do: provider(card, inputs, ms(now))
+
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at)) ++ key_rows(cards, inputs, ms(now))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
+  end
+
+  # Neither a configured account nor any observation: a registry placeholder, not a row.
+  defp observed?(card, inputs) do
+    card.windows != [] or Map.get(inputs.durable, card.provider) != nil or
+      (card.provider == :claude and Enum.any?(Map.values(inputs.accounts), &(Map.get(&1, :reading) != nil)))
+  end
+
+  # APIs the daemon holds a key for; balances come from the same provider meter cards as MODELS.
+  defp key_rows(cards, inputs, now) do
+    keys = Map.get(inputs, :api_keys, [])
+    card = fn provider -> Enum.find(cards, &(&1.provider == provider)) end
+
+    openrouter =
+      cond do
+        :openrouter_management in keys -> [provider(card.(:openrouter), inputs, now)]
+        :openrouter in keys -> [%{row("OpenRouter") | mono: "O", none: true, note: "Credits need OPENROUTER_MANAGEMENT_KEY"}]
+        true -> []
+      end
+
+    deepseek = if :deepseek in keys, do: [provider(card.(:deepseek), inputs, now)], else: []
+    # ponytail: a project key cannot read billing and nothing records OpenAI rate-limit headers; add the admin-key cost API when one is set.
+    openai = if :openai in keys, do: [%{row("OpenAI") | mono: "O", none: true, note: "Configured · a project key cannot read billing"}], else: []
+    openrouter ++ deepseek ++ openai
   end
 
   @doc false
@@ -152,11 +201,16 @@ defmodule AiurWeb.Build.Usage do
       :unknown -> unknown(base, Map.get(inputs.durable, card.provider))
       :loading -> %{base | none: true, note: "Awaiting first observation"}
       :signed_out -> %{base | none: true, note: "Not signed in"}
-      _ -> %{base | none: true, note: card.health.failure_label || "Unavailable"}
+      # A failed read keeps its row and is marked stale so the strip shows the reading's age.
+      _ -> %{base | none: true, stale: true, note: card.health.failure_label || "Unavailable"}
     end
   end
 
-  defp unknown(base, %{percent: percent, observed_at: at}), do: %{base | none: true, note: "Last known #{percent}% (previous boot)", observed_at: ms(at), stale: true}
+  defp unknown(base, %{percent: percent, observed_at: at}) do
+    remaining = RemainingMeter.percent(percent)
+    %{base | none: true, note: "Last known #{remaining}% left (previous boot)", observed_at: ms(at), stale: true}
+  end
+
   defp unknown(base, _), do: %{base | none: true, note: "Awaiting first observation"}
 
   defp provider_windows(base, %{provider: :claude}, accounts, now) when map_size(accounts) >= 2 do
@@ -193,19 +247,34 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp window(id, value), do: %{acc: [pct(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
-  defp pct(%{kind: :exact, now: value}), do: value
-  defp pct(_), do: nil
+  defp window(id, value), do: %{acc: [meter_percent(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
+
+  defp meter_percent(%{kind: :exact, now: remaining_percent}) when is_number(remaining_percent), do: percent(remaining_percent)
+  defp meter_percent(_), do: nil
 
   defp credits(value) do
     amount = get_in(value, [:credits, :amount])
     left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
-    %{pct: pct(value.meter), left: left, tip: [["Prepaid credits", left <> " left"]]}
+    remaining = meter_percent(value.meter)
+    # A prepaid credit figure is meaningless without its ceiling: "$77.50 left"
+    # reads as plenty until it says "of $100.00". The limit is the same fact a
+    # usage floor measures the remaining credit against.
+    balance = left <> limit_suffix(Map.get(value, :limit))
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{balance} left · #{percent(remaining)}% left", else: "#{balance} left")]]}
   end
+
+  defp limit_suffix(limit) when is_number(limit), do: " of $" <> Money.format_amount(to_string(limit))
+  defp limit_suffix(_limit), do: ""
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
-    %{acc: Enum.map(values, &percent(Map.get(&1, :used_percent))), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
+
+    %{
+      resets: Enum.map(values, &ms(Map.get(&1, :resets_at))),
+      acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())),
+      reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))),
+      win: label
+    }
   end
 
   defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do

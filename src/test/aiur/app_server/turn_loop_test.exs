@@ -1,7 +1,8 @@
 defmodule Aiur.AppServer.TurnLoopTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.{Rpc, TurnLoop}
+  alias Aiur.AppServer.{RelayPort, Rpc, Transport, TurnLoop}
+  alias Aiur.TestSupport.Isolation
 
   defmodule StubBackend do
     def send_frame(_port, frame) do
@@ -31,6 +32,31 @@ defmodule Aiur.AppServer.TurnLoopTest do
     def handle_method(_session, state, _payload, _payload_string, _method), do: {:continue, state}
 
     defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
+  end
+
+  defmodule FloodBackend do
+    def metadata_from_message(_port, _payload), do: %{backend: :flood}
+    def handle_interrupt_error(_state, error), do: {:error, error}
+    def handle_malformed(state, _payload, _port), do: {:continue, state}
+
+    def handle_method(_session, state, %{"method" => "done"}, _raw, _method), do: {:ok, state}
+
+    def handle_method(_session, state, %{"method" => "flood"}, _raw, _method) do
+      if state.flood_count == 0 do
+        send(state.parent, {:flood_handler_blocked, self()})
+
+        receive do
+          :release_flood -> :ok
+        end
+      end
+
+      {:continue, %{state | flood_count: state.flood_count + 1, max_mailbox: max(state.max_mailbox, mailbox_len())}}
+    end
+
+    defp mailbox_len do
+      {:message_queue_len, count} = Process.info(self(), :message_queue_len)
+      count
+    end
   end
 
   test "a limit refusal printed before a nonzero exit pauses instead of failing" do
@@ -80,6 +106,59 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, state()) == {:error, {:port_exit, 9}}
 
     assert TurnLoop.receive_loop(%{port: port}, state(%{timeout_ms: 1})) == {:error, :turn_timeout}
+  end
+
+  @tag :tmp_dir
+  test "active relay turn keeps a sustained output flood below one hundred mailbox messages", %{tmp_dir: workspace} do
+    parent = self()
+    provider = Path.join(workspace, "flood.py")
+    marker = Path.join(workspace, "flood-complete")
+
+    File.write!(
+      provider,
+      "import json\nfor _ in range(1000): print(json.dumps({'method':'flood'}), flush=True)\nprint(json.dumps({'method':'done'}), flush=True)\nopen(#{inspect(marker)}, 'w').close()\n"
+    )
+
+    runner =
+      Isolation.start_owned!(
+        {Task,
+         fn ->
+           {:ok, relay} = RelayPort.start(workspace, "exec python3 #{Aiur.Shell.escape(provider)}", [])
+           state = Map.merge(state(%{backend: FloodBackend, parent: parent, timeout_ms: 30_000}), %{flood_count: 0, max_mailbox: 0})
+           send(parent, {:relay_ready, self(), Transport.metadata(relay)})
+           result = TurnLoop.receive_loop(%{port: relay}, state)
+           send(parent, {:flood_complete, result})
+         end}
+      )
+
+    assert_receive {:relay_ready, ^runner, metadata}, 5_000
+    assert_receive {:flood_handler_blocked, ^runner}, 5_000
+    expected_size = 1000 * byte_size(~s({"method": "flood"}\n)) + byte_size(~s({"method": "done"}\n))
+    assert wait_for_file_size(Path.join(metadata.directory, "out.journal"), expected_size, 500)
+    assert File.exists?(marker)
+    assert {:message_queue_len, queue_len} = Process.info(runner, :message_queue_len)
+    assert queue_len < 100
+    send(runner, :release_flood)
+
+    assert_receive {:flood_complete, {:ok, final_state}}, 30_000
+    assert final_state.flood_count == 1000
+    assert final_state.max_mailbox < 100
+  end
+
+  defp wait_for_file_size(_path, _expected, 0), do: false
+
+  defp wait_for_file_size(path, expected, attempts) do
+    case File.stat(path) do
+      {:ok, %{size: ^expected}} ->
+        true
+
+      _ ->
+        receive do
+          :retry -> wait_for_file_size(path, expected, attempts - 1)
+        after
+          10 -> wait_for_file_size(path, expected, attempts - 1)
+        end
+    end
   end
 
   test "port exit settles a guarded anonymous completion candidate" do

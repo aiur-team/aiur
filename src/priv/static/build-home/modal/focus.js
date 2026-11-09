@@ -1,8 +1,8 @@
 // Ported from ticket-context-dialog-hook.js:48–90; this dialog is hook-owned.
 export function trap(event, modal) {
   if (event.key !== 'Tab') return;
-  const controls = [...modal.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-    .filter(el => !el.hidden && el.getAttribute('aria-hidden') !== 'true' && el.getAttribute('aria-disabled') !== 'true' && el.getClientRects().length);
+  const controls = [...modal.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.tabIndex !== -1 && !el.hidden && !el.closest('details:not([open]) > summary') && el.getAttribute('aria-hidden') !== 'true' && el.getClientRects().length);
   const first = controls[0], last = controls.at(-1), active = document.activeElement;
   if (!first) { event.preventDefault(); modal.querySelector('[data-dialog-heading]')?.focus(); }
   else if (event.shiftKey && (active === first || active === modal.querySelector('[data-dialog-heading]'))) {

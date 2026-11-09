@@ -2,9 +2,8 @@ defmodule Aiur.LandingWatch.QuarantineEvidence do
   @moduledoc """
   Decides which failures may count toward quarantine.
 
-  A test is a flake only with evidence that it also passes: a base-branch failure counts
-  once a rerun of the failing commit passed it, and never when the failing change touched
-  the test or the lib file it mirrors. A test that fails in the newest base-branch run is a
+  A base-branch failure is quarantinable on its first observation when its commit did not
+  touch the test or the lib file it mirrors. A test that fails in the newest base-branch run is a
   regression for the main-watch fixer; merge-group failures recorded meanwhile never count.
   """
 
@@ -22,6 +21,20 @@ defmodule Aiur.LandingWatch.QuarantineEvidence do
   @spec touched?(String.t() | nil, [String.t()]) :: boolean()
   def touched?(test_path, paths) when is_binary(test_path) and is_list(paths), do: test_path in paths or lib_path(test_path) in paths
   def touched?(_test_path, _paths), do: false
+
+  @doc "Projects a journal observation for candidate selection, retaining the paths checked on base commits."
+  @spec observation(map()) :: map()
+  def observation(row) do
+    %{
+      identity: row["identity"],
+      pr: row["pr"],
+      run_url: row["run_url"],
+      at_ms: row["at_ms"],
+      path: row["path"],
+      group_prs: row["group_prs"],
+      checked_paths: row["checked_paths"] || []
+    }
+  end
 
   defp lib_path("src/test/" <> rest), do: "src/lib/" <> String.replace_suffix(rest, "_test.exs", ".ex")
   defp lib_path(_path), do: nil

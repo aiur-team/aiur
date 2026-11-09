@@ -1,0 +1,98 @@
+name: nightly-release
+
+# One nightly per America/Los_Angeles date, cut from the first green main after
+# local midnight. Each package in .github/nightly-release.json is released only
+# when its paths changed since its own last nightly tag. Logic and docs:
+# packages/nightly-release/.
+#
+# Triggers:
+#   workflow_dispatch from ci.yml   the `nightly trigger` job at the end of a
+#                                   main CI run with no failed job, while today
+#                                   has no nightly yet. The fast path.
+#   schedule                        fallback for a night with no main CI run.
+#                                   Every 30 min over 07:00-16:30 UTC (00:00
+#                                   PDT / 23:00 PST onward); the script reads
+#                                   the date in Los Angeles time, so DST needs
+#                                   no second cron. Live.
+#   workflow_dispatch (manual)      dry_run defaults to true.
+#
+# "Green" is the newest push-event ci.yml run at the exact sha, not the
+# `ci gate` check: on main pushes that check does not require the other jobs.
+#
+# `plan` is read-only. `publish` holds the write scopes and the GHCR login, and
+# runs only on a live run whose plan is green with today not yet cut.
+on:
+  schedule:
+    - cron: "7,37 7-16 * * *"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit on main to release (empty = main head)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Plan only; tag, release and publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: ${{ github.repository == 'aiur-team/aiur' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      act: ${{ steps.plan.outputs.act }}
+      docker: ${{ steps.plan.outputs.docker }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Plan
+        id: plan
+        uses: ./.github/actions/nightly-release
+        with:
+          sha: ${{ inputs.sha }}
+          dry-run: "true"
+
+  publish:
+    needs: plan
+    # The schedule has no inputs and runs live; a dispatch passes its own.
+    if: ${{ github.repository == 'aiur-team/aiur' && needs.plan.outputs.act == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) }}
+    runs-on: ubuntu-24.04
+    # Waits for each dispatched publish (release-npm takes ~30 min).
+    timeout-minutes: 240
+    permissions:
+      contents: write # tags and prereleases
+      actions: write # dispatch release-npm.yml and streamdeck-package.yml
+      packages: write # re-tag the GHCR image
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Log in to GHCR
+        if: ${{ needs.plan.outputs.docker == 'true' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Nightly release
+        uses: ./.github/actions/nightly-release
+        with:
+          sha: ${{ needs.plan.outputs.sha }}
+          dry-run: "false"

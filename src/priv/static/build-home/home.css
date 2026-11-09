@@ -18,6 +18,7 @@
 @import url("home/17-responsive-light.css");
 @import url("home/18-palette-fixes.css");
 @import url("home/19-modal-doc.css");
+@import url("home/20-touch.css");
 
 /* MP-E8-C10-T04: states the design lacks */
 .ax-seg.none { background: none; border: 1px dashed var(--line-strong); box-sizing: border-box; }
@@ -49,10 +50,91 @@ span.ax-cnt:hover { color: var(--muted); background: none; }
 .bd-now-st button.queued i, .bd-now-sum .queued { background: var(--attn); }
 
 .bm-agent .ax-mono { display: inline-grid; width: 16px; height: 16px; border-radius: 50%; font-size: .6rem; }
+@media (max-width: 720px) { .bm-agent .ax-mono { display: none; } }
 .bm-tt h3:focus { outline: none; }
 
+/* H:154: preserve the design gutter when the ticket modal locks body scrolling. */
+html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollbar-width: auto; }
+
+/* MP-E8-C11-T07: button states the design does not draw (C:153 disabled look). */
+.bm-ib[aria-disabled="true"] { opacity: .4; cursor: default; }
+.bm-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.bm-ib.bad { color: var(--block-ink); } .bm-ib.warn { color: var(--attn-ink); }
 /* MP-E8-C11-T06: composer send states the design lacks (S-7 default, pending sign-off) */
 .cv-in-st { margin: -.6rem 1rem .8rem 1.85rem; font: .68rem "JetBrains Mono", monospace; color: var(--muted); }
 .cv-in-st.bad { color: var(--block-ink); }
 .cv-in-st[hidden] { display: none; }
 .cv-send:disabled { opacity: .5; cursor: default; }
+
+/* S-12 defaults: visible keyboard focus and forced-colours fallbacks. */
+.bd-card:focus-visible { border-radius: var(--r); }
+.bd-card.dim:focus-visible, .bd-card.hdim:focus-visible { opacity: 1 !important; filter: none !important; }
+
+@media (forced-colors: active) {
+  .bd-card.dim, .bd-card.hdim { opacity: 1 !important; filter: none !important; }
+  .bd-card.dim .bd-in, .bd-card.hdim .bd-in { outline: 2px dashed GrayText; outline-offset: -4px; color: GrayText; }
+  .bd-card.ag-active .bd-in { border: 2px solid CanvasText; }
+  .bd-card.ag-stuck .bd-in { border: 3px double CanvasText; }
+  .bd-card.ag-idle .bd-in { border: 1px dotted CanvasText; }
+  .bd-card.hl .bd-in, .bd-card.sel .bd-in, .bd-card.feat-on .bd-in { border-color: Highlight; }
+  .bd-bar { forced-color-adjust: none; background: Canvas; border: 1px solid CanvasText; }
+  .bd-bar i { forced-color-adjust: none; background: CanvasText !important; }
+  .bd-e, .bd-e.ok, .bd-e.bl, .bd-e.bad { stroke: CanvasText; }
+  .bd-e.hl { stroke: Highlight; }
+  .bd-e.fade, .bd-ea.fade { opacity: .4; }
+  .bd-ea, .bd-ea.ok, .bd-ea.bl, .bd-ea.bad { fill: CanvasText; }
+}
+
+/* MP-E8-C11-T08 command card state line: not in the design, S-42 default pending the owner's sign-off */
+.cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-cmd .st.bad { color: var(--block-ink); }
+.bd-opt > .ax-mono { width: 14px; height: 14px; border-radius: 50%; font-size: .5rem; }
+.bd-partial { padding: .35rem .75rem; color: var(--attn-ink); font: .68rem/1.4 "JetBrains Mono", monospace; }
+.bd-partial[hidden] { display: none; }
+
+/* C:232 keeps inner color/border transitions under reduced motion; outer card fades stay disabled. */
+@media (prefers-reduced-motion: reduce) {
+  .bd-root.rm .bd-in { transition-duration: .14s, .14s, .14s, .14s !important; }
+}
+
+/* Completed history stays distinct from closed-but-not-completed tickets. */
+html .bd-card.completed .bd-in,
+html .bd-card.bar.completed .bd-in,
+html .lr.completed {
+  background: linear-gradient(var(--good-soft), var(--good-soft)), var(--surface-2);
+  color: var(--fg);
+}
+html .bd-card.completed .bd-in :is(.bd-id, .bd-title, .bd-status, .bd-time, .bd-badges, .bd-badges *) {
+  color: var(--fg) !important;
+}
+html .bd-card.completed .bd-cx { color: var(--fg) !important; }
+html .lr.completed :is(.c-id, .c-tt, .c-ep, .lr-mu, .c-ag) { color: var(--fg) !important; }
+/* Keep C:142's phone filter scrolling above later desktop overflow overrides. */
+@container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }
+
+.bd-card .bd-status > span:has(.bd-hold) { white-space: normal; overflow: visible; }
+.bd-hold { color: inherit; text-decoration: underline; }
+.ax-ln.acct { margin-top: 3px; }
+
+/* #7763 experiment: compact APIS / MODELS meters pinned under the desktop nav links. */
+.aiur-shell__rail { display: contents; }
+.aiur-shell__meters { display: none; }
+@media (min-width: 961px) {
+  .aiur-shell__rail.has-meters { display: flex; flex-direction: column; position: sticky; top: calc(56px + .6rem); height: calc(100vh - 56px - 1.4rem); min-height: 0; }
+  .aiur-shell__rail.has-meters > .aiur-shell__nav { position: static; flex: none; }
+  .aiur-shell__rail.has-meters > .aiur-shell__meters { display: block; margin-top: auto; flex: 0 1 auto; min-height: 0; overflow: hidden auto; padding: .5rem 0 0 .8rem; }
+  html.nav-collapsed .aiur-shell__meters { display: none; }
+  /* #7774's fixed Executor footer spans the nav too; keep the meters above it. */
+  body:has(#executor-footer) .aiur-shell__rail.has-meters { height: calc(100vh - 56px - 1.4rem - var(--executor-footer-bar, 44px)); }
+}
+.ax-nu:empty { display: none; }
+.ax-nc + .ax-nc { margin-top: .55rem; }
+.ax-nh { font: 600 .58rem/1.6 "JetBrains Mono", monospace; letter-spacing: .08em; color: var(--faint); }
+.ax-nl { display: grid; grid-template-columns: 16px minmax(0, 1fr) 4.6em; align-items: center; gap: .4rem; height: 18px; }
+.ax-nl.stale { opacity: .55; }
+.ax-nw .ax-who { gap: 0; }
+.ax-nw .ax-who b, .ax-nw .ax-x { display: none; }
+.ax-nw img, .ax-nw .ax-mono, .ax-nw .ax-ic { width: 14px; height: 14px; font-size: .5rem; }
+.ax-nl .ax-bar { height: 4px; border-radius: 2px; }
+.ax-np { font: .6rem "JetBrains Mono", monospace; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-np.hi { color: var(--attn-ink); } .ax-np.max { color: var(--block-ink); }

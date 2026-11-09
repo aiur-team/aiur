@@ -58,7 +58,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   a strict read may still send `If-None-Match` — a `304` is GitHub asserting
   *right now* that the resource has not changed, a fresh answer obtained for
   free, not a cached one. Holding the body is what permits that, because
-  `ResourceStore.etag/1` answers only beside a held body.
+  `Access.etag/1` answers only beside a held body.
 
   A `check_run` delivery may advance the matching run inside a complete
   `:ci_contexts` snapshot that a poll already established for the same head.
@@ -129,15 +129,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Deposit.{Bodies, CacheRetirement, StoreWrite}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
 
   @typedoc """
   One unit of work this module produces from a delivery: either a body to
   deposit under an identity, or an identity whose held body must go.
   """
   @type work ::
-          {ResourceStore.resource_type(), term(), term(), String.t() | nil}
-          | {:drop, ResourceStore.resource_type(), term()}
+          {Access.resource_type(), term(), term(), String.t() | nil}
+          | {:drop, Access.resource_type(), term()}
           | {:thread_transition, term(), String.t(), map(), String.t() | nil, String.t() | nil}
           | {:invalidate_review_threads, term()}
           | {:merge_review_thread, term(), map()}
@@ -160,7 +160,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       time is the only honest ordering marker a stale-delivery guard can
       compare. Defaults to now.
   """
-  @spec deposit(term(), term(), term(), keyword()) :: [ResourceStore.key()]
+  @spec deposit(term(), term(), term(), keyword()) :: [Access.key()]
   def deposit(event_type, payload, repo, opts \\ [])
 
   def deposit(event_type, payload, repo, opts)
@@ -234,5 +234,5 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # be reported as a refusal by `confirm/1` for every body in the delivery.
   # Answered once per delivery instead — through the store's own view, which is
   # the table the writes land in.
-  defp store_running?, do: ResourceStore.running?()
+  defp store_running?, do: Access.running?()
 end

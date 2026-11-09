@@ -6,8 +6,8 @@
   "repository": "example/repo",
   "researched_at_commit": "0123456789abcdef0123456789abcdef01234567",
   "workstreams": [
-    {"id": "platform", "title": "Platform"},
-    {"id": "integration", "title": "Integration"}
+    {"id": "platform", "title": "Platform", "icon": "queue-list", "summary": "Platform workstream.", "wave": 0},
+    {"id": "integration", "title": "Integration", "icon": "home", "summary": "Integration workstream.", "wave": 1}
   ],
   "github_root": null,
   "github_reconciliation": null,

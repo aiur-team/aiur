@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 21,
+  "first_id": "skills-prompts-cont-34",
+  "last_id": "skills-prompts-cont-67",
+  "findings": [
+    {
+      "id": "skills-prompts-cont-34",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/SKILL.md:245",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-34"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-35",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-simplify-code/SKILL.md:9",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-36",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/SKILL.md:224",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-36"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-37",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-resolve-pr-feedback/SKILL.md:16",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-37"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-38",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/references/finish-review.md:16",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-38"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-39",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/references/personas/previous-comments-reviewer.md:9",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-39"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-40",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/references/personas/previous-comments-reviewer.md:7",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-40"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-41",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-plan/references/html-rendering.md:222",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-41"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-42",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-compound/references/grounding-validation.md:10",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-42"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-43",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-doc-review/references/subagent-template.md:33",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-43"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-44",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-ideate/references/agents/issue-intelligence-analyst.md:38",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-44"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-45",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-promote/SKILL.md:27",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-45"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-46",
+      "status": "unchanged",
+      "anchor": ".claude/skills/release/SKILL.md:47",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-46"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-47",
+      "status": "present",
+      "anchor": ".claude/skills/release/SKILL.md:72",
+      "note": "Release summary still reports package publication after tag/release commands without workflow or registry receipt. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-47"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-48",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-optimize/references/experiment-prompt-template.md:11",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-48"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-49",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-optimize/SKILL.md:104",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-49"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-50",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-optimize/SKILL.md:424",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-50"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-51",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-product-pulse/references/interview.md:173",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-51"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-52",
+      "status": "unchanged",
+      "anchor": ".claude/skills/lfg/SKILL.md:41",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-52"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-53",
+      "status": "unchanged",
+      "anchor": ".claude/skills/lfg/references/tracker-defer.md:19",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-53"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-54",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-test-xcode/SKILL.md:21",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-54"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-55",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-riffrec-feedback-analysis/SKILL.md:20",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-55"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-56",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-polish/scripts/resolve-port.sh:255",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-56"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-57",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-polish/references/dev-server-procfile.md:5",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-57"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-58",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-dogfood/SKILL.md:54",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-58"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-59",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-dogfood/SKILL.md:64",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-59"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-60",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-dogfood/SKILL.md:140",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-60"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-61",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/references/state-schema.md:128",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-61"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-62",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/SKILL.md:157",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-62"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-63",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/references/sources/slack.md:19",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-63"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-64",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/references/interview.md:21",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-64"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-65",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/SKILL.md:136",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-65"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-66",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/SKILL.md:89",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-66"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-67",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-doc-review/references/cross-model-review.md:109",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-67"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

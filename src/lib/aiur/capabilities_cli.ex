@@ -42,7 +42,15 @@ defmodule Aiur.CapabilitiesCLI do
       end
 
     mode = if entry[:mode], do: "  #{entry.mode}", else: ""
-    "#{String.pad_trailing(id, 25)}#{value(entry, :state)}#{reason}#{needs}#{mode}"
+
+    preference =
+      if entry[:preference_state] do
+        "  preference=#{entry.preference_state} preferred=#{entry[:preferred_provider] || "none"} #{entry[:provider_reason]}"
+      else
+        ""
+      end
+
+    "#{String.pad_trailing(id, 25)}#{value(entry, :state)}#{reason}#{needs}#{mode}#{preference}"
   end
 
   defp value(section, key), do: (section && Map.get(section, key)) || "unknown"

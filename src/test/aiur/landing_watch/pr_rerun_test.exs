@@ -247,7 +247,7 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     assert :ok = LandingWatch.process(observation(), opts(path, mixed))
     refute_received {:rerun, _}
     assert_received {:update_branch, 17, "head-sha"}
-    assert_received {:comment, 17, "Landing watcher updated the branch from the base after failed CI (lint, ci gate) on approved head `head-sha`: superseded job name."}
+    assert_received {:comment, 17, "Landing watcher updated the branch from the base after failed CI (lint, ci gate) on PR head `head-sha`: superseded job name."}
   end
 
   test "a failed gate with cancelled siblings on an auto-merging PR is rerun, not left waiting" do
@@ -386,7 +386,8 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     refute_received {:rerun, _}
     assert_received {:update_branch, 17, "head-sha"}
     assert_received {:comment, 17, body}
-    assert body =~ "Landing watcher updated the branch from the base after failed CI (ci gate) on approved head `head-sha`: #{reason}."
+    assert body =~ "Landing watcher updated the branch from the base after failed CI (ci gate) on PR head `head-sha`:"
+    assert body =~ reason
     assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
   end
 
@@ -414,6 +415,8 @@ defmodule Aiur.LandingWatch.PrRerunTest do
         workflow_definitions_fun: fn ".github/workflows/ci.yml", "main", _ -> {:ok, definitions()} end,
         main_history_fun: fn -> [] end,
         base_branch: "main",
+        refresh_observation_fun: fn _, _ -> {:ok, %{"state" => "OPEN", "headRefOid" => "head-sha", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil}} end,
+        base_changes_fun: fn _, _, _ -> {:ok, ["README.md"]} end,
         changed_paths_fun: fn _, _ -> {:ok, ["src/lib/aiur/feature.ex"]} end,
         known_failure_patterns: [],
         recent_main_failure_paths: [],

@@ -5,9 +5,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.BuildQueue.Hints
-  alias Aiur.{Issue, MergePolicy, SystemCpu, SystemFileDescriptors}
-  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
+  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
@@ -130,12 +129,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), work_kind_rank(issue), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue),
+         issue.identifier || issue.id || ""}
 
       _ ->
-        {1, 0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
+        {1, 1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
     end)
   end
+
+  @spec work_kind_rank(Issue.t()) :: 0..1
+  def work_kind_rank(%Issue{} = issue), do: if(RunTelemetry.work_kind(issue.labels, issue.title) == "feature", do: 0, else: 1)
 
   @spec priority_rank(term()) :: 1..5
   def priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
@@ -169,6 +173,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :paused
           | :parked
           | :executor_owned
+          | :spend_cap_exhausted
+          | :spend_cap_unavailable
           | :inactive_state
           | :no_agent_work_state
           | :terminal_state
@@ -201,6 +207,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :paused,
     :parked,
     :executor_owned,
+    :spend_cap_exhausted,
+    :spend_cap_unavailable,
     :inactive_state,
     :no_agent_work_state,
     :terminal_state,
@@ -314,27 +322,34 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       :dispatch
   end
 
-  defp dispatch_candidate_decision(
-         %Issue{} = issue,
-         %State{} = state,
-         active_states,
-         terminal_states,
-         blocked_ticket_ids
-       ) do
+  @doc "Candidate verdict before the fleet-wide slot check, shared with supply observation."
+  @spec dispatch_candidate_decision(Issue.t(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_candidate_decision(issue, state),
+    do: dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set(), state.blocked_ticket_ids)
+
+  @doc false
+  @spec dispatch_candidate_decision(term(), State.t(), MapSet.t(), MapSet.t(), term()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_candidate_decision(
+        %Issue{} = issue,
+        %State{} = state,
+        active_states,
+        terminal_states,
+        blocked_ticket_ids
+      ) do
     case issue_eligibility_decision(issue, active_states, terminal_states) do
       :dispatch -> dispatch_state_decision(issue, state, terminal_states, blocked_ticket_ids)
       {:skip, _reason} = declined -> declined
     end
   end
 
-  defp dispatch_candidate_decision(
-         _issue,
-         _state,
-         _active_states,
-         _terminal_states,
-         _blocked_ticket_ids
-       ),
-       do: {:skip, :invalid_issue}
+  def dispatch_candidate_decision(
+        _issue,
+        _state,
+        _active_states,
+        _terminal_states,
+        _blocked_ticket_ids
+      ),
+      do: {:skip, :invalid_issue}
 
   defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
     is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
@@ -370,14 +385,22 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defp issue_identity_decision(%Issue{} = issue) do
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
       not issue_not_parked?(issue) -> {:skip, :parked}
       not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
-      true -> :dispatch
+      true -> SpendCap.decision(issue)
     end
   end
+
+  defp foreign_tracker_state_label?(%Issue{labels: labels})
+       when is_list(labels) and labels != [] do
+    Config.tracker_kind() == "github" and Tracker.foreign_state_label?(labels)
+  end
+
+  defp foreign_tracker_state_label?(_issue), do: false
 
   defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do

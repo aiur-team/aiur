@@ -22,13 +22,18 @@
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
     "src/lib/aiur/orchestrator/comment_polling_state.ex",
+    "src/lib/aiur/ownership.ex",
+    "src/lib/aiur/ownership/**",
+    "src/lib/aiur/ownership/cli.ex",
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
     "src/lib/aiur/recent_merge_store.ex",
     "src/lib/aiur/test_quarantine.ex",
     "src/lib/aiur/test_quarantine/**",
-    "src/lib/aiur/ticket_markers.ex"
+    "src/lib/aiur/ticket_markers.ex",
+    "src/lib/aiur/toolchain.ex",
+    "src/lib/aiur/toolchain/**"
   ],
   "facades": [
     "*"
@@ -36,6 +41,7 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "agent-runner",
+    "agent-sandbox",
     "commands",
     "config",
     "event-bus",
@@ -49,7 +55,11 @@
     "workspace"
   ],
   "optional": [
+    "accounting",
     "build-queue",
+    "conversations",
+    "executor-attention",
+    "github",
     "github-listeners"
   ],
   "owns": {
@@ -57,9 +67,12 @@
       "polling",
       "pr_health",
       "pr_watch",
+      "toolchain",
       "worker"
     ],
-    "env": [],
+    "env": [
+      "AIUR_LEASE_DATABASE_URL"
+    ],
     "state": [
       "current_run_membership_state_dir"
     ],
@@ -88,11 +101,15 @@
     "polling",
     "pr_health",
     "pr_watch",
+    "toolchain",
     "worker"
   ],
-  "env": [],
+  "env": [
+    "AIUR_LEASE_DATABASE_URL"
+  ],
   "capabilities": [],
   "forbid": [
     "Aiur.GitHub.Listeners.*"
-  ]
+  ],
+  "goal": "run-agents"
 }

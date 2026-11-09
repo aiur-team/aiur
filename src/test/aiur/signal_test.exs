@@ -23,6 +23,10 @@ defmodule Aiur.SignalTest do
     def emit_system(_topic, _opts), do: raise("sink failed")
   end
 
+  defmodule AttentionSink do
+    def active_attention_alerts, do: [%{"topic" => "ticket.5638.agent.attention.synthetic-load"}]
+  end
+
   setup do
     previous = Application.fetch_env(:aiur, :signal)
 
@@ -38,6 +42,12 @@ defmodule Aiur.SignalTest do
 
   test "composition root registers Alerts as the sink" do
     assert Application.fetch_env!(:aiur, :signal)[:alert_sink] == Aiur.Alerts
+  end
+
+  test "active attention alerts delegate through the configured alert sink" do
+    Application.put_env(:aiur, :signal, alert_sink: AttentionSink)
+
+    assert [%{"topic" => "ticket.5638.agent.attention.synthetic-load"}] = Signal.active_attention_alerts()
   end
 
   test "alert delegates once synchronously and returns the sink result" do

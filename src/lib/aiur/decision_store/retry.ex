@@ -3,11 +3,14 @@ defmodule Aiur.DecisionStore.Retry do
 
   require Logger
 
+  alias Aiur.Commands.Overrides, as: CommandOverrides
+  alias Aiur.Commands.Requester
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.Overrides
   alias Aiur.Signal
 
   # One retry ladder for every answered Decision, revision or not. A target
@@ -99,6 +102,7 @@ defmodule Aiur.DecisionStore.Retry do
   # rides the same bounded ladder instead of falling through to the opaque,
   # terminal `dispatch_rejected` (#2558).
   def dispatch_failure_class(:max_concurrent_agents_reached), do: "target_agent_unavailable"
+  def dispatch_failure_class({:max_concurrent_agents_reached, _detail}), do: "target_agent_unavailable"
   def dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   def dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
   def dispatch_failure_class(:delivery_target_unbound), do: "delivery_target_unbound"
@@ -162,7 +166,8 @@ defmodule Aiur.DecisionStore.Retry do
       addressed ->
         %{
           addressed
-          | answer: decision.answer,
+          | overrides: decision.overrides,
+            answer: decision.answer,
             active_action_id: decision.active_action_id,
             revision_sequence: decision.revision_sequence,
             revisions: decision.revisions,
@@ -185,8 +190,13 @@ defmodule Aiur.DecisionStore.Retry do
   def dispatchable?(%Decision{decision_status: :resolved}, _retry_failed?), do: false
   def dispatchable?(%Decision{decision_status: :moot}, _retry_failed?), do: false
   def dispatchable?(%Decision{revision_result: :no_longer_applicable}, _retry_failed?), do: false
+  def dispatchable?(%Decision{pending_for_session?: true}, _retry_failed?), do: false
 
   def dispatchable?(%Decision{} = decision, retry_failed?) do
+    Overrides.dispatchable?(decision) and Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
+  end
+
+  defp worker_dispatchable?(decision, retry_failed?) do
     case List.last(Decision.active_dispatch_attempts(decision)) do
       nil -> true
       %{status: :failed} when retry_failed? -> true
@@ -265,10 +275,10 @@ defmodule Aiur.DecisionStore.Retry do
   # is not `:decided`, and a replaced answer is not the active one, so neither
   # is ever redelivered.
   defp answer_awaiting_worker?(
-         %Decision{decision_status: :decided, ticket: %{identifier: ticket_identifier}} = decision,
+         %Decision{decision_status: :decided} = decision,
          ticket_identifier
        ) do
-    dispatchable?(decision, true) and
+    CommandOverrides.target_ticket(decision).identifier == ticket_identifier and dispatchable?(decision, true) and
       Enum.all?(Decision.active_dispatch_attempts(decision), &is_nil(&1.delivered_at))
   end
 

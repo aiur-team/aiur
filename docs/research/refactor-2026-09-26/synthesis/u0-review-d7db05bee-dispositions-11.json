@@ -1,0 +1,440 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 11,
+  "first_id": "loose-1-07",
+  "last_id": "loose-1-45",
+  "findings": [
+    {
+      "id": "loose-1-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:4690",
+      "note": "Executor request notification retry exhaustion remains Logger.warning then ok; notification side effects retain inconsistent retry/escalation handling. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:865",
+      "note": "DecisionStore still maintains individual writable?:false operation guards and health-bearing server errors versus bare store_unavailable client errors; some related operations share a guard now. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:2179",
+      "note": "Accepted-event paths still separately update current/index/audit state and append audit history with list concatenation; accept still directly reserves event ID rather than injected seam. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:2451",
+      "note": "accept still calls IdGenerator.reserve_durable_id directly without catching its GenServer call exit; broker timeout/restart can terminate the store. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:63",
+      "note": "DecisionStore still directly aliases Tracker and Orchestrator.DispatchPolicy alongside Executor/Event dependencies; decision core remains coupled upward. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:1821",
+      "note": "DecisionStore retains string-prefix classification of internal delivery/persistence attentions, duplicated in alert/index consumers; slug changes can still alter gating. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_history.ex:253",
+      "note": "DecisionHistory still falls through unrecognized event_record to base; deferred/enriched actor transport is not preserved by explicit clauses. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-14",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_history.ex:288",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-14"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_api.ex:308",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-15"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_revision.ex:369",
+      "note": "DecisionAPI rejects all C0/DEL while DecisionRevision still permits newline/tab/CR and DEL in its control-character check; incompatible validation policies remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-16",
+        "loose-2-11",
+        "loose-3-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-18",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/coordination_tasks.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-18"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codeowners.ex:409",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-19"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codeowners.ex:428",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-20"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codeowners.ex:643",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-21"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-23",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/tmux.ex:34",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner.ex:622",
+      "note": "AgentRunner retains public *_for_test forwarding APIs including current_comment_context_events_for_test; facade test coupling remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/pause_containment.ex:130",
+      "note": "PauseContainment call still catches exit as ignored, and paused? compares result to true; a failed containment read therefore becomes false. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/event_publication_log.ex:52",
+      "note": "EventPublicationLog still calls DecisionLog.prepare before append; general crash-safe event logging remains named/owned under decision primitives. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-29",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/poll_cadence.ex:177",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:1153",
+      "note": "DecisionStore single transport_transition casts still have no production sender; record_transport_async delegates batch path and other retained APIs test-only. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:3488",
+      "note": "DecisionStore still has only specific handle_info clauses and no catch-all; unexpected message can restart canonical writer. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-33",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:1796",
+      "note": "DecisionStore and RetainedSnapshot retain identical readable? clauses and repeated dispatch/revision settlement selection. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github_cost_cli.ex:466",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-34",
+        "dup-by-body-34"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-1-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/test_shard.ex:1",
+      "note": "TestShard remains compiled under lib; Upgrade installed_version still calls Mix.Project.config at runtime when launcher version absent. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-37",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codeowners.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-37"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-1-38",
+      "status": "present",
+      "anchor": "src/lib/aiur/dispatch_budget_store.ex:11",
+      "note": "DispatchBudgetStore lifetime still reads full JSON map per lookup; Dispatcher errors map to lifetime 0 while latch status distinguishes unknown. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-38"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-39",
+      "status": "present",
+      "anchor": "src/lib/aiur/operator_wait_log.ex:49",
+      "note": "OperatorWaitLog still inserts queued timestamps into ETS with deletion on delivered only and appends file synchronously on delivery. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-39"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-40",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/ssh.ex:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-40"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-1-41",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/path_safety.ex:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-41"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-1-42",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/commands_cli.ex:147",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-42"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-1-43",
+      "status": "present",
+      "anchor": "src/lib/aiur/alerts.ex:116",
+      "note": "Alerts.emit_custom defaults event_source to agent while DecisionStore/ExecutorListener daemon notices omit source override. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-43"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-44",
+      "status": "changed",
+      "anchor": "src/lib/aiur/agent_runner.ex:98",
+      "note": "Two-arity transient classifier now delegates recoverable session errors to CodingAgent backend contract. One-arity test classifier still advertises generic port errors, so API inconsistency partly remains. Provisional disposition retained.",
+      "source_ids": [
+        "loose-1-44"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-45",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_membership.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-1-45"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

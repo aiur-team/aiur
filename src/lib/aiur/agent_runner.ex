@@ -7,17 +7,36 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
+  alias Aiur.AgentRunner.McpSocketFailure
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.Config.HostedAuthPolicy
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Errors
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Opencode.ApiClient
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
+  @max_before_run_timeout_retries 3
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
+
+    case lease_watch.(issue) do
+      result when result in [:ok, :disabled] ->
+        run_with_ticket_lease(issue, codex_update_recipient, opts)
+
+      :not_owned ->
+        exit(:shared_ticket_lease_not_owned)
+
+      {:error, reason} ->
+        exit({:shared_ticket_lease_unavailable, reason})
+    end
+  end
+
+  defp run_with_ticket_lease(issue, codex_update_recipient, opts) do
     # A bare `model:<name>` the catalogue cache could not place gets one bounded
     # refresh before anything reads the backend, so a model released since the
     # last refresh still decides this run.
@@ -48,18 +67,26 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  # A local budget hold (for example on the workspace auth preflight) exits
-  # with the structured reason instead of raising: a raise hides it inside a
-  # message string, so the retry engine booked a consuming failure retry and
-  # repeated holds exhausted into `agent:error` (#4679). With the raw reason,
-  # `RetryEngine.AgentDown` schedules a non-consuming retry after `reset_at`.
+  # A local budget hold exits with its structured reason so AgentDown can defer
+  # the retry without consuming attempts (#4679).
   @doc false
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
+    McpSocketFailure.exit_if_launch_failure(reason)
+
     cond do
+      match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
+        {:ok, refusal} = HostedAuthPolicy.refusal(reason)
+        Logger.error("Agent run refused by hosted authentication policy for #{issue_context(issue)}: #{inspect(refusal)}")
+        exit({:terminal_policy_failure, refusal})
+
       transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
         Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
         :ok
+
+      match?({:workspace_hook_timeout, "before_run", _timeout_ms}, reason) ->
+        Logger.error("Agent run exhausted automatic before_run timeout retries for #{issue_context(issue)}: #{inspect(reason)}")
+        exit(reason)
 
       local_budget_hold?(reason) ->
         Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
@@ -110,12 +137,13 @@ defmodule Aiur.AgentRunner do
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
-  def transient_run_error?(:port_closed), do: true
   def transient_run_error?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def transient_run_error?(_reason), do: false
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, _backend), do: false
+
   def transient_run_error?(reason, backend) do
     CodingAgent.recoverable_session_error?(backend, reason) or
       shared_transient_run_error?(reason) or github_transport_transient?(reason)
@@ -135,11 +163,11 @@ defmodule Aiur.AgentRunner do
   # the shared `Aiur.GitHub.Errors` classifier so the transient/permanent list
   # lives in one place.
   defp github_transport_transient?({:github, _kind, _detail} = reason),
-    do: Errors.retryable_github_error?(reason)
+    do: Access.retryable_github_error?(reason)
 
   defp github_transport_transient?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError],
-       do: Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+       do: Access.retryable_github_error?(Access.classify_error({:error, reason}))
 
   defp github_transport_transient?(_reason), do: false
 
@@ -156,14 +184,45 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, 0)
+  end
+
+  defp run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, timeout_retries) do
     case run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+      {:before_run_retry, {:workspace_hook_timeout, "before_run", timeout_ms}, _reported_timeout_ms} ->
+        reason = {:workspace_hook_timeout, "before_run", timeout_ms}
+
+        if timeout_retries >= @max_before_run_timeout_retries do
+          Logger.error(
+            "Stopping before_run timeout retries for #{issue_context(issue)} after #{@max_before_run_timeout_retries} retries; " <>
+              "handing the timeout to the normal failure path"
+          )
+
+          {:error, reason}
+        else
+          delay_ms = before_run_timeout_retry_delay(timeout_retries)
+
+          Logger.warning(
+            "Retrying before_run hook after timeout for #{issue_context(issue)} timeout_ms=#{timeout_ms} " <>
+              "retry=#{timeout_retries + 1}/#{@max_before_run_timeout_retries} delay_ms=#{delay_ms}"
+          )
+
+          Process.sleep(delay_ms)
+          run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, timeout_retries + 1)
+        end
+
       :resume_after_before_run_pause ->
         opts = begin_workspace_setup_retry(issue, opts)
-        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, 0)
 
       result ->
         result
     end
+  end
+
+  defp before_run_timeout_retry_delay(retries) do
+    delay = 1_000 * 2 ** min(retries, 10)
+    min(delay, Config.settings!().agent.max_retry_backoff_ms)
   end
 
   defp run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
@@ -406,11 +465,13 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
-  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
+  @doc false
+  @spec maybe_attach_issue_log(term()) :: :ok
+  def maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
+  def maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   # No bare-map clause: `run/3` calls `CodingAgent.backend_for/1` first, which
   # constrains the argument to `%Issue{}`, so a plain map never reaches here.
-  defp maybe_attach_issue_log(_), do: :ok
+  def maybe_attach_issue_log(_), do: :ok
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok

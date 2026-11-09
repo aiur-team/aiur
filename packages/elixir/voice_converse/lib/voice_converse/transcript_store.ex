@@ -33,9 +33,10 @@ defmodule VoiceConverse.TranscriptStore do
   """
 
   @version 1
+  require Logger
   @id_regex ~r/\Avc_[A-Za-z0-9_-]{22}\z/
-  @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery
-            provider_conversation session_ended)
+  @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery side_query
+            provider_conversation provider_truncation_error cleanup_enqueued session_ended)
   @forbidden_top ~w(audio data_b64 signed_url api_key)
   @forbidden_deep ~w(data_b64 signed_url api_key)
 
@@ -68,12 +69,12 @@ defmodule VoiceConverse.TranscriptStore do
   `session_started`. Fails with `:exists` if the conversation already has a transcript.
 
   Options (for tests): `:datasync` (`fd -> :ok | {:error, _}`, default `:file.datasync/1`) and
-  `:sync_fs` (`-> :ok | {:error, _}`, the creation barrier, default `sync(1)`).
+  `:sync_fs` (`-> :ok | {:error, _}`, the directory-entry creation barrier).
   """
   @spec open(Path.t(), String.t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
   def open(root, conversation_id, session_started, opts \\ []) when is_map(session_started) do
     datasync = Keyword.get(opts, :datasync, &:file.datasync/1)
-    sync_fs = Keyword.get(opts, :sync_fs, &sync_filesystem/0)
+    sync_fs = Keyword.get(opts, :sync_fs, fn -> VoiceConverse.DirectorySync.ancestors(root) end)
     record = Map.merge(stringify(session_started), %{"type" => "session_started", "conversation_id" => conversation_id})
 
     with {:ok, path} <- path(root, conversation_id),
@@ -82,7 +83,10 @@ defmodule VoiceConverse.TranscriptStore do
          {:ok, fd} <- create(path) do
       store = %__MODULE__{conversation_id: conversation_id, path: path, fd: fd, datasync: datasync}
 
-      with :ok <- sync_fs.(), :ok <- write_line(store, line) do
+      with :ok <- :file.sync(fd), :ok <- sync_fs.(), :ok <- write_line(store, line) do
+        # The transcript is authoritative. A later boot rebuilds this derived index if its own
+        # append fails, so a usable durable transcript is never discarded for index trouble.
+        log_index_failure("opened", conversation_id, VoiceConverse.TranscriptIndex.record_opened(root, conversation_id))
         {:ok, store}
       else
         {:error, reason} ->
@@ -121,12 +125,19 @@ defmodule VoiceConverse.TranscriptStore do
 
   @doc "Appends one record and returns only after it is synced to disk. Nothing is written on a refusal."
   @spec append(session_store(), record()) :: :ok | {:error, term()}
-  def append(:none, record) when is_map(record) do
+  def append(store, record) when is_map(record), do: append(store, record, [])
+
+  @doc false
+  @spec append(session_store(), record(), keyword()) :: :ok | {:error, term()}
+  def append(:none, record, _opts) when is_map(record) do
     with {:ok, _line} <- encode(record), do: :ok
   end
 
-  def append(%__MODULE__{} = store, record) when is_map(record) do
-    with {:ok, line} <- encode(record), do: write_line(store, line)
+  def append(%__MODULE__{} = store, record, opts) when is_map(record) and is_list(opts) do
+    with {:ok, line} <- encode(record), :ok <- write_line(store, line) do
+      if Keyword.get(opts, :record_index, true), do: maybe_record_closed(store, record)
+      :ok
+    end
   end
 
   @spec close(session_store()) :: :ok | {:error, term()}
@@ -199,6 +210,16 @@ defmodule VoiceConverse.TranscriptStore do
 
   defp write_line(%__MODULE__{fd: fd, datasync: datasync}, line) do
     with :ok <- :file.write(fd, line), do: datasync.(fd)
+  end
+
+  defp maybe_record_closed(store, record) do
+    if Map.get(record, :type, Map.get(record, "type")) == "session_ended" do
+      log_index_failure(
+        "closed",
+        store.conversation_id,
+        VoiceConverse.TranscriptIndex.record_closed(Path.dirname(store.path), store.conversation_id)
+      )
+    end
   end
 
   defp ensure_root(root) do
@@ -294,10 +315,9 @@ defmodule VoiceConverse.TranscriptStore do
     {:ok, Enum.reverse(records), %{torn_tail: torn?, skipped_lines: Enum.reverse(skipped)}}
   end
 
-  defp sync_filesystem do
-    case System.cmd("sync", [], stderr_to_stdout: true) do
-      {_output, 0} -> :ok
-      {output, status} -> {:error, {:sync_failed, status, output}}
-    end
+  defp log_index_failure(_operation, _conversation_id, :ok), do: :ok
+
+  defp log_index_failure(operation, conversation_id, {:error, reason}) do
+    Logger.warning("voice transcript index #{operation} failed for #{conversation_id}: #{inspect(reason)}")
   end
 end

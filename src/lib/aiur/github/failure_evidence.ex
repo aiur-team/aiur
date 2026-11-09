@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.FailureEvidence do
   @moduledoc "GitHub evidence for CI failure digests; annotations use Checks, never Actions logs."
-  alias Aiur.GitHub.{Comments, ResourceFetch, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, Comments}
 
   @spec annotations(integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def annotations(id, opts) when is_integer(id) and id > 0 do
@@ -13,7 +13,7 @@ defmodule Aiur.GitHub.FailureEvidence do
   def known_flakes(sha, opts) do
     with {:ok, context} <- context(opts),
          {:ok, body} <-
-           Transport.fetch_json_map(context.request, context.token, context.url <> "/contents/.github/known-flaky-tests.txt?" <> URI.encode_query(%{"ref" => sha}), caller: "ci_failure_digest"),
+           Access.fetch_json_map(context.request, context.token, context.url <> "/contents/.github/known-flaky-tests.txt?" <> URI.encode_query(%{"ref" => sha}), caller: "ci_failure_digest"),
          %{"encoding" => "base64", "content" => encoded} when is_binary(encoded) <- body,
          {:ok, text} <- Base.decode64(String.replace(encoded, ~r/\s/, "")) do
       {:ok, text |> String.split("\n") |> Enum.map(&String.trim_trailing/1) |> Enum.reject(&(String.trim(&1) == "" or String.starts_with?(String.trim_leading(&1), "#")))}
@@ -27,10 +27,10 @@ defmodule Aiur.GitHub.FailureEvidence do
   @spec flake_issues(keyword()) :: {:ok, [map()]} | {:error, term()}
   def flake_issues(opts) do
     with {:ok, context} <- context(opts) do
-      key = ResourceStore.key_for_repo(:flake_issues, context.repo, "open")
+      key = Access.key_for_repo(:flake_issues, context.repo, "open")
       fetcher = fn _ -> list(context, "/issues?state=open&labels=flake&per_page=100") end
 
-      case ResourceFetch.need(key, fetcher, freshness: {:max_age_ms, 60_000}, reason: "CI flake classification") do
+      case Access.resource_need(key, fetcher, freshness: {:max_age_ms, 60_000}, reason: "CI flake classification") do
         {:ok, issues, _} -> {:ok, Enum.reject(issues, &Map.has_key?(&1, "pull_request"))}
         {:error, _} = error -> error
       end
@@ -42,9 +42,9 @@ defmodule Aiur.GitHub.FailureEvidence do
   end
 
   defp context(opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      {:ok, %{repo: "#{owner}/#{repo}", url: "#{Transport.base_url()}/repos/#{owner}/#{repo}", token: token, request: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)}}
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      {:ok, %{repo: "#{owner}/#{repo}", url: "#{Access.base_url()}/repos/#{owner}/#{repo}", token: token, request: Keyword.get(opts, :request_fun, &Access.default_request_fun/1)}}
     end
   end
 end

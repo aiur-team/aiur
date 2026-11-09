@@ -6,7 +6,7 @@ defmodule Aiur.MixProject do
       app: :aiur,
       version: "0.0.9",
       elixir: "~> 1.19",
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:github_budget],
       # Test builds are copied from the prewarm base into each workspace.
       elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
@@ -119,17 +119,22 @@ defmodule Aiur.MixProject do
           Mix.Tasks.Aiur.AffectedTests,
           Aiur.TestReset,
           # Presentational OperatorControlCenter components no route currently
-          # renders (the compact Units redesign dropped the recent-/current-run
-          # outcomes and capacity panels). Pure HEEx with no executable branches
-          # to unit-test until they are re-wired or removed.
+          # renders. Pure HEEx with no executable branches to unit-test until
+          # they are re-wired or removed.
           AiurWeb.OperatorControlCenter.RecentOutcomes,
-          AiurWeb.OperatorControlCenter.CapacityControl,
           AiurWeb.OperatorControlCenter.BuildOrderStatus,
           AiurWeb.OperatorControlCenter.BuildOrderUsage,
           AiurWeb.Units.DemoSource
         ]
       ],
       test_ignore_filters: [
+        "test/support/analytics_live_fixtures.exs",
+        "test/support/dashboard_live_orchestrator_stubs.exs",
+        "test/support/dashboard_live_store_stubs.exs",
+        "test/support/dashboard_live_unit_fixtures.exs",
+        "test/support/dashboard_live_support.exs",
+        "test/support/dashboard_live_processes.exs",
+        "test/support/dashboard_live_decision_fixtures.exs",
         "test/support/core_test_support.exs",
         "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
@@ -164,28 +169,32 @@ defmodule Aiur.MixProject do
 
   defp deps do
     [
-      {:bandit, "~> 1.12"},
+      {:bandit, "~> 1.14 and >= 1.14.1"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
       {:ex_json_schema, "~> 0.11", only: :test},
       {:phoenix, "~> 1.8.9"},
-      {:phoenix_html, "~> 4.2"},
+      {:phoenix_html, "~> 4.4"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
+      {:assent, "~> 0.3.1"},
+      {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
-      {:jose, "~> 1.11"},
+      {:jose, "~> 1.11 and >= 1.11.13"},
       {:nimble_options, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},
       {:decimal, "~> 3.0"},
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
-      {:ecto, "~> 3.13.6"},
+      {:ecto, "~> 3.14.3"},
+      {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:voice_converse, path: "../packages/elixir/voice_converse"},
+      {:voice_transcribe, path: "../packages/elixir/voice_transcribe"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}

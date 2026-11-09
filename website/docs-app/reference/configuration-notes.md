@@ -17,6 +17,18 @@
   are configured, their sessions remain on the orchestrator host. They are
   deliberately non-resumable, so backend switches continue from shared
   workspace state rather than a cross-provider transcript.
+- Every OpenAI-compatible request carries an output-token cap:
+  `agent.backend_configs.<backend>.max_output_tokens`, default `16000`, sent as
+  `max_tokens` (`max_output_tokens` on the `responses` transport). OpenRouter
+  reserves credit for the whole cap before a request runs, so an unbounded cap
+  refuses every request on a key with a modest balance. A completion that stops
+  on the cap is retried once with twice the cap. A provider refusal for credits
+  or a too-large cap (HTTP 402) is retried once with a smaller cap — the largest
+  the provider says the balance affords, or half — and if that is refused too
+  the backend is recorded as limited exactly as a usage limit is: the claim is
+  kept, the next claim takes the next `agent.priority` route, and a
+  `system.provider.credit_limited` alert names the fix (add credits or raise the
+  key's credit limit).
 - `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
   backend switch receives continuation guidance based on the existing shared
   workspace instead of pretending the provider conversation was resumed.
@@ -68,17 +80,40 @@
   marker and `model:claude` labels used by the automatic switch. Headless Claude
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
+  An agent paused on a usage limit for ten minutes also moves to its
+  `agent.routing` backend when that route differs from the backend that hit the
+  limit, such as a route added after the pause. This move writes no labels and
+  is never reverted. A paused agent ready to move or resume takes the next free
+  slot ahead of new dispatch.
 - `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
   (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
   Set it to `null` to disable the hard ceiling.
+  Keep it below saturation so the daemon retains scheduler time for control
+  commands and event delivery: at 86–90% PSI, `status` took 8–11 seconds and
+  `alerts` timed out. Start with a 70–80% ceiling and lower the adaptive target
+  if the daemon remains CPU-bound.
 - `agent.target_cpu_pressure` sets the AIMD target (default `10.0` percent).
   Three fresh above-target samples halve capacity, bounded by the decrease
-  cooldown. Ramps require pressure below 80% of target; unavailable samples
-  reset the streak. Set the target to `null` to disable PSI AIMD.
-- `agent.load_resume_max_age_seconds` retains safe capacity for 21600 seconds;
+  cooldown and floored at the recorded safe level. Measured against the
+  niced-background-discounted PSI `some avg60`, each fresh poll does exactly one
+  of three things: at or above target it reduces; between 80% of target and the
+  target it holds; below 80% of target it ramps. A hold in that band is
+  bounded: once it has outlasted `load_cooldown_seconds` while tickets wait for
+  slots, each poll probes upward by one step. That band is where #7470 stalled:
+  the host recovered to just under target, so neither the reduce path nor the
+  ramp path ran and the envelope sat at its episode value for more than ten
+  minutes while six tickets waited for slots. A host still at or above target
+  legitimately stays at the decrease floor — admission is already blocked
+  there, and the envelope only grows again once the signal leaves the overload
+  zone. Unavailable samples reset the streak. Set the target to `null` to
+  disable PSI AIMD.
+- `agent.load_resume_max_age_seconds` retains safe capacity for 3600 seconds;
   0 disables resume. Five fresh occupied samples demonstrate a level. Boot
-  starts at one and the first fresh sample holds. Recovery below 80% of the
-  PSI target doubles, at most +3, toward that level.
+  starts at one and, without a valid saved level, the first fresh sample holds.
+  With a valid saved level, each recovery poll below 80% of the PSI target adds
+  at least `load_ramp_step` while accelerating toward that level; below half
+  target it probes up to three steps per poll. A configured step above 3 can
+  exceed +3.
 - When PSI is unavailable, `max_load_average` (default `1.5`) and
   `target_load_average` (default `1.0`) are per-scheduler fallbacks. Status
   names the binding signal. Build cap, stagger and nice throttle bursts.
@@ -163,6 +198,9 @@
   median completion-time regression. If no fixed interval meets both, leave pacing
   disabled and prefer load-aware admission rather than hiding the throughput loss.
 - Use `hooks.after_create` to bootstrap a fresh workspace (typically a `git clone`).
+  Hooks receive `AIUR_GIT_NAME` and `AIUR_GIT_EMAIL` (the `agent.git_identity`). Have
+  the bootstrap write them with `git config user.name` / `user.email` so a base-merge
+  commit made by a hook carries the agent identity, not the host's global git identity.
 - Optional alert sounds play when an agent gets stuck or needs input. Enable via the
   `alerts:` block in `.aiur/config` (offered during `aiur init`): `enabled` is the master
   switch; `use_os_default_sounds: true` plays built-in macOS/Linux system sounds out of the

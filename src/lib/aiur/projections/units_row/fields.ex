@@ -32,6 +32,11 @@ defmodule Aiur.Projections.UnitsRow.Fields do
     sourced_derived_value(issue_fact, status_row, &build_lane/1)
   end
 
+  @spec sourced_priority(map() | term(), map() | term()) :: {pos_integer() | nil, atom()}
+  def sourced_priority(issue_fact, status_row) do
+    sourced_derived_value(issue_fact, status_row, &priority/1)
+  end
+
   @type command_count_source :: :decisions | :status_report | :unknown
 
   @spec reasons(map() | term(), non_neg_integer() | nil) :: map()
@@ -42,6 +47,7 @@ defmodule Aiur.Projections.UnitsRow.Fields do
 
     %{
       waiting: waiting,
+      native_hold: native_hold(status_row),
       blocking: blocking_reason(status_row, waiting),
       alert: alert_reason(explicit_alert, open_command_count),
       pause: pause_reason(status_row, pause),
@@ -58,6 +64,7 @@ defmodule Aiur.Projections.UnitsRow.Fields do
       waiting_reason: Value.get(status_row, :waiting_reason),
       tracker_paused?: Value.get(status_row, :tracker_paused) == true,
       runtime_seconds: Value.get(status_row, :runtime_seconds),
+      usage_limit_reset_at: Value.get(status_row, :usage_limit_reset_at),
       stale_for_seconds: Value.get(status_row, :stale_for_seconds),
       membership_lifecycle: Map.get(member, :lifecycle)
     }
@@ -142,6 +149,13 @@ defmodule Aiur.Projections.UnitsRow.Fields do
     end
   end
 
+  defp priority(issue) do
+    case Value.get(issue, :priority) do
+      value when is_integer(value) and value > 0 -> value
+      _value -> label_value(issue, "priority:", &parse_positive_integer/1)
+    end
+  end
+
   defp build_lane(issue) do
     Value.get(issue, :build_lane) || label_value(issue, "build-lane:", &normalize_nonempty/1)
   end
@@ -177,6 +191,11 @@ defmodule Aiur.Projections.UnitsRow.Fields do
   end
 
   defp normalize_nonempty(_value), do: nil
+
+  defp native_hold(%{bucket: :running, native_hold: %{decision_id: id} = hold}) when is_binary(id) and id != "",
+    do: Map.take(hold, [:decision_id, :since])
+
+  defp native_hold(_row), do: nil
 
   defp blocking_reason(status_row, waiting) do
     Value.get(status_row, :blocking_reason) || if(waiting in @blocking_reasons, do: waiting)

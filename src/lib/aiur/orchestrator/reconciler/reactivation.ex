@@ -3,8 +3,10 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
 
   require Logger
 
-  alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, Parking, PauseResume, State, TicketTransition}
+  alias Aiur.Config
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.{Issue, Signal}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchCandidates, DispatchPolicy, Parking, PauseResume, State, TicketTransition}
 
   # A before_run hook failure parks the agent alive in
   # `AgentRunner.wait_for_before_run_resume/3`; resuming re-runs the hook inside
@@ -13,6 +15,8 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
   # every poll forever. Bound automatic recovery to a small number of attempts,
   # then leave the entry paused for operator-driven recovery.
   @max_before_run_resume_attempts 5
+  # Tail window for the pause message named in the exhaustion alert.
+  @pause_tail_bytes 64 * 1024
 
   @spec maybe_reactivate_or_refresh(State.t(), Issue.t()) :: State.t()
   def maybe_reactivate_or_refresh(%State{} = state, %Issue{} = issue) do
@@ -22,10 +26,10 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
         refresh_running_entry_issue(state, issue, running_entry)
 
       %{completed_provenance: true} = running_entry ->
-        PauseResume.replace_completed_issue(state, running_entry, issue)
+        maybe_replace_completed_runner(state, running_entry, issue)
 
       %{control: %{status: :completed}} = running_entry ->
-        PauseResume.replace_completed_issue(state, running_entry, issue)
+        maybe_replace_completed_runner(state, running_entry, issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
         Parking.reconcile_deactivated(state, running_entry, issue, &refresh_running_entry_issue/3, &reactivate_deactivated_issue/3)
@@ -39,6 +43,46 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
 
       _ ->
         refresh_running_issue_state(state, issue)
+    end
+  end
+
+  defp maybe_replace_completed_runner(state, running_entry, issue) do
+    if completed_replacement_deferred?(state, issue) do
+      Logger.info("Deferring completed runner replacement for ready higher-priority work: #{State.issue_context(issue)}")
+      state
+    else
+      PauseResume.replace_completed_issue(state, running_entry, issue)
+    end
+  end
+
+  @doc false
+  @spec completed_replacement_deferred?(State.t(), Issue.t()) :: boolean()
+  def completed_replacement_deferred?(state, issue) do
+    ready =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.reject(&(&1.id == issue.id))
+      |> Enum.flat_map(&replacement_dispatch_candidate/1)
+      |> Enum.filter(&(DispatchPolicy.dispatch_decision(&1, state) == :dispatch))
+
+    case ready do
+      [] ->
+        false
+
+      candidates ->
+        ordered = DispatchCandidates.order([issue | candidates], DispatchPolicy.terminal_state_set(), candidates)
+        match?([%Issue{id: id} | _] when id != issue.id, ordered)
+    end
+  end
+
+  defp replacement_dispatch_candidate(%Issue{} = issue) do
+    if Config.tracker_kind() == "github" do
+      case GitHubTracker.cached_blocked_by(%{issue | blocked_by: []}) do
+        {:ok, %Issue{} = hydrated} -> [hydrated]
+        {:error, _cache_miss_or_stale} -> []
+      end
+    else
+      [issue]
     end
   end
 
@@ -97,13 +141,87 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
         refresh_running_issue_state(state, issue)
 
       true ->
+        identifier = Map.get(running_entry, :identifier)
+        reason = Map.get(running_entry, :paused_reason) || :before_run_failure
+
         Logger.warning(
-          "orchestrator.before_run_resume_exhausted issue_id=#{issue.id} issue_identifier=#{Map.get(running_entry, :identifier)} attempts=#{attempts} leaving paused for operator recovery"
+          "orchestrator.before_run_resume_exhausted issue_id=#{issue.id} issue_identifier=#{identifier} attempts=#{attempts} reason=#{inspect(reason)} leaving paused for operator recovery"
         )
 
+        emit_exhausted_alert(identifier, running_entry, attempts, reason)
         exhausted_entry = Map.put(running_entry, :before_run_resume_exhausted, true)
         state = %{state | running: Map.put(state.running, issue.id, exhausted_entry)}
         refresh_running_issue_state(state, issue)
+    end
+  end
+
+  # A preflight failure that survives every automatic resume leaves the ticket
+  # paused with nobody watching it (#7543). Name the ticket and the reason in
+  # one attention alert so an Executor sees it without grepping the daemon log.
+  defp emit_exhausted_alert(identifier, running_entry, attempts, reason) do
+    workspace = Map.get(running_entry, :workspace_path)
+    detail = pause_detail(workspace)
+
+    message =
+      "Preflight (before_run) still fails for #{identifier} after #{attempts} automatic resume attempts; " <>
+        "automatic resume stopped and the ticket stays paused for operator recovery. Reason: #{inspect(reason)}" <>
+        if(detail, do: " (#{detail}).", else: ".") <>
+        " The workspace keeps whatever it held."
+
+    Signal.agent_alert("ticket.#{identifier}.agent.attention.before_run_resume_exhausted", message,
+      issue: identifier,
+      workspace: workspace,
+      worker_host: Map.get(running_entry, :worker_host),
+      reason: message,
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+
+    :ok
+  end
+
+  # The pause kind only says "before_run failed"; the hook's own message (which
+  # names the failing check, e.g. `wip_preservation_failed`) is the last
+  # `worker_paused` record in the workspace's event log. Best effort: a missing
+  # or unreadable log leaves the alert naming the kind alone.
+  defp pause_detail(workspace) when is_binary(workspace) do
+    path = Path.join(workspace, "logs/agent.ndjson")
+
+    case read_tail(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.reduce(nil, &pause_message/2)
+
+      _missing_or_unreadable ->
+        nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp pause_detail(_workspace), do: nil
+
+  defp pause_message(line, previous) do
+    case Jason.decode(line) do
+      {:ok, %{"event" => "worker_paused", "last_message" => message}} when is_binary(message) -> message
+      _other -> previous
+    end
+  end
+
+  # agent.ndjson can reach tens of MB; only its tail holds the last message.
+  defp read_tail(path) do
+    with {:ok, %File.Stat{size: size}} <- File.stat(path),
+         {:ok, file} <- File.open(path, [:read, :binary]) do
+      try do
+        case :file.pread(file, max(size - @pause_tail_bytes, 0), @pause_tail_bytes) do
+          :eof -> {:ok, ""}
+          result -> result
+        end
+      after
+        File.close(file)
+      end
     end
   end
 

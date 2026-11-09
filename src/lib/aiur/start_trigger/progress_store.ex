@@ -8,12 +8,17 @@ defmodule Aiur.StartTrigger.ProgressStore do
   @empty_retention_ms 86_400_000
   @type row :: %{pr_number: integer() | nil, stage: StartTrigger.trigger() | nil, closed_unmerged?: boolean(), observed_at_ms: integer(), source: atom(), head_sha: String.t() | nil}
 
+  @spec open_pr?(row() | nil) :: boolean()
+  def open_pr?(%{pr_number: number, stage: stage, closed_unmerged?: false}) when is_integer(number) and number > 0 and stage != :pr_merged, do: true
+  def open_pr?(_row), do: false
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
   @spec lookup(String.t(), integer()) :: row() | nil
   def lookup(id, now_ms \\ System.system_time(:millisecond)) do
     case :ets.lookup(@table, id) do
+      [{^id, %{stage: nil, pr_number: number, closed_unmerged?: false} = row}] when is_integer(number) and number > 0 -> row
       [{^id, %{stage: nil, observed_at_ms: at} = row}] -> if now_ms - at <= @empty_retention_ms, do: row
       [{^id, row}] -> row
       [] -> nil
@@ -77,7 +82,7 @@ defmodule Aiur.StartTrigger.ProgressStore do
     configured_repo = state.repo.()
     incoming_repo = Map.get(attrs, :repo)
     previous = lookup(id)
-    record? = not Map.get(attrs, :identity_only?, false) or (previous && previous.pr_number != attrs.pr_number)
+    record? = not Map.get(attrs, :identity_only?, false) or is_nil(previous) or previous.pr_number != attrs.pr_number
     same_repo? = is_nil(configured_repo) or is_nil(incoming_repo) or String.downcase(configured_repo) == String.downcase(incoming_repo)
     if same_repo? and record?, do: put(id, Map.drop(attrs, [:repo, :identity_only?]), state.clock.())
     {:noreply, state}

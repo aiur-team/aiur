@@ -3,7 +3,9 @@
   "name": "Encrypted notifications",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/push/crypto/primitives.ex"
+  ],
   "facades": [
     "*"
   ],
@@ -26,8 +28,8 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Sends encrypted event notifications to paired devices through a relay.",
-  "status": "planned",
+  "summary": "Checks runtime crypto support for planned encrypted device notifications.",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
@@ -35,5 +37,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N4"
+  "added_by": "MP-N4",
+  "goal": "notify"
 }

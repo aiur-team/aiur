@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.Models
+  alias Aiur.GitHub.{Config, Labels}
   alias AiurWeb.OperatorControlCenter.UnitsControlPolicy
 
   @spec present(map(), DateTime.t() | nil) :: %{unit: map(), latest: map(), command: map()}
@@ -30,13 +31,73 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   @spec latest(map(), DateTime.t() | nil) :: map()
   def latest(row, now) when is_map(row) do
     %{
-      text: latest_text(row),
+      text: native_hold_text(row, now) || running_text(row) || latest_text(row),
       progress: progress_label(row),
       runtime: runtime_label(row, now)
     }
   end
 
   def latest(_row, now), do: latest(%{}, now)
+
+  defp running_text(%{runtime: %{bucket: :running, work_state: state}} = row) when state in [:starting, :allocated, :working],
+    do: "Running · #{latest_text(row)}"
+
+  defp running_text(_row), do: nil
+
+  defp native_hold_text(%{reasons: %{native_hold: %{decision_id: id} = hold}}, now) when is_binary(id) and id != "",
+    do: "Waiting for your answer · #{native_hold_age(hold, now)} · /commands/#{URI.encode_www_form(id)}"
+
+  defp native_hold_text(_row, _now), do: nil
+
+  @spec native_hold_age(map(), DateTime.t()) :: String.t()
+  def native_hold_age(%{since: %DateTime{} = since}, %DateTime{} = now),
+    do: "for #{div(max(DateTime.diff(now, since, :second), 0), 60)} min"
+
+  def native_hold_age(%{since: since}, now) when is_integer(since) do
+    case DateTime.from_unix(since, :millisecond) do
+      {:ok, datetime} -> native_hold_age(%{since: datetime}, now)
+      _invalid -> "duration unavailable"
+    end
+  end
+
+  def native_hold_age(%{since: since}, now) when is_binary(since) do
+    case DateTime.from_iso8601(since) do
+      {:ok, datetime, _offset} -> native_hold_age(%{since: datetime}, now)
+      _invalid -> "duration unavailable"
+    end
+  end
+
+  def native_hold_age(_hold, _now), do: "duration unavailable"
+
+  @doc "Returns the persisted workflow label for a Units row."
+  @spec workflow_state_label(map()) :: String.t() | nil
+  def workflow_state_label(row) when is_map(row) do
+    prefix = Config.label_prefix()
+
+    case Enum.filter(Labels.present_runtime_labels(Map.get(row, :labels), prefix), &(&1 in Labels.state_labels(prefix))) do
+      [label | _] ->
+        label
+
+      [] ->
+        case Map.get(row, :tracker_state) do
+          state when is_binary(state) and state != "" -> "#{prefix}:#{state}"
+          _state -> nil
+        end
+    end
+  end
+
+  def workflow_state_label(_row), do: nil
+
+  @doc "Returns the exact tracker label for a known runtime reason, if present."
+  @spec reason_label(map()) :: String.t() | nil
+  def reason_label(row) when is_map(row) do
+    case Labels.runtime_reason_labels(Map.get(row, :labels), [get_in(row, [:reasons, :pause]), get_in(row, [:reasons, :waiting])], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
+  end
+
+  def reason_label(_row), do: nil
 
   @doc """
   Renders an age in seconds as a short operator label.

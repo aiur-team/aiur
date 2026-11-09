@@ -11,20 +11,20 @@ defmodule Aiur.BrowserHarness.IndexLiveFixture do
   defmodule Source do
     @behaviour AiurWeb.Build.DataSource
     @impl true
-    def ticket(id, opts), do: selected().ticket(id, opts)
+    def ticket(id, opts), do: selected(opts).ticket(id, opts)
 
     @impl true
-    def ticket_doc_identity(id, opts), do: selected().ticket_doc_identity(id, opts)
+    def ticket_doc_identity(id, opts), do: selected(opts).ticket_doc_identity(id, opts)
 
     alias Aiur.TestSupport.BuildHome.FixtureSource
     alias AiurWeb.Build.IndexSource
     @impl true
-    def subscribe(opts), do: selected().subscribe(opts)
+    def subscribe(opts), do: selected(opts).subscribe(opts)
     @impl true
-    def snapshot(opts), do: selected().snapshot(opts)
+    def snapshot(opts), do: selected(opts).snapshot(opts)
     @impl true
-    def earlier(before, zone, opts), do: selected().earlier(before, zone, opts)
-    defp selected, do: if(Application.get_env(:aiur, :build_fixture_dataset) == "index-live", do: IndexSource, else: FixtureSource)
+    def earlier(before, zone, opts), do: selected(opts).earlier(before, zone, opts)
+    defp selected(opts), do: if(Keyword.get(opts, :dataset) == "index-live", do: IndexSource, else: FixtureSource)
   end
 
   defmodule Usage do
@@ -54,10 +54,11 @@ defmodule Aiur.BrowserHarness.IndexLiveFixture do
       Process.unlink(pid)
     end
 
-    Application.put_env(:aiur, :build_fixture_dataset, "index-live")
     Application.put_env(:aiur, :build_data_source, {Source, [server: name, usage: Usage, freshness: Daemon, index_subscribe: &subscribe/0]})
-    query = if conn.query_string == "", do: "", else: "?" <> conn.query_string
-    redirect(conn, to: "/build" <> query)
+
+    conn
+    |> Plug.Conn.put_session("fixture_dataset", "index-live")
+    |> redirect(to: "/build")
   end
 
   defp broadcast(changes), do: Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:index-live-fixture", {:build_changes, changes})

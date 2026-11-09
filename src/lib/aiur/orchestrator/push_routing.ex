@@ -57,7 +57,7 @@ defmodule Aiur.Orchestrator.PushRouting do
               to: ClearedDependency
 
   @spec mark_sleeping(String.t()) :: :ok
-  def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
+  def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec mark_sleeping(GenServer.server(), String.t()) :: :ok
   def mark_sleeping(server, issue_identifier) when is_binary(issue_identifier) do

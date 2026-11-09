@@ -5,6 +5,8 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.CommandSandbox
+  alias Aiur.Config.SkillsMapping
 
   @doc false
   @spec prepare_attrs(map()) :: map()
@@ -177,7 +179,18 @@ defmodule Aiur.Config.Schema.AgentValidation do
         {field, "model alias #{inspect(model)} in #{inspect(route)} matches more than one vendor; name the full slug instead"}
 
       true ->
-        nil
+        model_set_error(field, route, model)
+    end
+  end
+
+  # A model set hands model choice to an aggregator (`openrouter:{a, b}`). A
+  # brace-shaped segment that does not parse is a typo, not a model name, so it
+  # is a config error rather than a request the provider rejects at dispatch.
+  defp model_set_error(field, route, model) do
+    if RoutingValue.model_set?(model) and RoutingValue.model_set(model) == :error do
+      {field,
+       "model set #{inspect(model)} in #{inspect(route)} must list at least one model, written " <>
+         "as {vendor/model, vendor/model}"}
     end
   end
 
@@ -231,7 +244,14 @@ defmodule Aiur.Config.Schema.AgentValidation do
         invalid_routing_effort_error(field, value)
 
       true ->
-        []
+        model_set_errors(field, value)
+    end
+  end
+
+  defp model_set_errors(field, route) do
+    case model_set_error(field, route, RoutingValue.routing_model(route)) do
+      nil -> []
+      error -> [error]
     end
   end
 
@@ -361,6 +381,8 @@ defmodule Aiur.Config.Schema.AgentValidation do
     configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
 
     Enum.reduce(configs, changeset, fn {backend, config}, acc ->
+      acc = apply_backend_validation(acc, backend, CommandSandbox.validate_backend(config))
+
       case BackendCatalog.config_validator(backend) do
         validator when is_function(validator, 1) ->
           apply_backend_validation(acc, backend, validator.(config))
@@ -442,5 +464,24 @@ defmodule Aiur.Config.Schema.AgentValidation do
       true ->
         changeset
     end
+  end
+
+  # The `agent.skills` reference-table rows live in `Aiur.Config.SkillsMapping`
+  # because this module and `Aiur.Config.Schema.Agent` are both at the file-size
+  # limit; `scripts/generate-reference-tables.py` scans every module under
+  # `src/lib/aiur/config/`, so the rows are collected from that file.
+  @doc false
+  @spec normalize_skills(nil | map()) :: map()
+  def normalize_skills(skills), do: SkillsMapping.normalize(skills)
+
+  @doc false
+  @spec validate_skills(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_skills(changeset, field) do
+    validate_change(changeset, field, fn ^field, skills ->
+      case SkillsMapping.validate(skills) do
+        :ok -> []
+        {:error, message} -> [{field, message}]
+      end
+    end)
   end
 end

@@ -4,7 +4,6 @@ import {
   MICS_PER_PAGE,
   MIC_KEY_INDICES,
   SETTINGS_NEXT_PAGE_KEY,
-  SETTINGS_TEST_MIC_KEY,
   micAtSlot,
   micSlotForKey,
   nextMicPage,
@@ -25,18 +24,18 @@ describe("settingsView", () => {
     }
   });
 
-  it("puts the first six devices on the first page and pads the rest", () => {
+  it("puts the first seven devices on the first page and pads the rest", () => {
     const view = settingsView(devices(2), null, 0);
-    expect(labels(view)).toEqual(["Mic 0", "Mic 1", null, null, null, null]);
+    expect(labels(view)).toEqual(["Mic 0", "Mic 1", null, null, null, null, null]);
     expect(view.hasPaging).toBe(false);
     expect(view.pageLabel).toBe("1/1");
   });
 
   // A headless box has no microphone and `listMicrophones` returns [] on every
   // failure path, so this is a state the surface has to render, not an error.
-  it("renders an empty device list as six empty slots on a single page", () => {
+  it("renders an empty device list as seven empty slots on a single page", () => {
     const view = settingsView([], null, 0);
-    expect(labels(view)).toEqual([null, null, null, null, null, null]);
+    expect(labels(view)).toEqual([null, null, null, null, null, null, null]);
     expect(view).toMatchObject({ hasPaging: false, pageLabel: "1/1" });
   });
 
@@ -48,34 +47,35 @@ describe("settingsView", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     ]);
     expect(settingsView(devices(3), "mic-9", 0).mics.some((slot) => slot?.selected === true)).toBe(false);
     expect(settingsView(devices(3), null, 0).mics.some((slot) => slot?.selected === true)).toBe(false);
   });
 
-  it("pages six at a time and reports the position", () => {
+  it("pages seven at a time and reports the position", () => {
     const all = devices(15);
     expect(labels(settingsView(all, null, 0))[0]).toBe("Mic 0");
     expect(settingsView(all, null, 0).pageLabel).toBe("1/3");
-    expect(labels(settingsView(all, null, 6))[0]).toBe("Mic 6");
-    expect(settingsView(all, null, 6).pageLabel).toBe("2/3");
+    expect(labels(settingsView(all, null, 7))[0]).toBe("Mic 7");
+    expect(settingsView(all, null, 7).pageLabel).toBe("2/3");
     // The last page is short; the unfilled keys stay empty.
-    expect(labels(settingsView(all, null, 12))).toEqual(["Mic 12", "Mic 13", "Mic 14", null, null, null]);
-    expect(settingsView(all, null, 12)).toMatchObject({ hasPaging: true, pageLabel: "3/3" });
+    expect(labels(settingsView(all, null, 14))).toEqual(["Mic 14", null, null, null, null, null, null]);
+    expect(settingsView(all, null, 14)).toMatchObject({ hasPaging: true, pageLabel: "3/3" });
   });
 
   // An offset outliving the list it indexed is routine: the operator pages to
   // the third screen and then unplugs an interface.
   it("wraps a stale or negative offset into range instead of blanking", () => {
-    expect(labels(settingsView(devices(15), null, 90))[0]).toBe("Mic 0");
+    expect(labels(settingsView(devices(15), null, 126))[0]).toBe("Mic 0");
     expect(labels(settingsView(devices(15), null, -30))[0]).toBe("Mic 0");
-    expect(labels(settingsView(devices(3), null, 12))[0]).toBe("Mic 0");
+    expect(labels(settingsView(devices(3), null, 14))[0]).toBe("Mic 0");
   });
 
   // Only a page boundary is a stable key mapping; mid-page offsets would put a
   // device on a different key each time the list was re-read.
   it("snaps a mid-page offset back to its page start", () => {
-    expect(labels(settingsView(devices(15), null, 8))[0]).toBe("Mic 6");
+    expect(labels(settingsView(devices(15), null, 8))[0]).toBe("Mic 7");
   });
 });
 
@@ -86,16 +86,16 @@ describe("nextMicPage", () => {
   });
 
   it("advances a page at a time and wraps past the last", () => {
-    expect(nextMicPage(0, 15)).toBe(6);
-    expect(nextMicPage(6, 15)).toBe(12);
-    expect(nextMicPage(12, 15)).toBe(0);
+    expect(nextMicPage(0, 15)).toBe(7);
+    expect(nextMicPage(7, 15)).toBe(14);
+    expect(nextMicPage(14, 15)).toBe(0);
   });
 });
 
 describe("micAtSlot", () => {
   it("addresses the same device the view painted on that key", () => {
     const all = devices(15);
-    for (const offset of [0, 6, 12]) {
+    for (const offset of [0, 7, 14]) {
       const view = settingsView(all, null, offset);
       for (let slot = 0; slot < MICS_PER_PAGE; slot += 1) {
         expect(micAtSlot(all, offset, slot)?.id).toBe(view.mics[slot]?.id);
@@ -110,28 +110,18 @@ describe("micAtSlot", () => {
   });
 });
 
-/**
- * One mapping, read by both the face painter and the press handler. TestMic
- * takes the command surface's Mic slot, so the microphone keys are 0, 1, 3, 4,
- * 5, 6 rather than a plain run.
- */
 describe("the settings key map", () => {
-  it("keeps TestMic on the command surface's Mic slot and paging on the last key", () => {
-    expect(SETTINGS_TEST_MIC_KEY).toBe(2);
+  it("uses all seven device keys without reserving a microphone-test key", () => {
+    expect(MIC_KEY_INDICES).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(MIC_KEY_INDICES).toHaveLength(7);
     expect(SETTINGS_NEXT_PAGE_KEY).toBe(7);
-  });
-
-  it("fills the remaining keys with one microphone each, in slot order", () => {
-    expect(MIC_KEY_INDICES).toEqual([0, 1, 3, 4, 5, 6]);
-    expect(MIC_KEY_INDICES).toHaveLength(MICS_PER_PAGE);
   });
 
   it("inverts that map so a press addresses the slot the key was painted from", () => {
     for (const [slot, key] of MIC_KEY_INDICES.entries()) expect(micSlotForKey(key)).toBe(slot);
   });
 
-  it("gives TestMic and paging no microphone slot at all", () => {
-    expect(micSlotForKey(SETTINGS_TEST_MIC_KEY)).toBeUndefined();
+  it("gives paging and invalid keys no microphone slot", () => {
     expect(micSlotForKey(SETTINGS_NEXT_PAGE_KEY)).toBeUndefined();
     expect(micSlotForKey(8)).toBeUndefined();
     expect(micSlotForKey(-1)).toBeUndefined();

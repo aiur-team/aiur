@@ -8,6 +8,7 @@ export const I = {
   server: sv('<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>'),
   layers: sv('<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>'),
   unsorted: sv('<rect x="4" y="4" width="16" height="16" rx="3" stroke-dasharray="3 3"/>'),
+  squares: sv('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/>'),
   lock: sv('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
   chev: sv('<path d="m6 9 6 6 6-6"/>', 2.4),
   x: sv('<path d="M18 6 6 18M6 6l12 12"/>', 2.4),

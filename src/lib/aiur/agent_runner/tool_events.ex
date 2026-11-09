@@ -219,6 +219,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
       |> Map.put("message", message)
       |> Map.put("name", name)
       |> Map.put("issue", identifier)
+      |> maybe_put_progress_source(name)
 
     %{app_session: app_session, attempt_id: attempt_id, event_handlers: handlers, issue: issue} = context
     source = DecisionAttention.trusted_source(app_session)
@@ -273,6 +274,11 @@ defmodule Aiur.AgentRunner.ToolEvents do
     do: Map.put(event_payload, "decision_id", decision_id)
 
   defp add_decision_id(event_payload, _projection), do: event_payload
+
+  defp maybe_put_progress_source(payload, name) when name in ["progress", "progress.checkin", "progress.phase"],
+    do: Map.put(payload, :progress_source, name)
+
+  defp maybe_put_progress_source(payload, _name), do: payload
 
   defp record_completed_publication(context, issue, tool_call_id, topic, event_id, name, payload, handlers) do
     _ = DecisionAttention.sync_decision_resolution(issue, name, payload, handlers.attention_resolver)

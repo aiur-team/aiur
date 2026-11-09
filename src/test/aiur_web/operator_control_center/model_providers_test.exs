@@ -2,10 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
   # The keyed rule reads credential env vars, which are process-global.
   use ExUnit.Case, async: false
 
-  import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias AiurWeb.OperatorControlCenter.ModelProviders
-  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
 
   @none MapSet.new()
 
@@ -45,25 +42,6 @@ defmodule AiurWeb.OperatorControlCenter.ModelProvidersTest do
 
     System.put_env("DEEPSEEK_API_KEY", "")
     refute ModelProviders.visible?(card(:deepseek), @none)
-  end
-
-  test "the strip drops the Muse placeholder but keeps a routed provider whose data is unknown" do
-    meters = %{state: :authorized, cards: [card(:muse, %{state: :loading}), card(:claude, %{state: :loading})]}
-
-    html =
-      render_component(&RunSummaryStrip.run_summary_strip/1, %{
-        run: %{state: :loading},
-        usage: %{state: :ready, providers: %{}},
-        meters: meters,
-        configured_providers: MapSet.new([:claude]),
-        now: ~U[2026-07-20 12:00:00Z]
-      })
-
-    assert html =~ ~s(data-provider="claude")
-    assert html =~ ~s(<span class="rs-no">unknown</span>)
-    assert html =~ "1 model"
-    refute html =~ "Muse"
-    refute html =~ "Not observed"
   end
 
   test "configured families follow the workflow's routed backends, not the registry" do

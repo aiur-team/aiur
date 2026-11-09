@@ -3,6 +3,9 @@ defmodule Aiur.Config.Schema.Server do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.DashboardOrigin
+  alias Aiur.Config.TrustedProxyEntry
+
   @primary_key false
   embedded_schema do
     # 0 = bind a free OS-assigned loopback port. The dashboard must bind so
@@ -16,21 +19,63 @@ defmodule Aiur.Config.Schema.Server do
     # @config-detail server.host | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
     field(:host, :string, default: "127.0.0.1")
     # @config-reference config-configuration-18 server.public_url
-    # @config-detail server.public_url | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.public_url | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
     field(:public_url, :string)
     # @config-reference config-configuration-18 server.allowed_hosts
     # @config-detail server.allowed_hosts | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
     field(:allowed_hosts, {:array, :string})
+    # @config-reference config-configuration-18 server.dashboard_origins
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.dashboard_origins | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` and to `POST` the four gateway/fleet pause routes cross-origin with credentials; `http` only on loopback. Every other write stays same-origin. |
+    field(:dashboard_origins, {:array, :string}, default: [])
+    # @config-reference config-configuration-18 server.trusted_proxies
+    # @config-detail server.trusted_proxies | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
+    field(:trusted_proxies, {:array, :string}, default: [])
     # @config-reference config-configuration-18 server.tailscale_funnel
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail server.tailscale_funnel | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
     field(:tailscale_funnel, :boolean, default: false)
+    # @config-reference config-configuration-18 server.gateway_hello
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.gateway_hello | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404, and `POST /api/v1/gateway/enroll` does too. |
+    field(:gateway_hello, :boolean)
+    # @config-reference config-configuration-18 server.tls_pin_sha256
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail server.tls_pin_sha256 | string | nil | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
+    field(:tls_pin_sha256, :string)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :tailscale_funnel], empty_values: [])
+    |> cast(attrs, [:port, :host, :public_url, :allowed_hosts, :dashboard_origins, :trusted_proxies, :tailscale_funnel, :gateway_hello, :tls_pin_sha256], empty_values: [])
+    |> validate_format(:tls_pin_sha256, ~r/\A[0-9a-f]{64}\z/, message: "must be 64 lowercase hex characters")
     |> validate_number(:port, greater_than_or_equal_to: 0)
+    |> validate_change(:public_url, fn :public_url, url ->
+      if valid_public_url?(url), do: [], else: [public_url: "must be an absolute http:// or https:// URL with a host, such as https://host.ts.net:4001"]
+    end)
+    |> validate_change(:dashboard_origins, fn :dashboard_origins, entries ->
+      if Enum.all?(entries, &match?({:ok, _}, DashboardOrigin.normalize_origin(&1))),
+        do: [],
+        else: [dashboard_origins: "must contain http(s) origins"]
+    end)
+    |> update_change(:dashboard_origins, fn entries ->
+      entries |> Enum.map(&DashboardOrigin.normalize_or_keep/1) |> Enum.uniq()
+    end)
+    |> validate_change(:trusted_proxies, fn :trusted_proxies, entries ->
+      if Enum.all?(entries, &valid_proxy_entry?/1), do: [], else: [trusted_proxies: "must contain CIDRs or \"platform\""]
+    end)
   end
+
+  defp valid_public_url?(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host}} when scheme in ["http", "https"] and is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
+  @doc false
+  @spec valid_proxy_entry?(String.t()) :: boolean()
+  def valid_proxy_entry?(entry), do: TrustedProxyEntry.valid?(entry)
 end

@@ -4,9 +4,10 @@ defmodule Aiur.GitHub.AccessSettings do
 
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent
+  alias Aiur.GitHub.{Access, HoldPressure, QueueCost}
   alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.AuthPolicy
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Credential
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
@@ -19,18 +20,25 @@ defmodule Aiur.GitHub.AccessSettings do
       end
 
     github = if config, do: config.tracker.github, else: %{}
-    repo = if config, do: GitHubConfig.repo(config)
+    stable = stable_settings(config, github)
+    repo = stable.repo
 
     %Settings{
       state_root: &decision_root/0,
       budget_dir: &budget_dir/0,
       budget_enabled?: Application.get_env(:aiur, :github_budget_enabled?, true),
-      budget: if(is_struct(github), do: plain(github), else: %{}),
+      hosted_auth_required?:
+        AuthPolicy.hosted_auth_required?(config, %{
+          "AIUR_SECRETS_FROM_ENV" => System.get_env("AIUR_SECRETS_FROM_ENV"),
+          "AIUR_STATE_PERSISTENT" => System.get_env("AIUR_STATE_PERSISTENT")
+        }),
+      pat_opted_in?: Aiur.Secrets.truthy?(System.get_env("AIUR_GITHUB_ALLOW_PAT")),
+      budget: stable.budget,
       repo: repo,
       config_error: config_error,
-      app_account: get_in(plain(github), [:github_app, :account]),
+      app_account: stable.app_account,
       bot_account: Map.get(github, :bot_account),
-      credentials: github |> Map.get(:credentials, []) |> Enum.reject(&(&1.enabled == false)) |> Enum.map(&credential/1),
+      credentials: stable.credentials,
       quota_dir: fn -> quota_dir(repo) end,
       request_log_dir: fn -> request_log_dir(repo) end,
       resource_store_path: &resource_store_path/0,
@@ -39,8 +47,38 @@ defmodule Aiur.GitHub.AccessSettings do
         ttls: Application.get_env(:aiur, :github_read_cache_ttls, %{}),
         max_body_bytes: Application.get_env(:aiur, :github_resource_store_max_body_bytes)
       },
-      broker_timeout: if(config, do: broker_timeout(config), else: broker_timeout(nil))
+      broker_timeout: stable.broker_timeout,
+      freshness: Aiur.Webhooks.ModeTable,
+      request_taggers: [&QueueCost.tag/1],
+      hold_observer: &HoldPressure.record/1,
+      write_scope: &Aiur.TestTicketScope.with_write_scope/2,
+      poll_owner: Application.get_env(:aiur, :github_poll_owner),
+      recovery_target: Application.get_env(:aiur, :github_quota_recovery_target),
+      pubsub: Aiur.PubSub
     }
+  end
+
+  defp stable_settings(config, github) do
+    key = {__MODULE__, :stable}
+
+    case Process.get(key) do
+      {^config, %{repo: repo} = stable} when is_binary(repo) ->
+        stable
+
+      _ ->
+        budget = if is_struct(github), do: plain(github), else: %{}
+
+        stable = %{
+          repo: if(config, do: GitHubConfig.repo(config)),
+          budget: budget,
+          app_account: get_in(budget, [:github_app, :account]),
+          credentials: github |> Map.get(:credentials, []) |> Enum.reject(&(&1.enabled == false)) |> Enum.map(&credential/1),
+          broker_timeout: broker_timeout(config)
+        }
+
+        Process.put(key, {config, stable})
+        stable
+    end
   end
 
   defp quota_dir(repo) when is_binary(repo) and repo != "", do: Path.join(RepoBase.repo_path(repo), "github-quota")
@@ -93,14 +131,14 @@ defmodule Aiur.GitHub.AccessSettings do
   end
 
   defp credential(entry) do
-    %Credential{
+    Access.credential(
       id: entry.id,
       kind: String.to_existing_atom(entry.kind),
       identity: entry.identity,
       token_env: entry.token_env,
       source: if(entry.kind == "app_installation", do: :app, else: :env),
       writes?: entry.writes == true and entry.kind != "human"
-    }
+    )
   end
 
   defp plain(value) when is_struct(value), do: value |> Map.from_struct() |> plain()

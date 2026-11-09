@@ -4,25 +4,29 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), lanes,
+  lane_progress (lane closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  lane_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets),
-  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
-  Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
+  usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at),
+  unavailable_rows (optional count of invalid rows omitted from this snapshot).
+  Lane flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
   Rows: id, num, title, type, epic, feature, also, cx, pts, sec, ord, start, start_src, end,
-  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr.
-  Id is a decimal ticket identifier or pack:<key>. Hist requires integer end;
+  created, status, pct, agent, est, override, added, deps, children, dep_states, deps_missing, wave, qpos, cue, pr, src, was.
+  Id is a decimal ticket identifier or pack:<key>/<item>. Hist requires integer end;
   plan requires cue, others require cue=nil. Percentages are 0..100, cx is 1..5,
   wave is positive or nil. Agent model is a safe slug or nil; name is a string up to 64 characters or nil.
   Titles, labels and reasons remain unescaped; the client escapes on rendering.
 
   | Row field | Type |
   | --- | --- |
-  | id / num | positive decimal identifier / positive integer; pack:<key> / nil |
+  | id / num | positive decimal identifier / positive integer; pack:<key>/<item> / nil |
+  | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
-  | epic / feature / also | epic key or nil / feature key or nil / feature keys |
+  | epic / feature / also | lane key or nil / feature key or nil / feature keys |
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
   | start / end / created | integer milliseconds or nil; hist end must be known |
@@ -30,7 +34,10 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retrying, retries, command, paused, parked, or nil |
+  | agent.state | native_question, active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.native_hold | optional decision_id and nullable since (milliseconds); nil after release |
+  | agent.pause | usage_limit_exhausted, ci_wait, or nil |
+  | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |
@@ -39,16 +46,16 @@ defmodule AiurWeb.Build.Payload do
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
-  | pr | nil or positive integer num and open/merged/closed state |
+  | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
-  Epics require key/label strings, numeric hue and icon from
-  bug/pen/server/docs/layers/unsorted; optional general/temp/unsorted are booleans,
-  optional feature is a string. Features require key/label, numeric hue, epic keys
+  Lanes require key/label strings, numeric hue and an icon name; optional svg,
+  general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
+  numeric hue, icon, nullable summary/wave, epic keys
   and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
   Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
   and reasons (complexity/no_weight/progress/status). Unknown done and percentages
   stay nil; percentage bounds are integers in 0..100. Order and every row membership reference
-  must resolve. Counts cover every ordered epic or the whole block is nil.
+  must resolve. Counts cover every ordered lane or the whole block is nil.
 
   History requires nullable from/total/undated, boolean more and string tz.
   Sources each require state (ok/stale/incomplete/unavailable/disabled), nullable
@@ -59,13 +66,15 @@ defmodule AiurWeb.Build.Payload do
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
+  and boolean none. Windows optionally include `resets` aligned with account names and `acc`. Windows require nullable 0..100 `acc` values representing
+  percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
   windows with tip pairs and nullable hold_until), icon, stale, observed_at,
   snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
-  Repo is nil or a url string; writable is boolean.
+  Repo is nil or a url string; writable is boolean. Capacity requires positive max or nil,
+  observed_at milliseconds or nil and nullable stale boolean; it follows the runtime agent cap.
 
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
@@ -80,18 +89,22 @@ defmodule AiurWeb.Build.Payload do
   """
   alias AiurWeb.Build.{PayloadSchema, PayloadValidator}
   @version 1
-  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.map(&String.to_atom/1)
+  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.reject(&(&1 in PayloadSchema.row_optional())) |> Enum.map(&String.to_atom/1)
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do
-    data |> scrub() |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"]) |> Map.merge(envelope("snapshot", epoch, generation))
+    data
+    |> scrub()
+    |> pack_icons()
+    |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"])
+    |> Map.merge(envelope("snapshot", epoch, generation))
   end
 
   @spec diff(map(), String.t(), non_neg_integer(), map() | nil) :: map()
   def diff(changes, epoch, generation, history) do
     changes = scrub(changes)
     upsert = Enum.reject(changes["upsert"], &outside_window?(&1, history))
-    set = history_set(changes["set"], history)
+    set = changes["set"] |> history_set(history) |> pack_icons()
     envelope("diff", epoch, generation) |> Map.merge(%{"now" => changes["now"], "upsert" => upsert, "remove" => changes["remove"], "set" => set})
   end
 
@@ -123,6 +136,10 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Shared presentation metadata stays internal to the index, outside schema v1.
+  def scrub(%{num: _} = row),
+    do: row |> Map.drop([:general_epics, :priority, :lane, :dependency_ready]) |> Map.new(fn {key, child} -> {scrub_key(key), scrub(child)} end)
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)
@@ -141,4 +158,77 @@ defmodule AiurWeb.Build.Payload do
   defp history_set(%{"history_meta" => meta} = set, history) when is_map(meta) and is_map(history), do: set |> Map.delete("history_meta") |> Map.put("history", Map.merge(history, meta))
   defp history_set(%{"history_meta" => meta} = set, nil) when is_map(meta), do: Map.delete(set, "history_meta")
   defp history_set(set, _history), do: set
+
+  defp pack_icons(blocks) when is_map(blocks) do
+    {lanes, lane_icons} = take_icons(blocks["lanes"] || %{})
+    {features, feature_icons} = take_icons(blocks["features"] || %{})
+    icons = Map.merge(lane_icons, feature_icons)
+
+    blocks
+    |> maybe_put("lanes", lanes, Map.has_key?(blocks, "lanes"))
+    |> maybe_put("features", features, Map.has_key?(blocks, "features"))
+    |> compact_progress_metadata()
+    |> maybe_put("icons", icons, map_size(icons) > 0)
+  end
+
+  defp pack_icons(blocks), do: blocks
+
+  defp take_icons(items) when is_map(items) do
+    Enum.reduce(items, {%{}, %{}}, fn
+      {key, %{"svg" => svg, "icon" => icon} = item}, {items, icons} when is_binary(svg) and is_binary(icon) ->
+        {Map.put(items, key, Map.delete(item, "svg")), Map.put(icons, icon, svg)}
+
+      {key, item}, {items, icons} ->
+        {Map.put(items, key, item), icons}
+    end)
+  end
+
+  defp take_icons(items), do: {items, %{}}
+
+  # Feature progress repeats icon metadata already carried by its lane. Keep it
+  # in the internal index, but send one copy over the socket.
+  defp compact_progress_metadata(
+         %{
+           "feature_progress" => %{"features" => progress} = feature_progress,
+           "lanes" => lanes,
+           "features" => features
+         } = blocks
+       )
+       when is_map(progress) and is_map(lanes) and is_map(features) do
+    compacted = Map.new(progress, &compact_progress_entry(&1, lanes, features, feature_progress))
+
+    put_in(blocks, ["feature_progress", "features"], compacted)
+  end
+
+  defp compact_progress_metadata(blocks), do: blocks
+
+  defp compact_progress_entry({key, item}, lanes, features, feature_progress) when is_map(item) do
+    lane = Map.get(lanes, key, %{})
+    feature_key = if is_map(lane), do: Map.get(lane, "feature"), else: nil
+    feature = Map.get(features, feature_key, %{})
+
+    item =
+      item
+      |> drop_matching_fields(lane, ~w(icon summary wave))
+      |> drop_matching_field("feature", lane, "feature")
+      |> drop_matching_field("label", feature, "label")
+      |> drop_matching_field("observed_at", feature_progress, "observed_at")
+      |> drop_matching_field("plan_version", feature_progress, "plan_version")
+
+    {key, item}
+  end
+
+  defp compact_progress_entry(entry, _lanes, _features, _feature_progress), do: entry
+
+  defp drop_matching_fields(item, source, fields),
+    do: Enum.reduce(fields, item, &drop_matching_field(&2, &1, source, &1))
+
+  defp drop_matching_field(item, field, source, source_field) do
+    if is_map(source) and Map.has_key?(source, source_field) and Map.get(item, field) == Map.get(source, source_field),
+      do: Map.delete(item, field),
+      else: item
+  end
+
+  defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
+  defp maybe_put(map, _key, _value, false), do: map
 end

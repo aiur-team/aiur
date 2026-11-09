@@ -40,10 +40,9 @@ defmodule Aiur.AgentTools.TicketStateTest do
     end
 
     test "refuses a state an agent must not claim for itself" do
-      # `todo` is dispatch's pre-work state and `merging`/`cancelled` are
-      # Executor dispositions; writing either from an agent turn would reverse a
-      # decision the agent does not own.
-      for refused <- ["todo", "merging", "cancelled", "not-a-state"] do
+      # `todo` belongs to dispatch, `merging`/`cancelled` to Executor
+      # disposition, and `done` to a merged PR or explicit human close.
+      for refused <- ["todo", "merging", "cancelled", "done", "not-a-state"] do
         response =
           TicketState.execute(
             "aiur_set_ticket_state",

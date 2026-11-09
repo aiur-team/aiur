@@ -5,6 +5,8 @@ defmodule Aiur.AlertsCLIBoundTest do
 
   alias Aiur.{AgentControlCLI, AlertFeed}
 
+  @now ~U[2026-10-10 00:00:00Z]
+
   setup do
     root = Aiur.TestSupport.tmp_root!("alerts-cli-bound")
     File.mkdir_p!(root)
@@ -106,14 +108,15 @@ defmodule Aiur.AlertsCLIBoundTest do
       Map.put(alert(2001, false), "topic", "system.test.2001.resolved")
     ]
 
-    write_ledger(ledger, open ++ history ++ resolved)
+    write_ledger(ledger, history ++ open ++ resolved)
 
-    [notice | alerts] = run_alerts(ledger_path: ledger)
+    [summary, notice | alerts] = run_alerts(ledger_path: ledger)
+    assert %{"event" => "alert_feed_summary", "open_count" => 150, "archived_count" => 0, "history_count" => 100} = summary
     assert notice["event"] == "alert_feed_truncated"
     assert notice["limit"] == 100
     assert notice["omitted_count"] == 101
-    attention = Enum.filter(alerts, & &1["needs_attention"])
-    assert Enum.map(attention, & &1["topic"]) == Enum.map(1..150, &"system.test.#{&1}")
+    # Open items print first, ahead of history that was written before them.
+    assert alerts |> Enum.take(150) |> Enum.map(& &1["topic"]) == Enum.map(1..150, &"system.test.#{&1}")
     others = Enum.reject(alerts, & &1["needs_attention"])
     assert length(others) == 100
     assert hd(others)["topic"] == "system.test.1102"
@@ -128,18 +131,32 @@ defmodule Aiur.AlertsCLIBoundTest do
       records ++ [Map.put(alert(151, false), "topic", "system.test.151.resolved")]
     )
 
-    alerts = run_alerts(ledger_path: ledger, needs_attention: true)
+    [summary | alerts] = run_alerts(ledger_path: ledger, needs_attention: true)
+    assert summary["open_count"] == 150
     assert length(alerts) == 150
     refute Enum.any?(alerts, &(&1["event"] == "alert_feed_truncated"))
+  end
+
+  test "an item opened before the retention window is counted, not listed", %{ledger: ledger} do
+    old = alert(1, true)
+    write_ledger(ledger, [Map.put(old, "timestamp", "2026-09-01T00:00:00Z"), old, alert(2, true)])
+
+    [summary | alerts] = run_alerts(ledger_path: ledger)
+    assert %{"open_count" => 1, "archived_count" => 1, "retention_days" => 14} = summary
+    assert Enum.map(alerts, & &1["topic"]) == ["system.test.2"]
+
+    [summary | alerts] = run_alerts(ledger_path: ledger, limit: :all)
+    assert %{"open_count" => 2, "archived_count" => 0} = summary
+    assert Enum.map(alerts, & &1["topic"]) == ["system.test.1", "system.test.2"]
   end
 
   test "limit and :all expose rows the default cut", %{ledger: ledger} do
     write_ledger(ledger, Enum.map(1..250, &alert(&1, false)))
 
-    [notice | alerts] = run_alerts(ledger_path: ledger, limit: 5)
+    [_summary, notice | alerts] = run_alerts(ledger_path: ledger, limit: 5)
     assert notice["omitted_count"] == 245
     assert Enum.map(alerts, & &1["topic"]) == Enum.map(246..250, &"system.test.#{&1}")
-    assert length(run_alerts(ledger_path: ledger, limit: :all)) == 250
+    assert length(run_alerts(ledger_path: ledger, limit: :all)) == 251
   end
 
   test "feed reconstruction grows linearly within the bounded ledger", %{ledger: ledger} do
@@ -151,7 +168,7 @@ defmodule Aiur.AlertsCLIBoundTest do
   defp write_ledger(ledger, records),
     do: File.write!(ledger, Enum.map(records, &[Jason.encode!(&1), "\n"]))
 
-  defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts(opts) end) |> decode_output()
+  defp run_alerts(opts), do: capture_io(fn -> AgentControlCLI.alerts([{:now, @now} | opts]) end) |> decode_output()
 
   defp decode_output(output) do
     output

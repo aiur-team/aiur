@@ -10,6 +10,42 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
   alias Aiur.Workflow
 
   describe "blocked-on-decision dispatch gate (#1965)" do
+    test "a GitHub issue carrying another instance's state label is never dispatchable" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        max_concurrent_agents: 5
+      )
+
+      ticket =
+        issue("foreign", labels: [" NUC:todo "], state_labels: ["todo"], dispatch_authorized?: true)
+
+      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) ==
+               {:skip, :inactive_state}
+    end
+
+    test "a foreign label for a custom workflow state is never dispatchable" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["qa-review"],
+        max_concurrent_agents: 5
+      )
+
+      ticket =
+        issue("custom-foreign",
+          state: "qa-review",
+          labels: ["agent:qa-review", "nuc:qa-review"],
+          state_labels: ["qa-review"],
+          dispatch_authorized?: true
+        )
+
+      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) ==
+               {:skip, :inactive_state}
+    end
+
     test "a held issue is declined with :build_queue_hold before other state gates" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
       :ets.new(Hints.table_name(), [:named_table, :set])

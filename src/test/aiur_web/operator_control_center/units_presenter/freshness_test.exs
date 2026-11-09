@@ -2,7 +2,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterFreshnessTest do
   use ExUnit.Case, async: true
 
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
-  alias AiurWeb.StreamDeckGrid
 
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
 
@@ -31,7 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterFreshnessTest do
   # Units catalog has to admit the same agents from the same snapshot. Before
   # this, any staleness dropped every status-sourced row and an operator with no
   # durable membership saw an empty Units page beside a full Stream Deck.
-  test "a briefly stale fleet snapshot shows the same units the Stream Deck projects" do
+  test "a briefly stale fleet snapshot retains all units" do
     alpha = identity("NODE-parity-alpha", "41")
     beta = identity("NODE-parity-beta", "42")
     gamma = identity("NODE-parity-gamma", "43")
@@ -49,10 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterFreshnessTest do
         activity_fun: fn -> %{entries: []} end
       )
 
-    deck = StreamDeckGrid.project(fleet)
-
-    assert deck.total == 3
-    assert length(catalog.snapshot.rows) == deck.total
+    assert length(catalog.snapshot.rows) == 3
     assert Enum.map(catalog.snapshot.rows, & &1.identity) == [alpha, beta, gamma]
   end
 

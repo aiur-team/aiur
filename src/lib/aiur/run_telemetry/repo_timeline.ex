@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline do
   require Logger
 
   alias Aiur.Config.TrackerSettings
-  alias Aiur.GitHub.{Config, Errors}
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.RunTelemetry.{Lifecycle, Summaries}
   alias Aiur.RunTelemetry.RepoTimeline.{GitHub, Rows}
 
@@ -58,7 +58,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline do
     {delay, failure_delay} =
       cond do
         result == :ok -> {state.interval, state.retry}
-        Errors.outcome(result) == :held or result == {:error, :github_budget_broker_timeout} -> {state.retry, state.failure_delay}
+        Access.outcome(result) == :held or result == {:error, :github_budget_broker_timeout} -> {state.retry, state.failure_delay}
         true -> {min(state.failure_delay, state.interval), min(state.failure_delay * 2, state.interval)}
       end
 

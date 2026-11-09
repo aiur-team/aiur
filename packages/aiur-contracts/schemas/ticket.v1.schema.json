@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket.v1.schema.json",
+  "title": "TicketStatus",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.ticket" },
+    "contract_version": { "const": 1 },
+    "issue_identifier": { "type": "string" },
+    "issue_id": { "type": "string" },
+    "status": { "enum": ["running", "retrying", "idle"] },
+    "workspace": { "$ref": "#/$defs/workspace" },
+    "attempts": { "$ref": "#/$defs/attempts" },
+    "running": { "oneOf": [{ "$ref": "#/$defs/running" }, { "type": "null" }] },
+    "retry": { "oneOf": [{ "$ref": "#/$defs/retry" }, { "type": "null" }] },
+    "idle": { "oneOf": [{ "$ref": "#/$defs/idle" }, { "type": "null" }] },
+    "capabilities": { "type": ["object", "null"], "additionalProperties": true },
+    "queue": { "$ref": "#/$defs/queue" },
+    "logs": { "$ref": "#/$defs/logs" },
+    "recent_events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/recentEvent" }
+    },
+    "last_error": { "type": ["string", "null"] },
+    "tracked": { "type": "object", "additionalProperties": true },
+    "tracker_identity": { "type": ["object", "null"], "additionalProperties": true }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "issue_identifier",
+    "issue_id",
+    "status",
+    "workspace",
+    "attempts",
+    "running",
+    "retry",
+    "capabilities",
+    "queue",
+    "logs",
+    "recent_events",
+    "last_error",
+    "tracked"
+  ],
+  "$defs": {
+    "workspace": {
+      "title": "TicketStatusWorkspace",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "host": { "type": ["string", "null"] }
+      },
+      "required": ["path", "host"]
+    },
+    "attempts": {
+      "title": "TicketStatusAttempts",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "restart_count": { "type": "integer", "minimum": 0 },
+        "current_retry_attempt": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["restart_count", "current_retry_attempt"]
+    },
+    "running": {
+      "title": "TicketRunningStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "session_id": { "type": ["string", "null"] },
+        "state": { "type": "string" },
+        "started_at": { "type": ["string", "null"] },
+        "turn_count": { "type": "integer", "minimum": 0 },
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "workspace_path": { "type": ["string", "null"] },
+        "worker_host": { "type": ["string", "null"] },
+        "adopted_from": { "type": ["string", "null"] },
+        "live_conversation": { "type": ["object", "null"], "additionalProperties": true },
+        "capabilities": { "type": ["object", "null"], "additionalProperties": true },
+        "last_event": { "type": ["string", "null"] },
+        "last_message": { "type": ["string", "null"] },
+        "last_event_at": { "type": ["string", "null"] },
+        "stale_for_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "review": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "waiting_reason": { "type": "string" },
+        "tracker_identity": { "type": "object", "additionalProperties": true }
+      },
+      "required": [
+        "state",
+        "turn_count",
+        "queue_depth",
+        "open_decision_count",
+        "open_decision_count_health",
+        "review",
+        "ci",
+        "waiting_reason"
+      ]
+    },
+    "retry": {
+      "title": "TicketRetryStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "attempt": { "type": "integer", "minimum": 0 },
+        "due_at": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "worker_host": { "type": ["string", "null"] },
+        "workspace_path": { "type": ["string", "null"] },
+        "state": { "type": ["string", "null"] },
+        "waiting_reason": { "type": "string" },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "review": { "type": "string" },
+        "tracker_identity": { "type": "object", "additionalProperties": true }
+      },
+      "required": [
+        "attempt",
+        "due_at",
+        "error",
+        "waiting_reason",
+        "open_decision_count",
+        "open_decision_count_health",
+        "ci",
+        "review"
+      ]
+    },
+    "idle": {
+      "title": "TicketIdleStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "issue_id": { "type": "string" },
+        "issue_identifier": { "type": "string" },
+        "state": { "type": "string" },
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "waiting_reason": { "type": "string" },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "review": { "type": "string" }
+      },
+      "required": [
+        "issue_id",
+        "issue_identifier",
+        "state",
+        "queue_depth",
+        "waiting_reason",
+        "open_decision_count",
+        "open_decision_count_health",
+        "ci",
+        "review"
+      ]
+    },
+    "queue": {
+      "title": "TicketStatusQueue",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": { "depth": { "type": "integer", "minimum": 0 } },
+      "required": ["depth"]
+    },
+    "logs": {
+      "title": "TicketStatusLogs",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "codex_session_logs": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["codex_session_logs"]
+    },
+    "recentEvent": {
+      "title": "TicketStatusRecentEvent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "event": { "type": "string" },
+        "message": { "type": ["string", "null"] },
+        "at": { "type": ["string", "null"] }
+      },
+      "required": ["event", "message", "at"]
+    },
+    "ci": {
+      "title": "TicketCiStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "decision": { "type": ["string", "null"] },
+        "pr_number": { "type": ["integer", "null"] },
+        "head_sha": { "type": ["string", "null"] },
+        "draft?": { "type": "boolean" }
+      },
+      "required": ["decision", "pr_number", "head_sha", "draft?"]
+    }
+  }
+}

@@ -1,5 +1,5 @@
 /**
- * Rolling waveform reduction for the TestMic panel.
+ * Rolling waveform reduction for the microphone panel panel.
  *
  * Capture delivers far more samples than the panel has pixel columns, so the
  * stream is reduced to one min/max pair per column. Keeping the pair rather

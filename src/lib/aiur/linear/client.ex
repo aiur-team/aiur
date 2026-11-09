@@ -5,103 +5,10 @@ defmodule Aiur.Linear.Client do
 
   require Logger
   alias Aiur.{Config, Issue}
+  alias Aiur.Linear.{IssueNormalizer, Queries}
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
-
-  @query """
-  query AiurLinearPoll($projectSlug: String!, $stateNames: [String!]!, $first: Int!, $relationFirst: Int!, $after: String) {
-    issues(filter: {project: {slugId: {eq: $projectSlug}}, state: {name: {in: $stateNames}}}, first: $first, after: $after) {
-      nodes {
-        id
-        identifier
-        title
-        description
-        priority
-        state {
-          name
-        }
-        branchName
-        url
-        assignee {
-          id
-        }
-        labels {
-          nodes {
-            name
-          }
-        }
-        inverseRelations(first: $relationFirst) {
-          nodes {
-            type
-            issue {
-              id
-              identifier
-              state {
-                name
-              }
-            }
-          }
-        }
-        createdAt
-        updatedAt
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-  }
-  """
-
-  @query_by_ids """
-  query AiurLinearIssuesById($ids: [ID!]!, $first: Int!, $relationFirst: Int!) {
-    issues(filter: {id: {in: $ids}}, first: $first) {
-      nodes {
-        id
-        identifier
-        title
-        description
-        priority
-        state {
-          name
-        }
-        branchName
-        url
-        assignee {
-          id
-        }
-        labels {
-          nodes {
-            name
-          }
-        }
-        inverseRelations(first: $relationFirst) {
-          nodes {
-            type
-            issue {
-              id
-              identifier
-              state {
-                name
-              }
-            }
-          }
-        }
-        createdAt
-        updatedAt
-      }
-    }
-  }
-  """
-
-  @viewer_query """
-  query AiurLinearViewer {
-    viewer {
-      id
-    }
-  }
-  """
 
   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -196,7 +103,7 @@ defmodule Aiur.Linear.Client do
   @doc false
   @spec normalize_issue_for_test(map()) :: Issue.t() | nil
   def normalize_issue_for_test(issue) when is_map(issue) do
-    normalize_issue(issue, nil)
+    IssueNormalizer.normalize_issue(issue, nil)
   end
 
   @doc false
@@ -214,7 +121,7 @@ defmodule Aiur.Linear.Client do
           nil
       end
 
-    normalize_issue(issue, assignee_filter)
+    IssueNormalizer.normalize_issue(issue, assignee_filter)
   end
 
   @doc false
@@ -252,7 +159,7 @@ defmodule Aiur.Linear.Client do
   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues, opts) do
     with {:ok, body} <-
            graphql(
-             @query,
+             Queries.candidates(),
              %{
                projectSlug: project_slug,
                stateNames: state_names,
@@ -304,7 +211,7 @@ defmodule Aiur.Linear.Client do
   defp do_fetch_issue_states_page(ids, assignee_filter, graphql_fun, acc_issues, issue_order_index) do
     {batch_ids, rest_ids} = Enum.split(ids, @issue_page_size)
 
-    case graphql_fun.(@query_by_ids, %{
+    case graphql_fun.(Queries.by_ids(), %{
            ids: batch_ids,
            first: length(batch_ids),
            relationFirst: @issue_page_size
@@ -418,7 +325,7 @@ defmodule Aiur.Linear.Client do
   defp decode_linear_response(%{"data" => %{"issues" => %{"nodes" => nodes}}}, assignee_filter) do
     issues =
       nodes
-      |> Enum.map(&normalize_issue(&1, assignee_filter))
+      |> Enum.map(&IssueNormalizer.normalize_issue(&1, assignee_filter))
       |> Enum.reject(&is_nil(&1))
 
     {:ok, issues}
@@ -458,48 +365,6 @@ defmodule Aiur.Linear.Client do
   defp next_page_cursor(%{has_next_page: true}), do: {:error, :linear_missing_end_cursor}
   defp next_page_cursor(_), do: :done
 
-  defp normalize_issue(issue, assignee_filter) when is_map(issue) do
-    assignee = issue["assignee"]
-
-    %Issue{
-      id: issue["id"],
-      identifier: issue["identifier"],
-      title: issue["title"],
-      description: issue["description"],
-      priority: parse_priority(issue["priority"]),
-      state: get_in(issue, ["state", "name"]),
-      branch_name: issue["branchName"],
-      url: issue["url"],
-      assignee_id: assignee_field(assignee, "id"),
-      blocked_by: extract_blockers(issue),
-      labels: extract_labels(issue),
-      assigned_to_worker: assigned_to_worker?(assignee, assignee_filter),
-      created_at: parse_datetime(issue["createdAt"]),
-      updated_at: parse_datetime(issue["updatedAt"])
-    }
-  end
-
-  defp normalize_issue(_issue, _assignee_filter), do: nil
-
-  defp assignee_field(%{} = assignee, field) when is_binary(field), do: assignee[field]
-  defp assignee_field(_assignee, _field), do: nil
-
-  defp assigned_to_worker?(_assignee, nil), do: true
-
-  defp assigned_to_worker?(%{} = assignee, %{match_values: match_values})
-       when is_struct(match_values, MapSet) do
-    assignee
-    |> assignee_id()
-    |> then(fn
-      nil -> false
-      assignee_id -> MapSet.member?(match_values, assignee_id)
-    end)
-  end
-
-  defp assigned_to_worker?(_assignee, _assignee_filter), do: false
-
-  defp assignee_id(%{} = assignee), do: normalize_assignee_match_value(assignee["id"])
-
   defp routing_assignee_filter do
     case Config.settings!().tracker.linear.assignee do
       nil ->
@@ -511,22 +376,13 @@ defmodule Aiur.Linear.Client do
   end
 
   defp build_assignee_filter(assignee) when is_binary(assignee) do
-    case normalize_assignee_match_value(assignee) do
-      nil ->
-        {:ok, nil}
-
-      "me" ->
-        resolve_viewer_assignee_filter()
-
-      normalized ->
-        {:ok, %{configured_assignee: assignee, match_values: MapSet.new([normalized])}}
-    end
+    IssueNormalizer.build_assignee_filter(assignee, &resolve_viewer_assignee_filter/0)
   end
 
   defp resolve_viewer_assignee_filter do
-    case graphql(@viewer_query, %{}) do
+    case graphql(Queries.viewer(), %{}) do
       {:ok, %{"data" => %{"viewer" => viewer}}} when is_map(viewer) ->
-        case assignee_id(viewer) do
+        case IssueNormalizer.assignee_id(viewer) do
           nil ->
             {:error, :missing_linear_viewer_identity}
 
@@ -541,59 +397,4 @@ defmodule Aiur.Linear.Client do
         {:error, reason}
     end
   end
-
-  defp normalize_assignee_match_value(value) when is_binary(value) do
-    case value |> String.trim() do
-      "" -> nil
-      normalized -> normalized
-    end
-  end
-
-  defp normalize_assignee_match_value(_value), do: nil
-
-  defp extract_labels(%{"labels" => %{"nodes" => labels}}) when is_list(labels) do
-    labels
-    |> Enum.map(& &1["name"])
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&String.downcase/1)
-  end
-
-  defp extract_labels(_), do: []
-
-  defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
-       when is_list(inverse_relations) do
-    inverse_relations
-    |> Enum.flat_map(fn
-      %{"type" => relation_type, "issue" => blocker_issue}
-      when is_binary(relation_type) and is_map(blocker_issue) ->
-        if String.downcase(String.trim(relation_type)) == "blocks" do
-          [
-            %{
-              id: blocker_issue["id"],
-              identifier: blocker_issue["identifier"],
-              state: get_in(blocker_issue, ["state", "name"])
-            }
-          ]
-        else
-          []
-        end
-
-      _ ->
-        []
-    end)
-  end
-
-  defp extract_blockers(_), do: []
-
-  defp parse_datetime(nil), do: nil
-
-  defp parse_datetime(raw) do
-    case DateTime.from_iso8601(raw) do
-      {:ok, dt, _offset} -> dt
-      _ -> nil
-    end
-  end
-
-  defp parse_priority(priority) when is_integer(priority), do: priority
-  defp parse_priority(_priority), do: nil
 end

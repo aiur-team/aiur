@@ -124,12 +124,14 @@ _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
 _session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
 _session_pidfile="" _session_watchdog_pid="" _session_workspace_root_file=""
 _session_alert_ledger_path_file="" _session_crash_dump_baseline_file="" _session_launch_lock=""
+_session_keep_capture=0
 _cleanup_ran=0
 session_cleanup() {
-  [ "$_cleanup_ran" = 1 ] && return 0
-  _cleanup_ran=1
   local code=$?
-  [ ! -s "$_session_pidfile.handoff" ] || return 0
+  set +e
+  [ "$_cleanup_ran" = 1 ] && return "$code"
+  _cleanup_ran=1
+  [ ! -s "$_session_pidfile.handoff" ] || return "$code"
 
   # Stop the BEAM-death watchdog: cleanup is running, so it has no work left and
   # a lingering poller would outlive this teardown.
@@ -189,17 +191,21 @@ session_cleanup() {
   # tempfiles are spared (fresh + live pid) before the explicit rm below clears them.
   sweep_stale_tmp_artifacts || true
 
-  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" \
+  rm -f "$_session_tmpfile" "$_session_argv" "$_session_pidfile" \
     "$_session_workspace_root_file" "$_session_alert_ledger_path_file" \
     "$_session_crash_dump_baseline_file" 2>/dev/null || true
+  [ "$_session_keep_capture" = 1 ] || rm -f "$_session_capture" 2>/dev/null || true
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
   cleanup_test_launch_private_state
   release_aiur_launch_lock "$_session_launch_lock"
   _session_launch_lock=""
   return $code
 }
+install_session_exit_trap() {
+  trap 'session_cleanup; exit "$?"' EXIT
+}
 install_foreground_traps() {
-  trap 'session_cleanup' EXIT
+  install_session_exit_trap
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 130' INT
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 143' TERM
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 129' HUP

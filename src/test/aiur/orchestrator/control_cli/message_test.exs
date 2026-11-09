@@ -24,6 +24,21 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
+  test "message status prints the current delivery state" do
+    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn request_id, timeout ->
+      assert request_id == 7
+      assert timeout >= 1_000
+      {:ok, :delivered}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_status_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.status(7) end)
+
+    assert output =~ "aiur: message request 7 is delivered"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "message reports an unclaimed message as queued without claiming delivery", %{orchestrator: pid} do
     parent = self()
 
@@ -189,15 +204,23 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
     refute second == third
   end
 
-  test "message to a non-running issue fails with a clear error" do
-    stderr =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.message("45", "hello") end)
+  test "message to a non-running issue queues for its next worker" do
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn issue, text, _opts ->
+      assert issue == "45"
+      assert text == "hello"
+      {:ok, 71}
+    end)
 
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+    stub_message_delivery_status({:ok, :pending})
+
+    output =
+      with_message_confirm_timeout(150, fn ->
+        capture_io(fn -> AgentControlCLI.message("45", "hello") end)
       end)
 
-    assert stderr =~ "aiur: failed to message #45 (no running agent)"
+    assert output =~ "aiur: queued for next worker on #45 (request 71)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
   test "message surfaces delivery errors with a non-zero exit", %{orchestrator: pid} do

@@ -62,8 +62,9 @@ in the workpad rather than falling back to raw label edits.
 9. Before CI or review handoff, assess the exact PR head against the configured
    base using `dev-loop.md`'s integration checklist. During `human-review` or
    `ci-wait`, integrate only when GitHub reports the exact PR head as
-   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
-   not require a push. Record required conflict resolution in the workpad;
+   `CONFLICTING` or a newer base commit fixes a failing required check, naming
+   the commit and check. A reviewer request alone does not authorize a merge.
+   File overlap and base movement alone do not require a push. Record required conflict resolution in the workpad;
    unavailable assessments block handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
@@ -75,7 +76,8 @@ in the workpad rather than falling back to raw label edits.
 11. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. Any head that
     is not `CONFLICTING` permits `agent:human-review` even if stale or overlapping.
-    If GitHub reports `CONFLICTING` or a reviewer asked for integration, follow
+    If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
+    required check, follow
     `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. Never open a
     blocking decision for base integration. Use
     `aiur_set_ticket_state` for that
@@ -193,6 +195,13 @@ actually enter or leave the phase, not retroactively:
 - `phase.plan.start` / `phase.plan.end` when using `ce-plan`
 - `phase.work.start` / `phase.work.end` when using `ce-work`
 - `phase.review.start` / `phase.review.end` when using `ce-review`
+
+For every implementation turn, emit `phase.work.start` when implementation
+begins and `phase.work.end` when implementation is complete (tests may still be
+pending). Keep progress reports current as work advances and at Executor
+check-ins; use the shared `progress` / `progress.checkin` protocol for the
+10-point estimate. These persisted milestones drive the ticket conversation's
+stage dividers, so do not substitute a guessed stage or label.
 
 Aiur automatically scopes every agent-emitted name under
 `ticket.<your-issue>.agent.`, so you pass the bare phase name and the event bus

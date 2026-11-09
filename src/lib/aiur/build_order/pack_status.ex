@@ -45,7 +45,7 @@ defmodule Aiur.BuildOrder.PackStatus do
   require Logger
 
   alias Aiur.BuildOrder.{Lifecycle, PackPaths, PackStatusFile, ProviderHealth}
-  alias Aiur.GitHub.{Config, Transport}
+  alias Aiur.GitHub.{Access, Config}
 
   @chunk_size 50
   @topic "build-order-pack-status:changed"
@@ -108,8 +108,8 @@ defmodule Aiur.BuildOrder.PackStatus do
     state = %{
       inflight: nil,
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
-      token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
+      token_fun: Keyword.get(opts, :token_fun, &Access.require_token/0),
       paths_fun: Keyword.get(opts, :paths_fun, &PackPaths.tracked_planning/0),
       planning_call_budget: Keyword.get_lazy(opts, :planning_call_budget, &Config.planning_call_budget/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
@@ -380,7 +380,7 @@ defmodule Aiur.BuildOrder.PackStatus do
     query = issue_state_query(numbers)
     variables = %{"owner" => owner, "name" => repo}
 
-    case Transport.github_graphql(state.request_fun, token, query, variables, caller: :build_order_pack_status) do
+    case Access.github_graphql(state.request_fun, token, query, variables, caller: :build_order_pack_status) do
       {:ok, %{"data" => %{"repository" => repository}}} when is_map(repository) ->
         complete_lifecycles(numbers, repository)
 

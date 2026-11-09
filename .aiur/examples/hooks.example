@@ -71,12 +71,24 @@ before_run: |
     fi
   else
     git fetch origin "$base_branch"
+    if git ls-remote --exit-code --heads origin "$AIUR_TICKET_BRANCH" >/dev/null; then
+      git fetch origin "$AIUR_TICKET_BRANCH"
+    else
+      ticket_branch_status=$?
+      if [ "$ticket_branch_status" -ne 2 ]; then
+        echo "Unable to check remote ticket branch $AIUR_TICKET_BRANCH (git ls-remote exited $ticket_branch_status)." >&2
+        exit "$ticket_branch_status"
+      fi
+    fi
     if ! git diff --quiet || ! git diff --cached --quiet; then
       echo "Refusing to refresh workspace from origin/$base_branch because tracked changes are present." >&2
       echo "Commit or resolve the workspace changes before resuming this agent." >&2
       exit 65
     fi
     rm -f logs/before-run-merge-conflict.md
+    # Local identity keeps this merge off the host's global git identity.
+    git config user.name "${AIUR_GIT_NAME:?AIUR_GIT_NAME is required}"
+    git config user.email "${AIUR_GIT_EMAIL:?AIUR_GIT_EMAIL is required}"
     if ! git merge --no-edit "origin/$base_branch"; then
       conflicted_files="$(git diff --name-only --diff-filter=U)"
       if [ -z "$conflicted_files" ]; then

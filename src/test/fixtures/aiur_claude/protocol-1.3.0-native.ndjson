@@ -1,0 +1,12 @@
+{"scenario":"native_question","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.3.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"native_question","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"native_question","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>","nativeQuestions":true}}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"native_question","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","id":"native-question-1","method":"item/tool/requestUserInput","params":{"threadId":"<thread>","turnId":"<turn>","itemId":"tool-1","questions":[{"id":"colour","header":"Colour","question":"Should README.md mention red or blue?","isOther":true,"isSecret":false,"multiSelect":false,"options":[{"label":"red","description":"Red text"},{"label":"blue","description":"Blue text"}]}]}}}
+{"scenario":"native_question","dir":"out","msg":{"id":"native-question-1","result":{"answers":{"colour":{"answers":["red"]}}}}}
+{"scenario":"native_question","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn>","thread_id":"<thread>","status":"completed"}}}

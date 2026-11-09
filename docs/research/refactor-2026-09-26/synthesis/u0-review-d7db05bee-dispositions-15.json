@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 15,
+  "first_id": "loose-4-27",
+  "last_id": "nonelixir-shell-30",
+  "findings": [
+    {
+      "id": "loose-4-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/config.ex:1350",
+      "note": "GitHub validation still returns from cond before later Claude validation; agent.kind remains the validation input.",
+      "source_ids": [
+        "loose-4-27"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-4-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/progress_tracker.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-4-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-4-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/live_conversation.ex:417",
+      "note": "activate_snapshot ignores created? in every clause; EventPublicationLog retains its compatibility workspace argument and Issue retains redundant authorization fields.",
+      "source_ids": [
+        "loose-4-29"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-4-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/live_conversation.ex:271",
+      "note": "Canonicalization/authorization blocks recur in activation and observation; put_snapshot rebuilds the handles map, and guard directory helpers remain parallel.",
+      "source_ids": [
+        "loose-4-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-01",
+      "status": "repaired",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:3683",
+      "note": "12055bff2 (#2846) selects only current instance-record agent pidfile instead of sweeping every instance. U1-T02 is guard/live-witness only; independent recycled-PID hardening remains #2844. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "nonelixir-shell-01"
+      ],
+      "severity": "P0",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/cli.ex:160",
+      "note": "Argv reader still splits newline-delimited file and rejects empty strings; engine writer emits one newline per argument. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "nonelixir-shell-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-03",
+      "status": "repaired",
+      "anchor": "packaging/npm/aiur-cli/share/aiur.tmux.conf:75",
+      "note": "a4e5f70ac (#2858) ships inline quoted C-c/C-q helper, packages it, sets launcher option and tests shipped conf; duplicate config removed. U1-T03 narrows to queued-message foreground witness, no binding implementation. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "nonelixir-shell-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-04",
+      "status": "present",
+      "anchor": "scripts/aiurdev:500",
+      "note": "aiurdev pure_control_command still omits watch/commands/units/analytics/executor commands, while targets_release_deliberately and engine own separate command lists; divergent launcher requirements remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-05",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:1",
+      "note": "Shared engine remains one broad shell file owning launch/lifetime/control/upgrade parsers and dispatch; original exact LOC/function census is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-06",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:2607",
+      "note": "Engine retains separate command parsers building Elixir keyword RPC expressions and repeated missing-value branches/base64 encoding; CLI validation exists separately. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-07",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:3308",
+      "note": "executor-wait timeout/as and executor-emit payload still shift before assigning a possibly absent argument then unconditionally shift again; missing final value exits silently under errexit. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/workflow.ex:58",
+      "note": "Workflow candidates remain cwd and home only while launcher project identity walks parent dirs; preserve defer until canonical discovery contract and reproduction. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "nonelixir-shell-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-09",
+      "status": "present",
+      "anchor": "packaging/scripts/resolve-version.mjs:71",
+      "note": "Nightly version resolver still uses a seven-hex SHA prerelease while engine compares prerelease strings lexically; chronological nightly upgrade ordering remains unsupported. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry/summaries.ex:185",
+      "note": "Summaries still locates analytics beneath RepoBase or cwd and returns ok when reducer unavailable; Python and Elixir reducers retain parallel behavior ownership. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-11",
+      "status": "present",
+      "anchor": "analytics/lib/analytics/render.py:329",
+      "note": "Python sampled wasted capacity still substitutes fallback_cap when capacity is None, while Elixir requires known cap; unknown capacity can produce a precise default-based figure. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-12",
+      "status": "unchanged",
+      "anchor": "analytics/lib/analytics/build_report.py:52",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-12"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-13",
+      "status": "unchanged",
+      "anchor": "analytics/lib/analytics/reduce.py:224",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-14",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:630",
+      "note": "Engine still owns many environment/temporary handoff variables and operator knobs independently of Env.Schema; name ownership fragmentation remains. Historical exact census not remeasured. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-15",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:1959",
+      "note": "probe_control_liveness still executes release rpc without an outer timeout and asks Orchestrator.status with 100ms; timeout/busy responses remain collapsed to down. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-16",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:1195",
+      "note": "Engine retains separate signal/poll/escalation functions for BEAM, process trees, RPC and workspace sweeps; process lifetime policy remains duplicated across shell/Elixir. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-17",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:827",
+      "note": "Engine still separately interpolates socket/session identity from prefix/user/instance key and sniffs dev release path suffixes; identity derivation duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-18",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:1438",
+      "note": "Product engine still scans/reaps manual smoke wrapper contexts and preflight redirects only stdout while report writes stderr; development harness knowledge remains in installed launcher. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-19",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/bin/aiur.js:20",
+      "note": "aiur.js still recognizes darwin x64 while publish platforms excludes it; wrapper/postinstall platform/preflight implementations remain divergent. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-20",
+      "status": "changed",
+      "anchor": "packaging/npm/aiur-cli/test/launcher.test.mjs:592",
+      "note": "No bun-test invocation exists in pinned .github/Makefile/package.json. Launcher tests now expect repo-local dotenv precedence, repairing the historical inverse-precedence example; uncollected packaging suites remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-21",
+      "status": "unchanged",
+      "anchor": "scripts/verify-u11.sh:38",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-21"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-22",
+      "status": "present",
+      "anchor": "scripts/aiur-saturation-repro.sh:92",
+      "note": "Saturation script still derives dump location from ambient logs root or existing global dumps instead of the launched run identity; shell platform assumptions remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-23",
+      "status": "unchanged",
+      "anchor": "analytics/lib/analytics/sources.py:68",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-24",
+      "status": "unchanged",
+      "anchor": "scripts/verify-human-only-merge-ruleset.sh:4",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-25",
+      "status": "present",
+      "anchor": "scripts/check-config-docs.py:115",
+      "note": "check-config-docs still silently returns when an embedded schema module cannot be resolved and maintains explicit map subkeys; regex/schema duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-26",
+      "status": "unchanged",
+      "anchor": "scripts/verify-workflow-security.sh:61",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "nonelixir-shell-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "nonelixir-shell-27",
+      "status": "changed",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:774",
+      "note": "45a290e30 changed default_dashboard_host to preserve AIUR_DEFAULT_DASHBOARD_HOST or loopback, removing Tailscale autodetection/override loss. Historical dashboard default contradiction is repaired; unrelated usage help omissions remain. U9-T01 launcher acceptance shrinks to guarding the explicit/default host contract. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-28",
+      "status": "changed",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:751",
+      "note": "Launcher now treats blank dotenv lines as placeholders, narrowing the historical empty-file-value shadowing claim; key grammar and set-empty exported-variable handling still differ from Init.Dotenv. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-29",
+      "status": "repaired",
+      "anchor": ".claude/skills/aiur-agent/dev-loop.md:306",
+      "note": "Removed in d04069711 (#2840); pinned tree contains no guard-pr-deletions implementation. U7-T01 closes the already-cut cli-38 entry, so no guard repair/install belongs in that unit. Provisional action retained; static code review only.",
+      "source_ids": [
+        "nonelixir-shell-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "nonelixir-shell-30",
+      "status": "present",
+      "anchor": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:2471",
+      "note": "Dispatch sets the diagnosed flag before returning timeout 124, leaving the wrapper timeout diagnostic branch unreachable; context-specific messages still recur.",
+      "source_ids": [
+        "nonelixir-shell-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

@@ -34,7 +34,7 @@ export type { Transcriber, TranscriberHandlers, TranscriberSession, TranscriptEv
 export { createRelayTranscriber } from "./relay.js";
 export type { RelayTranscriber, RelayTranscriberOptions, VoiceRelayPort } from "./relay.js";
 
-export { PACTL, PW_DUMP, listMicrophones } from "./devices.js";
+export { PACTL, PW_DUMP, listMicrophones, listSpeakers } from "./devices.js";
 export type { AudioDevice } from "./devices.js";
 
 export { CAPTURE_LATENCY_MS, FIRST_BYTE_TIMEOUT_MS, PAREC, captureArgs, startCapture } from "./capture.js";

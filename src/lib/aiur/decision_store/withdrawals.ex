@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.Withdrawals do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -9,6 +10,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.Signal
 
   @spec handle_dismiss(term(), term(), term()) :: term()
@@ -22,9 +24,6 @@ defmodule Aiur.DecisionStore.Withdrawals do
         decision.decision_status not in [:open, :deferred] and not expired_unanswered_blocker?(decision) ->
           {:reply, {:error, {:conflict, decision.decision_status}}, state}
 
-        unresolvable_block?(decision) ->
-          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
-
         true ->
           persist_dismissal(decision, actor, state)
       end
@@ -33,10 +32,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  # Dismissal records a status and stops: it delivers nothing to a waiting
-  # agent. Live blocking Commands remain protected because dismissal would hide
-  # a real gate. An expired blocker no longer holds dispatch, so an operator may
-  # retire that stale record without leaving an invisible block.
+  # The operator may always dismiss a Command: `:dismissed` releases the
+  # dispatch gate and the dashboard tells a live agent to proceed. System
+  # sweeps (`Dedup`) keep this guard so they never close a live agent-filed
+  # block, which nothing would then release.
   @spec unresolvable_block?(term()) :: term()
   def unresolvable_block?(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: false
   def unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
@@ -104,7 +103,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
   defp persist_dismissal(decision, actor, state) do
     case Persistence.build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
-        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, Siblings.moot_after_rejection(next_state, updated)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
@@ -114,9 +113,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
   @spec handle_defer(term(), term(), term()) :: term()
   def handle_defer(decision_id, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
-         {:ok, actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- if(Policy.deferrable?(decision), do: :ok, else: {:error, {:conflict, :not_deferrable}}) do
       case decision.decision_status do
-        :open -> persist_deferral(decision, actor, state)
+        :open -> persist_deferral(decision, actor, Keyword.get(opts, :note), state)
         :deferred -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
         status -> {:reply, {:error, {:conflict, status}}, state}
       end
@@ -125,8 +125,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  defp persist_deferral(decision, actor, state) do
-    case Persistence.build_and_persist_event(:decision_deferred, decision, %{actor: actor}, DateTime.utc_now(), state) do
+  defp persist_deferral(decision, actor, note, state) do
+    data = if is_binary(note), do: %{actor: actor, note: note}, else: %{actor: actor}
+
+    case Persistence.build_and_persist_event(:decision_deferred, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 

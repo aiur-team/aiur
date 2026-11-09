@@ -6,6 +6,52 @@ encode_control_value() {
 
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_ack() {
+  local decision_id="${1:-}" executor_id="aiur-cli" arg
+  [[ "$decision_id" =~ ^dec_[0-9a-f]{16}$ ]] || { echo "aiur: executor-ack expects a decision ID (dec_ followed by 16 lowercase hex characters)" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-ack --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      *) echo "aiur: executor-ack received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id}"
+  run_control_rpc "Aiur.AgentControlCLI.executor_ack([$opts])"
+}
+
+# Called with the subcommand name still in $1 (executor-claim-decision | executor-release-decision).
+cmd_executor_claim_decision() {
+  local sub="$1" fn="${1//-/_}" decision_id executor_id="" ttl="" arg
+  shift
+  decision_id="${1:-}"
+  [[ "$decision_id" =~ ^dec_[0-9a-f]{16}$ ]] || { echo "aiur: $sub expects a decision ID (dec_ followed by 16 lowercase hex characters)" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --as) [ "$#" -gt 1 ] || { echo "aiur: $sub --as requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --as=*) executor_id="${arg#--as=}" ;;
+      --ttl) [ "$sub" = executor-claim-decision ] && [ "$#" -gt 1 ] || { echo "aiur: $sub --ttl requires a value" >&2; exit 64; }; shift; ttl="$1" ;;
+      --ttl=*) [ "$sub" = executor-claim-decision ] || { echo "aiur: $sub received an unexpected argument: $arg" >&2; exit 64; }; ttl="${arg#--ttl=}" ;;
+      *) echo "aiur: $sub received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$executor_id" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "aiur: $sub requires --as <executor> ([A-Za-z0-9._-])" >&2; exit 64; }
+  [ -z "$ttl" ] || [[ "$ttl" =~ ^[0-9]+$ ]] || { echo "aiur: $sub --ttl must be a positive number of seconds" >&2; exit 64; }
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  [ -z "$ttl" ] || opts="$opts, ttl_s: $ttl"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id}"
+  run_control_rpc "Aiur.AgentControlCLI.${fn}([$opts])"
+}
+
 cmd_executor_answer() {
   local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
@@ -117,6 +163,61 @@ cmd_operator_answer() {
   run_control_rpc "Aiur.AgentControlCLI.operator_answer([$opts])"
 }
 
+cmd_operator_relay_answer() {
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" quote="" idempotency_key="" relayed_by="" supersede=0 arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: operator-relay-answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --option) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --quote) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --quote requires a value" >&2; exit 64; }; shift; quote="$1" ;;
+      --quote=*) quote="${arg#--quote=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --relayed-by) [ "$#" -gt 1 ] || { echo "aiur: operator-relay-answer --relayed-by requires a value" >&2; exit 64; }; shift; relayed_by="$1" ;;
+      --relayed-by=*) relayed_by="${arg#--relayed-by=}" ;;
+      --supersede) supersede=1 ;;
+      -*) echo "aiur: operator-relay-answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: operator-relay-answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: operator-relay-answer --expected-version expects a positive integer" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: operator-relay-answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  [ -n "$quote" ] || { echo "aiur: operator-relay-answer --quote is required" >&2; exit 64; }
+  [ -n "$idempotency_key" ] || { echo "aiur: operator-relay-answer --idempotency-key is required" >&2; exit 64; }
+  [ -n "$relayed_by" ] || { echo "aiur: operator-relay-answer --relayed-by must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  opts="$opts, quote: Base.decode64!(\"$(encode_control_value "$quote")\")"
+  opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  opts="$opts, relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\")"
+  if [ "$supersede" -eq 1 ]; then
+    opts="$opts, supersede: true"
+  fi
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
+  run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
+}
+
 cmd_executor_escalate() {
   local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
@@ -216,24 +317,30 @@ cmd_executor_moot() {
 }
 
 cmd_executor_wait() {
-  local timeout=300 json=0 as="" arg
+  local timeout=300 json=0 defer_ack=0 ack_through="" as="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --timeout) shift; timeout="${1:-}" ;;
       --timeout=*) timeout="${arg#--timeout=}" ;;
       --json) json=1 ;;
+      --defer-ack) defer_ack=1 ;;
+      --ack-through) shift; ack_through="${1:-}" ;;
+      --ack-through=*) ack_through="${arg#--ack-through=}" ;;
       --as) shift; as="${1:-}" ;;
       --as=*) as="${arg#--as=}" ;;
-      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
+      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --ack-through <id>, --defer-ack, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
     esac
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
   executor_validate_consumer_id "$as" "executor-wait"
+  if [ -n "$ack_through" ]; then [[ "$ack_through" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "aiur: executor-wait --ack-through expects a non-negative integer" >&2; exit 64; }; fi
   local json_arg=false; [ "$json" -eq 1 ] && json_arg=true
+  local defer_arg=""; [ "$defer_ack" -eq 1 ] && defer_arg=", defer_ack: true"
+  local ack_arg=""; [ -n "$ack_through" ] && ack_arg=", ack_through: $ack_through"
   AIUR_CONTROL_COMMAND="executor-wait"
-  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$(executor_as_argument "$as")$(executor_session_argument))"
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$defer_arg$ack_arg$(executor_as_argument "$as")$(executor_session_argument))"
 }
 
 # The consumer id is an explicit identity, never inferred from the environment.

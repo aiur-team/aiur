@@ -1,0 +1,440 @@
+import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import AxeBuilder from '@axe-core/playwright'
+import { dashboardCredentials } from './support/layout-worker.mjs'
+test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
+test.beforeEach(async ({ page }) => {
+  page.featureErrors = []; page.on('pageerror', error => page.featureErrors.push(error.message))
+  const root = test.info().project.metadata.featuresRoot
+  if (root) await page.route('**/build-home/home.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static/build-home/home.css', 'utf8') }))
+  if (root) await page.route('**/build-home/home/*.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static' + new URL(route.request().url()).pathname, 'utf8') }))
+  if (root) await page.route('**/build-home/*.js', async route => route.fulfill({ contentType: 'text/javascript', body: await readFile(root + '/src/priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), 'utf8') }))
+})
+test.afterEach(async ({ page }) => { await page.request.get('/build-control/earlier'); expect(page.featureErrors).toEqual([]) })
+async function open(page, query = '?feature=pag', dataset = 'live') {
+  await page.goto('/build-fixture/' + dataset + query)
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await page.evaluate(async () => {
+    window.m = await import('/build-home/state.js')
+    window.h = await import('/build-home/hook.js'); window.hist = await import('/build-home/history.js')
+  })
+}
+const mode = (p, m) => p.locator(`#bd-fh [data-m="${m}"]`)
+async function diff(page, patch) {
+  await page.evaluate(patch => {
+    const { ctx } = m, feature = { ...ctx.D.features.pag, ...patch }
+    h.receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1, now: ctx.snap.now, set: { features: { ...ctx.D.features, pag: feature } }, remove: [], upsert: [] })
+  }, patch)
+}
+test('header uses whole-index figures, mode buttons and clear restore the board', async ({ page }) => {
+  await open(page)
+  const values = await page.evaluate(() => m.ctx.D.features.pag.stats)
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText(`${values.done}/${values.total}`)
+  await expect(page.locator('.bd-kv b').nth(1)).toHaveText(`${values.pct}%`)
+  await expect(page.locator('.bd-kv b').nth(2)).toContainText(`${values.orig} → ${values.total}`)
+  expect(await page.locator('.bd-card.dim').count()).toBeGreaterThan(0)
+  await mode(page, 'compact').click()
+  await expect(page).toHaveURL(/fmode=compact/)
+  await expect(mode(page, 'compact')).toHaveClass('on')
+  const counts = await page.evaluate(() => {
+    const { ctx } = m, items = ['hist', 'plan', 'nq'].flatMap(k => ctx.L.secs[k].items)
+    return { ghosts: items.filter(i => i.ghost).length, unrelated: items.filter(i => !i.ghost && i.t.feature !== 'pag' && !i.t.also.includes('pag')).length }
+  })
+  expect(counts.unrelated).toBe(0)
+  await expect(page.locator('.bd-mk.gap').first()).toBeAttached()
+  await page.locator('#bd-fx').click()
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page.locator('.bd-card.dim, .bd-card.feat-on, .bd-card.also, .bd-card.ghost')).toHaveCount(0)
+  await expect(page).not.toHaveURL(/feature=/)
+})
+test('lane chips use the stored hue for each lane', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    const { ctx, fx } = m
+    const lane = ctx.D.lanes[ctx.D.features.pag.epics[0]]
+    lane.hue = 13
+    fx.renderFeatures()
+  })
+  await expect(page.locator('#bd-fh .bd-chip').first()).toHaveAttribute('style', /oklch\(\.7 \.13 13\)/)
+})
+test('unknown stats, baseline, missing stats and labels update through live diffs', async ({ page }) => {
+  await open(page)
+  const stats = await page.evaluate(() => m.ctx.D.features.pag.stats)
+  await diff(page, { label: '<b>renamed</b>', epics: ['missing'], stats: { ...stats, done: null, done_min: 5, pct: null, pct_min: 41, reasons: ['progress', 'status'], baseline: false } })
+  await expect(page.locator('.bd-fh-name')).toHaveText('<b>renamed</b>')
+  await expect(page.locator('.bd-fh-name b, .bd-chip svg')).toHaveCount(0)
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText(`—/${stats.total}`)
+  await expect(page.locator('.bd-kv b').nth(1)).toHaveText('—')
+  await expect(page.locator('.bd-kv b').nth(1)).toHaveAttribute('title', 'at least 41% weighted · unknown: progress, status')
+  await expect(page.locator('.bd-kv b').nth(2)).toHaveText(`— → ${stats.total}`)
+  await expect(page.locator('.bd-kv em')).toHaveCount(0)
+  await diff(page, { stats: null })
+  await expect(page.locator('.bd-kv b')).toHaveText(['—', '—', '—'])
+  await expect(page.locator('.sp polyline')).toHaveCount(0)
+})
+test('Features list rows hold only name, bar and merged/total, with an all-features total and a URL sort', async ({ page }, info) => {
+  await open(page, '?view=list')
+  await page.getByRole('tab', { name: 'Features' }).click()
+  // pag and khala are registry features in the fixture; the rest come only from feature:<slug> labels.
+  // Labels are what the daemon names each row: the registry label, else the label's description
+  // (MP-E2 Commands, Listener modes, Phone app shell), else the title-cased slug.
+  const bars = [
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 },
+    { key: 'mp-e3', label: 'MP-E3', merged: 14, total: 23 },
+    { key: 'streamdeck-redesign', label: 'Stream Deck redesign with dials, keys, paging modes and the phone emulator', merged: 25, total: 30 },
+    { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
+    { key: 'mp-n1', label: 'Phone app shell', merged: 1, total: 10 }
+  ]
+  await page.evaluate(bars => {
+    const { ctx, fx } = window.m
+    ctx.D.feature_progress = { ...ctx.D.feature_progress, bars }
+    fx.renderList()
+  }, bars)
+  const rows = page.locator('.fp-list > .fp-row:not(.fp-all)')
+  await expect(rows).toHaveCount(7)
+  expect(await rows.evaluateAll(els => els.map(el => [...el.children].map(child => child.className)))).toEqual(bars.map(() => ['fp-name', 'fp-pg', 'fp-count', 'fp-left']))
+  expect(await rows.locator('.fp-bar').evaluateAll(els => els.map(el => el.className))).toEqual(bars.map(b => b.merged === b.total ? 'fp-bar done' : 'fp-bar'))
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual(bars.map(b => `${b.label}${b.merged}/${b.total}${b.total - b.merged}`))
+  const visibleNames = await rows.locator('.fp-name').allTextContents()
+  expect(new Set(visibleNames).size).toBe(visibleNames.length)
+  expect(visibleNames).not.toContain('mp-e2')
+  // Each name is one line; a cut name ends in an ellipsis and keeps the full name in its title.
+  const oneLine = () => rows.locator('.fp-name').evaluateAll(els => els.map(el => {
+    const style = getComputedStyle(el)
+    return { oneLine: el.getBoundingClientRect().height <= parseFloat(style.lineHeight) + 1, title: el.title === el.textContent, cut: el.scrollWidth > el.clientWidth, ellipsis: style.textOverflow === 'ellipsis' }
+  }))
+  const desk = await oneLine()
+  expect(desk.every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  expect(desk.map(n => n.cut)).toEqual(bars.map(b => b.key === 'streamdeck-redesign'))
+  await expect(rows.first().locator('.fp-bar i')).toHaveAttribute('style', /width:69\.23/)
+  await expect(rows.nth(1).locator('.fp-bar i')).toHaveAttribute('style', 'width:0%')
+  await expect(page.locator('.fp-list h1')).toHaveCount(0)
+  await expect(page.locator('.fp-sum')).toHaveText(/^57 of 89 tickets merged - \d{4}-\d{2}-\d{2}$/)
+  await expect(page.locator('.fp-list [data-fsort]')).toHaveCount(0)
+  // The table starts at the top of the card, under the Tickets-style column headers.
+  const flushTop = await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp').getBoundingClientRect()
+    return {
+      list: Math.round(document.querySelector('.fp-list').getBoundingClientRect().top - vp.top),
+      toolbar: Math.round(vp.top - document.querySelector('.bd-toolbar').getBoundingClientRect().bottom)
+    }
+  })
+  expect(flushTop.list).toBeLessThanOrEqual(1)
+  expect(flushTop.toolbar).toBeLessThanOrEqual(16)
+  expect(await page.locator('.fp-list > .lr-h [role="columnheader"]').allTextContents()).toEqual(['Feature', 'Progress', 'Merged', 'Remaining'])
+  await expect(page.locator('.fp-all')).toHaveText('All features57/8932')
+  await expect(page.locator('.fp-all .fp-bar i')).toHaveAttribute('style', /width:64\.04/)
+  const colors = await page.evaluate(() => {
+    const probe = token => { const el = document.createElement('i'); el.style.background = `var(${token})`; document.querySelector('.fp-list').append(el); const value = getComputedStyle(el).backgroundColor; el.remove(); return value }
+    const fill = selector => getComputedStyle(document.querySelector(selector)).backgroundColor
+    return { done: [fill('.fp-bar.done i'), probe('--good')], partial: [fill('.fp-row:not(.fp-all) .fp-bar:not(.done):not(.all) i'), probe('--accent')], all: [fill('.fp-bar.all i'), probe('--attention')] }
+  })
+  for (const [actual, token] of Object.values(colors)) expect(actual).toBe(token)
+  expect(new Set(Object.values(colors).map(([actual]) => actual)).size).toBe(3)
+
+  await expect(rows.first()).toHaveAttribute('tabindex', '0')
+  await expect(rows.nth(1)).not.toHaveAttribute('tabindex', /.*/)
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.emulateMedia({ colorScheme: 'light' })
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.locator('[data-fsort]').selectOption('left')
+  await expect(page).toHaveURL(/fsort=left/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['mp-e3', 'mp-n1', 'streamdeck-redesign', 'pag', 'mp-e2', 'khala', 'newsletter'])
+  await page.locator('[data-fsort]').selectOption('pct')
+  await expect(page).toHaveURL(/fsort=pct/)
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.feature))).toEqual(['newsletter', 'streamdeck-redesign', 'pag', 'khala', 'mp-e3', 'mp-n1', 'mp-e2'])
+  await page.locator('[data-fsort]').selectOption('goal')
+  await expect(page).not.toHaveURL(/fsort=/)
+  await page.screenshot({ path: info.outputPath('features-list-1440.png') })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect((await oneLine()).every(n => n.oneLine && n.title && n.ellipsis)).toBe(true)
+  const gaps = await rows.evaluateAll(els => els.slice(1).map((el, i) => el.getBoundingClientRect().top - els[i].querySelector('.fp-bar').getBoundingClientRect().bottom))
+  expect(Math.min(...gaps)).toBeGreaterThanOrEqual(8)
+  expect(await rows.evaluateAll(els => {
+    const nav = document.querySelector('.sidenav')
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    const top = els[0].getBoundingClientRect().top
+    const rowHeight = Math.max(...els.slice(0, 6).map(el => el.getBoundingClientRect().bottom - el.getBoundingClientRect().top))
+    return usableTop - top >= 6 * rowHeight
+  })).toBe(true)
+  await page.screenshot({ path: info.outputPath('features-list-390.png') })
+  await page.locator('.fp-row[data-feature="pag"]').press('Enter')
+  await expect(page).toHaveURL(/feature=pag/)
+})
+test('epic rows group their features and clicking one focuses the graph on them', async ({ page }, info) => {
+  await open(page, '?view=list')
+  await page.getByRole('tab', { name: 'Features' }).click()
+  const bars = [
+    { key: 'pag', label: 'MP-E1 build queue', merged: 9, total: 13 },
+    { key: 'khala', label: 'Khala chat', merged: 2, total: 3 },
+    { key: 'mp-e2', label: 'MP-E2 Commands', merged: 0, total: 4 },
+    { key: 'mp-n1', label: 'mp-n1', merged: 1, total: 10 },
+    { key: 'newsletter', label: 'Newsletter', merged: 6, total: 6 }
+  ]
+  // Two epics with two features each, then one feature no epic lists. The epic totals are the
+  // summed feature totals the server computes (a ticket two features share counts once).
+  const epics = [
+    { key: 'launch', label: 'V1 launch', merged: 11, total: 16, features: ['khala', 'pag'] },
+    { key: 'later', label: 'Later', merged: 1, total: 14, features: ['mp-e2', 'mp-n1'] }
+  ]
+  await page.evaluate(({ bars, epics }) => {
+    const { ctx, fx } = window.m
+    ctx.D.feature_progress = { ...ctx.D.feature_progress, bars, epics }
+    fx.renderList()
+  }, { bars, epics })
+  const rows = page.locator('.fp-list > .fp-row:not(.fp-all):not(.fp-noepic-row)')
+  // Each epic row is followed by its own features in the epic's order; "No epic" closes the list.
+  expect(await rows.evaluateAll(els => els.map(el => el.dataset.epic ? 'epic:' + el.dataset.epic : 'feature:' + el.dataset.feature)))
+    .toEqual(['epic:launch', 'feature:khala', 'feature:pag', 'epic:later', 'feature:mp-e2', 'feature:mp-n1', 'feature:newsletter'])
+  expect(await rows.evaluateAll(els => els.map(el => el.textContent))).toEqual([
+    'V1 launch11/165', 'Khala chat2/31', 'MP-E1 build queue9/134', 'Later1/1413', 'MP-E2 Commands0/44', 'mp-n11/109', 'Newsletter6/60'
+  ])
+  expect(await rows.evaluateAll(els => els.map(el => { let p = el; while (p && !p.classList.contains('fp-epic-row')) { if (p.previousElementSibling?.classList.contains('fp-noepic-row')) return 'no-epic'; p = p.previousElementSibling } return p?.dataset.epic ?? 'no-epic' })))
+    .toEqual(['launch', 'launch', 'launch', 'later', 'later', 'later', 'no-epic'])
+  await expect(page.locator('.fp-epic-row[data-epic="launch"] .fp-bar')).toHaveAttribute('aria-label', '11 of 16 merged')
+  await expect(page.locator('.fp-epic-row[data-epic="launch"]')).toHaveAttribute('aria-label', 'Focus V1 launch epic features')
+  await expect(page.locator('.fp-noepic-row .fp-name')).toHaveText('No epic')
+  // Features are indented under their epic's row.
+  expect(await page.evaluate(() => {
+    return parseFloat(getComputedStyle(document.querySelector('.fp-feat .fp-name')).paddingLeft) - parseFloat(getComputedStyle(document.querySelector('.fp-epic-row .fp-name')).paddingLeft)
+  })).toBeGreaterThanOrEqual(8)
+  await expect(page.locator('.fp-all')).toHaveText('All features18/3618')
+  expect((await new AxeBuilder({ page }).include('.fp-list').analyze()).violations).toEqual([])
+  await page.screenshot({ path: info.outputPath('features-list-epics-1440.png') })
+
+  // 390 px: the grouped list still fits at least six rows on the first screen without sideways scroll.
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect(await page.evaluate(() => {
+    const nav = document.querySelector('.sidenav')
+    const usableTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : innerHeight
+    return [...document.querySelectorAll('.fp-list > .fp-row')].filter(el => el.getBoundingClientRect().bottom <= usableTop).length
+  })).toBeGreaterThanOrEqual(6)
+  await page.screenshot({ path: info.outputPath('features-list-epics-390.png') })
+  await page.setViewportSize({ width: 1440, height: 900 })
+
+  // Clicking the epic row focuses the graph on its features: the Feature filter carries them,
+  // so only their tickets lay out and Clear releases the filter.
+  await page.locator('.fp-epic-row[data-epic="launch"]').click()
+  await expect(page).toHaveURL(/features=khala,pag/)
+  await expect(page).not.toHaveURL(/view=list/)
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page.locator('[data-g="feature"]')).toContainText('Feature 2')
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual(['khala', 'pag'])
+  const laidOut = () => page.evaluate(() => {
+    const { ctx } = window.m
+    if (!ctx.L || !ctx.L.secs.plan) return 'pending'
+    const keep = t => t.feature === 'pag' || t.feature === 'khala' || (t.also || []).includes('pag') || (t.also || []).includes('khala')
+    const items = ['hist', 'plan', 'nq'].flatMap(key => ctx.L.secs[key]?.items || []).filter(item => !item.ghost)
+    return { outside: items.filter(item => !keep(item.t)).length, inside: items.filter(item => keep(item.t)).length }
+  })
+  await expect.poll(laidOut).toMatchObject({ outside: 0 })
+  expect((await laidOut()).inside).toBeGreaterThan(0)
+
+  // The filter is in the link: a reload keeps the same focused graph.
+  await page.reload()
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await page.evaluate(async () => { window.m = await import('/build-home/state.js') })
+  await expect(page).toHaveURL(/features=khala,pag/)
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual(['khala', 'pag'])
+  await expect(page.locator('[data-g="feature"]')).toContainText('Feature 2')
+  await expect.poll(laidOut).toMatchObject({ outside: 0 })
+
+  await page.locator('#bd-fclr').click()
+  await expect(page).not.toHaveURL(/features=/)
+  expect(await page.evaluate(() => m.S.f.feature)).toEqual([])
+})
+test('Features list says progress is unavailable instead of inventing a zero total', async ({ page }) => {
+  await open(page, '?view=list&list=features&fsort=pct')
+  await expect(page.locator('[data-fsort]')).toHaveValue('pct')
+  await page.evaluate(() => { const { ctx, fx } = window.m; ctx.D.feature_progress = { ...ctx.D.feature_progress, bars: null }; fx.renderList() })
+  await expect(page.locator('.fp-sum')).toHaveText(/^Feature progress unavailable - /)
+  await expect(page.locator('.fp-all')).toHaveCount(0)
+  await expect(page.locator('.fp-list > .fp-row:not(.fp-all)')).toHaveCount(0)
+})
+for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message))
+  await open(page, `?feature=${slug}&fmode=compact`)
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page.locator('.bd-card.dim, .bd-card.also, .bd-card.feat-on, .bd-card.ghost, .bd-mk.gap')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp('feature=' + slug))
+  const positions = () => page.evaluate(() => ({ cols: m.ctx.cols, sections: Object.fromEntries(['hist', 'plan', 'nq'].map(sec => [sec, m.ctx.L.secs[sec].items.map(it => [it.t.id, it.key, it.y, it.h])])) }))
+  const inactive = await positions()
+  await open(page, '')
+  expect(await positions()).toEqual(inactive)
+  await page.goto(`/build-fixture/live?feature=${slug}&view=list`)
+  await expect(page.locator('.bd-list')).toBeVisible()
+  await expect(page.locator('.lr.dim')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+test('first-paint feature focus loads oldest history, back/forward restores focus', async ({ page }) => {
+  await page.request.get('/build-control/earlier?delay=300')
+  await open(page, '?feature=khala')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'loading')
+  const bandTop = () => page.evaluate(() => m.ctx.bandEl.getBoundingClientRect().top - m.ctx.vp.getBoundingClientRect().top)
+  const before = await bandTop()
+  await expect(page.locator('.bd-fh-name')).toContainText('Khala')
+  await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.khala.oldest)).toBe(true)
+  expect(await page.evaluate(() => m.ctx.D.hist.filter(t => t.feature === 'khala').length)).toBeGreaterThan(0)
+  expect(Math.abs(await bandTop() - before)).toBeLessThanOrEqual(1)
+  await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.prepend(a) })
+  await page.locator('#feature-navigation').click()
+  await expect(page.locator('.bd-fh-name')).toContainText('Events pagination')
+  await page.goBack()
+  await expect(page.locator('.bd-fh-name')).toContainText('Khala')
+})
+for (const action of ['clear', 'switch', 'destroy']) test(`${action} during an in-flight page stops the prior feature span`, async ({ page }) => {
+  await open(page, '')
+  await page.evaluate(async () => {
+    const { ctx, fx } = m; window.calls = 0; const push = ctx.push;
+    ctx.push = (e, p) => { if (e !== 'load-earlier') return push(e, p); calls++; const reply = push(e, p); if (calls > 1) return reply; return new Promise(resolve => { window.finish = () => reply.then(resolve) }) }
+    fx.setFeature('khala')
+  })
+  await expect(page.locator('.bd-fh-name')).toContainText('Khala')
+  await expect.poll(() => page.evaluate(() => calls)).toBe(1)
+  if (action === 'clear') await page.locator('#bd-fx').click()
+  else if (action === 'switch') await page.evaluate(() => m.fx.setFeature('pag'))
+  else await page.evaluate(() => h.createBuildHomeHook().destroyed.call({ buildLife: m.ctx.life }))
+  await page.evaluate(async () => { await finish() })
+  if (action !== 'destroy') await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+  else expect(await page.evaluate(() => m.ctx.life.disposed)).toBe(true)
+  if (action === 'switch') {
+    await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.pag.oldest)).toBe(true)
+    expect(await page.evaluate(() => m.S.histFrom > m.ctx.D.features.khala.oldest)).toBe(true)
+  } else expect(await page.evaluate(() => calls)).toBe(1)
+})
+test('a feature page error stops loading and preserves server figures', async ({ page }) => {
+  await open(page, '')
+  await page.request.get('/build-control/earlier?fail=1')
+  const values = await page.evaluate(() => {
+    const { ctx, fx } = m, push = ctx.push; window.errorCalls = 0
+    ctx.push = (event, params) => { if (event === 'load-earlier') errorCalls++; return push(event, params) }
+    fx.setFeature('khala'); return ctx.D.features.khala.stats
+  })
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'error')
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText(`${values.done}/${values.total}`)
+  // Away from the top, viewport updates may re-arm an explicit retry. The failed
+  // feature span must still stop instead of automatically requesting another day.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await page.evaluate(() => ({ calls: errorCalls, state: hist.H.state }))).toEqual({ calls: 1, state: 'error' })
+})
+test('late feature activation and live dependencies rebuild compact ghosts', async ({ page }) => {
+  await open(page, '?feature=late&fmode=compact')
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  const ids = await page.evaluate(() => {
+    const { ctx } = m, member = ctx.D.plan[0], external = ctx.D.nq.find(t => t.epic !== member.epic)
+    const feature = { ...ctx.D.features.pag, key: 'late', label: 'Late feature', oldest: null, epics: [member.epic] }
+    h.receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1, now: ctx.snap.now,
+      set: { features: { ...ctx.D.features, late: feature } }, remove: [], upsert: [{ ...member, feature: 'late', deps: [external.id], dep_states: { [external.id]: 'blocking' } }] })
+    m.fx.flushLive()
+    return { member: member.id, ghost: external.id, epic: external.epic }
+  })
+  await expect(page.locator('.bd-fh-name')).toHaveText('Late feature')
+  // The header updates synchronously, while a snapping viewport defers layout.
+  await expect.poll(() => page.evaluate(ids => {
+    const { ctx } = m, ghost = ctx.L.secs.nq.items.find(it => it.t.id === ids.ghost)
+    return { ghost: ghost?.ghost, lane: ctx.cols.includes(ids.epic), others: ctx.L.secs.plan.items.filter(it => it.t.id !== ids.member && !it.ghost).length }
+  }, ids)).toEqual({ ghost: true, lane: true, others: 0 })
+  await page.evaluate(ids => { const { ctx, fx } = m; ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop; fx.update() }, ids)
+  await expect(page.locator(`.bd-card[data-id="${ids.ghost}"]`)).toHaveClass(/ghost/)
+})
+test('compact Gantt and list focus use active membership', async ({ page }) => {
+  await open(page, '?feature=pag&fmode=compact&view=gantt')
+  const result = await page.evaluate(() => ['hist', 'plan', 'nq'].flatMap(k => m.ctx.L.secs[k].items).filter(i => !i.ghost && i.t.feature !== 'pag' && !i.t.also.includes('pag')).length)
+  expect(result).toBe(0)
+  await page.goto('/build-fixture/live?feature=pag&view=list')
+  await expect(page.locator('.lr.dim').first()).toBeVisible()
+  const mismatch = await page.locator('.lr[data-id]').evaluateAll(async rows => { const { ctx } = await import('/build-home/state.js'); return rows.filter(el => {
+    const t = ctx.D.byId[el.dataset.id]; return el.classList.contains('dim') === (t.feature === 'pag' || t.also.includes('pag'))
+  }).length })
+  expect(mismatch).toBe(0)
+})
+test('a feature with only also-affects members shows no invented weighted figure', async ({ page }) => {
+  await open(page, '')
+  await page.evaluate(() => {
+    const { ctx, fx } = m, t = ctx.D.plan[0]
+    const feature = { key: 'alsoonly', label: 'Also only', hue: 42, epics: [], oldest: null, from: null, to: null,
+      stats: { total: 0, done: 0, done_min: 0, pct: null, pct_min: null, reasons: ['no_weight'], orig: 0, added: 0, baseline: false, spark: [], also: 1 } }
+    h.receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1, now: ctx.snap.now,
+      set: { features: { ...ctx.D.features, alsoonly: feature } }, remove: [], upsert: [{ ...t, also: [...t.also, 'alsoonly'] }] })
+    fx.flushLive(); fx.setFeature('alsoonly')
+  })
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText('0/0')
+  await expect(page.locator('.bd-kv b').nth(1)).toHaveText('—')
+  await expect(page.locator('.bd-kv b').nth(1)).toHaveAttribute('title', 'No weighted tickets')
+  await expect(page.locator('.bd-chip')).toHaveText('+1 also affect')
+  await mode(page, 'compact').click()
+  expect(await page.evaluate(() => m.ctx.L.secs.plan.items.filter(it => it.t.also.includes('alsoonly') && !it.ghost).length)).toBe(1)
+})
+test('a feature outside the six filter options focuses from its URL without paging empty membership', async ({ page }) => {
+  await open(page, '?feature=d0', 'dense')
+  await expect(page.locator('.bd-fh-name')).toHaveText('Auth v2')
+  // The current design fixture retains d0 metadata but has no closed d0 members.
+  expect(await page.evaluate(() => m.ctx.D.features.d0.oldest)).toBeNull()
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText('0/0')
+  await page.locator('#bd-fx').click()
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+})
+test('reduced motion disables the focus fade and retains design inner color timing', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.request.get('/build-fixture/live')
+  await page.goto('/?feature=pag')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  const fade = await page.locator('.bd-card').first().evaluate(el => Math.max(...getComputedStyle(el).transitionDuration.split(',').map(parseFloat)))
+  expect(fade).toBeLessThanOrEqual(0.00001)
+  await expect(page.locator('.bd-card .bd-in').first()).toHaveCSS('transition-duration', '0.14s, 0.14s, 0.14s, 0.14s')
+})
+
+async function tabTo(page, target) {
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab')
+    if (await target.evaluate(el => el === document.activeElement)) return
+  }
+  throw new Error('Tab did not reach ' + await target.evaluate(el => el.outerHTML))
+}
+async function expectKeyboardFocus(target) {
+  await expect(target).toBeFocused()
+  expect(await target.evaluate(el => el.matches(':focus-visible'))).toBe(true)
+}
+test('keyboard Tab and Enter or Space switch feature modes and clear with visible focus', async ({ page }) => {
+  await open(page)
+  await tabTo(page, mode(page, 'compact'))
+  await expectKeyboardFocus(mode(page, 'compact'))
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/fmode=compact/)
+  await expect(mode(page, 'compact')).toHaveClass('on')
+  await expectKeyboardFocus(mode(page, 'compact'))
+  await page.keyboard.press('Shift+Tab')
+  await expectKeyboardFocus(mode(page, 'focus'))
+  await page.keyboard.press('Space')
+  await expect(page).not.toHaveURL(/fmode=compact/)
+  await expect(mode(page, 'focus')).toHaveClass('on')
+  await expectKeyboardFocus(mode(page, 'focus'))
+  await tabTo(page, page.locator('#bd-fx'))
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page).not.toHaveURL(/feature=/)
+  await expectKeyboardFocus(page.locator('[data-g="feature"]'))
+})
+for (const fmode of ['focus', 'compact']) test(`390px ${fmode} header has no sideways overflow and reachable controls`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await open(page, '?feature=pag' + (fmode === 'compact' ? '&fmode=compact' : ''))
+  await expect(mode(page, fmode)).toHaveClass('on')
+  const overflow = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth,
+    header: document.querySelector('#bd-fh').scrollWidth, headerClient: document.querySelector('#bd-fh').clientWidth }))
+  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport)
+  expect(overflow.header).toBeLessThanOrEqual(overflow.headerClient)
+  for (const button of [mode(page, 'focus'), mode(page, 'compact'), page.locator('#bd-fx')]) {
+    await expect(button).toBeVisible()
+    const box = await button.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height).toBeLessThanOrEqual(844)
+  }
+})

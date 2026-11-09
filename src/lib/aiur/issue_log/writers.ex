@@ -8,9 +8,9 @@ defmodule Aiur.IssueLog.Writers do
 
   @supervisor Aiur.IssueLog.Supervisor
 
-  @spec attach_writer(String.t(), String.t(), String.t(), String.t(), term()) :: :ok
-  def attach_writer(identifier, path, event_path, transcript_path, key) do
-    case ensure_writer(identifier, path, event_path, transcript_path, key) do
+  @spec attach_writer(String.t(), String.t(), String.t(), String.t(), String.t(), term()) :: :ok
+  def attach_writer(identifier, path, event_path, transcript_path, timeline_event_path, key) do
+    case ensure_writer(identifier, path, event_path, transcript_path, timeline_event_path, key) do
       :ok ->
         :ok
 
@@ -20,31 +20,31 @@ defmodule Aiur.IssueLog.Writers do
     end
   end
 
-  defp ensure_writer(identifier, path, event_path, transcript_path, key) do
+  defp ensure_writer(identifier, path, event_path, transcript_path, timeline_event_path, key) do
     case Registry.lookup(Aiur.IssueLog.Registry, key) do
       [] ->
-        start_writer(identifier, path, event_path, transcript_path, key)
+        start_writer(identifier, path, event_path, transcript_path, timeline_event_path, key)
 
       [{pid, _}] ->
         if writer_path(pid) == path do
           :ok
         else
-          replace_writer(identifier, pid, path, event_path, transcript_path, key)
+          replace_writer(identifier, pid, path, event_path, transcript_path, timeline_event_path, key)
         end
     end
   end
 
-  defp replace_writer(identifier, pid, path, event_path, transcript_path, key) do
+  defp replace_writer(identifier, pid, path, event_path, transcript_path, timeline_event_path, key) do
     case DynamicSupervisor.terminate_child(@supervisor, pid) do
-      :ok -> start_writer(identifier, path, event_path, transcript_path, key)
-      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, key)
+      :ok -> start_writer(identifier, path, event_path, transcript_path, timeline_event_path, key)
+      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, timeline_event_path, key)
     end
   end
 
-  defp start_writer(identifier, path, event_path, transcript_path, key) do
+  defp start_writer(identifier, path, event_path, transcript_path, timeline_event_path, key) do
     DynamicSupervisor.start_child(
       @supervisor,
-      {Aiur.IssueLog, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, writer_key: key}
+      {Aiur.IssueLog, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, timeline_event_path: timeline_event_path, writer_key: key}
     )
     |> normalize_start_result()
   end

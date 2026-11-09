@@ -203,6 +203,46 @@ defmodule Aiur.Orchestrator.RetryEngine.CapacityAndScheduleTest do
     end
   end
 
+  describe "agent:retrying reason label" do
+    setup do
+      previous = for key <- [:memory_tracker_issues, :memory_tracker_recipient], do: {key, Application.fetch_env(:aiur, key)}
+
+      on_exit(fn ->
+        for {key, value} <- previous do
+          case value do
+            {:ok, v} -> Application.put_env(:aiur, key, v)
+            :error -> Application.delete_env(:aiur, key)
+          end
+        end
+      end)
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+      Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "r-1", identifier: "r-1", state: "in-progress"}])
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      :ok
+    end
+
+    test "a failure back-off sets the label and its retry fire clears it; a continuation retry writes nothing" do
+      continuation = RetryEngine.schedule_issue_retry(%State{}, "r-1", 1, %{identifier: "r-1", delay_type: :continuation})
+      Process.cancel_timer(continuation.retry_attempts["r-1"].timer_ref)
+      refute_received {:memory_tracker_add_label, "r-1", _}
+
+      {:ok, attempt, metadata, _popped} =
+        RetryEngine.pop_retry_attempt_state(continuation, "r-1", continuation.retry_attempts["r-1"].retry_token)
+
+      RetryEngine.handle_retry_issue(%State{}, "r-1", attempt, metadata, ensure_tracker_preflight_fun: fn s -> {:error, :skip, s} end)
+      refute_received {:memory_tracker_remove_label, "r-1", _}
+
+      failed = RetryEngine.schedule_issue_retry(%State{}, "r-1", 1, %{identifier: "r-1", error: "agent exited: boom"})
+      Process.cancel_timer(failed.retry_attempts["r-1"].timer_ref)
+      assert_received {:memory_tracker_add_label, "r-1", "agent:retrying"}
+
+      {:ok, attempt, metadata, _popped} = RetryEngine.pop_retry_attempt_state(failed, "r-1", failed.retry_attempts["r-1"].retry_token)
+      RetryEngine.handle_retry_issue(%State{}, "r-1", attempt, metadata, ensure_tracker_preflight_fun: fn s -> {:error, :skip, s} end)
+      assert_received {:memory_tracker_remove_label, "r-1", "agent:retrying"}
+    end
+  end
+
   describe "schedule_issue_retry/4" do
     test "stores identity supplied for a newly scheduled retry" do
       identity = tracker_identity("repo#new")

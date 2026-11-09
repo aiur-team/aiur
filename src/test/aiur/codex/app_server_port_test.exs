@@ -53,8 +53,8 @@ defmodule Aiur.Codex.AppServerPortTest do
   end
 
   describe "codex command test seam" do
-    test "nil model leaves the configured command untouched" do
-      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command()
+    test "nil model enables native capture on the configured command" do
+      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command() <> " --config features.default_mode_request_user_input=true"
     end
 
     test "appends model then effort with shell escaping" do
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
       assert command ==
                CodexConfig.command() <>
-                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"'"
+                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"' --config features.default_mode_request_user_input=true"
     end
   end
 

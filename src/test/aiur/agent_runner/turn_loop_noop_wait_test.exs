@@ -25,6 +25,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
     def handle_call({:restore_delivered_queue_items, _identifier}, _from, state), do: {:reply, :ok, state}
   end
 
+  defmodule AlertSink do
+    def emit_system(topic, opts), do: send(:persistent_term.get({__MODULE__, :owner}), {:alert, topic, opts[:message]})
+  end
+
   setup do
     root = Aiur.TestSupport.tmp_root!("turn-loop-noop-wait")
     workspace = Path.join(root, "ws")
@@ -81,6 +85,9 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
   end
 
   test "a park with no wake times out and the no-op bound still ends the run", ctx do
+    # The cap posts a human-review reason comment; keep that write off the network.
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+    Aiur.WorkflowStore.force_reload()
     task = start_loop(ctx, park_timeout_ms: 50)
 
     # No wake is ever sent: only the timer resumes the worker, and the
@@ -129,6 +136,63 @@ defmodule Aiur.AgentRunner.TurnLoopNoopWaitTest do
       end)
 
     assert {:ok, {:completed, %{state: "human-review"}}} = Task.yield(task, 3000) || Task.shutdown(task, :brutal_kill)
+  end
+
+  test "alerts once while repeated parks find unanswered review findings", ctx do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", tracker_active_states: ["todo", "in-progress", "rework"])
+    Aiur.WorkflowStore.force_reload()
+    issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
+
+    review = %{
+      "state" => "CHANGES_REQUESTED",
+      "body" => "1. noop_wait.ex:23 deduplicate the alert",
+      "submitted_at" => "2026-10-22T05:46:21Z",
+      "id" => 1,
+      "user" => %{"login" => "r"},
+      authoritative: true
+    }
+
+    previous_signal = Application.get_env(:aiur, :signal, [])
+    :persistent_term.put({AlertSink, :owner}, self())
+    Application.put_env(:aiur, :signal, alert_sink: AlertSink)
+
+    on_exit(fn ->
+      Application.put_env(:aiur, :signal, previous_signal)
+      :persistent_term.erase({AlertSink, :owner})
+    end)
+
+    task =
+      Task.async(fn ->
+        TurnLoop.run_turns(
+          %{backend: "claude", workspace: ctx.workspace, worker_host: nil},
+          ctx.workspace,
+          issue,
+          nil,
+          [
+            resumed: true,
+            run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "open-findings-park"}} end,
+            workspace_probe: fn _workspace, _worker_host -> {:ok, "unchanged"} end,
+            max_consecutive_noop_turns: 3,
+            noop_park_timeout_ms: 0,
+            rework_head_sha: "same-head",
+            open_pr_fetcher: fn _ -> {:ok, %{"number" => 42, "head" => %{"sha" => "same-head"}}} end,
+            reviews_fetcher: fn 42 -> {:ok, [review]} end
+          ],
+          fn _ids -> {:ok, [issue]} end,
+          ctx.orchestrator,
+          nil,
+          1,
+          nil
+        )
+      end)
+
+    assert_receive {:alert, first_topic, first_message}, 2000
+    send(task.pid, {:resume_agent, 1})
+    send(task.pid, {:resume_agent, 1})
+    assert {:ok, {:completed, _}} = Task.yield(task, 2000)
+    assert first_topic == "ticket.#{issue.identifier}.agent.rework_findings_open"
+    assert first_message =~ "agent:in-progress"
+    refute_receive {:alert, ^first_topic, _}, 0
   end
 
   defp start_loop(ctx, opts \\ []) do

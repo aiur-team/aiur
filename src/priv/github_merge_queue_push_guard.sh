@@ -12,6 +12,8 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
   queue_branch=$(git_in_context symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   queue_slug=${push_url#https://github.com/}
   queue_slug=${queue_slug%.git}
+  queue_github_remote=false
+  case "$push_url" in https://github.com/*) queue_github_remote=true ;; esac
 
   queue_refspec=
   queue_hits_branch=false
@@ -67,7 +69,7 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
   queue_ticket_branch=false
   [ -n "$queue_branch" ] && [ "$queue_hits_branch" = true ] && queue_ticket_branch=true
   [ -z "$queue_branch" ] && [ -n "$queue_target_branch" ] && case "$queue_target_branch" in refs/*|rescue/*) ;; *) queue_ticket_branch=true ;; esac
-  if [ "$queue_ticket_branch" = true ] && [ "$queue_slug" != "$push_url" ] &&
+  if [ "$queue_ticket_branch" = true ] && [ "$queue_github_remote" = true ] &&
     [ -n "$ticket_number" ]; then
     ticket_state=$("$(dirname "$0")/gh" api "repos/$queue_slug/issues/$ticket_number" --jq '[.labels[].name] | join(" ")' 2>/dev/null || true)
     case " $ticket_state " in
@@ -79,7 +81,7 @@ if [ "$push_command" = true ] && [ "$queue_install" = true ] && [ -x "$(dirname 
     esac
   fi
 
-  if [ -n "$queue_branch" ] && [ "$queue_hits_branch" = true ] && [ "$queue_slug" != "$push_url" ]; then
+  if [ -n "$queue_branch" ] && [ "$queue_hits_branch" = true ] && [ "$queue_github_remote" = true ]; then
     queue_state=$("$(dirname "$0")/gh" api graphql \
       -f query='query($o:String!,$r:String!,$b:String!){repository(owner:$o,name:$r){pullRequests(headRefName:$b,states:OPEN,first:1){nodes{isInMergeQueue mergeable reviewDecision}}}}' \
       -f o="${queue_slug%%/*}" -f r="${queue_slug#*/}" -f b="$queue_branch" \

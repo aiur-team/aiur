@@ -12,7 +12,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Reviews do
 
   alias Aiur.Events.GithubCommentsPoller.{Publish, Validators}
   alias Aiur.Events.GithubKeys
-  alias Aiur.GitHub.{Client, ResourceStore}
+  alias Aiur.GitHub.{Access, Client}
 
   @doc false
   @spec poll_unaddressed_pr_review_threads(term(), integer(), term(), map(), {:ok, list()} | :missing, keyword()) ::
@@ -68,7 +68,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Reviews do
     # and prevents restart-replay of old CHANGES_REQUESTED on resolved PRs.
     issue_since = Keyword.get(opts, :current_target_since)
     cutoff = since || issue_since || GithubKeys.boot_cutoff_iso8601(opts)
-    resource = ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)
+    resource = Access.key_for_repo(:pull_request_reviews, repo, pr_number)
     {etag, provenance} = Validators.request_etag(resource, etag)
     request_opts = Keyword.put(opts, :etag, etag)
 

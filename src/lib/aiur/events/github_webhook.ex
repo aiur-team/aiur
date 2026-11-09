@@ -279,7 +279,7 @@ defmodule Aiur.Events.GithubWebhook do
 
   defp nudge_orchestrator(%{kind: :ci, action: "synchronize", ticket: ticket, pr_number: pr_number}, opts)
        when is_binary(ticket) and is_integer(pr_number) do
-    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
+    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))) do
       pid when is_pid(pid) -> send(pid, {:github_pr_synchronize, ticket, pr_number})
       nil -> :ok
     end
@@ -288,7 +288,7 @@ defmodule Aiur.Events.GithubWebhook do
   end
 
   defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
-    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
+    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))) do
       pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint})
       nil -> :ok
     end

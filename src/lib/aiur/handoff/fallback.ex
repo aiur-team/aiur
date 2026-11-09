@@ -12,6 +12,7 @@ defmodule Aiur.Handoff.Fallback do
       identifier: identifier,
       issue_state: get_in(agent, ["issue", "state"]),
       prior_work: true,
+      handoff_fallback: true,
       worker_host: agent["worker_host"],
       delay_type: :continuation
     })

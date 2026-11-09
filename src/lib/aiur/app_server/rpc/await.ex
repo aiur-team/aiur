@@ -3,6 +3,7 @@ defmodule Aiur.AppServer.Rpc.Await do
 
   alias Aiur.AppServer.Rpc
   alias Aiur.AppServer.Rpc.StreamDiagnostics
+  alias Aiur.AppServer.Transport
 
   @spec response(port() | pid(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
           {:ok, map()} | {:error, term()}
@@ -50,6 +51,7 @@ defmodule Aiur.AppServer.Rpc.Await do
   defp handle_eol(port, request_id, timeout_ms, complete_line, backend_label, on_notification, sensitive_response?) do
     if Rpc.discard_late_sensitive_response?(port, complete_line) do
       log_discarded_sensitive_response(complete_line, backend_label)
+      :ok = Transport.acknowledge(port)
       response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
     else
       Rpc.handle_response(

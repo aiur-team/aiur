@@ -1,11 +1,39 @@
+Code.require_file("../../support/build_home/queue_read_model_fixture.ex", __DIR__)
+
 defmodule AiurWeb.Build.PayloadTest do
   use ExUnit.Case, async: true
+  alias Aiur.Test.BuildHome.QueueReadModelFixture, as: FixtureQueue
   alias Aiur.TestSupport.BuildHome.FixtureSource
-  alias AiurWeb.Build.{Payload, Read}
+  alias AiurWeb.Build.{Payload, PlannedRows, Read}
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
+  test "shared presentation metadata stays out while progress freshness is carried to the browser" do
+    row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
+    metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
+    data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Payload.validate(snapshot) == :ok
+    [wire_row] = snapshot["sections"]["now"]
+    assert wire_row["progress_freshness"] == "stale"
+    refute Map.has_key?(wire_row, "general_epics")
+    refute Map.has_key?(wire_row, "priority")
+    refute Map.has_key?(wire_row, "lane")
+    assert wire_row["pct"] == row.pct
+  end
+
+  test "rows preserve progress freshness and accept an optional observation timestamp" do
+    data = fixture()
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_observed_at"], 1_791_408_000_000)
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_freshness"], "stale")
+    assert Payload.validate(Payload.snapshot(fixture(), "epoch", 1)) == :ok
+    snapshot = Payload.snapshot(data, "epoch", 1)
+    assert Payload.validate(snapshot) == :ok
+    assert hd(snapshot["sections"]["now"])["progress_freshness"] == "stale"
+  end
+
   test "fixtures reach the full strict schema (future fixture guard)" do
-    for name <- ~w(live dense newrepo noqueue offline unknowns) do
+    for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
       {:ok, data} = FixtureSource.full(dataset: name)
       assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
     end
@@ -20,10 +48,54 @@ defmodule AiurWeb.Build.PayloadTest do
     end
   end
 
+  test "snapshot stores each rendered icon once in the icon catalog" do
+    svg = "<svg><path/></svg>"
+
+    data =
+      fixture()
+      |> put_in(["lanes", "bugs", "icon"], "home")
+      |> put_in(["lanes", "bugs", "svg"], svg)
+      |> put_in(["features", "khala", "icon"], "home")
+      |> put_in(["features", "khala", "svg"], svg)
+
+    snapshot = Payload.snapshot(data, "E", 1)
+
+    assert snapshot["icons"] == %{"home" => svg}
+    refute Map.has_key?(snapshot["lanes"]["bugs"], "svg")
+    refute Map.has_key?(snapshot["features"]["khala"], "svg")
+  end
+
+  test "snapshot compacts feature progress metadata already carried by its lane" do
+    metadata = %{"icon" => "cpu", "summary" => "Scheduler and memory work", "wave" => "0b"}
+    progress = Map.merge(metadata, %{"feature" => "kernel", "label" => "Kernel · core", "closed" => 2, "open" => 1, "ci_wait" => 0, "unpublished" => 0, "total" => 3})
+
+    data =
+      fixture()
+      |> put_in(["lanes", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
+      |> put_in(["features", "kernel"], %{"key" => "kernel", "label" => "Kernel", "icon" => "cpu", "epics" => ["f-kernel-core"]})
+      |> put_in(["feature_progress"], %{"features" => %{"f-kernel-core" => progress}, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => 0, "reason" => nil})
+
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Map.take(snapshot["lanes"]["f-kernel-core"], ~w(icon summary wave)) == metadata
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "icon")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "summary")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "wave")
+  end
+
+  test "runtime reason states remain valid in the Now wire payload" do
+    data = fixture()
+    row = get_in(data, ["sections", "now", Access.at(0)])
+    data = put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "paused-usage-limit")
+
+    assert is_map(row)
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
+  end
+
   for {name, path, value, expected} <- [
         {"pct is numeric", ["sections", "now", 0, "pct"], "50", "sections.now.0.pct"},
         {"effort is an enum", ["sections", "now", 0, "agent", "effort"], "<b>", "sections.now.0.agent.effort"},
-        {"hue is numeric", ["epics", "bugs", "hue"], "1);x", "epics.bugs.hue"},
+        {"hue is numeric", ["lanes", "bugs", "hue"], "1);x", "lanes.bugs.hue"},
         {"cue is plan-only", ["sections", "nq", 0, "cue"], %{}, "sections.nq.0.cue"},
         {"section is an enum", ["sections", "now", 0, "sec"], "x", "sections.now.0.sec"},
         {"history requires dated end", ["sections", "hist", 0, "end"], nil, "sections.hist.0.end"},
@@ -38,6 +110,17 @@ defmodule AiurWeb.Build.PayloadTest do
       assert {:error, errors} = Payload.validate(data)
       assert Enum.any?(errors, fn {path, _reason} -> path == if(unquote(name) == "section is an enum", do: "upsert.0.sec", else: unquote(expected)) end)
     end
+  end
+
+  test "planned row with unobserved GitHub blockers keeps the snapshot valid (#7273)" do
+    # Shape of ReadModel.native_prerequisites/2 for {:unknown, :blockers_not_observed}.
+    unobserved = %{number: nil, verdict: :unknown, source: :github, trigger: nil, stage: nil, optimistic: false, description: "GitHub dependencies unknown (blockers_not_observed)"}
+    show = FixtureQueue.show([FixtureQueue.item(607, state: :ready, verdict: :ready, prerequisites: [unobserved, FixtureQueue.edge(597, :satisfied)])])
+    [row] = PlannedRows.build(show, {:ok, %{rows: %{}}}, []).rows
+    assert row.deps == ["597"] and is_nil(row.dependency_ready)
+
+    data = update_in(fixture(), ["sections", "plan", Access.at(0)], &Map.merge(&1, %{"deps" => row.deps, "dep_states" => Map.new(row.deps, fn id -> {id, "unknown"} end)}))
+    assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
   end
 
   test "planned unknown readiness is a boolean in the payload" do
@@ -55,6 +138,50 @@ defmodule AiurWeb.Build.PayloadTest do
     data = fixture() |> update_in(["counts"], &Map.delete(&1, "bugs"))
     assert {:error, errors} = Payload.validate(data)
     assert {"counts.bugs", :missing} in errors
+  end
+
+  test "feature progress is keyed by a feature-local lane and preserves unknown counts" do
+    progress = %{
+      "f-pag-api" => %{
+        "feature" => "pag",
+        "label" => "Pagination · API",
+        "closed" => nil,
+        "open" => 1,
+        "ci_wait" => nil,
+        "unpublished" => 2,
+        "total" => nil,
+        "observed_at" => 1_791_408_000_000,
+        "wave" => "0b",
+        "summary" => "API work",
+        "icon" => nil,
+        "code" => "MP-E8",
+        "plan_version" => "v1",
+        "extras" => nil,
+        "root_number" => 3042,
+        "root_title" => "Home / Build page",
+        "start_date" => "2026-10-01",
+        "reason" => "states unavailable · CI state unknown · planned count unavailable"
+      }
+    }
+
+    data = put_in(fixture(), ["feature_progress"], %{"features" => progress, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => nil, "reason" => nil})
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["feature_progress", "features"], %{"pag" => progress["f-pag-api"]})
+    assert {:error, errors} = Payload.validate(data)
+    assert {"feature_progress.features.pag", :reference} in errors
+  end
+
+  test "feature progress carries epic rows with their own merged and total" do
+    epic = %{"key" => "v1-launch", "label" => "V1 launch", "merged" => 3, "total" => 5, "features" => ["pag", "mp-e2"]}
+    data = put_in(fixture(), ["feature_progress", "epics"], [epic])
+    assert Payload.validate(data) == :ok
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [%{epic | "total" => 0}]) |> Payload.validate()
+    assert {"feature_progress.epics.0.total", :type} in errors
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [Map.delete(epic, "features")]) |> Payload.validate()
+    assert {"feature_progress.epics.0.features", :missing} in errors
   end
 
   test "every source must be present" do
@@ -123,8 +250,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
-    assert bytes / rows <= 525
+    # Required nullable src/was fields add 22 bytes: frozen census 512.98 -> 534.98 bytes per row.
+    assert bytes / rows <= 547
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

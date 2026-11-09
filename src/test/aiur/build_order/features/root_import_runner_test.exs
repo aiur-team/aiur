@@ -58,7 +58,8 @@ defmodule Aiur.BuildOrder.Features.RootImportRunnerTest do
     assert {:ok, _} = RootImport.status(pid)
     assert {:ok, s} = Features.snapshot(server: features_pid)
     assert s.features["bo-1"].label == "Rename"
-    assert s.features["bo-1"].epics == [%{key: "f-bo-1", label: "Rename"}]
+    assert Map.take(hd(s.features["bo-1"].epics), [:key, :label]) == %{key: "f-bo-1", label: "Rename"}
+    assert s.features["bo-1"].epics |> hd() |> Map.has_key?(:color)
     assert {:ok, renamed} = Features.journal("bo-1", server: features_pid)
     stop_supervised!(RootImport)
     restarted = start_supervised!({RootImport, opts})
@@ -69,8 +70,7 @@ defmodule Aiur.BuildOrder.Features.RootImportRunnerTest do
   test "stale removal stops subsequent writes and retry re-plans from the real registry" do
     {_, features_pid, real_writer} = stores()
     initial = history()
-    {:ok, agent} = Agent.start_link(fn -> %{history: initial, raced?: false} end)
-    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+    agent = start_supervised!({Agent, fn -> %{history: initial, raced?: false} end}, id: make_ref())
 
     writer = fn op, args ->
       if op == :remove and not Agent.get(agent, & &1.raced?) do

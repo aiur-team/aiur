@@ -255,7 +255,7 @@ Add `tags.work_kind` (feature, test_ci, tooling, other) to the ticket cohort att
 - An expired entry with green nightly runs is lifted; an expired entry still failing escalates.
 - A malformed expiry is refused by `Aiur.TestQuarantine.read/1` with a clear error.
 
-**Verification.** Each quarantine entry has a distinct ticket and expiry; `main_red_events` and `flake_issues_filed` are reported by the U4 experiment.
+**Verification.** Each quarantine entry has an owner ticket and expiry (one root-cause ticket may cover several entries); `main_red_events` and `flake_issues_filed` are reported by the U4 experiment.
 
 ### U5. Deterministic test-isolation primitives and a ratcheting lint
 

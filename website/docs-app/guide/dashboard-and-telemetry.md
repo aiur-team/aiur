@@ -14,11 +14,31 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider icons from `priv/static` before router dispatch. Explicit allowlists keep the dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and font files use long-lived caching, and provider icons derive from the coding-agent registry.
 
-On `/build`, epic columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their epic colour without keeping an empty epic column. Feature focus follows its visible tickets.
+On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets.
 
-Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = epic”.
+Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”. On touch, one finger scrolls the page, two fingers pan the board, and a pinch sets the zoom percent.
 
-Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
+If individual Build rows fail validation, Aiur omits those rows and shows how many are unavailable; the remaining board is marked partial.
+
+Planned and running estimates use complexity defaults of 1, 2, 4, 7 and 11 hours. A recorded override takes precedence and shows its reason. Unknown estimates display `—`.
+
+The Live band ETA sums planned hours and divides by the observed runtime agent cap; `≥` marks running work, a partial queue or missing estimates. A stale cap is labelled. Use [`aiur ticket estimate`](../reference/cli.md#decisions-executor-events-and-findings) to inspect or correct an estimate.
+
+Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, lane, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
+
+## Ticket timeline
+
+In ticket detail, choose **Timeline** to see the recorded event history. Items use observed timestamps; the tab updates as new ticket events arrive. Journal read failures are shown as unavailable without blocking the description.
+
+Ticket event journal rows retain the event ID, observed timestamp, topic, kind,
+safe summary and actor when supplied. Progress rows store `pct`; command rows
+store a redacted `cmd`. CI and merge-group failures store bounded check names
+and safe GitHub Actions run links. Successful merge-group requeues store the
+run, PR and cause.
+
+GitHub review and label transitions use the trusted ticket identity. Comment
+summaries are sanitized and bounded; full comment bodies and command output
+are not stored in marker rows.
 
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.
 
@@ -35,11 +55,76 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Build ticket conversation
+
+Open a running ticket in Build to watch its loaded conversation. New entries
+follow the bottom while you are within 60 pixels of it. Scroll up to read
+without moving; **New activity** returns to the latest entries, fetching the
+tail again if paging older history displaced it. The view keeps at most 500 entries.
+
+The right minimap previews loaded rows. Drag it to scroll, or select an event
+tick to jump and highlight that event; hover for its label and time. Focus the
+conversation to scroll with the keyboard. The working indicator appears only
+for an active agent with live conversation state and a live dashboard link.
+
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
+### Conversation event navigation
+
+At `/conversations/:id`, use the Events rail to jump to progress, pushes,
+PRs and Commands. Kind filters follow the catalogue defaults and are remembered
+in this browser when local storage is available. CI and review comments start
+hidden. On phones the rail sits above the transcript.
+
+Selecting an event opens `?pos=N`, loads the surrounding entries and brings
+that position into view. Observed events appear after an entry with an
+“approximate position” marker. Events without an anchor say “Not linked to a
+position” and have no jump.
+
+Command requests also link to their Command page;
+resolved Commands say “answered”. A missing position shows “Position not found”
+and the latest entries, with one retry after the next journal append.
+
+### Build timeline filters
+
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature Done, Weighted, and scope figures. Unknown figures show `—` with a reason on hover.
+
+Focus dims unrelated tickets; Compact replaces unrelated runs with gap
+markers and retains loaded dependencies as dashed ghost cards. Earlier history
+loads back to the feature’s oldest closed member. Clear the feature with ×.
+
+The Build toolbar filters by Lane, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL as `lane=`, and the pre-rename `epic=` parameter still loads and is rewritten to `lane=` in the address bar.
+
+Lane hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
+
+Tickets closed as not planned are hidden by default. Choose **Not planned** in the Ticket group to show them. **Clear** restores the default view. Escape closes a filter popover and returns focus to its button.
+
+**Build order** renders the published document's review and graph through the `aiur-build-order` package; its `sources.*.status` draws its stale and unknown banners.
+
 ### Build timeline range
 
 On the build timeline, Day, Week and Month set the visible range; − and + step
-through 1–30 days. The span is kept in the link. Range controls are hidden in
-List view and return when you switch to Timeline or Gantt.
+through 1–30 days. The span is kept in the link. List and Build order hide the
+range controls; Timeline and Gantt restore them.
+
+In List view, **List shows** switches between Tickets, Features and Lanes. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A bookmark with `list=epics` still opens the Lanes list.
+
+All three lists are the same plain table card with column headers. Features shows Feature, Progress, Merged and Remaining; Lanes shows Lane, Progress, Remaining and Done, with rounded bars. A caption row under each table holds its summary: for Features, the merged total and the viewer's local date. Narrow screens hide Remaining (Features) and Done (Lanes).
+
+Each registry feature and `feature:<slug>` label in history gets a row with its name, progress bar, merged/total and remaining count. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
+
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label (logical ids such as `MP-E1` stripped), then the label description, then the title-cased slug. Descriptions come from the repository's label list, read hourly, so fully merged features keep their names.
+
+Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a shared ticket counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking one focuses the timeline on its features.
+
+The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
+
+Sort is remaining, then name. The caption row shows the data age and counts unmatched tickets. Planned pack tickets without area labels are excluded; incomplete history or labels stay unknown. With no matches, see [`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -53,9 +138,29 @@ Clicking a dependency arrow locks its chain on touch screens too. Escape closes
 the tree, then releases the lock. Links outside the loaded board are counted;
 “links not yet known” means the dependency index is incomplete.
 
+### Shared provider usage
+
+The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
+
+Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With an `openrouter:` route configured, the provider row shows the key's
+remaining credit against the limit it was bought with, and
+`aiur usage openrouter` lists each route's spend per route and model beside that
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
+the row reports an unknown reading rather than zero credit.
+
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
+actual use varies. Missing anchors are unavailable. Read it with
+`aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
+`NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
+
 ### Shared GitHub quota
 
-GitHub-backed runs meter the shared agent credential's core and GraphQL budgets in the dashboard, including remaining units, reset times, rolling read/write attribution, and the top ticket consumer. Aiur raises an Executor alert at 10% remaining and pauses new dispatch until the affected window resets.
+GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.
+
+`aiur alerts` reports aged open attentions in `archived_count` instead of listing them. When that count is non-zero, use `aiur alerts --needs-attention --all` to include archived items in the output.
 
 At zero, daemon requests are rejected locally and agent-launched `gh` commands wait on the recorded reset instead of retrying into the exhausted budget. Quota state that has not yet been observed fails open so startup is not blocked by a meter.
 
@@ -108,9 +213,67 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Status API contracts
+
+The operational status responses have stable v1 envelopes. `GET /api/v1/state`
+returns `contract: "aiur.status"`; `GET /api/v1/<ticket>` returns
+`contract: "aiur.ticket"`; and `aiur agents --json` returns
+`contract: "aiur.agents"`. Each includes `contract_version: 1`.
+
+Their draft 2020-12 schemas and generated TypeScript types (`FleetStatus`,
+`TicketStatus`, and `AgentsStatus`) are in `@aiur/contracts`. Version 1 permits
+additive fields; clients should ignore fields they do not recognize. A breaking
+shape change uses a new contract version and schema beside v1.
+
+### Ticket cancellation API
+
+`POST /api/v1/<issue_identifier>/cancel` cancels exactly one running ticket and
+waits a bounded time for both its selected runner and tracked OS process or
+process group to exit. It uses dashboard
+Basic Auth and the normal API-write protections: writable dashboard mode, an
+accepted `Origin`, and `X-Aiur-Request: 1`.
+
+A `200` response always carries `contract: "aiur.ticket_cancel"`,
+`contract_version: 1`, `tracker_state: "cancelled"`, and a `process` object with
+an opaque `handle`, `status: "exited"`, bounded `exit_status` (`normal`,
+`shutdown`, `killed`, `noproc`, or `unknown`), `exited_at`, and
+`observed_at`.
+
+The schema and generated `TicketCancel` type are in `@aiur/contracts`.
+
+Changing the tracker state alone is not success. If the selected process does
+not exit before the bound, the same versioned body returns with `409` and
+`process.status` set to `still_running` or `kill_failed`; both exit fields are
+`null`.
+
+The tracker remains cancelled, and Aiur schedules another bounded shell
+cleanup attempt; a later runner exit is terminal and is never retried as agent
+work.
+
+A replacement agent generation produces `generation_changed` without
+stopping the replacement. An ambiguous identifier also returns `409` before
+any tracker or process mutation.
+
+Precondition and tracker failures use the standard
+`{"error":{"code":…,"message":…}}` envelope and never claim process-exit
+evidence.
+
+| HTTP | Code or body | Meaning |
+| --- | --- | --- |
+| `200` | versioned cancel result | The named process exited. |
+| `404` | `issue_not_found` | The named ticket does not exist in the current tracker snapshot. |
+| `409` | versioned cancel result | The process did not exit, or its generation changed. |
+| `409` | `agent_not_running`, `ambiguous_identifier` | No unique running process can be selected. |
+| `422` | `invalid_identifier` | The identifier is invalid. |
+| `503` | `orchestrator_unavailable`, `cancel_failed` | Cancellation could not be completed or confirmed. |
+| `405` | `method_not_allowed` | The cancellation route only accepts `POST`. |
+
 ### Per-ticket usage API
 
-`GET /api/v1/<ticket>/usage` returns one ticket's model usage as versioned JSON (`schema_version: 1`). It uses the dashboard Basic Auth of `/api/v1/state` and sends `Cache-Control: no-store`.
+`GET /api/v1/<ticket>/usage` returns versioned JSON with
+`contract: "aiur.ticket_usage"` and `contract_version: 1`. Its schema and generated
+`TicketUsage` type are in `@aiur/contracts`. The endpoint retains `schema_version: 1`,
+uses the same Basic Auth as `/api/v1/state`, and sends `Cache-Control: no-store`.
 
 `<ticket>` is a GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity.
 
@@ -133,7 +296,29 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-`aiur ticket-usage <ticket> --json` prints the same payload.
+The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
+
+### Per-ticket spend caps
+
+`PUT /api/v1/<ticket>/spend-cap` with `{"amount":"1.25","currency":"USD"}` sets an exact USD cap for one GitHub issue. `GET` reads it and `DELETE` clears it.
+
+Reads and writes use the repository-qualified tracker identity, so a same-numbered issue in another repository never shares the cap or spend. Writes require dashboard authentication, the normal same-origin `X-Aiur-Request: 1` protection, and a writable dashboard.
+
+The read payload uses `contract: "aiur.ticket_spend_cap"` and `contract_version: 1`. It reports decimal-string `cap_amount`, known `spent_amount`, non-negative `remaining_amount`, pricing coverage and authority, and effect status.
+
+Spend is the known USD API-equivalent amount from the same usage aggregate as the usage API. With partial pricing coverage, enforcement continues against known spend, the read payload reports `coverage.status: "partial"`, and Aiur opens an operator attention.
+
+Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
+
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce it again. Aiur does not stop an already-running agent for that, and there is no cap-specific grace timer: the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+
+If the spend-cap store itself cannot load, persist, or subscribe, dispatch closes for every tracked ticket and Aiur raises `system.spend_cap.unavailable` with the cause. It retries with backoff and emits `system.spend_cap.unavailable.resolved` once the store is healthy again.
+
+When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
+
+The persisted exhaustion fence prevents redispatch while those effects complete or retry. An exhausted cap cannot be raised to restart work, and it cannot be cleared until the terminal tracker transition succeeds. Clearing it later does not reopen the closed ticket.
+
+The TypeScript types, JSON Schemas, and golden fixtures for both payloads live in `@aiur/contracts` as `TicketSpendCap` and `TicketSpendCapReached`.
 
 ### Ticket progress API
 
@@ -151,7 +336,8 @@ phase, latest progress reading and its progress events.
 The endpoint is read-only, uses the same dashboard Basic auth as
 `/api/v1/state`, and sends `Cache-Control: no-store`. The response carries
 `contract: "aiur.ticket_progress"` and `contract_version: 1`. A missing or
-unreadable event log reads as an empty `events` list.
+unreadable event log reads as an empty `events` list. Its schema and generated
+`TicketProgress` type are in `@aiur/contracts`.
 
 An unknown or inactive ticket answers `200` with `unknown` fields and an empty
 `events` list; it is never reported as idle or 0%. A malformed identifier or
@@ -226,6 +412,88 @@ Because reading the build gate scans its lock files, that probe runs on a reduce
 
 This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
 
+## Sizing a container
+
+On Linux cgroup v2, Aiur uses a **4 GiB peak-RSS working estimate per agent**
+for the default fleet cap. Set on 2026-10-23 as an initial memory budget, it is
+an estimate, not a measured Claude or Codex result. Workload measurements are
+pending a post-deploy run.
+
+When `agent.max_concurrent_agents` is omitted, the cap is the lower of the CPU
+rule and the memory rule:
+
+```text
+min(CPU rule, max(1, floor(memory.max / 4 GiB)))
+CPU rule = max(2, schedulers + floor(schedulers / 4))
+```
+
+For a finite cgroup CPU quota, `schedulers` is the quota rounded down, with a
+minimum of one.
+
+| Workload | CPU | Peak RSS | Measurement |
+| --- | --- | --- | --- |
+| Claude turn | Pending | Pending | Post-deploy run |
+| Codex turn | Pending | Pending | Post-deploy run |
+| Build or test step | Pending | Pending | Post-deploy run |
+
+The CPU sizing estimate permits up to 1.25 agents per scheduler (16 schedulers
+to 20 agents), based on a 2026-07-31 16-core host run that saturated near
+19–20 agents. This is not a per-turn CPU-use measurement. An explicit
+`agent.max_concurrent_agents` always wins.
+
+To measure a deployment, run representative Claude and Codex turns and a build
+or test step.
+
+Once per second, sample each agent process tree's RSS and cumulative CPU time
+across representative Claude and Codex turns and a build or test step. Record
+peak RSS and CPU, date, provider/model, workload, cgroup CPU and memory limits,
+and the sampling method in the table.
+
+These limits apply to Linux cgroup v2; cgroup v1 is unsupported. Without a
+finite cgroup limit, Aiur keeps the host behavior. The reader checks only the
+daemon's own cgroup, so limits on a parent cgroup are not discovered.
+
+If `cpu.pressure` is absent, the CPU pressure gate fails open; a CPU quota then
+contributes only to the default cap. Scheduler-based admission diagnostics use
+the host's online scheduler count. Cgroup paths are resolved for each sample
+file read rather than cached, which adds small per-tick overhead.
+
+With a readable cgroup memory limit, dispatch uses
+`memory.current - inactive_file` against `agent.cgroup_memory_threshold`.
+This container memory gate replaces `agent.min_free_memory_mb`. Without a
+usable cgroup v2 memory limit, dispatch uses the host memory floor.
+
 ### Post-deploy checks
 
 The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.
+
+## Feature supply attention
+
+`system.feature_supply_low` wakes the Executor when free worker slots exceed
+ready feature tickets for 30 continuous minutes. Feature classification uses
+telemetry's `work_kind`; readiness uses the dispatch candidate decision before
+workers are started.
+
+The attention includes free slots, ready features,
+feature todo decline counts, and the five blockers holding the most features,
+with cached PR numbers and states. Missing PR evidence is `unknown`.
+
+Land the blocker PRs through normal review, then promote or publish feature
+work in goal order. Avoid filling the slots with non-feature work. One
+attention opens per episode and resolves after 10 continuous minutes of
+sufficient supply.
+
+Paused or unavailable tracker passes interrupt the timers
+and interval coverage. Restarts restart timers while retaining open attention.
+
+`analytics/run-summary --json` exposes `feature_supply_daily` by UTC date.
+Each row includes `feature_starved_slot_minutes` (elapsed minutes times
+`max(0, free - feature_ready)`), `non_feature_during_starvation_minutes`
+(elapsed minutes with at least one active non-feature turn during starvation),
+and `observed_minutes`.
+
+Text reports print the same totals. Sum rows across
+boots for a daily report. No observations means unavailable, not zero.
+
+The daemon records intervals between successful dispatch observations;
+transitions between polls have poll-cadence precision.

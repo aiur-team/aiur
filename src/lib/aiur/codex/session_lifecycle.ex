@@ -7,15 +7,16 @@ defmodule Aiur.Codex.SessionLifecycle do
   alias Aiur.Codex.{AccountGeneration, AppServerPort, Handshake, TurnEvents}
   alias Aiur.{ModelAvailability, PauseContainment}
 
-  @spec observe_startup(port() | pid(), boolean(), map(), keyword()) :: :ok
+  @spec observe_startup(port() | pid(), boolean(), map(), keyword()) :: :ok | {:error, term()}
   def observe_startup(port, true, session, handshake_opts) do
-    seed_account(port, session, handshake_opts)
-    observe_rate_limits(port, session, handshake_opts)
+    with :ok <- seed_account(port, session, handshake_opts) do
+      observe_rate_limits(port, session, handshake_opts)
+    end
   end
 
-  def observe_startup(_port, false, _session, _handshake_opts), do: :ok
+  def observe_startup(_port, false, session, _handshake_opts), do: AccountGeneration.authorize_current(session)
 
-  @spec notification_handler(map(), (map() -> term())) :: (map() -> :handled | :ignore)
+  @spec notification_handler(map(), (map() -> term())) :: Aiur.AppServer.Rpc.notification_handler()
   def notification_handler(session, on_message) do
     fn
       %{"method" => method} = payload when is_binary(method) ->
@@ -23,6 +24,10 @@ defmodule Aiur.Codex.SessionLifecycle do
           {:redacted, details} ->
             Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, details.payload))
             :handled
+
+          {:refused, reason, details} ->
+            Messages.emit_message(on_message, :notification, details, TurnEvents.metadata_from_message(session.port, details.payload))
+            {:error, reason}
 
           :ignore ->
             :ignore
@@ -64,16 +69,29 @@ defmodule Aiur.Codex.SessionLifecycle do
           _ -> :ok
         end
 
+        :ok
+
+      {:error, {:unsafe_hosted_authentication, _provider, _class} = reason} ->
+        {:error, reason}
+
       {:error, reason} ->
         AccountGeneration.record_rate_limit_failure(session, reason)
         Logger.debug("Codex account/rateLimits/read unavailable")
+        :ok
     end
   end
 
   defp seed_account(port, session, handshake_opts) do
     case Handshake.read_account(port, handshake_opts) do
-      {:ok, account_response} -> AccountGeneration.seed_from_account_read(session, account_response)
-      {:error, _reason} -> Logger.debug("Codex account/read unavailable")
+      {:ok, account_response} ->
+        AccountGeneration.seed_from_account_read(session, account_response)
+
+      {:error, {:unsafe_hosted_authentication, _provider, _class} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        Logger.debug("Codex account/read unavailable")
+        AccountGeneration.authorize_current(session)
     end
   end
 end

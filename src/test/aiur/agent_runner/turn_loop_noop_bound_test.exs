@@ -4,10 +4,8 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
   # tail-called itself on nothing but the ticket's state label: no no-op
   # counter, no backoff, no dedupe, and `agent.max_turns` nil by default.
   #
-  # These tests drive the real `run_turns/10` recursion with a provider stub
-  # that changes nothing, and assert the loop stops itself and leaves a durable
-  # record — and, in the mirror-image test, that a run of genuinely productive
-  # turns is never bounded by this path.
+  # Drive the real `run_turns/10` recursion to prove no-op runs hand off and
+  # productive runs remain unbounded.
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.TurnLoop
@@ -77,10 +75,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert identifier == ctx.issue.identifier
     end
 
-    test "keeps an active ticket with an unchanged existing PR in its current state", ctx do
+    test "hands an unchanged existing PR to human review with a reason", ctx do
       use_memory_tracker!(self())
 
-      assert {:completed, %{state: state}} =
+      assert {:completed, %{state: "human-review"}} =
                run_loop(ctx,
                  run_turn: fn _s, _p, _i, _o ->
                    :ok = Tracker.update_issue_state("614309", "rework")
@@ -94,11 +92,11 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end
                )
 
-      assert state == ctx.issue.state
       assert_received {:memory_tracker_state_update, "614309", "rework"}
       identifier = ctx.issue.identifier
-      # Tracker writes finish inside run_loop; the global recipient also gets unrelated tickets.
-      refute_received {:memory_tracker_state_update, ^identifier, _}
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 1000
+      assert_receive {:memory_tracker_comment, ^identifier, comment}, 1000
+      assert comment =~ "without making progress"
     end
 
     test "recognizes waiting, requested, and pending check runs", ctx do
@@ -122,11 +120,11 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       end
     end
 
-    test "leaves a non-rework ticket label unchanged when no PR is open", ctx do
+    test "keeps a no-PR active ticket out of human review and records the reason", ctx do
       use_memory_tracker!(self())
       issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
 
-      assert {:completed, %{state: state}} =
+      assert {:completed, %{state: "in-progress"}} =
                run_loop(%{ctx | issue: issue},
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-no-pr"}} end,
                  max_turns: nil,
@@ -136,9 +134,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  open_pr_fetcher: fn _ -> {:ok, nil} end
                )
 
-      assert state == issue.state
-      identifier = ctx.issue.identifier
-      refute_received {:memory_tracker_state_update, ^identifier, _}
+      assert_receive {:memory_tracker_comment, identifier, comment}, 1000
+      assert identifier == issue.identifier
+      assert comment =~ "without making progress"
+      refute_received {:memory_tracker_state_update, ^identifier, "human-review"}
     end
 
     test "hands off a pushed rework PR after three no-op turns", ctx do
@@ -404,27 +403,27 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert Enum.at(prompts, 3) =~ "Aiur observed that the last"
     end
 
-    test "leaves a durable needs-attention record naming the ticket", ctx do
+    test "records a no-PR no-op run without a review handoff", ctx do
       use_memory_tracker!(self())
 
-      assert {:completed, _issue} =
+      assert {:completed, %{state: state}} =
                run_loop(ctx,
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-turn"}} end,
                  max_turns: nil,
                  workspace_probe: unchanging_probe(),
                  max_consecutive_noop_turns: 3,
-                 noop_backoff_ms: 0
+                 noop_backoff_ms: 0,
+                 open_pr_fetcher: fn _ -> {:ok, nil} end
                )
 
+      refute state == "human-review"
       log = File.read!(Path.join([ctx.workspace, "logs", "agent.ndjson"]))
-
       assert log =~ "ticket.#{ctx.issue.identifier}.agent.noop_turns_bounded"
       assert log =~ "\"needs_attention\":true"
       assert log =~ "consecutive turn(s) that changed nothing"
       assert log =~ "No new PR head was detected."
       refute log =~ "because this run had no pushed PR head"
-      # The record says what to do about it, so the stop is actionable rather
-      # than just observable.
+      # The record says what to do about it, so the stop is actionable.
       assert log =~ "Review the agent's result before redispatching"
     end
   end
@@ -472,7 +471,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
     )
 
     Aiur.WorkflowStore.force_reload()
-    Application.put_env(:aiur, :memory_tracker_recipient, recipient)
+    Process.put(:memory_tracker_recipient, recipient)
   end
 
   defp run_loop(ctx, opts) do

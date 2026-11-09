@@ -48,7 +48,6 @@ defmodule Aiur.GitHub.ResourceStore do
   @table __MODULE__.Table
   @sweep_interval_ms 5 * 60 * 1000
   @checkpoint_interval_ms 30 * 1000
-
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
   @type entry :: %{

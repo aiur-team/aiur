@@ -10,6 +10,8 @@ logs.
 
 from __future__ import annotations
 
+from .feature_supply import daily_supply, supply_lines
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -156,6 +158,7 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
         "cap": cap,
         "wasted_slot_hours": None if wasted_slot_hours is None else round(wasted_slot_hours, 1),
         "fleet_pressure": pressure,
+        "feature_supply_daily": daily_supply(summary.get("records", [])),
         "top_cost": top_cost,
         "provenance": summary.get("provenance", {}),
         **({"optimistic": optimistic_rollup(summary)} if optimistic_rollup(summary) else {}),
@@ -190,6 +193,7 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
     else:
         lines.append("  (no resource samples)")
 
+    lines.extend(supply_lines(kpis["feature_supply_daily"]))
     pressure = kpis["fleet_pressure"]
     lines.extend(["", "Fleet-wide build pressure:"])
     if pressure["legacy_fallback"]:

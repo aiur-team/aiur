@@ -133,8 +133,8 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
       assert hd(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
     end
 
-    # #2558 half one. A recorded answer whose delivery failed because the target
-    # agent was momentarily unreachable used to sit at `failed` forever: the
+    # #2558 half one. A recorded answer whose dispatch failed because the
+    # target had reached its concurrency limit used to sit at `failed` forever: the
     # class was not on the answer's retry ladder, and — being non-actionable —
     # it was not raised either, so the answer was dropped with no operator-
     # visible trace. The recorded answer must reach the agent without an
@@ -161,7 +161,7 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
         send(parent, {:target_attempt, attempt, opts[:retry_failed]})
 
         if attempt == 1,
-          do: {:error, :no_running_agent},
+          do: {:error, {:max_concurrent_agents_reached, %{used: 3, limit: 3, active: 2, paused_holds: 1}}},
           else: {:ok, %{status: :accepted, item: %{id: 89}}}
       end
 
@@ -188,9 +188,8 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
     end
 
     # #2558 half one, the other acceptance branch: when the bounded ladder is
-    # spent the answer really is stuck, so it must be raised. The
-    # non-actionable suppression that keeps `target_agent_unavailable` off the
-    # feed is what made this failure mode invisible in the first place.
+    # spent after transient failures, the answer really is stuck, so it must be
+    # raised.
     test "an exhausted delivery ladder raises instead of going quiet", %{dir: dir} do
       parent = self()
       counter = :counters.new(1, [])
@@ -210,7 +209,7 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
       dispatcher = fn _decision, _opts ->
         :ok = :counters.add(counter, 1, 1)
         send(parent, {:exhausted_attempt, :counters.get(counter, 1)})
-        {:error, :no_running_agent}
+        {:error, :unavailable}
       end
 
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, retry_delays_ms: [0])

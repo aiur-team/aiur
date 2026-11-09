@@ -20,6 +20,10 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
 
   use Aiur.TestSupport
 
+  defmodule TodoClaimTracker do
+    def update_issue_state(_issue_id, _state, _opts), do: :ok
+  end
+
   alias Aiur.GitHub.{Quota, ResourceStore}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
@@ -126,6 +130,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
         nil,
         nil,
         issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+        todo_dispatch_tracker: TodoClaimTracker,
         # PR-head capture is unrelated to dependency hydration and must not hit its HTTP double.
         rework_head_fetcher: fn _identifier -> {:ok, nil} end,
         runner: runner

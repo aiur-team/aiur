@@ -84,7 +84,7 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
   end
 
   defp default_running_identifiers do
-    Orchestrator.list_running_active_identifiers(Orchestrator, 1_000)
+    Orchestrator.list_running_active_identifiers(Orchestrator.server(), 1_000)
   end
 
   @doc """

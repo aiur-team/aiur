@@ -242,9 +242,11 @@ defmodule Aiur.WorkspaceBootstrapHooksTest do
       Enum.each(stale_locks, fn lock ->
         File.mkdir_p!(Path.dirname(lock))
         File.write!(lock, "stale\n")
+        set_stale_mtime!(lock)
       end)
 
       assert :ok = Workspace.run_before_run_hook(workspace, "LOCK-1")
+
       assert Enum.all?(stale_locks, &(not File.exists?(&1)))
 
       assert {_output, 0} = System.cmd("git", ["-C", workspace, "fetch", "origin"], stderr_to_stdout: true)
@@ -398,5 +400,10 @@ defmodule Aiur.WorkspaceBootstrapHooksTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp set_stale_mtime!(path) do
+    timestamp = DateTime.to_unix(DateTime.add(DateTime.utc_now(), -180, :second))
+    {_, 0} = System.cmd("touch", ["-d", "@#{timestamp}", path])
   end
 end

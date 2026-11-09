@@ -62,7 +62,7 @@ defmodule ScriptsAiurdevLayoutAssetsTest do
     root = fake_repo()
     repo = Path.expand("../..", __DIR__)
 
-    for file <- ["packaging/scripts/build-release.sh", "scripts/lib/layout-assets.sh"] do
+    for file <- ["packaging/scripts/build-release.sh", "scripts/lib/layout-assets.sh", "scripts/retry-mix-deps-get.sh"] do
       destination = Path.join(root, file)
       File.mkdir_p!(Path.dirname(destination))
       File.cp!(Path.join(repo, file), destination)

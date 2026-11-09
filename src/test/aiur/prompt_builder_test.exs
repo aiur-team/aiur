@@ -3,6 +3,7 @@ defmodule Aiur.PromptBuilderTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentSkills.Preload
   alias Aiur.Issue
   alias Aiur.PromptBuilder
   alias Aiur.Workflow
@@ -292,5 +293,92 @@ defmodule Aiur.PromptBuilderTest do
     refute String.contains?(prompt, "### Complexity routing")
     refute String.contains?(prompt, "### Whose comments to act on")
     refute String.contains?(prompt, "### PR description shape")
+  end
+
+  describe "skill preload" do
+    setup %{config: _config} do
+      workspace = Aiur.TestSupport.tmp_root!("aiur-prompt-skills")
+      File.mkdir_p!(workspace)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+      {:ok, workspace: workspace}
+    end
+
+    defp install_skill!(workspace, name, description, body) do
+      dir = Path.join([workspace, ".claude", "skills", name])
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "SKILL.md"), "---\nname: #{name}\ndescription: \"#{description}\"\n---\n\n#{body}\n")
+    end
+
+    @skill_config """
+    tracker:
+      kind: memory
+      base_branch: integration
+    agent:
+      kind: claude
+      skills:
+        by_lane:
+          art: [pixel-art, palette]
+        preload_max_bytes: 4096
+    """
+
+    @tag config: @skill_config
+    test "inlines the skills the ticket's lane maps to before the workflow template", %{workspace: workspace} do
+      install_skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART INSTRUCTIONS")
+      install_skill!(workspace, "palette", "Pick colours.", "PALETTE INSTRUCTIONS")
+
+      prompt = PromptBuilder.build_prompt(issue(["area:art"]), workspace: workspace)
+
+      assert prompt =~ "## Skills for this ticket"
+      assert prompt =~ "PIXEL ART INSTRUCTIONS"
+      assert prompt =~ "PALETTE INSTRUCTIONS"
+      assert prompt =~ "mapped by lane:art"
+      # The block sits immediately after the shared instructions and before the
+      # fixed dispatch guidance and the workflow template.
+      assert position(prompt, "## Skills for this ticket") < position(prompt, "## Authoritative integration branch")
+      assert position(prompt, "PIXEL ART INSTRUCTIONS") < position(prompt, "## Authoritative integration branch")
+    end
+
+    @tag config: @skill_config
+    test "indexes the installed skills the ticket does not map", %{workspace: workspace} do
+      install_skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART INSTRUCTIONS")
+      install_skill!(workspace, "ci-plumbing", "Wire CI.", "CI BODY")
+
+      prompt = PromptBuilder.build_prompt(issue(["area:art"]), workspace: workspace)
+
+      assert prompt =~ "### Other installed skills (load on demand)"
+      assert prompt =~ "`ci-plumbing` — Wire CI."
+      refute prompt =~ "CI BODY"
+    end
+
+    @tag config: @skill_config
+    test "carries no skill block without a workspace", %{workspace: _workspace} do
+      prompt = PromptBuilder.build_prompt(issue(["area:art"]))
+
+      refute prompt =~ "## Skills for this ticket"
+    end
+
+    @tag config: @skill_config
+    test "returns the preload alongside the prompt so a session resolves it once", %{workspace: workspace} do
+      install_skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART INSTRUCTIONS")
+
+      {prompt, preload} = PromptBuilder.build_prompt_with_skills(issue(["area:art"]), workspace: workspace)
+
+      assert prompt =~ "PIXEL ART INSTRUCTIONS"
+      assert %Preload{} = preload
+      assert Enum.map(preload.mapped, & &1.name) == ["pixel-art"]
+    end
+
+    @tag config: @skill_config
+    test "reuses a preload passed in as :skill_preload", %{workspace: workspace} do
+      install_skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART INSTRUCTIONS")
+
+      preload = Preload.resolve(issue(["area:art"]), workspace)
+      {prompt, reused} = PromptBuilder.build_prompt_with_skills(issue(["area:art"]), workspace: workspace, skill_preload: preload)
+
+      assert reused == preload
+      assert prompt =~ "PIXEL ART INSTRUCTIONS"
+    end
+
+    defp position(text, needle), do: text |> :binary.match(needle) |> elem(0)
   end
 end

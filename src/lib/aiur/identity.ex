@@ -4,6 +4,7 @@ defmodule Aiur.Identity do
   The launcher owns `AIUR_INSTANCE_KEY`; missing identity is never fabricated.
   """
 
+  alias Aiur.Config.InstanceKey
   alias Aiur.Identity.Machine
 
   @spec machine() :: {:ok, %{machine_id: String.t(), label: String.t()}} | {:degraded, atom()}
@@ -16,12 +17,7 @@ defmodule Aiur.Identity do
   end
 
   @spec instance_key() :: {:ok, String.t()} | {:error, :instance_key_missing | :instance_key_invalid}
-  def instance_key do
-    case System.get_env("AIUR_INSTANCE_KEY") do
-      key when key in [nil, ""] -> {:error, :instance_key_missing}
-      key -> if Regex.match?(~r/\A[A-Za-z0-9_-]{1,64}\z/, key), do: {:ok, key}, else: {:error, :instance_key_invalid}
-    end
-  end
+  defdelegate instance_key(), to: InstanceKey, as: :current
 
   @spec instance_id() :: String.t() | nil
   def instance_id do

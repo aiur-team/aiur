@@ -3,12 +3,10 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   Canonical awaiting-Command counts for the routes that are not the Commands
   page.
 
-  A blocking Command is the one thing that stops the fleet, so every route
-  carries the banner. Each route reads the same canonical retained counts the
-  Commands page reads, and refreshes them from the Decision PubSub signal, so no
+  Commands routed to the human count in the banner on every route. Each route
+  reads the same canonical retained counts as the Commands page, and refreshes them from the Decision PubSub signal, so no
   page can sit on a number the Commands page has already moved past. When the
-  store cannot be read the counts are `nil` and the banner renders nothing
-  rather than a zero.
+  store cannot be read the counts are `nil` and the banner renders an unavailable notice.
   """
 
   import Phoenix.Component, only: [assign: 3]
@@ -65,7 +63,7 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
   @doc "Nav badge counts derived from the same read, and the same field, as the banner."
   @spec nav_counts(map()) :: map()
-  def nav_counts(%{awaiting: awaiting}) when is_integer(awaiting) and awaiting > 0,
+  def nav_counts(%{needs_you: awaiting}) when is_integer(awaiting) and awaiting > 0,
     do: %{commands: awaiting}
 
   def nav_counts(_counts), do: %{}

@@ -1,10 +1,8 @@
 defmodule AiurWeb.HandoffBadgeTest do
   use ExUnit.Case, async: true
-  import Phoenix.LiveViewTest, only: [render_component: 2]
-  alias AiurWeb.OperatorControlCenter.FleetTable
   alias AiurWeb.Presenter.Entries
 
-  test "the adopted identity reaches the presenter and renders a fleet badge" do
+  test "the adopted identity reaches the public presenter" do
     entry = %{
       issue_id: "1",
       identifier: "1",
@@ -23,11 +21,7 @@ defmodule AiurWeb.HandoffBadgeTest do
 
     row = Entries.running_entry_payload(entry)
     assert row.adopted_from == "restart-1"
-    html = render_component(&FleetTable.fleet_table/1, %{fleet: %{running: [row]}, now: ~U[2026-10-15 10:00:01Z]})
-    assert html =~ ~s(title="Adopted from handoff restart-1")
-    assert html =~ ">adopted</span>"
     normal = Entries.running_entry_payload(Map.delete(entry, :adopted_from))
-    html = render_component(&FleetTable.fleet_table/1, %{fleet: %{running: [normal]}, now: ~U[2026-10-15 10:00:01Z]})
-    refute html =~ ">adopted</span>"
+    assert normal.adopted_from == nil
   end
 end

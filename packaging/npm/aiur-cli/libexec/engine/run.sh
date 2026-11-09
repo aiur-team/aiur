@@ -28,7 +28,9 @@ build_run_argv() {
   done
 
   local injected=()
-  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+  if [ "$mode" = "container" ]; then
+    injected+=(--headless)
+  elif [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
     [ "$has_headless" -eq 1 ] || injected+=(--headless)
   else
     [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
@@ -54,6 +56,11 @@ run_session() {
   if [ "${#run_args[@]}" -gt 0 ]; then set -- "${run_args[@]}"; else set --; fi
 
   resolve_release
+
+  if [ "$mode" = "container" ]; then
+    run_session_container "$@"
+    return $?
+  fi
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -164,9 +171,15 @@ run_session() {
     release_aiur_launch_lock "$launch_lock"
     _session_launch_lock=""
     [ "$mode" = "foreground" ] && return 1
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
+
+  # A restart may need to publish its rollback alert from the still-running
+  # parent shell. Preserve the successful daemon's resolved ledger path too;
+  # the failed release may have crashed before writing its path handoff.
+  preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
 
   printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
@@ -220,11 +233,10 @@ run_session_prepare_env() {
   scrub_run_only_env
   export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
-  # The BEAM lives in tmux, but a fresh foreground run belongs to this shell:
-  # it waits on the UI attach and owns the teardown trap. Hand its pid to the
-  # pane watchdog so a hard-killed launcher cannot leave agents running.
+  # A fresh foreground or container run belongs to this shell. The launcher pid
+  # lets the daemon watchdog reap agent processes if the owner disappears.
   # A detached run has no such owner; discard any inherited stale value.
-  if [ "$mode" = "foreground" ]; then
+  if [ "$mode" = "foreground" ] || [ "$mode" = "container" ]; then
     export AIUR_LAUNCHER_PID="$$"
   else
     unset AIUR_LAUNCHER_PID
@@ -329,7 +341,7 @@ run_session_write_pane_launcher() {
   # boot stdout/stderr). Foreground uses a throwaway tempfile; background points
   # at a durable file in the run log dir. The dir/file is created lazily just
   # before launch (below) so an idempotent early-return start leaves no empty dir.
-  if [ "$mode" = "background" ] && [ -n "${AIUR_LOGS_ROOT:-}" ]; then
+  if { [ "$mode" = "background" ] || [ "$mode" = "container" ]; } && [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     startup_capture="$AIUR_LOGS_ROOT/log/boot.out.log"
   else
     startup_capture="$(mktemp "${TMPDIR:-/tmp}/aiur-startup.XXXXXX")"
@@ -337,9 +349,11 @@ run_session_write_pane_launcher() {
 
   # Inner pane script: tmux's server may pre-exist and not inherit our env, so
   # re-export every var the BEAM needs. tee preserves a startup capture.
-  launcher="$(mktemp "${TMPDIR:-/tmp}/aiur-pane.XXXXXX")"
-  chmod +x "$launcher"
-  {
+  launcher=""
+  if [ "$mode" != "container" ]; then
+    launcher="$(mktemp "${TMPDIR:-/tmp}/aiur-pane.XXXXXX")"
+    chmod +x "$launcher"
+    {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
     printf 'cd %q || exit 1\n' "$PWD"
@@ -353,20 +367,21 @@ run_session_write_pane_launcher() {
       AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
+    if [ -n "${AIUR_CLIENT_TOKEN:-}" ]; then printf 'export AIUR_CLIENT_TOKEN=%q\n' "$AIUR_CLIENT_TOKEN"; fi
     printf 'capture=%q\n' "$startup_capture"
     printf 'source %q\n' "$engine_dir/aiur-engine.sh"
     printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"
     printf '%q' "${release_cmd[0]}"
     for arg in "${release_cmd[@]:1}"; do printf ' %q' "$arg"; done
     printf '\n'
-  } >"$launcher"
+    } >"$launcher"
 
-  printf -v inner_cmd '%q; rc=$?; rm -f %q; exit $rc' "$launcher" "$launcher"
+    printf -v inner_cmd '%q; rc=$?; rm -f %q; exit $rc' "$launcher" "$launcher"
+  fi
 
-  launch_tempfiles=(
-    "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE"
-    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" "$supervisor_file"
-  )
+  launch_tempfiles=("$startup_capture" "$argv_file" "$AIUR_SESSION_TMPFILE"
+    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" "$supervisor_file")
+  [ -z "$launcher" ] || launch_tempfiles+=("$launcher")
   [ -n "$AIUR_ALERT_LEDGER_PATH_FILE" ] && launch_tempfiles+=("$AIUR_ALERT_LEDGER_PATH_FILE")
   [ -n "$crash_dump_baseline_file" ] && launch_tempfiles+=("$crash_dump_baseline_file")
   # A false `[ ] &&` as the last statement would fail the launch under `set -e`.
@@ -405,6 +420,7 @@ run_session_start_tmux() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     release_aiur_launch_lock "$launch_lock"
     exit 1
@@ -418,6 +434,7 @@ run_session_start_tmux() {
     if [ ! -x "$ctrlc_helper" ] ||
        ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
       rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
       release_aiur_launch_lock "$launch_lock"
       die "aiur pane control helper is unavailable at $ctrlc_helper"

@@ -13,6 +13,7 @@ export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
   await anchor(page.locator('.sd-device'))
 }
 
@@ -22,27 +23,24 @@ export async function openStreamdeck(page, mode = 'read_only') {
 // own scroll is used rather than a raw `scrollIntoView`, because it waits for
 // the element to settle first — a box read mid-scroll aims the drag at stale
 // coordinates. It scrolls minimally, so clear the sticky topbar afterwards or
-// the gesture lands on the topbar instead of the dial.
+// the gesture lands on the topbar instead of the dial. The corrective scroll is
+// instant because CSS smooth scrolling would keep moving after this returns.
 export async function anchor(locator) {
   await locator.scrollIntoViewIfNeeded()
   await locator.evaluate((element) => {
     const topbar = document.querySelector('header.ax-top')
-    if (!topbar) return
-
-    const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
-    if (overlap > 0) window.scrollBy(0, -overlap - 8)
+    if (topbar) {
+      const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+      if (overlap > 0) window.scrollBy({ top: -overlap - 8, behavior: 'instant' })
+    }
+    // The fixed Executor footer covers the viewport's bottom edge the same way.
+    const footer = document.querySelector('#executor-footer')
+    if (!footer) return
+    const under = element.getBoundingClientRect().bottom - footer.getBoundingClientRect().top
+    if (under > 0) window.scrollBy({ top: under + 8, behavior: 'instant' })
   })
 }
 
-export async function openUnits(page, path = '/units-fixture') {
-  await page.goto('/auth/read_only')
-  await page.goto(path)
-  await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
-  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-  // The socket connects before the view joins. A row click before the connected
-  // render is dropped, so the later remove has no selection and changes nothing.
-  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-}
 
 export async function dragDialThroughAngles(page, dial, angles) {
   // Re-anchor before every drag: a mode change re-lays the deck out.

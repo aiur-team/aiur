@@ -130,6 +130,116 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     refute_receive {:killed, _pid}, 50
   end
 
+  test "dead report-only pids do not re-emit an alert" do
+    test_pid = self()
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [%{pid: 301, cwd: "/ws/aiur/7/src"}] end,
+      process_info_fun: fn _pid -> nil end,
+      sample_fun: fn pid -> sample(pid, []) end,
+      cores: 1,
+      alert_fun: fn topic, alert -> send(test_pid, {:alert, topic, alert}) end
+    ]
+
+    assert {[], %{reported: reported}} = AgentResourceGuard.enforce(opts, %{})
+    assert MapSet.size(reported) == 0
+    refute_receive {:alert, _, _}, 50
+  end
+
+  @tag :synthetic_attention_resolution
+  test "an open synthetic-load attention resolves when every reported pid is dead" do
+    test_pid = self()
+    topic = "ticket.5638.agent.attention.synthetic-load"
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      attention_reconcile_every_ticks: 1,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      process_info_fun: fn _pid -> nil end,
+      active_attentions_fun: fn -> [%{"topic" => topic, "reason" => "synthetic load killed=[] reported=[301, 302]"}] end,
+      alert_fun: fn alert_topic, alert_opts -> send(test_pid, {:alert, alert_topic, alert_opts}) end
+    ]
+
+    assert {[], _tracked} = AgentResourceGuard.enforce(opts, %{})
+    assert_receive {:alert, "ticket.5638.agent.attention.synthetic-load.resolved", alert_opts}, 1000
+    assert alert_opts[:issue] == "5638"
+    refute alert_opts[:needs_attention]
+    refute_receive {:alert, ^topic, _alert_opts}, 50
+  end
+
+  test "an open synthetic-load attention is narrowed to the pids still alive" do
+    test_pid = self()
+    topic = "ticket.5638.agent.attention.synthetic-load"
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      attention_reconcile_every_ticks: 1,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      process_info_fun: fn
+        302 -> %{pid: 302, comm: "yes", cmdline: "yes"}
+        _pid -> nil
+      end,
+      active_attentions_fun: fn -> [%{"topic" => topic, "reason" => "synthetic load killed=[400] reported=[301, 302]"}] end,
+      alert_fun: fn alert_topic, alert_opts -> send(test_pid, {:alert, alert_topic, alert_opts}) end
+    ]
+
+    assert {[], _tracked} = AgentResourceGuard.enforce(opts, %{})
+    assert_receive {:alert, ^topic, alert_opts}, 1000
+    assert alert_opts[:needs_attention]
+    assert alert_opts[:reason] =~ "reported=[302]"
+    assert alert_opts[:message] =~ "302"
+    refute alert_opts[:reason] =~ "301"
+    refute alert_opts[:reason] =~ "400"
+  end
+
+  test "synthetic-load attentions reconcile once every thirty guard ticks" do
+    test_pid = self()
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      process_info_fun: fn _pid -> nil end,
+      active_attentions_fun: fn ->
+        send(test_pid, :attentions_read)
+        []
+      end,
+      alert_fun: fn _topic, _alert -> :ok end
+    ]
+
+    tracked =
+      Enum.reduce(1..29, %{}, fn tick, tracked ->
+        assert {[], tracked} = AgentResourceGuard.enforce([now_ms: tick * 1_000] ++ opts, tracked)
+        refute_received :attentions_read
+        tracked
+      end)
+
+    assert tracked[:attention_reconcile_ticks] == 29
+    assert {[], tracked} = AgentResourceGuard.enforce([now_ms: 30_000] ++ opts, tracked)
+    assert_received :attentions_read
+
+    assert {[], tracked} = AgentResourceGuard.enforce([now_ms: 31_000] ++ opts, tracked)
+    refute_received :attentions_read
+
+    tracked =
+      Enum.reduce(32..59, tracked, fn tick, tracked ->
+        assert {[], tracked} = AgentResourceGuard.enforce([now_ms: tick * 1_000] ++ opts, tracked)
+        refute_received :attentions_read
+        tracked
+      end)
+
+    assert {[], _tracked} = AgentResourceGuard.enforce([now_ms: 60_000] ++ opts, tracked)
+    assert_received :attentions_read
+  end
+
   test "killing detected load is opt-in by config" do
     assert {:ok, %{agent: %{synthetic_load_kill_detected: false}}} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert {:ok, %{agent: %{synthetic_load_kill_detected: true}}} = Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_kill_detected: true}})

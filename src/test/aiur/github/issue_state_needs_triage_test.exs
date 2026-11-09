@@ -34,20 +34,24 @@ defmodule Aiur.GitHub.IssueStateNeedsTriageTest do
 
   test "needs-triage is added before every agent state label is removed" do
     test_pid = self()
-    state_labels = ["sym:in-progress", "sym:rework", "other"]
+    {:ok, state_labels} = Agent.start_link(fn -> ["sym:in-progress", "sym:rework", "other"] end)
 
     request_fun = fn req ->
       send(test_pid, {:triage_state_request, req})
 
       case req.method do
         :get ->
-          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(state_labels, &%{"name" => &1})}}}
+          labels = Agent.get(state_labels, & &1)
+          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
 
         :post ->
           assert req.body == %{"labels" => ["sym:needs-triage"]}
+          Agent.update(state_labels, &Enum.uniq(req.body["labels"] ++ &1))
           {:ok, %{status: 200}}
 
         :delete ->
+          label = req.url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(state_labels, &List.delete(&1, label))
           {:ok, %{status: 200}}
 
         _other ->

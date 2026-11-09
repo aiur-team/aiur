@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.CapabilityProvider do
 
   defp orchestration(opts) do
     lookup = Keyword.get(opts, :lookup_fun, &Process.whereis/1)
-    name = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+    name = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
 
     # The dashboard's 15 s floor: a 0 floor marks any snapshot stale while the mailbox is nonempty.
     if lookup.(name) do

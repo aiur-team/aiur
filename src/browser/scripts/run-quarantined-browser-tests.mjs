@@ -8,8 +8,7 @@ if (specs.length === 0) console.log('No quarantined browser specs.')
 
 let failed = 0
 for (const spec of specs) {
-  const config = /-parity\.browser\.spec\.mjs$/.test(spec) ? ['--config', 'playwright.design-parity.config.mjs'] : []
-  const result = await runBrowserTests([spec, ...config], { ...process.env, AIUR_RUN_QUARANTINED: '1' })
+  const result = await runBrowserTests([spec], { ...process.env, AIUR_RUN_QUARANTINED: '1' })
   if (result.code !== 0) failed += 1
 }
 

@@ -25,7 +25,7 @@ test('header, permanent noanim cards, minimize URL and preset toggles are wired'
   await open(page)
   await expect(page.locator('.bd-now-st')).toHaveText('3 running3 stuck2 paused')
   await expect(page.locator('#bd-now .bd-card.noanim')).toHaveCount(8)
-  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA —')
+  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA ≥51h')
   await page.locator('[data-min]').click()
   await expect(page).toHaveURL(/live=min/)
   await expect(page.locator('#bd-now')).toHaveClass(/min/)
@@ -57,6 +57,20 @@ test('empty fleet is 86px, unavailable source has separate copy and no presets',
   await expect(page.locator('.bd-now-empty')).toHaveText('Agent states unavailable')
   await expect(page.locator('.bd-now-st button, .bd-now-sum')).toHaveCount(0)
 })
+// Future-regression guard for the existing stale-source rendering, paired with the LiveView timeout payload test.
+test('retained agents after a first-read timeout stay visible with their observation age', async ({ page }) => {
+  await open(page, 'live')
+  expect((await page.request.get('/build-control/diff?name=agents-stale')).ok()).toBe(true)
+  await expect.poll(() => page.evaluate(() => m.ctx.D.sources.agents.state)).toBe('stale')
+  await page.evaluate(async () => {
+    const { setNow } = await import('/build-home/clock.js'), { renderBand } = await import('/build-home/band.js')
+    setNow(1791407430000)
+    renderBand()
+  })
+  await expect(page.locator('.bd-now-empty')).toHaveCount(0)
+  await expect(page.locator('.bd-now-st')).toHaveText('3 running3 stuck2 paused')
+  await expect(page.locator('.bd-now-freshness')).toHaveText('Fresh · under 1m ago')
+})
 test('unavailable band rows without a rendered card element are skipped during relayout', async ({ page }) => {
   await open(page, 'now0')
   await page.evaluate(async () => {
@@ -76,7 +90,7 @@ test('clock ticks on payload minute boundaries without new diffs and preserves c
   await page.clock.runFor(60000)
   await expect(page.locator('.bd-now-h time')).toHaveText('cached 14:14')
 })
-test('scrolling clears unlocked hover, disables card pointers and settles; reduced motion still snaps', async ({ page }) => {
+test('scrolling clears unlocked hover, disables card pointers and settles where the user stopped', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const instant = await page.evaluate(() => {
@@ -95,12 +109,12 @@ test('scrolling clears unlocked hover, disables card pointers and settles; reduc
   await settle(page)
   await expect(page.locator('#bd-content')).not.toHaveClass(/scrolling/)
   expect(await page.evaluate(() => m.ctx.isScrolling())).toBe(false)
-  expect(await page.evaluate(() => Math.abs(m.ctx.vp.scrollTop - (m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46)))).toBeLessThanOrEqual(1)
+  // #7446: reduced motion or not, nothing snaps the band back under the header.
+  expect(await page.evaluate(() => Math.abs(m.ctx.vp.scrollTop - (m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46 - 20)))).toBeLessThanOrEqual(1)
 })
 test('jump uses 420ms cubic easing, clamps and cancels previous animations', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.evaluate(() => {
-    // Tall viewport constraint disables guard so the curve is measured without a second snap.
     m.ctx.vp.style.height = '200px'; m.S.ready = false
     m.fx.scrollVP(300, false); window.start = performance.now(); m.fx.scrollVP(1300, true);
     const sample = at => { window.lastFrame = at; requestAnimationFrame(sample) }; requestAnimationFrame(sample)
@@ -251,12 +265,14 @@ test('Live button floating state and click use the actual band geometry', async 
   await open(page); await settle(page)
   await page.evaluate(() => { m.ctx.vp.scrollTop = m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 146; m.fx.update() })
   await expect(page.locator('#bd-nowbtn')).toHaveClass(/at/)
-  await page.locator('#bd-nowbtn').evaluate(el => el.click()); await settle(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('#bd-nowbtn').evaluate(el => el.click())
   const error = await page.evaluate(() => {
     const vp = m.ctx.vp, target = Math.max(0, Math.min(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46, vp.scrollHeight - vp.clientHeight))
     return Math.abs(vp.scrollTop - target)
   })
   expect(error).toBeLessThanOrEqual(1)
+  await page.clock.runFor(20)
   await expect(page.locator('#bd-nowbtn')).not.toHaveClass(/at/)
 })
 
@@ -276,6 +292,7 @@ test('focused band card survives live relayout', async ({ page }) => {
 })
 
 // Future-regression guard for the design's CSS-only re-pin; not counted as change coverage.
+// #7758: the band pins to the viewport bottom again, so a growing fleet stays pinned there without scrolling.
 test('future guard: added agents stay pinned at the bottom without a new scroll animation', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page); await settle(page)
   await page.evaluate(() => m.fx.scrollVP(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h + m.ctx.L.band.h - m.ctx.vp.clientHeight, false))

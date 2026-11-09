@@ -152,11 +152,11 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
 
   describe "status_line/3" do
     test "names the count, the oldest age, its ticket and gate count" do
-      old = decision("old", "3141", minutes_ago(372))
-      new = decision("new", "4000", minutes_ago(5))
+      old = %{decision("old", "3141", minutes_ago(372)) | decision_id: "older-open"}
+      new = %{decision("new", "4000", minutes_ago(5)) | decision_id: "newer-open"}
 
       assert DecisionEscalation.status_line([new, old], @now, fn "3141" -> 38 end) ==
-               "DECISIONS open 2 oldest 6h12m (#3141, gates 38) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 ids=[newer-open,older-open] oldest 6h12m (#3141, gates 38) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts expired blocking unanswered Decisions that remain actionable" do
@@ -171,33 +171,40 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       open = decision("open", "4001", minutes_ago(5))
       expired_nonblocking = %{decision("quiet-expired", "4002", minutes_ago(100), blocking: false) | decision_status: :expired}
 
+      expired = %{expired | decision_id: "expired-open"}
+      open = %{open | decision_id: "open-one"}
+
       assert DecisionEscalation.status_line([answered_expired, open, expired, expired_nonblocking], @now, fn _ -> 0 end) ==
-               "DECISIONS open 2 (1 expired) oldest 6h12m (#3141, gates 0) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 (1 expired) ids=[expired-open,open-one] oldest 6h12m (#3141, gates 0) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts deferred and non-blocking open Decisions like `aiur commands --filter open` (#5109)" do
-      deferred = %{decision("deferred", "3323", minutes_ago(30)) | decision_status: :deferred}
-      question = decision("question", "4002", minutes_ago(20), blocking: false)
+      deferred = %{decision("deferred", "3323", minutes_ago(30)) | decision_status: :deferred, decision_id: "deferred-one"}
+      question = %{decision("question", "4002", minutes_ago(20), blocking: false) | decision_id: "question-two"}
       moot = %{decision("moot", "4005", minutes_ago(2000)) | decision_status: :moot}
 
       assert DecisionEscalation.status_line([question, moot, deferred], @now, fn _ -> 0 end) ==
-               "DECISIONS open 2 oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
+               "DECISIONS open 2 ids=[deferred-one,question-two] oldest 30m (#3323, gates 0) ATTENTION (answer with `aiur commands`)"
     end
 
     test "counts the same open set as `aiur commands --filter open` and the dashboard (#5109)" do
       expired = fn d -> %{d | decision_status: :expired} end
 
+      open = %{decision("open", "5001", minutes_ago(60)) | decision_id: "open-one"}
+      deferred = %{decision("deferred", "5002", minutes_ago(50)) | decision_status: :deferred, decision_id: "deferred-two"}
+      expired_blocking = %{expired.(decision("expired-blocking", "5003", minutes_ago(40))) | decision_id: "expired-three"}
+
       decisions = [
-        decision("open", "5001", minutes_ago(60)),
-        %{decision("deferred", "5002", minutes_ago(50)) | decision_status: :deferred},
-        expired.(decision("expired-blocking", "5003", minutes_ago(40))),
+        open,
+        deferred,
+        expired_blocking,
         %{expired.(decision("expired-answered", "5004", minutes_ago(30))) | answer: %{}},
         expired.(decision("expired-quiet", "5005", minutes_ago(30), blocking: false)),
         %{decision("moot", "5006", minutes_ago(30)) | decision_status: :moot},
         %{decision("resolved", "5007", minutes_ago(30)) | decision_status: :resolved},
         %{decision("dismissed", "5008", minutes_ago(30)) | decision_status: :dismissed},
         %{decision("decided", "5009", minutes_ago(30)) | decision_status: :decided},
-        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1},
+        %{decision("superseded", "5010", minutes_ago(20)) | revision_sequence: 1, decision_id: "superseded-four"},
         delivery_alert("5011")
       ]
 
@@ -216,6 +223,13 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
       assert RetainedIndex.canonical_counts(index).open == status_count
       assert cards.(:open) == status_count
       assert cards.(:blocking) == status_count
+
+      assert status_line_ids =
+               decisions
+               |> DecisionEscalation.status_line(@now, fn _ -> 0 end)
+               |> then(&Regex.run(~r/ids=\[([^]]*)\]/, &1, capture: :all_but_first))
+
+      assert status_line_ids == ["deferred-two,expired-three,open-one,superseded-four"]
     end
 
     test "the dashboard does not take a delivery-alert Decision as the selected open Command (#5109)" do
@@ -226,14 +240,14 @@ defmodule Aiur.ExecutorAttention.DecisionEscalationTest do
     end
 
     test "is not attention under 15 minutes and ignores answered or expired non-blocking Decisions" do
-      young = decision("young", "4000", minutes_ago(14))
+      young = %{decision("young", "4000", minutes_ago(14)) | decision_id: "young-open"}
       answered = %{decision("answered", "3141", minutes_ago(300)) | decision_status: :decided}
       nonblocking = %{decision("nb", "3142", minutes_ago(300), blocking: false) | decision_status: :expired}
 
       assert DecisionEscalation.status_line([young, answered, nonblocking], @now, fn _ -> 0 end) ==
-               "DECISIONS open 1 oldest 14m (#4000, gates 0)"
+               "DECISIONS open 1 ids=[young-open] oldest 14m (#4000, gates 0)"
 
-      assert DecisionEscalation.status_line([answered], @now) == "DECISIONS open 0"
+      assert DecisionEscalation.status_line([answered], @now) == "DECISIONS open 0 ids=[]"
     end
   end
 

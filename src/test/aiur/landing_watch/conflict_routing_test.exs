@@ -22,6 +22,46 @@ defmodule Aiur.LandingWatch.ConflictRoutingTest do
     refute_received {:enqueued, _}
   end
 
+  test "a conflict found by the final pre-enqueue read routes immediately to rebase-only rework" do
+    parent = self()
+    observation = %{conflicting(nil) | mergeable: "MERGEABLE", merge_state_status: "CLEAN"}
+
+    opts =
+      cycle_opts(parent, observation, "human-review")
+      |> Keyword.put(:revalidate_fun, fn 17, "head-sha", _ -> {:error, :merge_conflict} end)
+
+    assert :ok = LandingWatch.poll(opts)
+
+    refute_received {:enqueued, _}
+    assert_received {:transition, "17", "rework", _}
+    assert_received {:comment, "17", body}
+    assert body =~ "Rebase only"
+    assert body =~ "conflicts with `main`"
+  end
+
+  test "an UNKNOWN mergeability read is held without reporting a watcher error" do
+    parent = self()
+    observation = %{conflicting(nil) | mergeable: "MERGEABLE", merge_state_status: "CLEAN"}
+    reads = :atomics.new(1, [])
+
+    opts =
+      cycle_opts(parent, observation, "human-review")
+      |> Keyword.put(:revalidate_fun, fn 17, "head-sha", _ ->
+        case :atomics.add_get(reads, 1, 1) do
+          1 -> {:hold, :mergeability_unknown}
+          2 -> :ok
+        end
+      end)
+
+    assert :ok = LandingWatch.poll(opts)
+    refute_received {:enqueued, _}
+    refute_received {:transition, _, _, _}
+    refute_received {:comment, _, _}
+
+    assert :ok = LandingWatch.poll(opts)
+    assert_received {:enqueued, "head-sha"}
+  end
+
   test "a conflicting merge queue entry is dequeued before its ticket is routed the same way" do
     parent = self()
 

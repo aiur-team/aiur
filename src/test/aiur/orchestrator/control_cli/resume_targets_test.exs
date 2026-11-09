@@ -124,7 +124,7 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeTargetsTest do
       end)
 
     assert pause_stderr =~ "aiur: failed to pause #45 (agent finished)"
-    assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached)"
+    assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached: 2 of 1 slots used (1 active, 1 held by paused entries; binding: configured cap=1))"
   end
 
   # The message is accepted into the queue and the agent never claims it inside
@@ -189,7 +189,7 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeTargetsTest do
         output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
 
         assert output =~ "aiur: waiting for the orchestrator to become available (it is busy; mailbox="
-        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; Orchestrator"
+        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; The daemon is alive; the orchestrator did not answer in time. Orchestrator"
         assert output =~ "__AIUR_CONTROL_ERROR__:"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after

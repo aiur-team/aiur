@@ -57,6 +57,8 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     Application.put_env(:aiur, :log_file, Path.join(tmp, "aiur.log"))
     Application.put_env(:aiur, :workflow_file_path, Path.join(tmp, "config"))
+    # The Executor footer on every page reads conversation state; keep it inside the fixture.
+    Application.put_env(:aiur, :conversation_state_dir, Path.join(tmp, "conversations"))
 
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
@@ -64,7 +66,13 @@ defmodule Aiur.Docs.ControlCenterFixture do
     # `SnapshotCache` owns the ETS table `SnapshotStore.publish/2` writes the fleet into.
     {:ok, _} =
       Supervisor.start_link(
-        [{Phoenix.PubSub, name: Aiur.PubSub}, {Task.Supervisor, name: Aiur.TaskSupervisor}, Aiur.Orchestrator.SnapshotCache],
+        [
+          {Phoenix.PubSub, name: Aiur.PubSub},
+          {Task.Supervisor, name: Aiur.TaskSupervisor},
+          Aiur.Orchestrator.SnapshotCache,
+          Aiur.Conversation.HeadTable,
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry}
+        ],
         strategy: :one_for_one
       )
 
@@ -176,7 +184,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
         units_activity_fun: &Data.units_activity/0,
         # Never the real projection — see MeterSource's documentation-safety note.
         provider_meter_source: MeterSource,
-        streamdeck_provider_meters_fun: &MeterSource.streamdeck_meters/0,
+        streamdeck_usage_load_fun: &MeterSource.streamdeck_inputs/2,
         # The Stream Deck emulator projects its own fleet snapshot rather than
         # the Units orchestrator bucket list, so it gets a dedicated synthetic
         # fleet wide enough to fill the eight-key grid and its pager.

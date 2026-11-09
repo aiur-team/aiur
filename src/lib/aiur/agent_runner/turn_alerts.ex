@@ -15,6 +15,39 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: :ok
   def maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload, ledger_opts \\ [])
 
+  # A credit-limited pause is the same *state* as a spent quota — the backend is
+  # recorded in `model-usage.json` so the next claim falls through to the next
+  # `agent.priority` route — but it is a different, actionable cause: adding
+  # credits fixes it, waiting for a reset does not. It therefore gets its own
+  # alert, which names the fix, instead of the quota wording (#7514).
+  def maybe_emit_usage_limit_alert(
+        issue,
+        workspace,
+        worker_host,
+        %{kind: :usage_limit_exhausted, credit_limited: true} = pause_payload,
+        ledger_opts
+      ) do
+    backend = mark_limited!(issue, pause_payload, ledger_opts)
+
+    Signal.alert(
+      "system.provider.credit_limited.#{backend}",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: "Agent paused: the #{backend} account is out of provider credit (HTTP 402). Add credits or raise the key limit.",
+      reason:
+        "Agent paused: the #{backend} account cannot cover this request's output-token reservation " <>
+          "(HTTP 402: more credits or fewer max_tokens required), even after retrying with a smaller " <>
+          "max_tokens. This is a provider credit condition, not an agent failure: the claim is kept and " <>
+          "the next claim takes the next agent.priority route. Add credits to the #{backend} account or " <>
+          "raise its key credit limit to clear it.",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
   def maybe_emit_usage_limit_alert(
         issue,
         workspace,
@@ -23,13 +56,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
         ledger_opts
       ) do
     reset_hint = pause_payload[:reset_hint]
-    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
-
-    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || reset_hint, ledger_opts) do
-      :ok -> :ok
-      {:error, reason} -> Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
-    end
-
+    backend = mark_limited!(issue, pause_payload, ledger_opts)
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
     backend_suffix = " Backend detail: #{backend}."
 
@@ -52,6 +79,20 @@ defmodule Aiur.AgentRunner.TurnAlerts do
 
   def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload, _ledger_opts), do: :ok
 
+  defp mark_limited!(issue, pause_payload, ledger_opts) do
+    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
+
+    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || pause_payload[:reset_hint], ledger_opts) do
+      :ok ->
+        backend
+
+      {:error, reason} ->
+        Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
+
+        backend
+    end
+  end
+
   @doc """
   Applies #1923's route-failure disposition to a failed turn: a rejected
   credential and a transient outage each raise their own attention, and neither
@@ -65,9 +106,17 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   """
   @spec maybe_emit_route_failure_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_route_failure_alert(%Issue{} = issue, workspace, worker_host, reason) do
-    route = CodingAgent.backend_for(issue)
+    case reason do
+      {:turn_failed, details} when is_map(details) ->
+        unless RouteFailure.mcp_socket_path_error?(details) do
+          route = CodingAgent.backend_for(issue)
+          RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+        end
 
-    RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+      _other ->
+        route = CodingAgent.backend_for(issue)
+        RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+    end
 
     :ok
   end
@@ -96,8 +145,9 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   eleven wasted turns went unnoticed on khala #198, and #2797 is open on
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
-  `alerts.ndjson` and shows on the Executor's alert feed. A run that reached
-  no-op bound keeps its current state except verified rework with no push.
+  `alerts.ndjson` and shows on the Executor's alert feed. A run that reaches
+  the no-op bound without another handoff moves to `human-review` with a reason
+  comment; verified rework with no push still uses its existing failure state.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do
@@ -141,6 +191,27 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       reason: message,
       needs_attention: true,
       severity: "info"
+    )
+
+    :ok
+  end
+
+  @doc "Records a stopped rework run kept in rework because review findings are still unanswered (#5746)."
+  @spec emit_rework_findings_open_alert(Issue.t(), Path.t() | nil, String.t() | nil, [map()]) :: :ok
+  def emit_rework_findings_open_alert(%Issue{} = issue, workspace, worker_host, findings) do
+    message =
+      "Agent stopped after pushing work for #{issue.identifier} without answering the latest review's findings; the ticket stays in agent:#{issue.state}. Remaining: " <>
+        Enum.map_join(findings, "; ", &"#{&1.id}. #{&1.ask}")
+
+    Signal.alert(
+      "ticket.#{issue.identifier}.agent.rework_findings_open",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
     )
 
     :ok

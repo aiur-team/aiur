@@ -3,9 +3,9 @@ defmodule Aiur.Orchestrator.StatusReport.HumanWait do
   # Tracks waiting-for-human episodes and their overdue/resolved alerts.
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport.AgentStatuses
+  alias Aiur.Signal
 
   @waiting_for_human_alert_after_seconds 600
 
@@ -59,7 +59,7 @@ defmodule Aiur.Orchestrator.StatusReport.HumanWait do
   defp human_wait_alert_candidate?(_status), do: false
 
   defp emit_waiting_for_human_resolution(identifier) do
-    Alerts.emit_system("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
+    Signal.alert("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
       issue: identifier,
       reason: "Agent is no longer waiting for Executor input.",
       needs_attention: false,
@@ -73,7 +73,7 @@ defmodule Aiur.Orchestrator.StatusReport.HumanWait do
     topic = "ticket.#{identifier}.agent.attention.waiting_for_human"
 
     unless AlertFeed.active_ticket_attention?(topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: identifier,
         reason: "Agent has been waiting for Executor input for #{div(runtime_seconds, 60)}m; answer the blocking question or resume the agent.",
         needs_attention: true,

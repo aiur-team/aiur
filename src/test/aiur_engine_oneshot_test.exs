@@ -24,6 +24,35 @@ defmodule AiurEngineOneshotTest do
     assert out2 =~ "TOK=shell|"
   end
 
+  test "env-only mode does not read cwd or home dotenv files" do
+    dir = Aiur.TestSupport.tmp_root!("aiur-env-only")
+    home = Path.join(dir, "home")
+    repo = Path.join(dir, "repo")
+    File.mkdir_p!(Path.join(home, ".aiur"))
+    File.mkdir_p!(repo)
+    File.write!(Path.join(repo, ".env"), "FROM_REPO=leaked\n")
+    File.write!(Path.join(home, ".aiur/.env"), "FROM_HOME=leaked\n")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+
+    src = "cd #{repo}; source #{engine()}; load_dotenv; printf '%s|%s' \"${FROM_REPO-unset}\" \"${FROM_HOME-unset}\""
+    {out, 0} = System.cmd("bash", ["-c", src], env: [{"AIUR_SECRETS_FROM_ENV", "1"}, {"FROM_REPO", nil}, {"FROM_HOME", nil}, {"HOME", home}])
+
+    assert out == "unset|unset"
+  end
+
+  # Launcher-contract guard (passes on main): the hosted preflight runs inside
+  # AgentControlCLI.status/0, so the engine expression must stay unchanged.
+  test "status still calls AgentControlCLI.status() over RPC" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { printf 'RPC:%s\\n' "$1"; }; cmd_status|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.status()"
+    refute out =~ "IO.puts(:stderr"
+  end
+
   # #2638: `./.env` is the more specific scope, so it loads before
   # `~/.aiur/.env`, and GitHub credentials resolve as one group from the first
   # file that declares any member. A global GITHUB_APP_* triple must never

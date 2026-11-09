@@ -97,6 +97,7 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceContentionTest do
             identifier: identifier,
             worker_host: "worker-a",
             prior_work: true,
+            stalled_alert_outstanding: true,
             workspace_path: "/workspaces/ownership"
           }
         },
@@ -129,6 +130,7 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceContentionTest do
                {:ok, owner_lease}
 
       assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].prior_work
+      assert waiting.dispatch_recovery.workspace_ownership.waits[identifier].stalled_alert_outstanding
       assert waiting.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 
       ready = RetryEngine.release_workspace_wait(waiting, identifier)
@@ -137,6 +139,7 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceContentionTest do
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].worker_host == "worker-a"
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].retry_attempt == 1
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].prior_work
+      assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].stalled_alert_outstanding
       assert ready.dispatch_recovery.workspace_ownership.ready[issue_id].workspace_path == "/workspaces/ownership"
       assert ready.dispatch_recovery.codex_thrash_budget == state.dispatch_recovery.codex_thrash_budget
 

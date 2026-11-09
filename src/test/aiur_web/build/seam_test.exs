@@ -6,7 +6,9 @@ defmodule AiurWeb.Build.SeamTest do
   # C8-T01 Now-band rows read the Units catalog through its policy, tracker identity, and pause-reason facades;
   # components.json declares these (dashboard-ui requires projections, kernel and orchestration).
   # MP-E8-C8-T04 reads C8-T01 Units through the existing shared payload cache.
-  @allowed ~w(AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State)
+  # ponytail: unfiled rows also reuse PlanningSource.load_pack_results/0 until MP-R1 extracts it.
+  # #5998 reads Build Order packs for feature progress through the existing pack loader.
+  @allowed ~w(AiurWeb.BuildOrder.PlanningSource AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildOrder.PlanningSource.PackLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat Aiur.AgentPubSub AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State AiurWeb.RemainingMeter)
   @usage_facades [
     # Authorized usage reads configured Claude account labels.
     "Aiur.Accounts",
@@ -17,7 +19,7 @@ defmodule AiurWeb.Build.SeamTest do
     # ElevenLabs reads its supervised quota snapshot; it does not issue requests.
     "Aiur.ElevenLabs.Quota",
     # GitHub reads its supervised quota snapshot and existing resource holds.
-    "Aiur.GitHub.Quota",
+    "Aiur.GitHub.Access",
     # Durable previous-boot readings come from the existing local ledger file.
     "Aiur.ModelAvailability",
     # Watch events register the socket pid with the existing focused polling service.
@@ -37,7 +39,7 @@ defmodule AiurWeb.Build.SeamTest do
   ]
   # MP-E8-C11-T06 sends through the drawer's shared operator-message helper (AgentChat underneath).
   # MP-E8-C11-T09 reads only the provider-neutral voice availability seam.
-  @shell ~w(AgentLogModal UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
+  @shell ~w(AgentLogModal UnitControls UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
 
   test "web side references only the seam (future regression guard)" do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
@@ -50,18 +52,26 @@ defmodule AiurWeb.Build.SeamTest do
     # replaceable wave-0b adapter; controllers still use ConversationSource.
     conversation = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b.ex")
     adapter_facades = ~w(Aiur.Conversation.History Aiur.Workspace.Layout Aiur.Config Aiur.Orchestrator Aiur.Tracker)
+    # MP-E4-C7-T01 confines durable history, identity and presentation reads to the replaceable journal adapter.
+    journal = Path.join(@root, "lib/aiur_web/build/conversation_source/journal.ex")
+    journal_facades = ~w(Aiur.Conversation.History Aiur.Conversation.Ref Aiur.Tracker AiurWeb.Conversation.Presenter)
     # MP-E8-C11-T04 confines the event-row reads (ticket log, merges, Commands,
     # history subscription) to the same wave-0b adapter, which C14-T01 replaces.
+    # Durable ticket history is read through the IssueLog facade.
     events = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b_events.ex")
-    event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
+    event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.IssueLog Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
     # C11-T02 confines issue identity lookup to the open-ticket snapshot facade;
     # only the document presenter subscribes to detail updates and renders Markdown.
     document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
     identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
-    assert offenders(files -- [freshness, conversation, events, document, identity], &allowed?/1) == []
+    # Running-row PR facts read the progress store only through this projection seam.
+    progress_pr_facts = Path.join(@root, "lib/aiur_web/build/progress_pr_facts.ex")
+    assert offenders(files -- [freshness, conversation, journal, events, document, identity, progress_pr_facts], &allowed?/1) == []
+    assert offenders([progress_pr_facts], &(allowed?(&1) or &1 == "Aiur.StartTrigger.ProgressStore")) == []
     assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []
     assert offenders([identity], &(allowed?(&1) or &1 == "Aiur.OpenTicketSource")) == []
     assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
+    assert offenders([journal], &(allowed?(&1) or &1 in journal_facades)) == []
     assert offenders([events], &(allowed?(&1) or &1 in event_facades)) == []
     assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
   end

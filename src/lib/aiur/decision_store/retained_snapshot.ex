@@ -25,10 +25,14 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           optional(:authority) => Decision.authority() | nil,
           optional(:blocking) => boolean() | nil,
           optional(:kind) => String.t() | nil,
+          optional(:route) => :needs_you | :with_executor | :from_executor | :resolved | nil,
           optional(:ordering) => :audit | :current,
           required(:lifecycle) => Decision.decision_status() | :awaiting | :historic | :history | nil,
           required(:search) => String.t() | nil,
-          required(:ticket) => String.t() | nil
+          required(:ticket) => String.t() | nil,
+          optional(:tickets) => MapSet.t(String.t()) | nil,
+          optional(:labels) => [String.t()] | nil,
+          optional(:tag) => String.t() | nil
         }
 
   @spec build_index(%{String.t() => Decision.t()}, %{optional(String.t()) => [Decision.t()]}) :: map()
@@ -126,11 +130,13 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
     [
       valid_cursor?(cursor),
       valid_lifecycle?(lifecycle),
+      Map.get(query, :route) in [nil, :needs_you, :with_executor, :from_executor, :resolved],
       valid_optional_authority?(Map.get(query, :authority)),
       valid_optional_boolean?(Map.get(query, :blocking)),
       valid_optional_string?(Map.get(query, :kind)),
       valid_optional_string?(search),
       valid_optional_string?(ticket),
+      valid_ticket_set?(Map.get(query, :tickets)),
       valid_search_ticket?(search, ticket),
       valid_ordering?(Map.get(query, :ordering, :audit))
     ]
@@ -150,5 +156,11 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   defp valid_optional_string?(nil), do: true
   defp valid_optional_string?(value), do: is_binary(value) and String.valid?(value)
   defp valid_search_ticket?(search, ticket), do: is_nil(search) or is_nil(ticket)
+  defp valid_ticket_set?(nil), do: true
+
+  defp valid_ticket_set?(%MapSet{} = tickets),
+    do: tickets |> MapSet.to_list() |> Enum.all?(&(is_binary(&1) and &1 != ""))
+
+  defp valid_ticket_set?(_tickets), do: false
   defp valid_ordering?(ordering), do: ordering in [:audit, :current]
 end

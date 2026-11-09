@@ -53,7 +53,7 @@ for (const name of ['counts-changed', 'counts-unknown']) test(`live ${name} refi
 
 test('missing counts are unknown, zero stays zero, and labels are text', async ({ page }) => {
   const result = await page.evaluate(() => {
-    ctx.D.counts = { bugs: 0 }; ctx.D.epics.infra.label = '<b>x</b>'
+    ctx.D.counts = { bugs: 0 }; ctx.D.lanes.infra.label = '<b>x</b>'
     cols.applyCols(['bugs', 'infra'], true)
     const bug = ctx.laneEls.get('bugs'), infra = ctx.laneEls.get('infra')
     return { zero: bug.querySelector('em').textContent, unknown: infra.querySelector('em').textContent,
@@ -62,13 +62,13 @@ test('missing counts are unknown, zero stays zero, and labels are text', async (
   expect(result).toEqual({ zero: '0', unknown: '—', title: 'Ticket count unavailable', label: '<b>x</b>', children: 0 })
 })
 
-for (const section of ['plan', 'hist']) test(`live ${section} epic invalidates visibility cache`, async ({ page }) => {
+for (const section of ['plan', 'hist']) test(`live ${section} lane invalidates visibility cache`, async ({ page }) => {
   await page.evaluate(section => {
     ctx.vp.scrollTop = section === 'plan' ? ctx.secs.plan.el.offsetTop : ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 500
     cols.applyCols(cols.visibleCols(), true)
   }, section)
   expect(await page.evaluate(() => ctx.cols.includes('design'))).toBe(false)
-  expect(await page.request.get(`/build-control/diff?name=${section}-new-epic`).then(r => r.status())).toBe(200)
+  expect(await page.request.get(`/build-control/diff?name=${section}-new-lane`).then(r => r.status())).toBe(200)
   await expect.poll(() => page.evaluate(() => ctx.cols.includes('design'))).toBe(true)
   expect(await page.evaluate(() => ctx.cols.join('|') === ctx.D.order.filter(k => ctx.cols.includes(k)).join('|'))).toBe(true)
 })
@@ -86,8 +86,8 @@ test('whole days, forward union, feature locks and compact dependencies', async 
     const day = cols.visibleCols(); ctx.vp.scrollTop = 9500; const forward = cols.visibleCols()
     S.feature = 'F'; const focus = cols.visibleCols(); ctx.vp.scrollTop = 0; const locked = cols.visibleCols()
     S.fmode = 'compact'; const compact = cols.visibleCols()
-    S.feature = null; S.f.epic = ['nope']; ctx.L.secs.hist.items = []; ctx.D._fwd = null; const unknown = cols.visibleCols()
-    S.f.epic = ['docs', 'infra']; const fallback = cols.visibleCols()
+    S.feature = null; S.f.lane = ['nope']; ctx.L.secs.hist.items = []; ctx.D._fwd = null; const unknown = cols.visibleCols()
+    S.f.lane = ['docs', 'infra']; const fallback = cols.visibleCols()
     S.flow = true; S.K = 3; const flow = cols.visibleCols()
     return { day, forward, focus, locked, compact, unknown, fallback, flow }
   })
@@ -96,27 +96,26 @@ test('whole days, forward union, feature locks and compact dependencies', async 
 
 test('feature lanes lock and unsorted stays last; flow clears headers', async ({ page }) => {
   const result = await page.evaluate(() => {
-    S.feature = Object.keys(ctx.D.features)[0]
+    // Pick a feature with at least one own lane: compact mode also shows unlocked dependent lanes.
+    S.feature = Object.keys(ctx.D.features).find(f => { S.feature = f; return cols.visibleCols().some(k => ctx.D.features[f].epics.includes(k)) }) ?? null
     cols.applyCols(cols.visibleCols(), true)
-    const locks = ctx.D.features[S.feature].epics.filter(k => ctx.laneEls.has(k)).map(k => ctx.laneEls.get(k).classList.contains('lock') && !!ctx.laneEls.get(k).querySelector('em svg'))
+    const locks = (ctx.D.features[S.feature]?.epics ?? []).filter(k => ctx.laneEls.has(k)).map(k => ctx.laneEls.get(k).classList.contains('lock') && !!ctx.laneEls.get(k).querySelector('em svg'))
     S.feature = null; cols.applyCols(['bugs', 'unsorted'], true)
     const unsorted = ctx.laneEls.get('unsorted')
     const cls = unsorted.className, label = unsorted.querySelector('span').textContent
     S.flow = true; S.K = 2; cols.applyCols(cols.visibleCols(), true)
-    return { locks, cls, label, lanes: ctx.laneEls.size, guides: ctx.guideEls.size, caption: ctx.lanesEl.querySelector('.bd-lane-g').textContent, hidden: ctx.svg.classList.contains('hide'), bands: ctx.bandMap, bandCount: ctx.L.band.BK, viewportWidth: ctx.vp.clientWidth, nowCount: ctx.D.now.length, group: ctx.colMap.g }
+    return { locks, cls, label, lanes: ctx.laneEls.size, guides: ctx.guideEls.size, caption: ctx.lanesEl.querySelector('.bd-lane-g').textContent, hidden: ctx.svg.classList.contains('hide'), bands: ctx.bandMap, bandCount: ctx.L.band.BK, bandWidth: ctx.L.band.cw, bandGap: ctx.L.band.bg, viewportWidth: ctx.vp.clientWidth, nowCount: ctx.D.now.length, group: ctx.colMap.g }
   })
+  expect(result.locks.length, 'selected fixture feature has visible lanes').toBeGreaterThan(0)
   expect(result.locks.every(Boolean)).toBe(true)
   expect(result.cls).toContain('unsorted'); expect(result.label).toBe('Unsorted')
-  expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = epic'); expect(result.hidden).toBe(true)
-  // Reference design build.js: Now uses 230px columns, a 16px gap and a 380px width cap, independently of flow K.
-  const available = result.viewportWidth - 84 - 14
-  const bandCount = Math.max(1, Math.min(result.nowCount || 1, Math.floor(available / 230)))
-  const bandWidth = Math.min(380, (available - 16 * (bandCount - 1)) / bandCount)
-  expect(result.bandCount).toBe(bandCount); expect(Object.keys(result.bands)).toHaveLength(bandCount)
-  expect(bandWidth).toBeLessThan(380)
+  expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = lane'); expect(result.hidden, 'flow keeps dependency lines visible (#7756)').toBe(false)
+  // #7687: Now tiles planned-lane-wide columns (layout's band.cw/bg), not the old 230px/380px constants.
+  const { bandCount, bandWidth, bandGap } = result
+  expect(bandCount).toBeGreaterThanOrEqual(1); expect(Object.keys(result.bands)).toHaveLength(bandCount)
   for (let i = 0; i < bandCount; i++) {
     expect(result.bands['b' + i].w).toBeCloseTo(bandWidth)
-    expect(result.bands['b' + i].x).toBeCloseTo(84 + i * (bandWidth + 16))
+    expect(result.bands['b' + i].x).toBeCloseTo(84 + i * (bandWidth + bandGap))
   }
   expect(result.group.x).toBe(84)
 })
@@ -181,17 +180,17 @@ test('rendered cards keep the current layout back-reference through a live pass'
   expect(result.every(row => row.same && row.current)).toBe(true)
 })
 
-test('unknown URL epics cannot become lanes', async ({ page }) => {
-  await page.goto('/build?epic=nope')
+test('unknown URL lanes cannot become lanes', async ({ page }) => {
+  await page.goto('/build?lane=nope')
   await expect(page.locator('.bd-lane')).toHaveCount(0)
 })
 
 
-test('shared matching API preserves epic and feature filter semantics', async ({ page }) => {
+test('shared matching API preserves lane and feature filter semantics', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { colKey, match, tstate, astate } = await import('/build-home/match.js')
     const row = { sec: 'plan', epic: null, type: ['bug', 'docs'], feature: 'khala', cue: { held: false, waitAny: false, failed: false, blockedChain: false } }
-    S.f.feature = ['khala']; S.f.epic = ['unsorted']
+    S.f.feature = ['khala']; S.f.lane = ['unsorted']
     const yes = match(row); S.f.feature = ['other']; const no = match(row)
     return { key: colKey(row), yes, no, ticket: tstate(row), agent: astate(row) }
   })

@@ -16,9 +16,13 @@ defmodule AiurWeb.Experiments.Report do
       <div :if={@report}>
         <p class="an-card-sub">{@report.author} · <.timestamp value={@report.written_at} /></p>
         <p :if={@report.changed?} class="exp-notice" id="exp-report-stale">
-          Results changed after this report was written (report <.timestamp value={@report.written_at} />, results <.timestamp value={@report.results_at} />)
+          <%= if @report.written_at do %>
+            Results changed after this report was written (report <.timestamp value={@report.written_at} />, results <.timestamp value={@report.results_at} />)
+          <% else %>
+            Results may be newer than this report (report time unknown, results <.timestamp value={@report.results_at} />)
+          <% end %>
         </p>
-        <div :if={@report.markdown} class="ticket-context-markdown">{Markdown.render(@report.markdown, heading_offset: 2)}</div>
+        <div :if={@report.markdown} class="ticket-context-markdown exp-report-markdown">{Markdown.render(@report.markdown, heading_offset: 2)}</div>
         <p :if={is_nil(@report.markdown)} class="exp-notice">The analyst report could not be displayed.</p>
       </div>
     </section>
@@ -59,7 +63,7 @@ defmodule AiurWeb.Experiments.Report do
       author: sanitized(report[:author], 1_000) || "Unknown analyst",
       written_at: written_at,
       results_at: results_at,
-      changed?: not is_nil(written_at) and not is_nil(results_at) and DateTime.compare(results_at, written_at) == :gt
+      changed?: not is_nil(results_at) and (is_nil(written_at) or DateTime.compare(results_at, written_at) == :gt)
     }
   end
 

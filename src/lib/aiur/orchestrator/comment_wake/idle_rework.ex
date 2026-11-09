@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Orchestrator.CommentWake.Dispatch
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   @doc false
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     TrackerTasks.run(state, {:comment_idle, issue_number, source, make_ref()}, fn -> idle_rework_issue(state, issue_number, event) end, fn current, result ->
       if is_nil(State.find_running_by_identifier(current.running, issue_number)) do
-        apply_idle_rework_decision(current, issue_number, source, event, attempt, idle_rework_decision_from_issue(result))
+        apply_idle_rework_decision(current, issue_number, source, event, attempt, idle_rework_decision_from_issue(result, event))
       else
         CommentWake.maybe_reactivate_on_comment(current, issue_number, source, event, attempt)
       end
@@ -46,7 +46,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
         # comment has to survive into the digest the agent reads on its first
         # turn. Dropping it here would trade a wrong label for lost operator
         # input, which is the worse failure of the two.
-        if reason == :not_yet_attempted,
+        if reason in [:not_yet_attempted, :already_in_progress],
           do: Dispatch.seed_idle_comment_wake_event(state, issue_number, event),
           else: state
 
@@ -85,35 +85,15 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   # positive form of the same hold and is refused the same way. The poll path
   # never dispatches such tickets, so this gate is what keeps the comment path
   # from being the invisible auto-writer that reaches them.
-  defp idle_rework_decision_from_issue(result) do
+  defp idle_rework_decision_from_issue(result, event) do
     case result do
       {:ok, %Issue{} = issue} ->
-        cond do
-          Issue.held?(issue) ->
-            {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
+        case issue_hold_reason(issue) do
+          {:skip, reason} ->
+            {:skip, reason}
 
-          DispatchPolicy.normalize_issue_state(issue.state) == "" ->
-            {:skip, :unlabeled_issue}
-
-          # Same argument as the unlabelled case, one state further along: a
-          # `todo` ticket has not been worked either, so there is no prior
-          # implementation for "rework" to mean anything about. Flipping it
-          # discards the true state — nothing restores `todo` afterwards — and
-          # makes an operator's own triage note indistinguishable from a
-          # reviewer rejecting the work.
-          #
-          # Observed repeatedly: promoting a ticket to `agent:todo` and then
-          # commenting to say why reliably un-promoted it on the next poll, so
-          # promotion and commentary could not be done in the same breath.
-          #
-          # This skip still seeds the event digest below, unlike the two above:
-          # the ticket is about to be dispatched, so the comment is briefing
-          # material the agent must read on its first turn.
-          DispatchPolicy.normalize_issue_state(issue.state) == "todo" ->
-            {:skip, :not_yet_attempted}
-
-          true ->
-            :active
+          nil ->
+            active_issue_rework_decision(issue, event)
         end
 
       # The tracker has no record to read the labels off — a non-GitHub backend
@@ -127,6 +107,38 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp active_issue_rework_decision(issue, event) do
+    cond do
+      DispatchPolicy.normalize_issue_state(issue.state) == "in-progress" and
+          ReworkTransition.human_merger_blocking_comment?(event) ->
+        {:skip, :already_in_progress}
+
+      not_yet_attempted?(issue, event) ->
+        {:skip, :not_yet_attempted}
+
+      true ->
+        :active
+    end
+  end
+
+  defp issue_hold_reason(issue) do
+    cond do
+      Issue.held?(issue) ->
+        {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
+
+      DispatchPolicy.normalize_issue_state(issue.state) == "" ->
+        {:skip, :unlabeled_issue}
+
+      true ->
+        nil
+    end
+  end
+
+  defp not_yet_attempted?(%Issue{} = issue, event) do
+    DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
+      not ReworkTransition.changes_requested_review?(event)
   end
 
   # Prefer the polled view already held in orchestrator state; fall back to an
@@ -174,7 +186,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
       "Comment on idle issue #{issue_number} was not acted on (#{inspect(reason)})",
       issue: to_string(issue_number),
@@ -188,7 +200,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
 
   defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.#{suffix}",
       message,
       issue: to_string(issue_number),

@@ -13,8 +13,8 @@
   .aiur-footer__brand {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    color: var(--aiur-color-fg);
+    gap: 9px;
+    color: var(--aiur-color-muted);
     font-size: 12px;
     letter-spacing: .18em;
     text-transform: uppercase;

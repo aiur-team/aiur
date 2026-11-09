@@ -3,7 +3,9 @@ defmodule Aiur.OpenAICompat.Config do
 
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.Schema.OpenRouterBackend
   alias Aiur.Init.Dotenv
+  alias Aiur.OpenAICompat.OutputTokens
 
   @required ~w(base_url api_key_env transport)a
 
@@ -25,8 +27,19 @@ defmodule Aiur.OpenAICompat.Config do
        |> Map.put(:account_name, account_name)
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
+       |> Map.put(:max_output_tokens, OutputTokens.resolve(Map.get(config, :max_output_tokens)))
+       |> put_route_preferences(model)
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
     end
+  end
+
+  # OpenRouter's provider preferences and model sets are shaped from the route
+  # that actually won dispatch: the model segment names either one model, an
+  # inline set, or a named set in `backend_configs.openrouter.routes`.
+  defp put_route_preferences(config, model) do
+    if Map.get(config, :provider_preferences) == true,
+      do: OpenRouterBackend.apply_route(config, model),
+      else: config
   end
 
   defp instance_config(_backend, opts) do
@@ -91,7 +104,8 @@ defmodule Aiur.OpenAICompat.Config do
   defp fetch_api_key(env_name, account_name, opts) do
     fetcher =
       Keyword.get(opts, :api_key_fetcher, fn key ->
-        account_api_key(env_name, opts) || account_api_key_from_file(env_name, account_name) || System.get_env(key)
+        account_api_key(env_name, opts) ||
+          unless(Aiur.Secrets.secrets_from_env?(), do: account_api_key_from_file(env_name, account_name)) || System.get_env(key)
       end)
 
     case fetcher.(env_name) do
@@ -142,8 +156,10 @@ defmodule Aiur.OpenAICompat.Config do
   # attacker-supplied config key cannot exhaust the atom table.
   @known_keys Map.new(
                 ~w(base_url api_key_env model default_model transport quirks management_api_key_env
-                   model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata
-                   local_concurrency_limit provider order ignore allow_fallbacks sort),
+                   model_discovery reasoning_content_replay text_tool_fallback image_input openrouter_metadata
+                   local_concurrency_limit provider provider_preferences routes models order only ignore
+                   allow_fallbacks sort max_price quantizations data_collection require_parameters
+                   prompt completion max_output_tokens),
                 &{&1, String.to_atom(&1)}
               )
 

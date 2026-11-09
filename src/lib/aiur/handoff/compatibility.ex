@@ -10,8 +10,17 @@ defmodule Aiur.Handoff.Compatibility do
 
     with :ok <- prepared_fallback(agent),
          :ok <- transport(agent["transport"], probe),
-         :ok <- require_match(Map.get(agent, "config_fingerprint", record["config_fingerprint"]) == fingerprint, :config_changed),
-         :ok <- require_match(is_binary(agent["workspace"]) and File.dir?(agent["workspace"]), :workspace_missing),
+         :ok <- in_daemon_supported(agent),
+         :ok <-
+           require_match(
+             Map.get(agent, "config_fingerprint", record["config_fingerprint"]) == fingerprint,
+             :config_changed
+           ),
+         :ok <-
+           require_match(
+             is_binary(agent["workspace"]) and File.dir?(agent["workspace"]),
+             :workspace_missing
+           ),
          :ok <- require_match(agent["backend"] in CodingAgent.known_backends(), :backend_unknown) do
       require_match(is_nil(agent["worker_host"]), :remote_worker)
     end
@@ -19,7 +28,33 @@ defmodule Aiur.Handoff.Compatibility do
 
   defp prepared_fallback(%{"fallback_reason" => "remote_worker"}), do: {:error, :remote_worker}
   defp prepared_fallback(%{"fallback_reason" => "relay_protocol"}), do: {:error, :relay_protocol}
+
+  defp prepared_fallback(%{"fallback_reason" => "snapshot_timeout"}),
+    do: {:error, :snapshot_timeout}
+
+  defp prepared_fallback(%{"fallback_reason" => "runner_gone"}), do: {:error, :runner_gone}
+
+  defp prepared_fallback(%{"fallback_reason" => "session_unavailable"}),
+    do: {:error, :session_unavailable}
+
   defp prepared_fallback(_agent), do: :ok
+
+  # An in-daemon record carries a serialized conversation instead of a live
+  # process handle, so it is compatible only when the backend still declares
+  # in-daemon handoff support. The conversation itself is validated by the
+  # `in_daemon` transport clause.
+  defp in_daemon_supported(%{"transport" => %{"kind" => "in_daemon"}, "backend" => backend}) do
+    require_match(Aiur.CodingAgent.handoff_kind(backend) == :in_daemon, :backend_unsupported)
+  end
+
+  defp in_daemon_supported(_agent), do: :ok
+
+  defp transport(%{"kind" => "in_daemon"} = expected, _probe) do
+    case CodingAgent.valid_handoff_transport?(expected) do
+      true -> :ok
+      false -> {:error, :provider_state_invalid}
+    end
+  end
 
   defp transport(%{"kind" => "relay", "directory" => directory} = expected, probe) do
     with :ok <- require_match(expected["protocol"] in [1], :relay_protocol),
@@ -29,8 +64,11 @@ defmodule Aiur.Handoff.Compatibility do
         require_match(actual["lossy"] == false, :relay_lossy)
       end
     else
-      {:error, reason} when reason in [:relay_protocol, :relay_gone, :relay_lossy] -> {:error, reason}
-      _ -> {:error, :relay_gone}
+      {:error, reason} when reason in [:relay_protocol, :relay_gone, :relay_lossy] ->
+        {:error, reason}
+
+      _ ->
+        {:error, :relay_gone}
     end
   end
 

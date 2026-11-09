@@ -1,0 +1,443 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 19,
+  "first_id": "platform-misc-06",
+  "last_id": "platform-misc-39",
+  "findings": [
+    {
+      "id": "platform-misc-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/hooks.ex:143",
+      "note": "Local hook timeout still brutally kills Task without process-group teardown; remote bounded command uses same task shutdown shape. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-06"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/host_lock.ex:206",
+      "note": "Stale reclaim still deletes path after separate liveness read then recreates exclusively; live holder check still PID-only. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/logs/retention.ex:112",
+      "note": "Retention still exempts only current directory and recursively removes older siblings without checking another daemon liveness. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/current_run_membership/store/runtime.ex:153",
+      "note": "Append/checkpoint failures still latch writable false; observe immediately rejects while unwritable and no runtime recovery assignment established. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-09"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatch_policy.ex:1175",
+      "note": "DispatchPolicy active-state set uses trim/downcase while GitHub.StatePolicy also replaces spaces with hyphens; tracker schema still defaults to Todo/In Progress, exposing differing normalization. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-10",
+        "orch-a-13",
+        "orch-b-29",
+        "agent-runtime-23",
+        "dup-by-concept-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-11",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/upgrade/registry.ex:13",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-11"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "platform-misc-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/ownership/waiter.ex:9",
+      "note": "Waiter spawns an unmonitored subscriber then waits without after/DOWN; RetryEngine fallback synchronously calls wait_for_release. Subscriber failure can leave caller waiting indefinitely. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/paths.ex:85",
+      "note": "Membership/progress leaf helpers separately select overrides and join decision_state_dir; decision_state_root still falls back to cwd .aiur-state. Daemon state path logic remains duplicated. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-15",
+      "status": "present",
+      "anchor": "src/lib/aiur/protocol/map_access.ex:9",
+      "note": "Shared MapAccess.get uses boolean-or fallback, while CurrentRunProjection.Value.get preserves an existing atom-key false/nil with Map.get default. Two accessor semantics persist. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-15",
+        "loose-3-14",
+        "loose-1-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/remove.ex:314",
+      "note": "Remote before_remove still interpolates raw hook command into SSH shell rather than Hooks local environment scrub; Provisioner shell repeats ready marker literal. Local/remote implementations remain distinct despite newer WIP guards. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/git_metadata.ex:227",
+      "note": "GitMetadata and CodexSandboxPolicy separately run two git metadata probes, expand git-dir and apply containment; Layout also has independent canonical prefix validation. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-18",
+      "status": "changed",
+      "anchor": "src/lib/aiur/workspace/provisioner.ex:173",
+      "note": "Legacy readiness arities and repeated checkout/readiness probes remain. Invalid checkout return in ensure_workspace is now explicitly creation telemetry, with create_for_issue separately rejecting it; old opposing-safety-verdict interpretation requires this qualification. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/remote.ex:44",
+      "note": "Bounded remote timeout still labels every command remote_command, so specific hook-name matches in Hooks/Remove cannot match it.",
+      "source_ids": [
+        "platform-misc-19"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/env_ref.ex:54",
+      "note": "EnvRef.normalize_secret trims while EnvResolver.normalize_secret_value only converts empty string; grammar resolution remains independently implemented under both modules. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-21",
+      "status": "present",
+      "anchor": "src/lib/aiur/ticket_activity/projection.ex:386",
+      "note": "Projection independently checks progress names, phase stage transitions and sanitizes observation fields; TicketObservation retains its own stage vocabulary. Repeated stage/phase rules remain. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-22",
+      "status": "present",
+      "anchor": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex:7",
+      "note": "Snapshot waiting-reason allowlist still omits provider_limited/lifetime-latched reasons and falls through ordered checks to bucket defaults; terminal cancellation recognizes only cancelled/canceled. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_query/store_reader.ex:87",
+      "note": "StoreReader maps all non-writable/non-corrupt store states to unavailable, although read_one still returns retained decision; DecisionStore projection repair failure retains data with repair health. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/linear/client.ex:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "platform-misc-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/memory/tracker.ex:94",
+      "note": "Two-arity state updates/add_label emit events without mutation, expected-state update and remove_label mutate Application env through non-atomic read/put sequences. Fixture semantics remain inconsistent. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-26",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/hooks.ex:5",
+      "note": "Workspace hooks still directly depend on GitHub AuthPreflight/Client/config plus Alerts, BuildGate and RepoBase; github_repo_url locally reconstructs repository URL. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/schema/agent.ex:106",
+      "note": "Agent schema still combines dispatch, load, build and budget settings, hand-maintains permitted cast keys, and shares file with backend schemas. Historical field count not newly asserted. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/schema/agent_validation.ex:150",
+      "note": "Priority and complexity routes retain parallel backend/remote/effort checks; prompt/turn level normalization repeats.",
+      "source_ids": [
+        "platform-misc-28"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/ownership/guardian.ex:16",
+      "note": "Guardian still uses bare spawn and explicit repeated receive/reply/loop clauses; Reconciler.restore_all halts on first restore error and init stops, so malformed receipt can prevent startup. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_query/params.ex:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-30"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "platform-misc-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_membership/store.ex:47",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "platform-misc-32",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_projection/value.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-32"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "platform-misc-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/upgrade/state.ex:57",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "platform-misc-34",
+      "status": "present",
+      "anchor": "src/lib/aiur/init/github.ex:176",
+      "note": "Init label pagination still uses raw Req.get instead of GitHub transport; init dotenv reads only cwd .env and Aiur.Env still imports wizard Dotenv parser. Boundary/precedence divergence remains. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-34"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-35",
+      "status": "changed",
+      "anchor": "src/lib/aiur/workspace/hooks.ex:49",
+      "note": "after_run and both before_remove hook paths still ignore errors through ignore_hook_failure. Logger-only evidence remains, but durable normal-mode launcher logging (#2983) makes the historical no-debug loss premise obsolete. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-35"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-36",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/eleven_labs/realtime.ex:127",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-36"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "platform-misc-37",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/ticket_activity/projection.ex:432",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-37"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "platform-misc-38",
+      "status": "changed",
+      "anchor": "src/lib/aiur/sandbox/event_flow_demo.ex:3",
+      "note": "Three empty sandbox modules remain and Anthropic adapter remains undeclared by registry; EventFlowDemo now has functions, so four empty modules is obsolete.",
+      "source_ids": [
+        "platform-misc-38"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-39",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_membership/projection.ex:118",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "platform-misc-39"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

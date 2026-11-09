@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :listener_delivery_target, Aiur.Orchestrator.ListenerDeliveryTarget
+
 config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
 
 # OTP terminate reports inspect the last message and server state while they
@@ -19,6 +21,7 @@ config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+config :aiur, Aiur.Events.InstanceId, Aiur.Identity
 
 config :aiur, :signal,
   alert_sink: Aiur.Alerts,
@@ -71,6 +74,7 @@ config :aiur, :init_contributions, [Aiur.Voice]
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Listener.CapabilityProvider,
   Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.Experiments.CapabilityProvider,
@@ -81,11 +85,13 @@ config :aiur, :capability_providers, [
   Aiur.Executor.CapabilityProvider,
   Aiur.BuildOrder.CapabilityProvider,
   Aiur.ElevenLabs.CapabilityProvider,
+  Aiur.VoiceConverse.Host.Capability,
   AiurWeb.StreamdeckCapabilityProvider,
   Aiur.Webhooks.CapabilityProvider,
   Aiur.Claude.RemoteControl.CapabilityProvider,
   Aiur.ProviderMeterProjection.CapabilityProvider,
-  Aiur.LiveConversation.CapabilityProvider
+  Aiur.LiveConversation.CapabilityProvider,
+  Aiur.Events.CapabilityProvider
 ]
 
 config :aiur, :project_identity_source, Aiur.Tracker
@@ -103,7 +109,11 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
-  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+  always: [
+    Aiur.Orchestrator.HostedModeCheck,
+    Aiur.Config.Schema.TurnSandboxPolicyCheck,
+    Aiur.Opencode.Config.SemanticCheck
+  ]
 
 config :phoenix, :json_library, Jason
 
@@ -171,6 +181,10 @@ if config_env() == :test do
   # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
   config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
+  # The label catalogue refreshes hourly against GitHub. The shared test app starts the
+  # process so its table exists, but no test may dial for it; cases drive `refresh/1`
+  # with an injected request function.
+  config :aiur, :label_catalogue_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available
@@ -190,6 +204,11 @@ if config_env() == :test do
   # on one VM-wide ledger written before per-test path isolation is applied.
   # Recording cases supervise their own pair against their own state directory.
   config :aiur, :executor_recording?, false
+
+  # An answered decision starts an answer-comment task that outlives its test and
+  # calls GitHub inside unrelated tests (#6463, #6579). nil starts no task; tests
+  # that verify publishing pass their own :answer_comment_publisher.
+  config :aiur, :decision_answer_comment_publisher, nil
 
   # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
   # a real run. A case that touches it without TestSupport's per-test root would
@@ -229,6 +248,15 @@ if config_env() == :test do
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false
+
+  # The shared app's LandingWatch, QuarantineLifter and MainWatch read GitHub on a
+  # timer and on bus events. With no token they log `landing watcher poll
+  # unavailable: :missing_github_token` into unrelated async capture_log calls
+  # (#6474). Tests that exercise them start their own named instances.
+  config :aiur, :repository_services?, false
+
+  # The shared app never reads the developer's ~/.aiur/machine `projects:`; project-tree tests start their own.
+  config :aiur, :projects_enabled?, false
 
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and

@@ -67,7 +67,7 @@ def measure(broker, resident, writers, rounds, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True)
-    parser.add_argument("--broker", default="src/priv/github_budget.py")
+    parser.add_argument("--broker", required=True, help="Path to an installed, assembled broker")
     parser.add_argument("--writers", type=int, default=3)
     parser.add_argument("--cpu-workers", type=int, default=1)
     parser.add_argument("--rounds", type=int, default=100)

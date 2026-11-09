@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.OperatorMessages.MessageStatusTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.{AgentQueue, AgentQueueStore}
+  alias Aiur.{AgentQueue, AgentQueueStore, Issue}
   alias Aiur.Orchestrator.{OperatorMessages, State}
 
   # `send_operator_message/2` answers with a queue handle, so `aiur message`
@@ -33,5 +33,23 @@ defmodule Aiur.Orchestrator.OperatorMessages.MessageStatusTest do
 
     assert {:reply, {:error, :unknown_message}, _state} =
              OperatorMessages.operator_message_status_call(state, 4_242)
+  end
+
+  test "an idle ticket message survives until one next-worker claim" do
+    issue = %Issue{id: "44", identifier: "repo#44"}
+    state = %State{queue_store: AgentQueueStore.new(), last_polled_issues: %{"44" => issue}}
+    payload = %{kind: :text, body: "Run the focused dialyzer check", message_id: "idle-ticket-message-1"}
+
+    assert {:reply, {:ok, item_id}, state} = OperatorMessages.send_operator_message_call(state, "44", payload)
+    assert {:reply, {:ok, ^item_id}, state} = OperatorMessages.send_operator_message_call(state, "44", payload)
+    assert {:reply, {:ok, :pending}, state} = OperatorMessages.operator_message_status_call(state, item_id)
+
+    {queue_store, claimed} = AgentQueueStore.claim_next_deliverable(state.queue_store, "repo#44")
+    assert claimed.id == item_id
+    assert claimed.body.text == "Run the focused dialyzer check"
+    {queue_store, consumed} = AgentQueueStore.mark_consumed(queue_store, item_id)
+    assert consumed.status == :consumed
+    {_queue_store, next} = AgentQueueStore.claim_next_deliverable(queue_store, "repo#44")
+    assert is_nil(next)
   end
 end

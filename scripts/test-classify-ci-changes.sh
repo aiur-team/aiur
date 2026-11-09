@@ -7,6 +7,7 @@ mkdir -p "$test_dir/bin" "$test_dir/workspace/src"
 cat > "$test_dir/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
+  'pr view 7 --repo o/r --json reviewDecision --jq .reviewDecision') echo "${TEST_REVIEW-APPROVED}" ;;
   *'/rules/branches/'*)
     if [[ "${TEST_LEGACY:-false}" == true ]]; then
       echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"test"}]}}]'
@@ -99,6 +100,9 @@ done
 for path in src/browser/tests/example.browser.spec.mjs src/lib/aiur_web/router.ex src/priv/static/js/app.js; do
   expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
 done
+for path in src/lib/aiur_web/components/units_table.ex src/lib/aiur_web/live/dashboard_live.ex src/lib/aiur_web/controllers/dashboard_controller.ex src/priv/static/js/dashboard.js; do
+  TEST_REVIEW=REVIEW_REQUIRED expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+done
 for path in .github/workflows/ci.yml scripts/check-ci-gate.py scripts/ci-policy.rb scripts/classify-ci-changes.sh; do
   expect 'browser_smoke=true docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
@@ -136,6 +140,36 @@ classify pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scope
 grep -Fq 'fixture selector diagnostic' "$test_dir/summary"
 grep -Fq '```text' "$test_dir/summary"
 grep -Fq '### Affected-test selection warning' "$test_dir/summary"
+# Unapproved heads run the fast set unless a full-CI label is present.
+for review in REVIEW_REQUIRED CHANGES_REQUESTED ''; do
+  for path in .github/workflows/ci.yml scripts/ci-policy.rb src/browser/tests/example.browser.spec.mjs; do
+    TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+    grep -Fxq 'dialyzer=false' "$test_dir/out"
+  done
+  for path in src/lib/aiur_web/components/units_table.ex; do
+    TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+    grep -Fxq 'dialyzer=false' "$test_dir/out"
+  done
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/mix.lock"}]'
+  grep -Fxq 'dialyzer=false' "$test_dir/out"
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
+  grep -Fxq 'dialyzer=false' "$test_dir/out"
+  grep -Fq 'fast checks only' "$test_dir/summary"
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/test/support/helper.exs"}]' '[]' full
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=true full_ci=false' pull_request false '[{"filename":"website/docs-app/guide/a.md"}]'
+  TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=true' pull_request false '[{"filename":".github/workflows/ci.yml"}]' '[{"name":"ci:full"}]'
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[{"name":"main-fix"}]'
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[]'
+  TEST_REVIEW="$review" TEST_FILE_CAP=true expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[]'
+  TEST_REVIEW="$review" TEST_LEGACY=true expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
+done
+TEST_REVIEW=APPROVED expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
+! grep -Fq 'fast checks only' "$test_dir/summary"
+# The aggregate CI gate needs these jobs in the same workflow. A sibling guard
+# workflow would reintroduce independent (and potentially stale) PR gating.
+[[ ! -e "$root/.github/workflows/ci-guards.yml" ]]
+[[ ! -e "$root/scripts/ci/changes-classify.sh" ]]
 workflow="$root/.github/workflows/ci.yml"
 ! grep -q 'outputs.draft\|pull_request.draft' "$workflow"
 grep -Fq 'uses: ./.github/actions/setup-elixir' "$workflow"

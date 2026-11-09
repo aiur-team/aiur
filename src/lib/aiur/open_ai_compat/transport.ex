@@ -1,25 +1,76 @@
 defmodule Aiur.OpenAICompat.Transport do
   @moduledoc false
 
-  alias Aiur.OpenAICompat.Concurrency
+  alias Aiur.OpenAICompat.{Concurrency, CreditLimit, OutputTokens}
   alias Aiur.UsageEnvelope
 
+  # One request, plus at most one retry — for two reasons only, both of which
+  # mean the *cap*, not the model, was wrong:
+  #
+  #   * the provider refused the output-token reservation for lack of credit
+  #     (HTTP 402), answered by a smaller cap at `CreditLimit.retry_cap/2`;
+  #   * the completion stopped on the cap (`finish_reason: "length"`), answered
+  #     by `OutputTokens.escalate/1`.
+  #
+  # A second refusal of either kind is returned to the coding agent, which
+  # pauses the route rather than failing the turn (#7514).
   @spec complete(map(), [map()], [map()]) :: {:ok, map()} | {:error, term()}
   def complete(config, messages, tools) do
-    request = build_request(config, messages, tools)
+    attempt(config, messages, tools, cap(config), :initial)
+  end
 
-    {result, in_flight} = request(config, request)
+  defp cap(config), do: OutputTokens.resolve(Map.get(config, :max_output_tokens))
 
-    with {:ok, response} <- result,
-         :ok <- status(response),
-         {:ok, completion} <- decode(config, response),
-         :ok <- completion_status(config.transport, completion) do
-      {:ok,
-       completion
-       |> Map.put(:headers, Map.get(response, :headers, %{}))
-       |> Map.put(:local_in_flight, in_flight)}
+  defp attempt(config, messages, tools, cap, stage) do
+    {result, in_flight} = request(config, build_request(config, messages, tools, cap))
+
+    case result do
+      {:ok, response} -> respond(config, response, in_flight, messages, tools, cap, stage)
+      {:error, _reason} = error -> error
     end
   end
+
+  defp respond(config, response, in_flight, messages, tools, cap, stage) do
+    case status(response) do
+      :ok ->
+        with {:ok, completion} <- decode(config, response),
+             :ok <- completion_status(config.transport, completion) do
+          {:ok,
+           completion
+           |> Map.put(:headers, Map.get(response, :headers, %{}))
+           |> Map.put(:local_in_flight, in_flight)}
+        else
+          {:error, {:incomplete_provider_response, "length"} = reason} ->
+            retry_with(config, messages, tools, stage, {:error, reason}, {:ok, OutputTokens.escalate(cap)})
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      {:error, {:http_error, 402, detail}} ->
+        if CreditLimit.error?(detail) do
+          retry_with(
+            config,
+            messages,
+            tools,
+            stage,
+            {:error, :credit_limited},
+            CreditLimit.retry_cap(cap, detail)
+          )
+        else
+          {:error, {:http_error, 402, detail}}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp retry_with(config, messages, tools, stage, _fallback, {:ok, next_cap}) when stage == :initial and is_integer(next_cap) do
+    attempt(config, messages, tools, next_cap, :retried)
+  end
+
+  defp retry_with(_config, _messages, _tools, _stage, fallback, _next_cap), do: fallback
 
   defp request(%{quirks: %{local_concurrency_limit: true}} = config, request) do
     Concurrency.with_slot(config.backend, fn -> config.request_fun.(request) end)
@@ -27,25 +78,34 @@ defmodule Aiur.OpenAICompat.Transport do
 
   defp request(config, request), do: {config.request_fun.(request), nil}
 
-  defp build_request(%{transport: :chat_completions} = config, messages, tools) do
+  defp build_request(%{transport: :chat_completions} = config, messages, tools, cap) do
     %{
       method: :post,
       url: endpoint(config.base_url, "/chat/completions"),
       headers: request_headers(config),
       json:
         maybe_put_provider(
-          %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"},
+          maybe_put_models(
+            %{
+              "model" => config.model,
+              "messages" => messages,
+              "tools" => tools,
+              "tool_choice" => "auto",
+              "max_tokens" => cap
+            },
+            config
+          ),
           config
         )
     }
   end
 
-  defp build_request(%{transport: :responses} = config, messages, tools) do
+  defp build_request(%{transport: :responses} = config, messages, tools, cap) do
     %{
       method: :post,
       url: endpoint(config.base_url, "/responses"),
       headers: request_headers(config),
-      json: %{"model" => config.model, "input" => messages, "tools" => tools}
+      json: %{"model" => config.model, "input" => messages, "tools" => tools, "max_output_tokens" => cap}
     }
   end
 
@@ -59,6 +119,16 @@ defmodule Aiur.OpenAICompat.Transport do
   end
 
   defp maybe_put_provider(json, _config), do: json
+
+  # A model set: OpenRouter picks between these models itself, in the order
+  # the `provider` block ranks them (a set with no `order` is sent with
+  # `sort: price`, i.e. cheapest first). `model` stays the primary so the
+  # response's served model is what billing reads, not this list.
+  defp maybe_put_models(json, %{models: models}) when is_list(models) and models != [] do
+    Map.put(json, "models", models)
+  end
+
+  defp maybe_put_models(json, _config), do: json
 
   defp stringify_keys(value) when is_map(value), do: Map.new(value, fn {key, val} -> {to_string(key), stringify_keys(val)} end)
   defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)

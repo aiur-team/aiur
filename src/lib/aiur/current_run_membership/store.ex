@@ -9,8 +9,8 @@ defmodule Aiur.CurrentRunMembership.Store do
   use GenServer
 
   alias Aiur.Boot
-  alias Aiur.CurrentRunMembership.{Event, Projection}
-  alias Aiur.CurrentRunMembership.Store.{Recovery, Runtime}
+  alias Aiur.CurrentRunMembership.{Event, OutboundEvents, Projection}
+  alias Aiur.CurrentRunMembership.Store.{Batch, Recovery, Runtime}
   alias Aiur.TrackerIdentity
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -27,6 +27,16 @@ defmodule Aiur.CurrentRunMembership.Store do
     GenServer.call(server, {:observe, identity, lifecycle, observed_at, source}, timeout)
   end
 
+  @doc false
+  @spec observe_many([{TrackerIdentity.t(), Event.lifecycle()}], keyword()) :: {:ok, map()} | {:error, term()}
+  def observe_many(observations, opts \\ []) do
+    GenServer.call(
+      Keyword.get(opts, :server, __MODULE__),
+      {:observe_many, observations, Keyword.get(opts, :observed_at, DateTime.utc_now()), Keyword.get(opts, :source, :status_report)},
+      Keyword.get(opts, :timeout, 60_000)
+    )
+  end
+
   @spec snapshot(keyword()) :: map()
   def snapshot(opts \\ []) do
     GenServer.call(Keyword.get(opts, :server, __MODULE__), {:snapshot, Keyword.get(opts, :limit, 1_000)})
@@ -37,6 +47,10 @@ defmodule Aiur.CurrentRunMembership.Store do
 
   @spec generation(GenServer.server()) :: non_neg_integer()
   def generation(server \\ __MODULE__), do: GenServer.call(server, :generation)
+
+  @doc false
+  @spec lifecycles(GenServer.server()) :: map() | {:error, :membership_unavailable}
+  def lifecycles(server \\ __MODULE__), do: GenServer.call(server, :lifecycles)
 
   @spec health(GenServer.server()) :: term()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
@@ -90,6 +104,7 @@ defmodule Aiur.CurrentRunMembership.Store do
       state
       |> Map.put(:projection_checkpoint, nil)
       |> Map.put(:projection_checkpoint_generation, 0)
+      |> Map.put(:event_publish_fun, Keyword.get(opts, :event_publish_fun, &OutboundEvents.publish/2))
 
     Runtime.notify(state, nil)
     {:ok, state}
@@ -107,6 +122,10 @@ defmodule Aiur.CurrentRunMembership.Store do
     end
   end
 
+  def handle_call({:observe_many, observations, observed_at, source}, _from, state) do
+    Batch.observe(observations, observed_at, source, state)
+  end
+
   def handle_call({:snapshot, limit}, _from, state) do
     state = Runtime.cache_members(state)
     {:reply, Runtime.snapshot(state, limit), state}
@@ -120,6 +139,14 @@ defmodule Aiur.CurrentRunMembership.Store do
   end
 
   def handle_call(:generation, _from, state), do: {:reply, state.projection.generation, state}
+
+  def handle_call(:lifecycles, _from, %{writable?: false} = state), do: {:reply, {:error, :membership_unavailable}, state}
+
+  def handle_call(:lifecycles, _from, state) do
+    lifecycles = Map.new(state.projection.members, fn {_key, member} -> {member.identity, member.lifecycle} end)
+    {:reply, lifecycles, state}
+  end
+
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
 
   def handle_call(:freshness, _from, state) do

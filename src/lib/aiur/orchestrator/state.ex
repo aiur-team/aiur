@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`. Queue restore failures recover to an empty queue so they cannot prevent daemon boot."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.ControlLifecycle
 
@@ -38,7 +38,15 @@ defmodule Aiur.Orchestrator.State do
             %{
               optional(:reclaimable_cpu_percent) => float(),
               optional(:reclaimable_cpu_threshold) => float(),
-              signal: :memory | :file_descriptors | :run_queue | :load | :cpu_pressure | :build | :provider | :envelope,
+              signal:
+                :memory
+                | :file_descriptors
+                | :run_queue
+                | :load
+                | :cpu_pressure
+                | :build
+                | :provider
+                | :envelope,
               measured: term(),
               threshold: term(),
               measured_at: DateTime.t(),
@@ -62,7 +70,13 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_complete?: boolean(),
           orphaned_claim_since: map(),
           startup_claim_reconciliation_failures: map(),
-          contradictory_state_label_tickets: %{optional(String.t()) => %{identifier: String.t(), labels: [String.t()], since_ms: integer()}},
+          contradictory_state_label_tickets: %{
+            optional(String.t()) => %{
+              identifier: String.t(),
+              labels: [String.t()],
+              since_ms: integer()
+            }
+          },
           contradictory_state_label_alert_active: boolean(),
           queue_store: term(),
           last_polled_issues: map(),
@@ -72,10 +86,15 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             optional(:broker_fast_retry_pending?) => boolean(),
+            optional(:ci_wait_draft_since) => %{optional(String.t()) => integer()},
+            optional(:ci_wait_draft_alerts | :ci_wait_draft_recovered | :ci_wait_draft_comments) => MapSet.t(),
+            optional(:ci_wait_draft_pending_alerts) => map(),
+            optional(:draft_stall_alerts) => MapSet.t(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
+            ci_observed_at_ms: map(),
             poll_cache: map(),
             rewakes: map(),
             parked_ready_alerts: MapSet.t() | nil
@@ -89,13 +108,22 @@ defmodule Aiur.Orchestrator.State do
           fleet_capacity_starvation_resolution_emitted: boolean(),
           observed_error_alerts: MapSet.t(),
           active_attention_topics: MapSet.t(),
-          waiting_for_human_episodes: %{optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}},
+          waiting_for_human_episodes: %{
+            optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}
+          },
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
+          feature_supply: map(),
           dispatch_capacity_sample: %{
-            optional(:cpu_pressure | :pressure_threshold | :pressure_target | :memory_mb | :memory_threshold_mb) => term(),
+            optional(
+              :cpu_pressure
+              | :pressure_threshold
+              | :pressure_target
+              | :memory_mb
+              | :memory_threshold_mb
+            ) => term(),
             optional(:load_discount_reason | :load_daemon_nice) => :enabled | :unavailable | integer(),
             optional(:gate_signal) => number() | :unavailable,
             optional(:load_sampled_at_ms) => integer() | nil,
@@ -111,7 +139,11 @@ defmodule Aiur.Orchestrator.State do
             signature: [String.t()],
             alerted: [String.t()]
           },
-          fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
+          fleet_capacity_starvation: %{
+            since_ms: integer() | nil,
+            alert_active: boolean(),
+            effective_cap: pos_integer() | nil
+          },
           # Monotonic ms when the DecisionStore first read as `:unavailable`
           # while dispatchable work was queued (nil when no such hold is in
           # progress). The `system.dispatch.decision_store_unavailable` alert is
@@ -120,10 +152,23 @@ defmodule Aiur.Orchestrator.State do
           decision_store_unavailable_alert_active: boolean(),
           decision_store_unavailable_alert_resolution_emitted: boolean(),
           dependency_circular_wait: %{
-            optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
+            optional(String.t()) => %{
+              identifier: String.t(),
+              waiting_count: pos_integer(),
+              since_ms: integer(),
+              alerted?: boolean()
+            }
           },
-          running: %{optional(String.t()) => %{optional(:start_mode) => :ready | :optimistic, optional(:optimistic_blockers) => [String.t()], optional(atom()) => term()}},
-          running_issue_cache: %{optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}},
+          running: %{
+            optional(String.t()) => %{
+              optional(:start_mode) => :ready | :optimistic,
+              optional(:optimistic_blockers) => [String.t()],
+              optional(atom()) => term()
+            }
+          },
+          running_issue_cache: %{
+            optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}
+          },
           completed: MapSet.t(),
           claimed: MapSet.t(),
           dispatch_recovery: %{
@@ -131,7 +176,9 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
-          comment_rework_retries: %{{String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}},
+          comment_rework_retries: %{
+            {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
+          },
           auto_resume: %{String.t() => map()},
           budget_hold_streaks: %{String.t() => map()},
           # Claims released after retry exhaustion until dispatch re-establishes ownership.
@@ -153,6 +200,7 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          fleet_paused: boolean(),
           # Ticket identifiers with an open blocking Command, read once per
           # dispatch cycle from `DecisionStore.blocked_ticket_ids/1`. `nil`
           # means "never computed this cycle" (treated as no gate); a `MapSet`
@@ -212,6 +260,8 @@ defmodule Aiur.Orchestrator.State do
     :poll_frozen,
     :tick_timer_ref,
     :tick_token,
+    :dashboard_notify_token,
+    :dashboard_notify_timer_ref,
     :initial_dispatch_cycle,
     :ci_readiness_checked,
     :ci_readiness_unavailable_alerted,
@@ -227,6 +277,7 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
+    # Lifecycle.init/2 rehydrates durable next-worker messages before dispatch.
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     terminal_verification_attempts: %{},
@@ -238,6 +289,7 @@ defmodule Aiur.Orchestrator.State do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: %{},
       poll_cache: %{},
       rewakes: %{},
       parked_ready_alerts: nil,
@@ -257,7 +309,14 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
     dispatch_declines: %{},
-    dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil, observed_at: nil},
+    feature_supply: %{},
+    dispatch_capacity_sample: %{
+      load: :unavailable,
+      load_threshold: nil,
+      target: nil,
+      schedulers: nil,
+      observed_at: nil
+    },
     dispatch_cycle_stalled?: false,
     dispatch_cycle_stage: nil,
     dispatch_cycle_started_monotonic_ms: nil,
@@ -298,6 +357,7 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    fleet_paused: false,
     blocked_ticket_ids: nil,
     global_pause: %{paused_at: nil, source: nil},
     # Reconciled merge receipts prevent retained records from closing a reopened ticket.
@@ -326,9 +386,13 @@ defmodule Aiur.Orchestrator.State do
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
-  defdelegate handle_worker_runtime_info(state, issue_id, runtime_info), to: __MODULE__.RuntimeInfo
+  defdelegate handle_worker_runtime_info(state, issue_id, runtime_info),
+    to: __MODULE__.RuntimeInfo
+
   @spec handle_live_conversation_restart(t(), String.t(), DateTime.t()) :: {:noreply, t()}
-  defdelegate handle_live_conversation_restart(state, projection_epoch, observed_at), to: __MODULE__.RuntimeInfo
+  defdelegate handle_live_conversation_restart(state, projection_epoch, observed_at),
+    to: __MODULE__.RuntimeInfo
+
   @spec handle_repl_session_runtime(t(), String.t(), map()) :: {:noreply, t()}
   defdelegate handle_repl_session_runtime(state, issue_id, info), to: __MODULE__.RuntimeInfo
   @spec handle_session_execution_info(t(), String.t(), map()) :: {:noreply, t()}
@@ -369,12 +433,16 @@ defmodule Aiur.Orchestrator.State do
   defdelegate completed_provenance?(entry), to: __MODULE__.RunningEntries
   @spec deactivated_running_entry?(term()) :: boolean()
   defdelegate deactivated_running_entry?(entry), to: __MODULE__.RunningEntries
+  @spec control_map(term()) :: map()
+  defdelegate control_map(entry), to: __MODULE__.RunningEntries
   @spec find_running_key_by_identifier(map(), String.t()) :: term() | nil
   defdelegate find_running_key_by_identifier(running, identifier), to: __MODULE__.RunningEntries
   @spec apply_pause_runtime_clock(map(), atom(), atom(), term()) :: map()
   defdelegate apply_pause_runtime_clock(entry, previous, next, now), to: __MODULE__.RunningEntries
   @spec thaw_pause_clock(map(), term(), atom(), term()) :: map()
-  defdelegate thaw_pause_clock(running, issue_id, previous_status, now), to: __MODULE__.RunningEntries
+  defdelegate thaw_pause_clock(running, issue_id, previous_status, now),
+    to: __MODULE__.RunningEntries
+
   @spec shift_started_at_by_pause_if(map(), atom(), term()) :: map()
   defdelegate shift_started_at_by_pause_if(entry, previous, now), to: __MODULE__.RunningEntries
   @spec shift_started_at_by_pause(map(), term()) :: map()
@@ -400,11 +468,14 @@ defmodule Aiur.Orchestrator.State do
   @spec rework_attempt_count(t(), String.t(), String.t() | nil) :: non_neg_integer()
   defdelegate rework_attempt_count(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec rework_attempt_limit_reached?(t(), String.t(), String.t() | nil) :: boolean()
-  defdelegate rework_attempt_limit_reached?(state, issue_id, head_sha), to: __MODULE__.RunningEntries
+  defdelegate rework_attempt_limit_reached?(state, issue_id, head_sha),
+    to: __MODULE__.RunningEntries
+
   @spec bump_rework_attempt(t(), String.t(), String.t() | nil) :: t()
   defdelegate bump_rework_attempt(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec rework_attempt_alerted?(t(), String.t(), String.t()) :: boolean()
   defdelegate rework_attempt_alerted?(state, issue_id, head_sha), to: __MODULE__.RunningEntries
   @spec mark_rework_attempt_alerted(t(), String.t(), String.t()) :: t()
-  defdelegate mark_rework_attempt_alerted(state, issue_id, head_sha), to: __MODULE__.RunningEntries
+  defdelegate mark_rework_attempt_alerted(state, issue_id, head_sha),
+    to: __MODULE__.RunningEntries
 end

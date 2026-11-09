@@ -21,6 +21,10 @@ defmodule AiurWeb.Presenter do
   alias Aiur.{Commands, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
   @recent_merge_limit 50
+  @status_contract "aiur.status"
+  @ticket_contract "aiur.ticket"
+  @contract_version 1
+
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -29,6 +33,7 @@ defmodule AiurWeb.Presenter do
     |> orchestrator_payload(snapshot_timeout_ms)
     |> Map.put(:generated_at, generated_at)
     |> Map.merge(auxiliary_payload(opts))
+    |> version(@status_contract)
   end
 
   @doc "Returns the current dashboard navigation contract and optional page capabilities."
@@ -290,7 +295,11 @@ defmodule AiurWeb.Presenter do
     }
     |> maybe_put_tracker_identity(tracker_identity)
     |> maybe_put_idle_payload(idle)
+    |> version(@ticket_contract)
   end
+
+  defp version(payload, contract),
+    do: Map.merge(payload, %{contract: contract, contract_version: @contract_version})
 
   defp issue_id_from_entries(running, retry, idle),
     do: (running && running.issue_id) || (retry && retry.issue_id) || (idle && idle.issue_id)

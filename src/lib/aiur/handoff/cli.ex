@@ -3,9 +3,13 @@ defmodule Aiur.Handoff.CLI do
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
   alias Aiur.Handoff.Report
 
+  @agents_contract "aiur.agents"
+  @contract_version 1
+
   # Keep this below the 120s shell RPC envelope in engine/handoff.sh so the
   # daemon can report the blocked control RPC before the launcher times out.
-  @preflight_snapshot_timeout_ms 100_000
+  # Leave the prepare's 100s budget inside the shell's 120s RPC envelope.
+  @preflight_snapshot_timeout_ms 10_000
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
@@ -20,8 +24,9 @@ defmodule Aiur.Handoff.CLI do
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
       timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
+      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
 
-      case Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) do
+      case snapshot_fun.() do
         :timeout ->
           failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
 
@@ -29,26 +34,65 @@ defmodule Aiur.Handoff.CLI do
           failure("orchestrator is not running")
 
         snapshot ->
-          prepare_snapshot(snapshot)
+          prepare_snapshot(snapshot, opts)
       end
     end)
   end
 
-  defp prepare_snapshot(snapshot) do
-    capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+  defp prepare_snapshot(snapshot, opts) do
+    running = Map.get(snapshot, :running, [])
+    blocking = Enum.reject(running, &handoff_capable?/1)
 
-    if snapshot.running == [] or capable do
-      prepare_running()
-    else
-      failure("no running agent supports handoff")
+    cond do
+      running == [] ->
+        prepare_running(opts)
+
+      blocking == [] ->
+        prepare_running(opts)
+
+      length(blocking) == length(running) ->
+        failure(blocking_message(blocking))
+
+      true ->
+        IO.puts("Handoff will not adopt #{count_phrase(blocking)}: #{backend_breakdown(blocking)}; they resume from their workspace after the restart")
+        prepare_running(opts)
     end
   end
 
-  defp prepare_running do
-    case Aiur.AgentControlCLI.prepare_handoff() do
+  # Which backends can hand a live session to the successor daemon is a
+  # registry fact (`Aiur.CodingAgent.handoff_kind/1`), so a new backend cannot
+  # be silently excluded by an allowlist here.
+  defp handoff_capable?(agent), do: not is_nil(Aiur.CodingAgent.handoff_kind(Map.get(agent, :backend)))
+
+  defp blocking_message(blocking) do
+    "no running agent supports handoff: #{backend_breakdown(blocking)} cannot be adopted across a restart. " <>
+      "Drain the fleet first (aiur pause --all, wait for those turns to end, then aiur stop and aiur run), " <>
+      "or restart plainly without keep-agents: aiur restart"
+  end
+
+  defp count_phrase(agents), do: "#{length(agents)} #{if length(agents) == 1, do: "agent", else: "agents"}"
+
+  defp backend_breakdown(agents) do
+    agents
+    |> Enum.group_by(&(Map.get(&1, :backend) || "unknown"))
+    |> Enum.sort_by(fn {backend, group} -> {backend, -length(group)} end)
+    |> Enum.map_join(", ", fn {backend, group} -> "#{backend} (#{count_phrase(group)})" end)
+  end
+
+  defp prepare_running(opts) do
+    prepare_handoff = Keyword.get(opts, :handoff, fn -> Aiur.AgentControlCLI.prepare_handoff() end)
+
+    case prepare_handoff.() do
       {:ok, result} ->
         IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
-        if result.skipped != [], do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        if result.skipped != [],
+          do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        for agent <- result.agents, reason = agent["fallback_reason"], not is_nil(reason) do
+          IO.puts("Handoff ticket fallback: #{agent["identifier"]} (#{reason})")
+        end
+
         exit_marker(0)
 
       {:error, reason} ->
@@ -80,11 +124,15 @@ defmodule Aiur.Handoff.CLI do
   def agents(opts \\ []) do
     guarded("agents --json", fn ->
       snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
-      rows = Enum.map(snapshot.running, &Map.take(&1, [:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from]))
-      rows = Enum.map(rows, &Map.put(&1, :provider_pid, Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])))
-      IO.puts(Jason.encode!(%{running: rows}))
+      IO.puts(Jason.encode!(agents_payload(snapshot)))
       exit_marker(0)
     end)
+  end
+
+  defp agents_payload(%{running: running}) when is_list(running) do
+    rows = Enum.map(running, &Map.take(&1, [:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from]))
+    rows = Enum.map(rows, &Map.put(&1, :provider_pid, Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])))
+    %{contract: @agents_contract, contract_version: @contract_version, running: rows}
   end
 
   @spec print(map() | nil, keyword()) :: :ok
@@ -98,8 +146,12 @@ defmodule Aiur.Handoff.CLI do
 
       true ->
         IO.puts("HANDOFF #{report.handoff_id} at=#{report.completed_at || "unknown"} adopted=#{length(report.adopted)} fallback=#{length(report.fallback)} gap=#{report.gap_ms || "unknown"}ms")
-        for agent <- report.adopted, do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
-        for agent <- report.fallback, do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
+
+        for agent <- report.adopted,
+            do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
+
+        for agent <- report.fallback,
+            do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
     end
 
     :ok

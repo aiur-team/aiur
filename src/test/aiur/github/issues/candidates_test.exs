@@ -35,6 +35,33 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "does not retain a foreign-prefix ticket as a degenerate repair candidate" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo"]
+      )
+
+      foreign_ticket = %{
+        "number" => 5895,
+        "title" => "Other instance ticket",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/5895",
+        "labels" => [%{"name" => " NUC:todo "}],
+        "assignee" => nil,
+        "created_at" => "2026-10-22T00:00:00Z",
+        "updated_at" => "2026-10-22T00:00:00Z"
+      }
+
+      request_fun = fn %{url: url} ->
+        assert url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+        {:ok, %{status: 200, headers: [], body: [foreign_ticket]}}
+      end
+
+      assert {:ok, [], _cache} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+    end
+
     test "complete paginated polls record all labels with no extra requests" do
       alias Aiur.GitHub.OpenIssueSnapshot
       OpenIssueSnapshot.reset()

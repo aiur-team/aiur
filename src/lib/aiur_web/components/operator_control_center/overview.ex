@@ -3,29 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
-  alias Aiur.Protocol.ObservationAge
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters}
-
-  @fleet_stats [
-    {:running, "Active", "good"},
-    {:blocked, "Blocked", "block"},
-    {:paused, "Paused", "attn"},
-    {:stuck, "Stuck", "attn"},
-    {:finished, "Finished", "good"},
-    {:all, "Total", "faint"}
-  ]
-
-  attr(:writable, :boolean, required: true)
-
-  @spec readonly_banner(map()) :: Phoenix.LiveView.Rendered.t()
-  def readonly_banner(assigns) do
-    ~H"""
-    <div :if={!@writable} class="readonly-banner" role="status">
-      <span aria-hidden="true">◉</span>
-      <span><b>Read-only dashboard.</b> Command, message, and pause controls are hidden.</span>
-    </div>
-    """
-  end
+  alias AiurWeb.OperatorControlCenter.DecisionPath
 
   attr(:decisions, :list, default: [])
   attr(:retained_counts, :map, required: true)
@@ -35,21 +13,17 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def decisions_banner(assigns) do
-    # `awaiting`, not `open`: a Command already deferred to the Executor is
-    # still open — the unit stays blocked — but it is no longer on the
-    # operator's queue, and the inbox no longer lists it. Counting it here would
-    # put a number on the banner that the page underneath contradicts.
     assigns =
       assigns
-      |> assign(:blocking, Map.get(assigns.retained_counts, :awaiting_blocking))
-      |> assign(:open, Map.get(assigns.retained_counts, :awaiting))
+      |> assign(:blocking, Map.get(assigns.retained_counts, :needs_you_blocking))
+      |> assign(:open, Map.get(assigns.retained_counts, :needs_you))
       |> assign(:health, get_in(assigns.retained_counts, [:health, :status]))
 
     ~H"""
     <.link
       :if={is_integer(@open) and @open > 0}
-      patch={!@navigate && DecisionPath.inbox(:all)}
-      navigate={@navigate && DecisionPath.inbox(:all)}
+      patch={!@navigate && DecisionPath.inbox(:needs_you)}
+      navigate={@navigate && DecisionPath.inbox(:needs_you)}
       id="decisions-banner"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} Commands awaiting you, #{@blocking} blocking"}
@@ -89,38 +63,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       <span aria-hidden="true">◉</span>
       <span><b>Partial Command counts.</b> Counts are at least this high.</span>
     </div>
-    """
-  end
-
-  attr(:fleet, :map, required: true)
-  attr(:filters, :any, required: true)
-
-  @spec fleet_overview(map()) :: Phoenix.LiveView.Rendered.t()
-  def fleet_overview(assigns) do
-    assigns =
-      assigns
-      |> assign(:counts, FleetFilters.counts(assigns.fleet))
-      |> assign(:stats, @fleet_stats)
-      |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
-
-    ~H"""
-    <p class="muted">Fleet snapshot {ObservationAge.label(@fleet[:snapshot_freshness])}</p>
-    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {ObservationAge.label(observation)}</p>
-    <section class="overview-strip" aria-label="Fleet filters">
-      <button
-        :for={{key, label, tone} <- @stats}
-        type="button"
-        class={["stat", active?(@filters, key, @all_active) && "is-active"]}
-        data-tone={tone}
-        phx-click="toggle-fleet-filter"
-        phx-value-filter={key}
-        aria-pressed={to_string(active?(@filters, key, @all_active))}
-      >
-        <span class="stat-dot"></span>
-        <strong class="stat-value num">{@counts[key]}</strong>
-        <span class="stat-label">{label}</span>
-      </button>
-    </section>
     """
   end
 
@@ -169,9 +111,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   defp error_detail(_code, _message),
     do: "No fleet data. The reported fault is shown below."
 
-  defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
-  defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
-
-  defp active?(_filters, :all, all_active), do: all_active
-  defp active?(filters, key, _all_active), do: MapSet.member?(filters, key)
+  defp banner_title(_blocking, 1), do: "1 Command needs you"
+  defp banner_title(_blocking, open), do: "#{open} Commands need you"
 end

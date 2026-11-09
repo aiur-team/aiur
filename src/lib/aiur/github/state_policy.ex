@@ -11,6 +11,10 @@ defmodule Aiur.GitHub.StatePolicy do
     |> String.replace(" ", "-")
   end
 
+  @doc "Every state slug a `<prefix>:<state>` label can carry."
+  @spec known_states() :: [String.t()]
+  defdelegate known_states(), to: Aiur.GitHub.StateLabels
+
   @spec human_review_target_state?(String.t()) :: boolean()
   def human_review_target_state?(state_name), do: normalize_state(state_name) == "human-review"
 
@@ -28,7 +32,7 @@ defmodule Aiur.GitHub.StatePolicy do
 
   @spec terminal_state_name?(String.t()) :: boolean()
   def terminal_state_name?(state_name) do
-    normalize_state(state_name) in ["done", "cancelled", "canceled"]
+    normalize_state(state_name) in ["done", "cancelled", "canceled", "budget-exhausted"]
   end
 
   @spec state_label(String.t(), String.t()) :: String.t()

@@ -38,11 +38,17 @@ test('optimized logo size budgets', () => {
     assert.ok(statSync(new URL(`dist/assets/aiur-logo-512.${ext}`, root)).size <= limit);
   }
 });
-test('original logo and favicons match website sources', () => {
-  for (const file of ['aiur-logo.png', 'favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png',
-    'apple-touch-icon.png', 'android-chrome-192x192.png', 'android-chrome-512x512.png', 'site.webmanifest']) {
-    const source = file === 'aiur-logo.png' ? `assets/${file}` : file;
-    const website = readFileSync(new URL(`../../website/public/${source}`, root));
-    assert.deepEqual(readFileSync(new URL(`assets/${file}`, root)), website);
-  }
+// Freeze the original imports after AS-50 removes the redundant website files.
+test('future regression: original assets retain their imported bytes', () => {
+  const originals = {
+    'aiur-logo.png': '5f3b8f3dfa3c1376c775ede482bbb2048bbc4a9c51fd4535ba826f0ec7ac7482',
+    'favicon.ico': '7e2c794adfa502c40ec7a6a122bf4440d23117d18c579bf891defc5bc3727f01',
+    'favicon-16x16.png': 'f1dd7161e923cd8ef3e28f73564e3255add3932756b118eb36bc37a3274cf6d5',
+    'favicon-32x32.png': '7eeb7e8034e0613e2984d97bb8b61bd18497e915542359767862e4b6214e5daa',
+    'apple-touch-icon.png': '69803b1146c7f6ea7a242eb6aae14a9951d058ea4aaf7fcac6fbe0cd54c33ca9',
+    'android-chrome-192x192.png': '8de87db505c633edc9b53f473b37c68ad3bf2fe2c681dda1131a9b4d9408fa51',
+    'android-chrome-512x512.png': 'cad46f19aafd763d90d04141c9c75acfbe0005e8f3d6232f1d7625c3196c6de4',
+    'site.webmanifest': 'c43bd1fc2f36b6d5fba728c62c5e2f130bb022dba187b55093e0c175432bad09',
+  };
+  for (const [file, hash] of Object.entries(originals)) assert.equal(sha(`assets/${file}`), hash, file);
 });

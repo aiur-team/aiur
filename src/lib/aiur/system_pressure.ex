@@ -39,17 +39,23 @@ defmodule Aiur.SystemPressure do
   @spec print_sample(map()) :: :ok
   def print_sample(capacity) do
     pressure = Map.get(capacity, :cpu_pressure, :unavailable)
+    source = Map.get(capacity, :cpu_pressure_source, :host)
     age = sample_age(capacity)
 
     case pressure do
       %{avg10: avg10, avg60: avg60} ->
-        IO.puts("DISPATCH CPU PSI some avg10=#{avg10}% avg60=#{avg60}% threshold=#{inspect(capacity[:pressure_threshold])}% target=#{inspect(capacity[:pressure_target])}%#{age}")
+        IO.puts("DISPATCH CPU PSI source=#{source} some avg10=#{avg10}% avg60=#{avg60}% threshold=#{inspect(capacity[:pressure_threshold])}% target=#{inspect(capacity[:pressure_target])}%#{age}")
+
+      _ when source == :cgroup ->
+        IO.puts("DISPATCH CPU PSI cgroup unavailable; host load fallback disabled#{age}")
 
       _ ->
         IO.puts("DISPATCH CPU PSI unavailable; load-average fallback#{age}")
     end
 
-    IO.puts("DISPATCH MEMORY available_mb=#{inspect(capacity[:memory_mb] || :unavailable)} threshold_mb=#{inspect(capacity[:memory_threshold_mb])}#{age}")
+    IO.puts(
+      "DISPATCH MEMORY available_mb=#{inspect(capacity[:memory_mb] || :unavailable)} threshold_mb=#{inspect(capacity[:memory_threshold_mb])} cgroup_threshold=#{inspect(capacity[:cgroup_memory_threshold])}#{age}"
+    )
   end
 
   defp sample_age(%{load_sampled_at_ms: sampled_at}) when is_integer(sampled_at),

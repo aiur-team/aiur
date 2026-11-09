@@ -282,7 +282,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
   end
 
   defp fetch_active_identifiers do
-    Aiur.Orchestrator.list_active_identifiers(Aiur.Orchestrator, 500)
+    Aiur.Orchestrator.list_active_identifiers(Aiur.Orchestrator.server(), 500)
   rescue
     _ -> []
   catch

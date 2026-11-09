@@ -116,4 +116,4 @@ node scripts/run-browser-tests.mjs tests/build-order-performance.browser.spec.mj
 node scripts/run-browser-tests.mjs tests/build-order-responsive.browser.spec.mjs
 ```
 
-Both are wired into `npm test` (`test:performance`, `test:responsive`) for CI.
+The BuildOrderGraph performance and responsive specs were retired in #6527 with the component; these commands are no longer wired into CI.

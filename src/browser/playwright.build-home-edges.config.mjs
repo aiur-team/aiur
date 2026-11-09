@@ -1,4 +1,4 @@
-import config from './playwright.design-parity.config.mjs'
+import config from './playwright.config.mjs'
 
 // S-24 odd-edge product captures are pending sign-off, but must not drift silently.
 export default {

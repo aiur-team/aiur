@@ -1,0 +1,441 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 26,
+  "first_id": "tests-3-12",
+  "last_id": "tests-5-13",
+  "findings": [
+    {
+      "id": "tests-3-12",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/comment_wake_test.exs:9",
+      "note": "CommentWake base State still explicitly initializes many fields, and retry suites independently build TrackerIdentity/running entries. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-13",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/issue_sync_test.exs:17",
+      "note": "IssueSync still exposes positional injected overloads and tests repeat seven-argument callbacks and terminal set. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-14",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator/dispatcher_test.exs:1",
+      "note": "Dispatcher/IssueSync/RetryEngine remain large suites combining several boundaries; historical line counts changed, responsibility concern unchanged. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-15",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/dispatcher_test.exs:917",
+      "note": "Dispatcher test calls internal-oriented public checks directly and SessionWriter tests hand-build callback state. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-16",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/comment_wake_test.exs:1",
+      "note": "Async CommentWake suite still relies on ambient tracker failure and generic captured logs to prove attempted transitions. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-17",
+      "status": "present",
+      "anchor": "src/test/aiur_web/build_order/planning_source_test.exs:237",
+      "note": "PlanningSource suite still derives repository from ambient Config.repo and substitutes it into fixtures; originless checkout risk remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-18",
+      "status": "present",
+      "anchor": "src/test/aiur/init/dotenv_test.exs:38",
+      "note": "Init tests still call File.cd!, with process-wide cwd mutation while application children exist. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-19",
+      "status": "present",
+      "anchor": "src/test/aiur/opencode/server_test.exs:68",
+      "note": "Opencode server and runner suites retain real external process/tool integration in default tests; missing tool/slow host sensitivity remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-20",
+      "status": "present",
+      "anchor": "src/test/aiur/init/dotenv_test.exs:24",
+      "note": "not_async tags remain despite module-level ExUnit scheduling; no tag-based serialization mechanism is configured.",
+      "source_ids": [
+        "tests-3-20"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-21",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs:17",
+      "note": "Blocked-by suites still repeat private token cache reset and global transport/quota setup; isolation has improved through orchestrator suspension but duplicate setup remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-3-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-22",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator/rework_requeue_test.exs:343",
+      "note": "Negative synchronous receives remain at explicit 100 ms; old bare-call census and 11.2-second sum are obsolete, not remeasured.",
+      "source_ids": [
+        "tests-3-22"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-23",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs:13",
+      "note": "Lifetime budget tests retain manual workflow/env isolation and repeated enabled tags; auto-resume tests repeat the same config tag.",
+      "source_ids": [
+        "tests-3-23"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-24",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator/dispatcher_test.exs:354",
+      "note": "Unavailable timestamp still checked only for integer type; terminal reconciler assertion checks State shape without asserting removed membership.",
+      "source_ids": [
+        "tests-3-24"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-25",
+      "status": "changed",
+      "anchor": "src/test/aiur/eleven_labs/tts_test.exs:17",
+      "note": "Assertions still execute inside spawned request callback, but current test also requires PCM chunks, completion and normal DOWN; diagnostic indirection remains, bare timeout premise no longer holds.",
+      "source_ids": [
+        "tests-3-25"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-3-26",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/webhooks/webhook_mode_contract_test.exs:19",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-3-26"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-4-cont-01",
+      "status": "present",
+      "anchor": "src/test/aiur/claude/display_tailer_test.exs:88",
+      "note": "Conversation-order test still asserts membership in forwarded roles/events, never sequence order. Provisional disposition retained.",
+      "source_ids": [
+        "tests-4-cont-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-4-cont-02",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/usage_compaction/manifest_test.exs:86",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-4-cont-02"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-4-cont-03",
+      "status": "present",
+      "anchor": "src/test/aiur/claude/remote_control_test.exs:574",
+      "note": "Two sleepers start, but fallback kill on_exit is registered only for the outside PID; inside sleeper relies on production reaping succeeding.",
+      "source_ids": [
+        "tests-4-cont-03"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-4-cont-04",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/executor/takeover_alert_monitor_test.exs:78",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-4-cont-04"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-4-cont-05",
+      "status": "unchanged",
+      "anchor": "src/test/scripts_aiurdev_test.exs:1885",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-4-cont-05"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-5-01",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_runner/session_lifecycle_test.exs:1062",
+      "note": "Session shape fixture still claims real default ownership, tracks fabricated 424242 local provider PIDs and releases lease without injected identity/reap doubles. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "tests-5-01",
+        "agent-runtime-30"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-02",
+      "status": "present",
+      "anchor": "src/test/aiur/regression/opencode_slots_test.exs:16",
+      "note": "Regression suites still read production source paths and assert source text; extraction breaks guards independent of behavior. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-03",
+      "status": "present",
+      "anchor": "src/test/aiur/regression/orchestrator_blocking_http_test.exs:54",
+      "note": "Blocking-HTTP regression setup still rewrites shared Orchestrator state; app-singleton supervision dependence remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-04",
+      "status": "present",
+      "anchor": "src/test/aiur/regression/orchestrator_blocking_http_test.exs:202",
+      "note": "Mailbox guard traces Orchestrator sends but counts test-process sends, so comparison remains vacuous; catch-all trace drain consumes other mailbox messages. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-05",
+      "status": "repaired",
+      "anchor": "src/test/aiur/agent_runner/queue_drain_test.exs:185",
+      "note": "Queue/task/tmux receives now carry explicit timeouts. Repaired by aac8a4532024b48e1cbb03073454cfa0832cb6a2 (#2937/#2796); no dedicated U1..U7 finding-owner ticket; retain the existing regression guard and do not reapply this repair. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-06",
+      "status": "present",
+      "anchor": "src/test/aiur/regression/shared_prewarm_e2e_test.exs:14",
+      "note": "Shared prewarm still sleeps 20 ms after async seed; AgentList sorting sleeps 50 ms before :sys.get_state barrier. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-07",
+      "status": "present",
+      "anchor": "src/test/aiur/events/exchange_test.exs:199",
+      "note": "Exchange publish test and CLI-budget tests still assert wall-clock duration; sensitivity remains although integration deadlines have value. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-08",
+      "status": "present",
+      "anchor": "src/test/aiur/events/exchange_test.exs:206",
+      "note": "Exchange, blocking-HTTP and warm-marker suites still maintain distinct polling loops and failure/budget conventions. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-09",
+      "status": "present",
+      "anchor": "src/test/support/test_support.exs:173",
+      "note": "TestSupport exposes app-env helpers but suites still hand-roll restore helpers and log-file isolation. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-09",
+        "tests-2-23",
+        "tests-1c-14",
+        "tests-6-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-10",
+      "status": "present",
+      "anchor": "src/test/aiur/events/github_comments_poller_test.exs:8",
+      "note": "GitHub poller suites still repeat token/workflow/tracked-function setup and inline response routers. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-11",
+      "status": "present",
+      "anchor": "src/test/aiur/events/github_webhook/deposit_test.exs:1488",
+      "note": "Webhook suites still duplicate replay-window clearing and event helpers against Publisher private ETS. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-12",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_runner/queue_drain_test.exs:55",
+      "note": "Queue-drain/checkpoint test GenServers still match private Orchestrator queue tuples and copy protocol behavior. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-5-13",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_runner/tool_executor_test.exs:1951",
+      "note": "Opencode slot regression still reads AttachPool private fanned_out_slots/slot_pids; executor coordination tests inspect internal queues. Provisional disposition retained.",
+      "source_ids": [
+        "tests-5-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

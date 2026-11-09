@@ -1,0 +1,9 @@
+{
+  "from": "streamdeck-server",
+  "to_module": "AiurWeb.Build.Index",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur_web/streamdeck/deck/counts.ex"
+  ],
+  "reason": "#6041 Deck counts read and retain the shared Build index so strip and Build headers use the same NowRows and planned sections"
+}

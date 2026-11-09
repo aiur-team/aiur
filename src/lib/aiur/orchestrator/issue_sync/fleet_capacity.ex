@@ -3,15 +3,16 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   Tracks fleet-wide capacity starvation and recovery.
   """
 
-  alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.PressureAdmission
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
+  alias Aiur.Signal
 
   @doc false
   @spec sync_fleet_capacity_starved_alert(State.t(), list(), integer()) :: State.t()
@@ -61,7 +62,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   # widening envelope with agents still starting — is the intended behavior,
   # not starvation (#2447).
   defp fleet_capacity_starved?(context) do
-    not context.state.globally_paused and context.ready_count > 0 and
+    not PauseGuard.paused?(context.state) and context.ready_count > 0 and
       (hard_capacity_gate?(context) or fleet_at_capacity_bound?(context))
   end
 
@@ -142,7 +143,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
     do: Config.capacity_starvation_alert_after_seconds() * 1_000
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
-    case Alerts.emit_system("system.fleet.capacity.starved",
+    case Signal.alert("system.fleet.capacity.starved",
            reason: fleet_capacity_starvation_reason(context),
            needs_attention: true,
            severity: "warning"
@@ -222,10 +223,10 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   defp clear_fleet_capacity_starvation(%State{} = state) do
     starvation = state.fleet_capacity_starvation
 
-    active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
+    active? = starvation[:alert_active] or AttentionSnapshot.active_system_attention?("system.fleet.capacity.starved")
 
     if active? do
-      case Alerts.emit_system("system.fleet.capacity.starved.resolved",
+      case Signal.alert("system.fleet.capacity.starved.resolved",
              reason: "Fleet capacity is no longer starved.",
              needs_attention: false,
              severity: "info"

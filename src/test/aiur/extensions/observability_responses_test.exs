@@ -81,6 +81,8 @@ defmodule Aiur.Extensions.ObservabilityResponsesTest do
 
     assert without_occ_sections(state_payload) ==
              %{
+               "contract" => "aiur.status",
+               "contract_version" => 1,
                "generated_at" => state_payload["generated_at"],
                "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
              }
@@ -119,6 +121,8 @@ defmodule Aiur.Extensions.ObservabilityResponsesTest do
 
     assert without_occ_sections(timeout_payload) ==
              %{
+               "contract" => "aiur.status",
+               "contract_version" => 1,
                "generated_at" => timeout_payload["generated_at"],
                "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
              }

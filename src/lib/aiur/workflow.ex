@@ -8,6 +8,9 @@ defmodule Aiur.Workflow do
   `prompt_file:` is absent the prompt falls back to the built-in default template.
   """
 
+  alias Aiur.Config.Overrides
+
+  alias Aiur.Project.Context
   alias Aiur.WorkflowStore
 
   @aiur_dir ".aiur"
@@ -21,7 +24,8 @@ defmodule Aiur.Workflow do
 
   @doc """
   The active config path, by precedence: a per-process override (pinned by
-  `set_workflow_file_path/1,2`), then the VM-global `:workflow_file_path` app
+  `set_workflow_file_path/1,2`), then the current project's config path (`Aiur.Project.Context`), then the
+  VM-global `:workflow_file_path` app
   env, then run-folder discovery.
 
   The per-process override is what makes the path injectable per test (#2287).
@@ -36,8 +40,16 @@ defmodule Aiur.Workflow do
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
     Process.get(@workflow_file_path_override_key) ||
+      project_config_path() ||
       Application.get_env(:aiur, :workflow_file_path) ||
       detect_run_folder_config()
+  end
+
+  defp project_config_path do
+    case Context.current() do
+      %Aiur.Project{config_path: path} -> path
+      nil -> nil
+    end
   end
 
   @doc """
@@ -190,6 +202,10 @@ defmodule Aiur.Workflow do
     load(workflow_file_path())
   end
 
+  @doc false
+  @spec load_base() :: {:ok, loaded_workflow()} | {:error, term()}
+  def load_base, do: load_base(workflow_file_path())
+
   @doc """
   Parses config content that the caller has already read, as if it had been
   loaded from `path`.
@@ -210,6 +226,12 @@ defmodule Aiur.Workflow do
 
   @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
   def load(path) when is_binary(path) do
+    with {:ok, workflow} <- load_base(path), do: Overrides.apply(workflow)
+  end
+
+  @doc false
+  @spec load_base(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def load_base(path) when is_binary(path) do
     if legacy_config_path?(path) do
       {:error, legacy_config_error(path)}
     else
@@ -318,6 +340,7 @@ defmodule Aiur.Workflow do
   # `base_build:` (if any) is used unchanged.
   defp resolve_prewarm(config, path) do
     with %{} = prewarm <- Map.get(config, "prewarm"),
+         true <- Map.get(prewarm, "enabled", false),
          rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
       resolved = Path.expand(rel, Path.dirname(path))
 

@@ -76,6 +76,20 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert status.occupied == 2
     end
 
+    test "usage-limit pauses release capacity while remaining visible as paused" do
+      state = %State{
+        max_concurrent_agents: 2,
+        running: %{
+          "active" => running_entry(:working),
+          "limited" => running_entry(:paused, nil, :usage_limit_exhausted)
+        }
+      }
+
+      assert Slots.used_slots(state) == 1
+      assert Slots.available_slots(state) == 1
+      assert %{paused: 1, reserved_paused: 0, occupied: 1} = Slots.max_concurrent_agent_status(state)
+    end
+
     test "reports no slots when globally paused, regardless of free capacity" do
       state = %State{max_concurrent_agents: 3, running: %{}, globally_paused: true}
 

@@ -27,6 +27,11 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # do the same with a Units row's progress reading, and feature statistics
   # with each running member's reading. The ticket progress API does the same
   # with a ticket's TicketActivity or retained reading.
+  # The deck adapter copies BuildQueue read-model progress fields unchanged to the wire; it formats nothing.
+  # The published `build-order.v1` encoder does the same for the contract document:
+  # it copies each member's raw reading and each catalog root's resolved percent
+  # into the wire fields and renders no terminal string. The encoder is split by
+  # document shape, so every module that touches a progress field is named here.
   @contract_boundary_files [
     "aiur/build_queue_cli.ex",
     "aiur/build_queue/read_model.ex",
@@ -36,12 +41,15 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_order/github_graph/normalizer.ex",
     "aiur/build_order/progress_observer.ex",
     "aiur/build_order/progress_renderer.ex",
+    "aiur/build_order/published/catalog.ex",
+    "aiur/build_order/published/document.ex",
+    "aiur/build_order/published/selected_root.ex",
     "aiur/build_order/root_summary.ex",
     "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
     "aiur_web/build/now_rows.ex",
-    "aiur_web/build_queue/copy.ex",
-    "aiur_web/components/operator_control_center/build_order_grid_model.ex"
+    "aiur_web/components/operator_control_center/build_order_grid_model.ex",
+    "aiur_web/streamdeck/deck/build_order.ex"
   ]
 
   @renderer_calls %{
@@ -50,7 +58,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
     "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
     "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
-    "aiur_web/build_queue/copy.ex" => ["ProgressRenderer.html("],
     "aiur/build_orders_cli.ex" => [
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",
@@ -59,10 +66,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.json(",
       "ProgressRenderer.json(",
       "ProgressRenderer.json("
-    ],
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex" => ["ProgressRenderer.html("],
-    "aiur_web/components/operator_control_center/build_order_catalog.ex" => ["ProgressRenderer.html("],
-    "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
+    ]
   }
 
   # These files own separate live-execution progress domains — including the
@@ -76,6 +80,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # `progress_retention.ex` store, serialize, and reload the raw progress
   # reading that the already-exempt `ticket_activity/projection.ex` holds in
   # memory. They persist the reading; they never present it.
+  # Outbound events likewise serialize an agent's execution-progress sample;
+  # that fact is not Build Order completion and must not create an event-bus
+  # dependency on the higher-level Build Orders renderer.
   @raw_progress_exempt_files [
     "aiur/agent_list/activation.ex",
     "aiur/agent_list/activity_intake.ex",
@@ -88,6 +95,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/current_run_summary/progress.ex",
     "aiur/current_run_summary/projection.ex",
     "aiur/current_run_summary/status.ex",
+    "aiur/events/outbound/event.ex",
     "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
     "aiur/progress_retention/checkpoint.ex",
@@ -99,19 +107,32 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/build_order/ticket_context_presenter/normalize.ex",
     "aiur_web/build_order_presenter.ex",
     "aiur_web/build_order_presenter/activity.ex",
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex",
     "aiur_web/components/operator_control_center/run_summary.ex",
-    "aiur_web/components/operator_control_center/run_summary_strip.ex",
     "aiur_web/components/operator_control_center/ticket_context.ex",
-    "aiur_web/components/operator_control_center/units_table.ex",
     "aiur_web/live/streamdeck_live/components.ex",
     "aiur_web/operator_control_center/run_summary_presenter.ex",
     "aiur_web/operator_control_center/units_presentation.ex",
     "aiur_web/streamdeck_key_face_contract.ex"
   ]
 
-  test "Build Order presentation surfaces do not bypass the shared renderer" do
-    offenders = raw_resolution_offenders() ++ (@lib_root |> source_files() |> Enum.flat_map(&raw_progress_offenders/1))
+  # Walk and read lib/ once per module. `File.read!/1` queues every read on the
+  # VM-wide file server, which other async source-scanning tests saturate in CI;
+  # `:prim_file` reads in the calling process instead.
+  setup_all do
+    sources =
+      Path.join(@lib_root, "**/*.ex")
+      |> Path.wildcard()
+      |> Enum.sort()
+      |> Enum.map(fn path ->
+        {:ok, source} = :prim_file.read_file(path)
+        {Path.relative_to(path, @lib_root), source}
+      end)
+
+    %{sources: sources}
+  end
+
+  test "Build Order presentation surfaces do not bypass the shared renderer", %{sources: sources} do
+    offenders = raw_resolution_offenders(sources) ++ Enum.flat_map(sources, &raw_progress_offenders/1)
 
     assert offenders == [], """
     Build Order progress presentation bypasses ProgressRenderer:
@@ -145,14 +166,28 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     assert Enum.any?(offenders, &String.contains?(&1, "%RootSummary{progress: progress}"))
   end
 
-  test "renderer call sites match the reviewed census" do
-    actual =
-      @lib_root
-      |> source_files()
-      |> Map.new(fn path ->
-        relative = Path.relative_to(path, @lib_root)
-        source = File.read!(path)
+  test "census ignores an event-topic string literal that is not a progress field access" do
+    relay = ~S"""
+    defmodule Relay do
+      defp dispatch("agent.progress.status", event, %{kind: :briefing} = state), do: {event, state}
+    end
+    """
 
+    assert ProgressRendererCensus.offenders("aiur/relay.ex", relay) == []
+
+    access = ~S"""
+    defmodule Card do
+      def face(entry), do: "#{entry.progress.value}"
+    end
+    """
+
+    assert Enum.any?(ProgressRendererCensus.offenders("aiur/card.ex", access), &String.ends_with?(&1, "entry.progress"))
+  end
+
+  test "renderer call sites match the reviewed census", %{sources: sources} do
+    actual =
+      sources
+      |> Map.new(fn {relative, source} ->
         calls =
           ["ProgressRenderer.terminal(", "ProgressRenderer.json(", "ProgressRenderer.html("]
           |> Enum.flat_map(fn call -> List.duplicate(call, count_occurrences(source, call)) end)
@@ -173,17 +208,11 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     """
   end
 
-  defp source_files(lib_root), do: Path.wildcard(Path.join(lib_root, "**/*.ex")) |> Enum.sort()
-
-  defp raw_resolution_offenders do
-    @lib_root
-    |> source_files()
-    |> Enum.reject(&(Path.relative_to(&1, @lib_root) in @contract_boundary_files))
-    |> Enum.flat_map(fn path ->
-      relative = Path.relative_to(path, @lib_root)
-
-      path
-      |> File.read!()
+  defp raw_resolution_offenders(sources) do
+    sources
+    |> Enum.reject(fn {relative, _source} -> relative in @contract_boundary_files end)
+    |> Enum.flat_map(fn {relative, source} ->
+      source
       |> String.split("\n")
       |> Enum.with_index(1)
       |> Enum.flat_map(&raw_resolution_offender(&1, relative))
@@ -196,17 +225,11 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       else: []
   end
 
-  defp raw_progress_offenders(path) do
-    relative = Path.relative_to(path, @lib_root)
-
-    if relative in @contract_boundary_files or relative in @raw_progress_exempt_files do
-      []
-    else
-      source = File.read!(path)
-
-      if String.contains?(source, ["progress", "completion_state", "completion_known"]),
-        do: ProgressRendererCensus.offenders(relative, source),
-        else: []
+  defp raw_progress_offenders({relative, source}) do
+    cond do
+      relative in @contract_boundary_files or relative in @raw_progress_exempt_files -> []
+      String.contains?(source, ["progress", "completion_state", "completion_known"]) -> ProgressRendererCensus.offenders(relative, source)
+      true -> []
     end
   end
 

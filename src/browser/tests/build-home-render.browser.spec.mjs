@@ -185,7 +185,7 @@ test('span ensures days via server days parameter; no board anchor is safe', asy
 
 for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and suppresses sliding`, async ({ page }) => {
   const before = await page.evaluate(async kind => {
-    // A floating band now settles; preserve the anchor at its pinned edge.
+    // Anchor with the band docked under the header; it no longer snaps there (#7446).
     if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     else ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop - 40
     ren.update();
@@ -230,7 +230,7 @@ test('filtered days continue paging and use server DST boundary exactly', async 
   await page.request.get('/build-control/earlier?from=' + (from - 23 * 3600000))
   expect(await page.evaluate(async () => { await hist.loadEarlier(); return S.histFrom })).toBe(from - 23 * 3600000)
   await page.request.get('/build-control/earlier')
-  await page.evaluate(() => { S.f.epic = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
+  await page.evaluate(() => { S.f.lane = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
   await expect.poll(() => page.evaluate(() => hist.H.more)).toBe(false)
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
 })

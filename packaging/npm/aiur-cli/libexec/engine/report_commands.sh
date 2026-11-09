@@ -49,12 +49,17 @@ cmd_units() {
 # second GitHub or API derivation. A root selector switches from catalog to the
 # selected-root graph view.
 cmd_build_orders() {
-  local json=0 root="" arg
+  local json=0 root="" contract="" arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) json=1 ;;
+      --contract)
+        contract="${2:-}"
+        shift
+        ;;
+      --contract=*) contract="${arg#*=}" ;;
       -*) echo "aiur: build-orders received an unknown option: $arg" >&2; exit 64 ;;
       *)
         if [ -n "$root" ]; then
@@ -69,6 +74,13 @@ cmd_build_orders() {
 
   local opts=""
   [ "$json" -eq 1 ] && opts="json: true"
+
+  if [ -n "$contract" ]; then
+    local encoded_contract
+    encoded_contract="$(printf '%s' "$contract" | base64 | tr -d '\n')"
+    [ -n "$opts" ] && opts="$opts, "
+    opts="${opts}contract: Base.decode64!(\"$encoded_contract\")"
+  fi
 
   if [ -n "$root" ]; then
     local encoded
@@ -120,9 +132,8 @@ cmd_analytics() {
 }
 
 # `aiur github-cost` — GitHub API spend ranked by the call site that caused it,
-# in points per hour, with the reconciliation against the credential's own
-# `used` figure printed beside it. Read-only; it reads the meter the daemon
-# already keeps and issues no GitHub request of its own.
+# in points per hour, with reconciliation against the credential's own `used`
+# figure. Read-only; it reads the meter the daemon already keeps.
 cmd_github_cost() {
   local budget="graphql" format="" json=0 arg
 
@@ -143,20 +154,15 @@ cmd_github_cost() {
   case "$budget" in graphql|core|all) ;; *) echo "aiur: github-cost --budget accepts graphql, core or all" >&2; exit 64 ;; esac
   case "$format" in ""|auto|table|records) ;; *) echo "aiur: github-cost --format accepts auto, table or records" >&2; exit 64 ;; esac
 
-  # Both values are whitelisted above, so neither reaches the control RPC as
-  # anything other than one of the literals named here.
   local opts="budget: \"$budget\""
   [ -z "$format" ] || opts="$opts, format: :$format"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
-
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
 }
-# `aiur github-usage` — per-actor (daemon vs each agent workspace) Core/GraphQL
-# usage and ceilings from the shared admission broker. Read-only; it reads the
-# broker database and issues no GitHub request of its own.
+
+# `aiur github-usage` — per-actor Core/GraphQL usage from the shared broker.
 cmd_github_usage() {
   local json=0 arg
-
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
@@ -171,6 +177,7 @@ cmd_github_usage() {
   [ "$json" -eq 1 ] && opts="json: true"
   run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
 }
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {

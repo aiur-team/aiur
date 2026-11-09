@@ -1,5 +1,5 @@
 @layer aiur.tokens {
-  :root {
+  :root { --aiur-color-fg-dark: #edeef0; --aiur-color-accent-dark: #2f86ff;
     color-scheme: light;
     --aiur-color-bg: #e7d6b2;
     --aiur-color-bg-2: #e2cfa6;

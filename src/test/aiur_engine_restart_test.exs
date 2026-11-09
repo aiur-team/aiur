@@ -403,6 +403,7 @@ defmodule AiurEngineRestartTest do
     refute out =~ "BUILD"
     refute out =~ "RUN:"
     assert out =~ "still answers after the stop"
+    refute out =~ "STOPPED and was NOT restarted"
   end
 
   test "the restart dispatch arm drops the subcommand and forwards the rest" do

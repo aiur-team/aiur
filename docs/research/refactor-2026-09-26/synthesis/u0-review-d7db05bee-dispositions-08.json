@@ -1,0 +1,438 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 8,
+  "first_id": "events-webhooks-executor-16",
+  "last_id": "github-a-11",
+  "findings": [
+    {
+      "id": "events-webhooks-executor-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_ci_poller.ex:136",
+      "note": "GithubCIPoller still has three independent ensure_pull_request_base result cases and owns classification/base repair/fetch; exact old size is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-17",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/github_comments_poller.ex:243",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-17"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_comments_poller.ex:117",
+      "note": "Comment poller still uses validated options and Task.async_stream; CI poller uses unvalidated Keyword.get concurrency/timeout and prefers supervised nolink execution. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/topic.ex:24",
+      "note": "Topic still primarily implements pattern matching; Publisher/DebugLog independently split ticket prefixes and universal subscriptions independently construct base push topics. Historical census counts not remeasured. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/subscription_store.ex:115",
+      "note": "SubscriptionStore.attach still returns ok after start failure; base-branch reconciliation and persist callers retain differing failure behavior. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-21",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/subscription_store.ex:516",
+      "note": "advance_cursor_inline still persists after every cursor advance and JsonStore.write! remains the store operation, retaining per-event durable rewrites. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/executor/principal.ex:38",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-22"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/branch_ref_store.ex:197",
+      "note": "BranchRefStore.replace changes refs only and retains pending_unblocks; register retains exact ref/sha pending entries until acknowledgement. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/ls_remote_ticker.ex:64",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-24"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-25",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/webhooks/event_source.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-25"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/webhooks/ingest.ex:29",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-27",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/executor/roster.ex:116",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-27"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/webhooks/mode_registry.ex:39",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-29",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/exchange.ex:202",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/github_firehose.ex:124",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-30"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook.ex:109",
+      "note": "Webhook delivery still checks tracked_repo repeatedly and generic nudge discards CI hint except waking orchestrator; targeted review-thread hint preserved. Provisional disposition retained.",
+      "source_ids": [
+        "events-webhooks-executor-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-32",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/executor/takeover_alert/store.ex:114",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-32"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/sanitizer.ex:71",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-33"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/webhooks/delivery_log.ex:405",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-34"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/exchange.ex:93",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "events-webhooks-executor-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_ci_poller.ex:83",
+      "note": "CIPoller retains evaluate_for_test wrapper and SubscriptionStore stores enqueue test callback in global persistent_term. Provisional disposition retained.",
+      "source_ids": [
+        "events-webhooks-executor-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook.ex:274",
+      "note": "Review-thread reconcile still returns success when resolved orchestrator pid is nil; caller reports reconciled despite no delivered wake. Provisional disposition retained.",
+      "source_ids": [
+        "events-webhooks-executor-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/code_owners.ex:189",
+      "note": "Refresh still replaces resolved membership with fresh resolution output; team failure returns empty list rather than retained prior members. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-a-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/config.ex:604",
+      "note": "codeowners_users still maps missing CodeOwners or GenServer exit to empty allowlist rather than unavailable. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-a-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-03",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:993",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-03"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/comments.ex:126",
+      "note": "Classified comments still fetch one per_page=100 list without pagination, whereas conditional endpoint drains pages. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-a-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:435",
+      "note": "RemoteControl descendant walker still String.to_integer parses successful merged pgrep output; GitHub.Config retains a separate defensive process walker. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-06",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/client.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/code_owners.ex:424",
+      "note": "Allowlist parser still requires all trailing owner tokens valid, so inline comments invalidate lines; separate comment classification parser remains. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-a-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/bot_identity.ex:108",
+      "note": "BotIdentity.agent_login? still uses exact Enum.member? after its own normalization, while Codeowners applies case-normalized matching. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/comment_poll_batch.ex:204",
+      "note": "CommentPollBatch and CIPollBatch still independently build guessed branch lists and escape branch literals; comment candidate overflow and selected CI connection policies remain separate. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-09",
+        "dup-by-body-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:589",
+      "note": "Transport still calls Budget.acquire and release on the request path; Budget command still opens a Python executable port per operation. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:657",
+      "note": "Budget still combines broker Port lifecycle, settings defaults, admission and limit handling; schema/default duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

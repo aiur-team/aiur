@@ -23,14 +23,15 @@ defmodule Aiur.Workspace.Layout do
   end
 
   @spec issue_workspace_path(Path.t(), String.t()) :: Path.t()
+  @spec issue_workspace_path(Path.t(), String.t(), String.t() | nil) :: Path.t()
   # Namespace per-issue workspaces by repo so two repos sharing a root never
   # collide on issue number: <root>/<owner>/<repo>/<issue>. The append is
   # idempotent — if the configured root already ends with the repo segment
   # (e.g. `aiur init` baked owner/name into it), it is not doubled. Trackers
   # without a repo segment (memory, or a misconfigured provider) fall back to
   # <root>/<issue>.
-  def issue_workspace_path(root, safe_id) do
-    case repo_segment() do
+  def issue_workspace_path(root, safe_id, configured_segment \\ repo_segment()) do
+    case configured_segment do
       nil ->
         Path.join(root, safe_id)
 
@@ -57,7 +58,7 @@ defmodule Aiur.Workspace.Layout do
     expanded_root_prefix = expanded_root <> "/"
 
     with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
-         {:ok, canonical_root} <- PathSafety.canonicalize(expanded_root) do
+         {:ok, canonical_root} <- PathSafety.canonical_root(expanded_root) do
       canonical_root_prefix = canonical_root <> "/"
 
       cond do

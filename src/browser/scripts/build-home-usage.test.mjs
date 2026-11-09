@@ -15,29 +15,59 @@ test('design durations floor minutes, pad hours and omit zero day hours', () => 
 test('mean includes only known integers including exact zero', () => {
   assert.deepEqual([[null,40],[null],[0]].map(avgKnown),[40,null,0])
 })
-test('unknown account is dashed, partial account retains value and honest tooltip', () => {
+test('unknown model is dashed, partial model retains its remaining percentage and honest tooltip', () => {
   const u=fixture('partial'); u.apis=[]; const s=stripHTML(u,now)
   assert.match(s,/<span class="ax-seg none"><\/span>/)
-  assert.match(s,/<span class="ax-pc">40%/)
+  assert.match(s,/<span class="ax-pc">40% left/)
   assert.match(s,/<i class="" style="width:40%"/)
-  assert.match(tip(s), /"Max · work","not observed"/)
+  assert.match(tip(s), /Claude Max · work[^"]*",\[\["Session window 5h","not observed"/)
   assert.match(s,/×2/)
   const unknown=fixture('unknown');unknown.apis=[]
   assert.doesNotMatch(stripHTML(unknown,now),/0%|class="z"|null%/)
   unknown.providers[0].session.acc=[]
   assert.match(stripHTML(unknown,now),/class="ax-seg none"/)
 })
-test('zero and threshold tones agree between percent and segment', () => {
-  for (const [n,cls,seg] of [[0,'','z'],[79,'',''],[80,' hi',' hi'],[95,' max',' max']]) {
-    const u=fixture('unknown');u.apis=[];u.providers[0].session.acc=[n]
-    const s=stripHTML(u,now)
-    assert.ok(s.includes(`<span class="ax-pc${cls}">${n}%`))
-    assert.ok(s.includes(`<i class="${seg}" style="width:${n}%"`))
+test('#7757 each login draws its own full-width bar per window, stacked, with its own reset', () => {
+  const u=fixture('partial'); u.apis=[]
+  Object.assign(u.providers[0],{session:{acc:[70,40],resets:[now+3600000,now+7200000],reset_at:now+3600000,win:'5h'},weekly:{acc:[90,20],resets:[now+86400000,now+172800000],reset_at:now+86400000,win:'7d'}})
+  const s=stripHTML(u,now)
+  const bars=s.match(/<span class="ax-bar">.*?<span class="ax-rs">/g)
+  assert.equal(bars.length,4)
+  for (const b of bars) assert.equal(b.match(/class="ax-seg/g).length,1)
+  assert.equal((s.match(/class="ax-ln acct"/g)??[]).length,2)
+  for (const pc of ['70% left','40% left','90% left','20% left']) assert.ok(s.includes(`<span class="ax-pc">${pc}`) || s.includes(`<span class="ax-pc hi">${pc}`), pc)
+  assert.match(s,/<span>1h 00m<em>\/5h<\/em>/); assert.match(s,/<span>2h 00m<em>\/5h<\/em>/)
+  assert.match(s,/aria-label="Claude Pro · personal · resets in 2h 00m/)
+  const single=fixture('unknown');single.apis=[];single.providers[0].session.acc=[40]
+  const one=stripHTML(single,now)
+  const windows=[single.providers[0].session,single.providers[0].weekly].filter(Boolean).length
+  assert.doesNotMatch(one,/acct/);assert.equal((one.match(/class="ax-ln[ "]/g)??[]).length,windows)
+  assert.match(one,/aria-label="Codex\. Session window 5h 40% left\."/)
+})
+test('#7757 a failed provider read says unavailable and shows its age', () => {
+  const u=fixture('one');u.apis=[]
+  Object.assign(u.providers[0],{none:true,stale:true,session:null,weekly:null,observed_at:now-600000,note:'Transport error'})
+  const s=stripHTML(u,now)
+  assert.match(s,/<span class="ax-no">unavailable<\/span>/)
+  assert.match(tip(s),/"Limits","Transport error".*"Observed","10m ago"/)
+  assert.doesNotMatch(s,/\d+% left/)
+})
+test('model and API remaining tones share thresholds and match segment fill', () => {
+  for (const n of [0,10,20,50,100]) {
+    const cls=n <= 10 ? ' max' : n <= 20 ? ' hi' : ''
+    const seg=`${n === 0 ? 'z' : ''}${n <= 10 ? ' max' : n <= 20 ? ' hi' : ''}`
+    const model=fixture('unknown');model.apis=[];model.providers[0].session.acc=[n]
+    const api=fixture('one');api.providers=[];api.apis[0].lines[0].acc=[n]
+    for (const s of [stripHTML(model,now),stripHTML(api,now)]) {
+      assert.ok(s.includes(`<span class="ax-pc${cls}">${n}% left`))
+      assert.ok(s.includes(`<i class="${seg}" style="width:${n}%"`))
+    }
   }
 })
 test('reset unknown and ended never claim a countdown or window length', () => {
   const u=fixture('unknown');u.apis=[];const s=stripHTML(u,now)
   assert.match(s,/reset unknown/);assert.doesNotMatch(s,/resets in/)
+  assert.match(s,/<span class="ax-pc max"><\/span><span class="ax-bar"><span class="ax-seg none"><\/span><\/span>/)
   const e=fixture('ended');e.apis=[];e.providers[0].session.win=null
   const ended=stripHTML(e,now)
   assert.match(ended,/window ended/);assert.match(ended,/class="ax-ln stale"/)
@@ -90,3 +120,25 @@ test('before the first snapshot usage leaves the dead-render host untouched', as
   const {renderUsage}=await import('../../priv/static/build-home/usage.js')
   resetState(); assert.doesNotThrow(renderUsage)
 })
+
+test('remaining API strip values render full, half and empty with explicit unknown', () => {
+  const u=fixture('n2'); u.apis = [{...u.apis[0], lines: [
+    {tag:'core',acc:[100],reset_at:now+60000,win:'1h',tip:[['Requests left','5,000 of 5,000 left · 100% left']]},
+    {tag:'gql',acc:[50],reset_at:now+60000,win:'1h',tip:[['Points left','2,500 of 5,000 left · 50% left']]},
+    {tag:'rest',acc:[5],reset_at:now+60000,win:'1h',tip:[['Requests left','0 of 5,000 left · 5% left']]},
+    {tag:'critical',acc:[10],reset_at:now+60000,win:'1h',tip:[['Requests left','10% left']]},
+    {tag:'warning',acc:[20],reset_at:now+60000,win:'1h',tip:[['Requests left','20% left']]},
+    {tag:'unknown',acc:[null],reset_at:null,win:null,tip:[['Budget','not observed']]},
+  ]}];
+  const s=stripHTML(u,now);
+  assert.match(s,/<span class="ax-pc">100% left/);
+  assert.match(s,/<span class="ax-pc">50% left/);
+  assert.match(s,/<span class="ax-pc max">10% left/);
+  assert.match(s,/<i class="" style="width:100%"/);
+  assert.match(s,/<i class="" style="width:50%"/);
+  assert.match(s,/<i class=" max" style="width:10%"/);
+  assert.match(s,/<span class="ax-seg none"><\/span>/);
+  assert.match(tip(s),/2,500 of 5,000 left · 50% left/);
+  assert.match(s,/<i class=" hi" style="width:20%"/);
+  assert.match(s,/<i class=" max" style="width:10%"/);
+});

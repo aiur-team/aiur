@@ -245,7 +245,7 @@ defmodule Aiur.Workspace.Ownership do
       when is_binary(ticket) and is_integer(generation) and generation > 0 do
     with {:ok, lease} <- current(ticket, registry),
          true <- lease.generation == generation,
-         %{generation: ^generation, proof: :boot_changed_release_pending} <- HoldStatus.for_ticket(ticket, registry) do
+         %{generation: ^generation, proof: proof} when proof in [:boot_changed_release_pending, :owner_pid_dead] <- HoldStatus.for_ticket(ticket, registry) do
       release_with_provider_exit_proof(lease)
       |> case do
         :ok -> :ok

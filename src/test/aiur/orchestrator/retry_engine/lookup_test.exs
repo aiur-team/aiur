@@ -3,13 +3,43 @@ Code.require_file("fixture.ex", __DIR__)
 defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
   use Aiur.TestSupport
 
+  alias Aiur.Handoff.Fallback
   alias Aiur.Issue
-  alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.Orchestrator.{EventTopics, RetryEngine, RuntimeWatchdog}
   alias Aiur.Orchestrator.State
   import Aiur.RetryEngineFixture, only: [tracker_identity: 1]
 
   describe "handle_retry_issue_lookup/6" do
-    test "preserves the running rework head through queued retry dispatch" do
+    test "handoff fallback marker survives scheduling and forces a fresh state lookup" do
+      stale = %Issue{id: "issue-handoff", identifier: "MT-HANDOFF", state: "in-progress"}
+      moved = %{stale | state: "ci-wait"}
+      queued = Fallback.resume(%State{}, %{"issue_id" => stale.id, "identifier" => stale.identifier, "issue" => %{"state" => stale.state}})
+      retry = queued.retry_attempts[stale.id]
+
+      assert {:ok, attempt, metadata, popped} = RetryEngine.pop_retry_attempt_state(queued, stale.id, retry.retry_token)
+      assert metadata.handoff_fallback
+
+      parent = self()
+
+      assert {:noreply, released} =
+               RetryEngine.handle_retry_issue(popped, stale.id, attempt, metadata,
+                 ensure_tracker_preflight_fun: fn state -> {:ok, state} end,
+                 fetch_candidate_issues_fun: fn ->
+                   send(parent, :stale_candidates_used)
+                   {:ok, [stale]}
+                 end,
+                 fetch_issue_states_by_ids_fun: fn [id] ->
+                   send(parent, {:fresh_lookup, id})
+                   {:ok, [moved]}
+                 end
+               )
+
+      assert_receive {:fresh_lookup, "issue-handoff"}, 1_000
+      refute_received :stale_candidates_used
+      refute MapSet.member?(released.claimed, stale.id)
+    end
+
+    test "preserves the running rework head and stalled alert through queued retry dispatch" do
       parent = self()
       issue = %Issue{id: "issue-rework-retry", identifier: "MT-REWORK-RETRY", title: "Rework retry", state: "rework"}
 
@@ -34,6 +64,7 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
             identifier: issue.identifier,
             started_at: DateTime.utc_now(),
             retry_attempt: 0,
+            stalled_alert_outstanding: true,
             rework_head_sha: "head-before-run",
             control: %{status: :working}
           }
@@ -43,11 +74,13 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
       assert {:noreply, queued_state} = RetryEngine.handle_agent_down(initial_state, ref, :normal)
       retry = queued_state.retry_attempts[issue.id]
       assert retry.rework_head_sha == "head-before-run"
+      assert retry.stalled_alert_outstanding
 
       assert {:ok, attempt, metadata, popped_state} =
                RetryEngine.pop_retry_attempt_state(queued_state, issue.id, retry.retry_token)
 
       assert metadata.rework_head_sha == "head-before-run"
+      assert metadata.stalled_alert_outstanding
 
       assert {:noreply, _dispatched_state} =
                RetryEngine.handle_retry_issue_lookup(
@@ -66,7 +99,7 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
       assert_receive {:rework_retry_baseline, "head-before-run"}, 1000
     end
 
-    test "preserves the running rework head through failure retry dispatch" do
+    test "preserves the running rework head and stalled alert through failure retry dispatch" do
       parent = self()
       issue = %Issue{id: "issue-rework-failure-retry", identifier: "MT-REWORK-FAILURE-RETRY", title: "Rework retry", state: "rework"}
 
@@ -91,6 +124,7 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
             identifier: issue.identifier,
             started_at: DateTime.utc_now(),
             retry_attempt: 0,
+            stalled_alert_outstanding: true,
             rework_head_sha: "head-before-failure",
             control: %{status: :working}
           }
@@ -100,11 +134,13 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
       assert {:noreply, queued_state} = RetryEngine.handle_agent_down(initial_state, ref, :killed)
       retry = queued_state.retry_attempts[issue.id]
       assert retry.rework_head_sha == "head-before-failure"
+      assert retry.stalled_alert_outstanding
 
       assert {:ok, attempt, metadata, popped_state} =
                RetryEngine.pop_retry_attempt_state(queued_state, issue.id, retry.retry_token)
 
       assert metadata.rework_head_sha == "head-before-failure"
+      assert metadata.stalled_alert_outstanding
 
       assert {:noreply, _dispatched_state} =
                RetryEngine.handle_retry_issue_lookup(
@@ -150,6 +186,85 @@ defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
       assert dispatch_opts[:prior_work] == true
       assert dispatch_opts[:rework_head_sha] == "head-before-first-attempt"
       assert get_in(next_state.running, [issue.id, :pid]) == parent
+    end
+
+    test "stall retry progress resolves after retry dispatch moved state out of retry_attempts" do
+      now = DateTime.utc_now()
+      issue = %Issue{id: "issue-stalled-progress", identifier: "MT-STALLED-PROGRESS", title: "Stalled retry", state: "In Progress"}
+
+      running_entry = %{
+        pid: nil,
+        ref: nil,
+        identifier: issue.identifier,
+        issue: issue,
+        started_at: DateTime.add(now, -60, :second),
+        last_codex_timestamp: DateTime.add(now, -5, :second),
+        retry_attempt: 0,
+        control: %{status: :working}
+      }
+
+      stalled_state =
+        RuntimeWatchdog.restart_stalled_issue(
+          %State{running: %{issue.id => running_entry}},
+          issue.id,
+          running_entry,
+          now,
+          1_000
+        )
+
+      retry = stalled_state.retry_attempts[issue.id]
+      assert retry.stalled_alert_outstanding
+
+      assert {:ok, attempt, metadata, popped_state} =
+               RetryEngine.pop_retry_attempt_state(stalled_state, issue.id, retry.retry_token)
+
+      assert metadata.stalled_alert_outstanding
+      test_pid = self()
+      resolution_topic = "ticket.#{issue.identifier}.agent.stalled.resolved"
+
+      assert {:noreply, dispatched_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 popped_state,
+                 issue.id,
+                 attempt,
+                 metadata,
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn state, _issue, _attempt, _host, dispatch_opts ->
+                   assert dispatch_opts[:stalled_alert_outstanding]
+                   send(test_pid, :stalled_retry_dispatched)
+
+                   Map.put(state, :running, %{
+                     issue.id => %{
+                       pid: test_pid,
+                       identifier: issue.identifier,
+                       issue: issue,
+                       stalled_alert_outstanding: dispatch_opts[:stalled_alert_outstanding]
+                     }
+                   })
+                 end
+               )
+
+      assert dispatched_state.retry_attempts == %{}
+      assert_received :stalled_retry_dispatched
+      assert Map.has_key?(dispatched_state.running, issue.id), inspect(dispatched_state.running)
+      assert dispatched_state.running[issue.id].stalled_alert_outstanding
+
+      emitter = fn topic, opts ->
+        send(test_pid, {:stalled_resolved, topic, opts})
+        :ok
+      end
+
+      resolved_state =
+        EventTopics.route(dispatched_state, %{topic: "ticket.#{issue.identifier}.agent.progress"},
+          alert_emitter: emitter,
+          stalled_alert_state: fn _ -> :firing end
+        )
+
+      assert_received {:stalled_resolved, ^resolution_topic, resolution_opts}
+      assert resolution_opts[:needs_attention] == false
+      refute resolved_state.running[issue.id].stalled_alert_outstanding
+      Process.cancel_timer(retry.timer_ref)
     end
 
     test "reschedules when an active retry dispatch starts neither a runner nor a retry" do

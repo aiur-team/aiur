@@ -203,6 +203,10 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
       entry =
         running_entry(issue_id,
           started_at: started_at,
+          tracker_label_writer: fn identifier, action, label ->
+            send(self(), {:runtime_label, identifier, action, label})
+            :ok
+          end,
           control: %{
             status: :working,
             can_interrupt: true,
@@ -227,6 +231,7 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
              }
 
       assert paused.paused_reason == :usage_limit_exhausted
+      assert_receive {:runtime_label, ^issue_id, :add, "agent:paused-usage-limit"}, 1000
       assert %DateTime{} = paused.paused_at
       assert paused.started_at == started_at
     end

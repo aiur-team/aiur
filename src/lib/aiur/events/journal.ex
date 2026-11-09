@@ -13,6 +13,9 @@ defmodule Aiur.Events.Journal do
   @spec append(Path.t(), map()) :: :ok | {:error, term()}
   def append(path, record), do: KernelJournal.append(path, record)
 
+  @spec rewrite(Path.t(), iodata()) :: :ok | {:error, term()}
+  def rewrite(path, contents), do: KernelJournal.rewrite(path, contents)
+
   @spec replay(Path.t(), (map() -> {:ok, term()} | {:error, term()}), keyword()) ::
           {:ok, [term()]} | {:error, replay_error()}
   def replay(path, validator, opts \\ []) do
