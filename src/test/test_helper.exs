@@ -89,6 +89,7 @@ test_run_root =
   Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
 
 Application.put_env(:aiur, :test_run_root, test_run_root)
+Application.put_env(:aiur, :ownership_state_dir, Path.join(test_run_root, "ownership-state"))
 # Teardown reaps ticket containers; tests must never reach the host's Docker daemon.
 Application.put_env(:aiur, :docker_cleanup_command, fn "docker", _args, _opts -> {"", 0} end)
 
