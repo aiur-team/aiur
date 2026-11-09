@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.PremiseChanges do
 
   @doc """
   Decision ids named on the first `Premises:` line outside a code fence.
-  Backticks and trailing punctuation are stripped; any other token is dropped
+  Backticks are stripped; any other token, including one with trailing punctuation, is dropped
   with a warning so a typo does not silently disable the check.
   """
   @spec premises(term()) :: [String.t()]
@@ -54,7 +54,7 @@ defmodule Aiur.Orchestrator.PremiseChanges do
 
   def premises(_issue), do: []
 
-  defp clean_token(token), do: token |> String.trim() |> String.trim("`") |> String.trim_trailing(".") |> String.trim("`")
+  defp clean_token(token), do: token |> String.trim() |> String.trim("`")
 
   defp valid_id?(token) do
     valid? = Regex.match?(@decision_id, token)

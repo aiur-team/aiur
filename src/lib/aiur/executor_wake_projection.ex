@@ -130,12 +130,17 @@ defmodule Aiur.ExecutorWakeProjection do
 
   @doc """
   Adds a changed premise's answers to a `premise-changed` attention wake: the
-  new answer under the answered-wake keys (`nil` fields when mooted) and the old
-  answer, in the same shape, under `previous`.
+  new answer under the answered-wake keys (`nil` fields when mooted), the old
+  answer in the same shape under `previous`, and the ticket's `feature`/`epic`
+  from `feature_lookup` as in `with_answer/3`.
   """
-  @spec with_premise_answers(map(), Aiur.DecisionAnswer.t() | nil, Aiur.DecisionAnswer.t() | nil) :: map()
-  def with_premise_answers(record, answer, previous) do
+  @spec with_premise_answers(map(), Aiur.DecisionAnswer.t() | nil, Aiur.DecisionAnswer.t() | nil, (pos_integer() -> {:ok, map()} | :unknown) | nil) ::
+          map()
+  def with_premise_answers(record, answer, previous, feature_lookup \\ nil) do
+    {feature, epic} = owner(record["ticket"], feature_lookup)
+
     record
+    |> Map.merge(%{"feature" => feature, "epic" => epic})
     |> Map.merge(answer_fields(answer))
     |> Map.merge(%{
       "previous" => if(previous, do: answer_fields(previous)),

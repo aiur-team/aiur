@@ -383,7 +383,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
           decision_id: decision.decision_id,
           kind: :mooted,
           old_answer: Decision.active_answer(decision),
-          moot_reason: detail || to_string(reason_class)
+          moot_reason: moot.detail || to_string(moot.reason_class)
         })
 
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}

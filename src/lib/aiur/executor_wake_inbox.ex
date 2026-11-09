@@ -23,15 +23,16 @@ defmodule Aiur.ExecutorWakeInbox do
   Projects an attention event to a wake record and enqueues it, keeping the
   event's extra string fields. `"answer"` and `"previous"` may carry a premise
   change's `DecisionAnswer`s; they are rendered in the answered-wake shape. A
-  stopped inbox drops the wake.
+  stopped inbox drops the wake. `feature_lookup` fills `feature`/`epic` as in
+  `ExecutorWakeProjection.with_premise_answers/4`.
   """
-  @spec enqueue_attention(map(), GenServer.server()) :: :ok
-  def enqueue_attention(event, server \\ __MODULE__) do
+  @spec enqueue_attention(map(), GenServer.server(), (pos_integer() -> {:ok, map()} | :unknown) | nil) :: :ok
+  def enqueue_attention(event, server \\ __MODULE__, feature_lookup \\ nil) do
     {answer, event} = Map.pop(event, "answer")
     {previous, event} = Map.pop(event, "previous")
 
     with {:ok, record} <- Aiur.ExecutorWakeProjection.project(event), pid when pid != nil <- GenServer.whereis(server) do
-      event |> Map.merge(record) |> Aiur.ExecutorWakeProjection.with_premise_answers(answer, previous) |> enqueue(pid)
+      event |> Map.merge(record) |> Aiur.ExecutorWakeProjection.with_premise_answers(answer, previous, feature_lookup) |> enqueue(pid)
     end
 
     :ok

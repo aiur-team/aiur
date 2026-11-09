@@ -73,8 +73,9 @@ defmodule Aiur.Orchestrator.PremiseChangesTest do
     assert PremiseChanges.premises("  premises: #{@d1} , #{@d2} ,") == [@d1, @d2]
   end
 
-  test "a backticked id with trailing punctuation still counts" do
-    assert PremiseChanges.premises("Premises: `#{@d1}`, `#{@d2}`.") == [@d1, @d2]
+  test "a backticked id counts; an id with trailing punctuation is dropped with a warning" do
+    log = capture_log(fn -> assert PremiseChanges.premises("Premises: `#{@d1}`, #{@d2}.") == [@d1] end)
+    assert log =~ ~s(ignoring Premises: token "#{@d2}.")
   end
 
   test "a token that is not a decision id is dropped with a warning" do
@@ -93,7 +94,8 @@ defmodule Aiur.Orchestrator.PremiseChangesTest do
     )
 
     issues = [issue("10", "todo", "Premises: #{@d1}, #{@d2}")]
-    wake = &ExecutorWakeInbox.enqueue_attention(&1, name)
+    lookup = fn 10 -> {:ok, %{feature: "F-1", epic: "E-1"}} end
+    wake = &ExecutorWakeInbox.enqueue_attention(&1, name, lookup)
     opts = [fetch_issues: fn -> {:ok, issues} end, add_label: fn _, _ -> :ok end, wake: wake, message_worker: fn _, _ -> :ok end, label: @label, terminal_states: []]
 
     PremiseChanges.flag(@revised, opts)
@@ -109,10 +111,10 @@ defmodule Aiur.Orchestrator.PremiseChangesTest do
     wakes =
       name
       |> ExecutorWakeInbox.pending()
-      |> Enum.map(&{&1["ticket"], &1["decision_id"], &1["previous"]["option_id"], &1["previous"]["question_answers"], &1["option_id"], &1["moot_reason"]})
+      |> Enum.map(&{&1["ticket"], &1["feature"], &1["epic"], &1["decision_id"], &1["previous"]["option_id"], &1["previous"]["question_answers"], &1["option_id"], &1["moot_reason"]})
       |> Enum.sort()
 
-    assert wakes == [{"10", @d1, "B", nil, "C", nil}, {"10", @d2, nil, %{"q1" => ["X"]}, nil, "obsolete"}]
+    assert wakes == [{"10", "F-1", "E-1", @d1, "B", nil, "C", nil}, {"10", "F-1", "E-1", @d2, nil, %{"q1" => ["X"]}, nil, "obsolete"}]
   end
 
   describe "decision store" do

@@ -464,7 +464,8 @@ defmodule Aiur.Application.Children do
   @doc false
   # A named capture (not a closure) keeps the DecisionStore child spec comparable.
   @spec premise_notifier(map()) :: :ok
-  def premise_notifier(change), do: PremiseChanges.notify_async(change, wake: &Aiur.ExecutorWakeInbox.enqueue_attention/1)
+  def premise_notifier(change),
+    do: PremiseChanges.notify_async(change, wake: fn event -> Aiur.ExecutorWakeInbox.enqueue_attention(event, Aiur.ExecutorWakeInbox, &BuildOrders.feature_and_epic/1) end)
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
