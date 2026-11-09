@@ -106,7 +106,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
        aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
-       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
+       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json] | reopen <id> --reason <text> [--state todo|rework] [--json]
        aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
        aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]  claim tickets from state labels
        aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
@@ -130,7 +130,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-lane <key>=<label>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--lane-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
-       aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full  local only
+       aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full | reload  local only
        aiur gateway discover [--port N] | list | status <gateway>  [--json]  find gateways, show connectivity and agents (read-only)
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]

@@ -11,7 +11,7 @@ defmodule Aiur.Config.Schema.Monitoring do
     field(:daemon_heartbeat_stale_ms, :integer, default: 3_600_000)
     # @config-reference config-configuration-03 monitoring.daemon_memory_alert_fraction
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail monitoring.daemon_memory_alert_fraction | float | 0.5 | Share of host memory the daemon's BEAM may use before Aiur raises `system.daemon.memory_high` once, naming the processes that hold the most memory. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
+    # @config-detail monitoring.daemon_memory_alert_fraction | float | 0.5 | Share of host memory the daemon may use, by resident memory or `:erlang.memory(:total)`, before Aiur raises `system.daemon.memory_high` once and logs the largest processes (memory, queue length), any that do not answer, and the largest ETS tables. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
     field(:daemon_memory_alert_fraction, :float, default: 0.5)
   end
 

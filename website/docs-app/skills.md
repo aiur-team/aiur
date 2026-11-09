@@ -76,7 +76,7 @@ Only the Executor overrides estimates, with `aiur ticket estimate … --reason`.
 
 ## Matching skills to a ticket
 
-Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
+Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, then any recommended skills with a path to load, and every other installed skill after them as a name and description to load on demand.
 
 `agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
 
@@ -118,6 +118,30 @@ A `Premises: dec_1, dec_2` line names the Command decisions the ticket is built 
 Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
 
 `agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+
+### Recommended skills
+
+`agent.skills.recommended` takes the same five `by_*` maps for skills that fit the ticket but should not be inlined. They appear under `### Recommended skills (load on demand)` with the skill's name, the reason that matched, its `description:` and the workspace-relative path of its `SKILL.md`.
+
+Their text is never inlined, so they never count against `preload_max_bytes`. A skill that is also mapped stays in the mapped tier, and `Skills only:` replaces the recommended set as well.
+
+```yaml
+agent:
+  skills:
+    by_lane:
+      art: [pixel-art]
+    recommended:
+      by_lane:
+        art: [sprite-sheets, palette-discipline]
+```
+
+### Nested skills
+
+Skills are found up to three directories below an install path: `<skill>`, `<group>/<skill>` and `<group>/<pack>/<skill>`, each holding a `SKILL.md`. A nested skill such as `vendor/<pack>/<skill>/SKILL.md` is named by its own directory, so map it as `<skill>`.
+
+When two skills share a name, the shallower one wins. Aiur stops searching inside a directory once it finds a `SKILL.md` there, and skips directories whose names start with a dot.
+
+It descends only into real directories, never through a symlink, and lists at most 256 directories per install path.
 
 A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
 

@@ -7,14 +7,20 @@ defmodule Aiur.AgentControlCLI do
 
   @spec status(keyword()) :: :ok
   def status(opts \\ []) do
-    case StartupChecks.validate_hosted_secrets() do
-      :ok -> :ok
-      {:error, messages} -> Enum.each(messages, &IO.puts/1)
-    end
+    # `--json` stdout is one JSON object: the per-project rows, without the secrets notice.
+    if opts[:json] do
+      status_projects_json()
+    else
+      case StartupChecks.validate_hosted_secrets() do
+        :ok -> :ok
+        {:error, messages} -> Enum.each(messages, &IO.puts/1)
+      end
 
-    StatusCLI.status(opts)
+      StatusCLI.status(opts)
+    end
   end
 
+  defdelegate status_projects_json(), to: Aiur.Project.StatusRows, as: :print
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
   defdelegate main_watch_inherited?(check, merge_base), to: Aiur.MainWatch, as: :inherited?
   defdelegate agents(opts \\ []), to: Aiur.Orchestrator.StatusCLI
@@ -47,6 +53,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_reopen(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_owner(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_assign(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ownership_migrate(opts), to: Aiur.ControlCLI.EntryPoints
