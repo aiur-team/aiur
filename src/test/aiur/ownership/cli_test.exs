@@ -43,6 +43,7 @@ defmodule Aiur.Ownership.CLITest do
       ticket: "12",
       repo: "o/r",
       now: @now,
+      peer_fun: fn _ -> nil end,
       error_fun: fn message -> send(test, {:error, message}) end,
       identity_fun: fn -> %{gateway_id: @nook, gateway_label: "Nook", daemon_key: "nook"} end,
       read_fun: fn "o/r", "12" -> {:ok, observed} end,

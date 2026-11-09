@@ -82,8 +82,10 @@ defmodule Aiur.ControlCall.Project do
   def run_local(expression) do
     case Aiur.ControlCall.parse(expression, remote: false) do
       {:ok, call} ->
-        {:ok, output} = Aiur.ControlCall.run(call, 3_600_000, Aiur.ControlCall.actor())
-        IO.write(output)
+        case Aiur.ControlCall.run(call, 3_600_000, Aiur.ControlCall.actor()) do
+          {:ok, output} -> IO.write(output)
+          {:error, reason} -> IO.write("__AIUR_CONTROL_ERROR__:control call failed: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:1\n")
+        end
 
       {:error, reason} ->
         IO.write("__AIUR_CONTROL_ERROR__:control call refused: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:64\n")

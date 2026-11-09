@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.StatusReason do
           | {:transient, String.t() | nil, non_neg_integer() | nil}
           | {:paused, atom() | String.t() | nil}
           | {:paused, atom() | String.t() | nil, t()}
+          | {:backends, [{String.t(), :available | :limited}]}
 
   @spec for_idle(boolean(), term(), non_neg_integer(), non_neg_integer()) :: t()
   def for_idle(_prewarm_blocked?, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
@@ -97,6 +98,8 @@ defmodule Aiur.Orchestrator.StatusReason do
       other -> humanize(other)
     end
   end
+
+  def render({:backends, backends}), do: Enum.map_join(backends, ", ", fn {backend, state} -> "#{backend} #{state}" end)
 
   def render({:paused, reason, retry_reason}), do: "#{render({:paused, reason})}; #{render(retry_reason)}"
 
