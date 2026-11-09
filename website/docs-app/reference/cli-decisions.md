@@ -169,10 +169,12 @@ answers published while the listener was stopped.
 
 `aiur command request <question> --after 5,6` stores the Command as pending
 instead of publishing it. It reaches no inbox until every listed ticket is
-closed as completed; the daemon checks each minute and then publishes it with
-the idempotency key printed at request time. Pending Commands survive a daemon
-restart, and `aiur command` lists them with their tickets. Options and
-recommendation are checked at request time; media is checked again at publication.
+closed as completed. The daemon checks each minute, then publishes it with the
+idempotency key printed at request time.
+
+Pending Commands survive a daemon restart, and `aiur command` lists them with
+their tickets. Options and recommendation are checked at request time; media is
+checked again at publication.
 
 If a listed ticket is closed as not planned or as a duplicate, the Command is
 dropped and the Executor gets an `executor.command.dropped` wake with
