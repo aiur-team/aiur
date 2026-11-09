@@ -55,10 +55,25 @@ def main() -> int:
             capture_output=True, text=True,
         )
         assert result.returncode == 0, result.stdout + result.stderr
+        # A non-empty module and an empty non-Elixir file pass; an empty module fails.
+        for path, body in (('src/lib/real.ex', 'defmodule Real do\nend\n'), ('docs/.keep', '')):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(body)
+        git(root, 'add', 'src/lib/real.ex', 'docs/.keep')
+        git(root, 'commit', '-qm', 'add real module')
+        result = subprocess.run([sys.executable, str(CHECKER), '--base', base], cwd=root, capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        (root / 'src/lib/empty_contract.ex').write_text('')
+        git(root, 'add', 'src/lib/empty_contract.ex')
+        git(root, 'commit', '-qm', 'add empty module')
+        result = subprocess.run([sys.executable, str(CHECKER), '--base', base], cwd=root, capture_output=True, text=True)
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert 'src/lib/empty_contract.ex' in result.stderr
+        assert 'src/lib/real.ex' not in result.stderr
         assert (Path(__file__).resolve().parents[1] / 'scripts/pre-handoff-guards.list').read_text().find(
             'python3 scripts/check-agent-scratch.py --base <BASE_SHA>'
         ) >= 0
-    print('test-check-agent-scratch: forbidden scratch paths rejected; skills-only diff passes')
+    print('test-check-agent-scratch: forbidden scratch paths and empty modules rejected; skills-only diff passes')
     return 0
 
 
