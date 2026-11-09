@@ -275,7 +275,7 @@ defmodule Aiur.Executor.Session do
 
   defp save(state) do
     if state.timer, do: Process.cancel_timer(elem(state.timer, 0))
-    JsonStore.write!(state.path, state.binding, mode: 0o600)
+    JsonStore.write_or_drop(state.path, state.binding, mode: 0o600)
     %{state | written_at: System.monotonic_time(:millisecond), timer: nil}
   end
 end

@@ -179,7 +179,7 @@ defmodule Aiur.Events.DurableConsumer do
   defp random_jitter(window), do: :rand.uniform(window + 1) - 1
 
   defp persist(state, cursor) do
-    JsonStore.write!(state.path, %{"cursor" => cursor})
+    JsonStore.write_or_drop(state.path, %{"cursor" => cursor})
     %{state | cursor: cursor}
   end
 

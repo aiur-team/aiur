@@ -63,6 +63,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.decision_dispatch.saturated.resolved", "commands"},
     # aiur/agent_runner/decision_lifecycle_failure_alert.ex
     {"system.decision_lifecycle.recording_failed", "agent-runner"},
+    # aiur/disk_full.ex
+    {"system.disk.pressure", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.capacity_starved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex

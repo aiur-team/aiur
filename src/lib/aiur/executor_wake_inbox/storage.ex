@@ -83,7 +83,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @spec persist_pending(Path.t(), map()) :: :ok
   def persist_pending(path, pending) do
     encoded = Map.new(pending, fn {{topic_class, ticket}, record} -> {Jason.encode!([topic_class, ticket]), record} end)
-    JsonStore.write!(path, encoded)
+    JsonStore.write_or_drop(path, encoded)
   end
 
   @doc false
@@ -202,7 +202,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @spec advance_cursor(map(), [map()]) :: map()
   def advance_cursor(state, records) do
     cursor = Enum.max([current_cursor(state) | Enum.map(records, & &1["wake_id"])])
-    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
+    :ok = JsonStore.write_or_drop(state.cursor_path, %{"last_seen_wake_id" => cursor})
     %{state | cursor: cursor}
   end
 
@@ -251,7 +251,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   defp report_dropped_unread(state, dropped) do
     ids = Enum.map(dropped, & &1["wake_id"])
     cursor = Enum.max(ids)
-    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
+    :ok = JsonStore.write_or_drop(state.cursor_path, %{"last_seen_wake_id" => cursor})
 
     message =
       "Executor wake ledger overflowed its #{state.max_records}-record bound; " <>

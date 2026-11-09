@@ -31,9 +31,32 @@ defmodule Aiur.JsonStore do
   """
   @spec write!(Path.t(), term(), keyword()) :: :ok
   def write!(path, term, opts \\ []) when is_binary(path) do
-    File.mkdir_p!(Path.dirname(path))
-    :ok = Fs.atomic_write(path, Jason.encode!(term), [fsync: true] ++ Keyword.take(opts, [:mode]))
-    :ok
+    case write(path, term, opts) do
+      :ok -> :ok
+      {:error, reason} -> raise File.Error, reason: reason, action: "write", path: path
+    end
+  end
+
+  @doc "Like `write!/3`, but returns `{:error, reason}` instead of raising."
+  @spec write(Path.t(), term(), keyword()) :: :ok | {:error, term()}
+  def write(path, term, opts \\ []) when is_binary(path) do
+    with :ok <- Aiur.DiskFull.observe(path, File.mkdir_p(Path.dirname(path))) do
+      Fs.atomic_write(path, Jason.encode!(term), [fsync: true] ++ Keyword.take(opts, [:mode]))
+    end
+  end
+
+  @doc """
+  Writes like `write/3` but never fails: a failed write is logged and dropped,
+  and the caller keeps its in-memory state (#7925). For state a server can
+  rebuild or replay, where crashing on a full disk would cost more than a
+  stale file on the next boot.
+  """
+  @spec write_or_drop(Path.t(), term(), keyword()) :: :ok
+  def write_or_drop(path, term, opts \\ []) do
+    with {:error, reason} <- write(path, term, opts) do
+      Logger.warning("json_store phase=write_dropped path=#{path} reason=#{inspect(reason)}")
+      :ok
+    end
   end
 
   @doc """
