@@ -244,6 +244,9 @@ Each field has one owning layer. A higher layer may override a field only where 
 | L5 | runtime `aiur set` (per project) | the keys `aiur set` accepts today |
 | L6 | launch flags | `--max-agents` (machine capacity), `--host`, `--pause` |
 
+`agent.skills` is the exception to one owning layer: L2 supplies a default map and L3 merges over it by
+dimension and key, the L3 entry winning on the same key (#7870).
+
 Rules: L1 `projects[].max_agents` caps L3 `agent.max_concurrent_agents`; L4 order falls back to L1 `priority` and
 L3 `build_order.feature_order` when the store was never reached. Merged results are never written back.
 `aiur config explain <key>` prints value, layer, file, and what it overrode (MPG-310).

@@ -68,6 +68,34 @@ defmodule Aiur.Config.SkillsMapping do
   def normalize(%{} = raw), do: Enum.reduce(raw, empty(), &put_normalized/2)
   def normalize(other), do: other
 
+  @doc """
+  Merge a global raw `agent.skills` map under a project raw map.
+
+  The project adds to the global mapping per dimension, and a project entry
+  replaces the global entry with the same key (keys compared as `normalize/1`
+  compares them). Any other project key replaces the global value. Raw values
+  stay raw, so `validate/1` still names a bad value in either layer.
+  """
+  @spec merge(term(), term()) :: term()
+  def merge(%{} = global, %{} = project) do
+    Map.merge(global, project, fn key, global_value, project_value ->
+      merge_dimension(normalize_key(key), global_value, project_value)
+    end)
+  end
+
+  def merge(global, nil), do: global
+  def merge(_global, project), do: project
+
+  defp merge_dimension(dimension, %{} = global, %{} = project) when dimension in @dimensions do
+    shadowed = MapSet.new(Map.keys(project), &normalize_entry_key(dimension, &1))
+
+    global
+    |> Map.reject(fn {key, _skills} -> normalize_entry_key(dimension, key) in shadowed end)
+    |> Map.merge(project)
+  end
+
+  defp merge_dimension(_key, _global, project), do: project
+
   @doc "The empty mapping."
   @spec empty() :: normalized()
   def empty do
@@ -258,7 +286,7 @@ defmodule Aiur.Config.SkillsMapping do
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, epic, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, epic, labels and complexity to the skills its worker loads first. A project `.aiur/config` inherits `agent.skills` from `~/.aiur/config` and overrides it per entry; see [skills](/skills#matching-skills-to-a-ticket). |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength

@@ -281,6 +281,8 @@ defmodule Aiur.Workflow do
   defp parse(content, path) do
     case yaml_to_map(content) do
       {:ok, config} ->
+        config = inherit_global_skills(config, path)
+
         with {:ok, config} <- resolve_hooks(config, path),
              {:ok, config} <- resolve_prewarm(config, path),
              {:ok, config} <- resolve_alerts(config, path) do
@@ -294,6 +296,26 @@ defmodule Aiur.Workflow do
 
       {:error, reason} ->
         {:error, {:workflow_parse_error, reason}}
+    end
+  end
+
+  # `agent.skills` is the one key a project config inherits from the global
+  # `~/.aiur/config` (#7870); every other key still comes from one file. An
+  # unreadable or malformed global file contributes nothing: it is not the active
+  # config, so it must not stop the project from loading.
+  # ponytail: the global file is read when the project config (re)loads; an edit
+  # to the global file alone takes effect on the next project reload or restart.
+  defp inherit_global_skills(config, path) do
+    global_path = Path.join([home_dir(), @aiur_dir, @config_basename])
+
+    with false <- Path.expand(path) == Path.expand(global_path),
+         agent when is_map(agent) or is_nil(agent) <- config["agent"],
+         {:ok, content} <- File.read(global_path),
+         {:ok, %{"agent" => %{"skills" => %{} = global_skills}}} <- yaml_to_map(content) do
+      agent = agent || %{}
+      Map.put(config, "agent", Map.put(agent, "skills", Aiur.Config.SkillsMapping.merge(global_skills, agent["skills"])))
+    else
+      _no_global_skills -> config
     end
   end
 

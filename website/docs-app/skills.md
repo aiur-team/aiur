@@ -98,6 +98,12 @@ Labels come first, then lanes, then the owning feature, then its epic, then comp
 
 Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
 
+### Global and project layers
+
+`agent.skills` is the one key a project `.aiur/config` inherits from the global `~/.aiur/config`. Put mappings every repository shares in the global file; a project file adds its own entries on top.
+
+The merge is per dimension and key. A project `by_lane.ui` entry sits beside a global `by_lane.docs` entry, and a project entry with the same key as a global one replaces the global list (keys compare as matching does). A project `preload_max_bytes` replaces the global value. A missing or malformed global file contributes nothing. The global file is read when the project config loads or reloads, so an edit to the global file alone takes effect on the next project reload or restart.
+
 ### Per-ticket override
 
 A `skills:<name>` label adds skills to one ticket without a config edit. It names a `by_label` entry when one exists, otherwise it names one skill directly.
