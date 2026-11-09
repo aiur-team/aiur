@@ -218,7 +218,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   # Out of machine or project grant: start nothing, the next poll retries.
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
-    MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end)
+    MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end, MachineGrant.feature(issue))
   end
 
   defp start_granted_worker(state, issue, attempt, recipient, worker_host, opts) do

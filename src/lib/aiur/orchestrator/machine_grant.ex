@@ -6,6 +6,8 @@ defmodule Aiur.Orchestrator.MachineGrant do
   single-project daemon behaves exactly as before.
   """
 
+  alias Aiur.BuildOrder.Features.LabelRules
+  alias Aiur.Config
   alias Aiur.Gateway.Capacity
   alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, Slots, State}
   alias Aiur.Project.Context
@@ -18,18 +20,18 @@ defmodule Aiur.Orchestrator.MachineGrant do
     end
   end
 
-  @spec acquire(term()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
-  def acquire(issue_id) do
+  @spec acquire(term(), String.t() | :none) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
+  def acquire(issue_id, feature \\ :none) do
     case Context.current_id() do
       nil -> :ok
-      id -> Capacity.acquire(id, issue_id)
+      id -> Capacity.acquire(id, issue_id, feature)
     end
   end
 
   @doc "Runs `start` with a grant for `issue_id`; at the machine or project limit returns `unchanged`."
-  @spec granted(term(), State.t(), (-> State.t())) :: State.t()
-  def granted(issue_id, %State{} = unchanged, start) do
-    case acquire(issue_id) do
+  @spec granted(term(), State.t(), (-> State.t()), String.t() | :none) :: State.t()
+  def granted(issue_id, %State{} = unchanged, start, feature \\ :none) do
+    case acquire(issue_id, feature) do
       :ok -> start.()
       {:error, _full} -> unchanged
     end
@@ -44,12 +46,49 @@ defmodule Aiur.Orchestrator.MachineGrant do
   @spec report_demand(State.t(), [Aiur.Issue.t()]) :: State.t()
   def report_demand(%State{} = state, issues) do
     with id when id != nil <- Context.current_id() do
-      ready = Enum.count(issues, &(DispatchPolicy.dispatch_candidate_decision(&1, state) == :dispatch and DispatchPolicy.state_slots_available?(&1, state)))
       local_free = max(Slots.effective_concurrent_agent_limit(state) - Slots.used_slots(state), 0)
-      Capacity.report_demand(id, min(ready, local_free))
+
+      ready =
+        issues
+        |> Enum.filter(&(DispatchPolicy.dispatch_candidate_decision(&1, state) == :dispatch and DispatchPolicy.state_slots_available?(&1, state)))
+        |> Enum.frequencies_by(&feature/1)
+
+      Capacity.report_demand(id, cap(ready, local_free), feature_order())
     end
 
     state
+  end
+
+  @doc "The ticket's feature: its first `feature:<slug>` label in sorted order, else `:none`."
+  @spec feature(Aiur.Issue.t()) :: String.t() | :none
+  def feature(%Aiur.Issue{} = issue) do
+    issue
+    |> Aiur.Issue.label_names()
+    |> Enum.sort()
+    |> Enum.find_value(:none, fn label ->
+      case LabelRules.parse(label) do
+        {:ok, slug} -> slug
+        :ignore -> nil
+      end
+    end)
+  end
+
+  # The project's local free slots bound its total demand; trim features from the lowest-ranked end.
+  defp cap(ready, free) do
+    order = feature_order()
+    ranked = Enum.sort_by(ready, fn {f, _} -> {f == :none, Enum.find_index(order, &(&1 == f)) || length(order), to_string(f)} end)
+
+    {kept, _} =
+      Enum.map_reduce(ranked, free, fn {f, n}, left -> {{f, min(n, left)}, left - min(n, left)} end)
+
+    Map.new(kept)
+  end
+
+  defp feature_order do
+    case Config.settings() do
+      {:ok, %{build_order: %{feature_order: order}}} when is_list(order) -> order
+      _ -> []
+    end
   end
 
   @spec sync(State.t()) :: :ok

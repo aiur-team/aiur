@@ -54,15 +54,23 @@ defmodule Aiur.Gateway.Capacity do
 
   @doc "Takes a slot for `issue_id`; idempotent. A missing broker grants it; a slow one refuses."
   @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
-  def acquire(project_id, issue_id), do: call({:acquire, project_id, issue_id, self()}, :ok, {:error, :broker_timeout})
+  def acquire(project_id, issue_id, feature \\ :none),
+    do: call({:acquire, project_id, issue_id, feature, self()}, :ok, {:error, :broker_timeout})
 
   @doc "Replaces the project's holders with `issue_ids`, the issues now occupying slots."
   @spec sync(project_id(), Enumerable.t()) :: :ok
   def sync(project_id, issue_ids), do: call({:sync, project_id, MapSet.new(issue_ids), self()}, :ok)
 
-  @doc "Records how many tickets `project_id` could start now; refreshed each poll."
-  @spec report_demand(project_id(), non_neg_integer()) :: :ok
-  def report_demand(project_id, ready), do: call({:demand, project_id, ready}, :ok)
+  @doc """
+  Records how many tickets `project_id` could start now; refreshed each poll. `ready` is a
+  count, or a map of feature slug (`:none` when unlabelled) to count; `feature_order` is the
+  project's `build_order.feature_order`, which ranks its features after its own priority.
+  """
+  @spec report_demand(project_id(), non_neg_integer() | %{(String.t() | :none) => non_neg_integer()}, [String.t()]) :: :ok
+  def report_demand(project_id, ready, feature_order \\ []) do
+    by_feature = if is_map(ready), do: ready, else: %{none: ready}
+    call({:demand, project_id, by_feature, feature_order}, :ok)
+  end
 
   @spec snapshot() :: %{ceiling: pos_integer() | nil, held: non_neg_integer(), projects: [map()]} | :unavailable
   def snapshot, do: call(:snapshot, :unavailable)
@@ -87,7 +95,7 @@ defmodule Aiur.Gateway.Capacity do
   def init(opts) do
     :ets.new(@table, [:named_table, :protected, read_concurrency: true])
     {ceiling, maxes, priorities} = limits(opts)
-    state = %{ceiling: ceiling, priorities: priorities, demands: %{}, projects: Map.new(maxes, fn {id, max} -> {id, %{max: max, holders: MapSet.new(), ref: nil}} end)}
+    state = %{ceiling: ceiling, priorities: priorities, demands: %{}, projects: Map.new(maxes, fn {id, max} -> {id, %{max: max, holders: MapSet.new(), features: %{}, ref: nil}} end)}
     publish(state)
     {:ok, state}
   end
@@ -105,12 +113,16 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   @impl true
-  def handle_call({:acquire, id, issue_id, pid}, _from, %{projects: projects} = state) do
+  def handle_call({:acquire, id, issue_id, feature, pid}, _from, %{projects: projects} = state) do
     case projects do
       %{^id => project} ->
-        case admit(state, id, project, issue_id) do
-          :ok -> {:reply, :ok, put_holders(state, id, MapSet.put(project.holders, issue_id), pid)}
-          error -> {:reply, error, state}
+        case admit(state, id, project, issue_id, feature) do
+          :ok ->
+            state = put_in(state.projects[id].features, Map.put(project.features, issue_id, feature))
+            {:reply, :ok, put_holders(state, id, MapSet.put(project.holders, issue_id), pid)}
+
+          error ->
+            {:reply, error, state}
         end
 
       _ ->
@@ -119,13 +131,16 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   def handle_call({:sync, id, issue_ids, pid}, _from, %{projects: projects} = state) do
-    if Map.has_key?(projects, id),
-      do: {:reply, :ok, put_holders(state, id, issue_ids, pid)},
-      else: {:reply, :ok, state}
+    if Map.has_key?(projects, id) do
+      state = update_in(state.projects[id].features, &Map.take(&1, MapSet.to_list(issue_ids)))
+      {:reply, :ok, put_holders(state, id, issue_ids, pid)}
+    else
+      {:reply, :ok, state}
+    end
   end
 
-  def handle_call({:demand, id, ready}, _from, state) do
-    {:reply, :ok, put_in(state.demands[id], {ready, System.monotonic_time(:millisecond)})}
+  def handle_call({:demand, id, by_feature, order}, _from, state) do
+    {:reply, :ok, put_in(state.demands[id], {by_feature, order, System.monotonic_time(:millisecond)})}
   end
 
   def handle_call(:snapshot, _from, state) do
@@ -135,44 +150,53 @@ defmodule Aiur.Gateway.Capacity do
 
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    projects = Map.new(state.projects, fn {id, p} -> {id, if(p.ref == ref, do: %{p | holders: MapSet.new(), ref: nil}, else: p)} end)
+    projects = Map.new(state.projects, fn {id, p} -> {id, if(p.ref == ref, do: %{p | holders: MapSet.new(), features: %{}, ref: nil}, else: p)} end)
     state = %{state | projects: projects}
     publish(state)
     {:noreply, state}
   end
 
-  defp admit(state, project_id, %{holders: holders, max: max}, issue_id) do
+  defp admit(state, project_id, %{holders: holders, max: max}, issue_id, feature) do
     cond do
       MapSet.member?(holders, issue_id) -> :ok
       max && MapSet.size(holders) >= max -> {:error, :project_full}
       state.ceiling && total(state) >= state.ceiling -> {:error, :machine_full}
-      true -> priority_check(state, project_id, issue_id)
+      true -> priority_check(state, project_id, feature)
     end
   end
 
-  # Would the priority walk give this project a new start? Other projects count
-  # only by their fresh reported demand; this project counts at least this ask.
-  defp priority_check(state, id, _issue_id) do
+  # Would the priority walk give this ticket's group a new start? Other projects count
+  # only by their fresh reported demand; this group counts at least this ask. Groups are
+  # (project, feature): projects by priority, then a project's features in its feature_order.
+  defp priority_check(state, id, feature) do
     now = System.monotonic_time(:millisecond)
-    running = Map.new(state.projects, fn {p, v} -> {{p, :none}, MapSet.size(v.holders)} end)
+    fresh = for {p, {by_feature, _order, at}} <- state.demands, now - at <= @demand_ttl_ms, do: {p, by_feature}
+
+    # ponytail: a holder adopted after a restart has no recorded feature and counts as :none.
+    running =
+      for {p, project} <- state.projects, holder <- project.holders, reduce: %{} do
+        acc -> Map.update(acc, {p, Map.get(project.features, holder, :none)}, 1, &(&1 + 1))
+      end
 
     demands =
-      for {p, {ready, at}} <- state.demands, p != id, now - at <= @demand_ttl_ms, ready > 0, into: %{} do
-        {{p, :none}, %{ready: ready, promoted: 0}}
+      for {p, by_feature} <- fresh, {f, ready} <- by_feature, ready > 0, p != id or f != feature, into: %{} do
+        {{p, f}, %{ready: ready, promoted: 0}}
       end
 
-    own =
-      case state.demands[id] do
-        {ready, at} when now - at <= @demand_ttl_ms -> ready
-        _ -> 0
-      end
-
-    demands = Map.put(demands, {id, :none}, %{ready: max(own, 1), promoted: 0})
+    own = fresh |> Enum.find_value(0, fn {p, by_feature} -> p == id && Map.get(by_feature, feature) end) || 0
+    demands = Map.put(demands, {id, feature}, %{ready: max(own, 1), promoted: 0})
     limits = for {p, %{max: max}} <- state.projects, max, into: %{}, do: {p, max}
     capacity = state.ceiling || Enum.sum(Map.values(running)) + Enum.sum(for {_, d} <- demands, do: d.ready)
-    order = state.projects |> Map.keys() |> Enum.sort_by(&{state.priorities[&1] || :infinity, &1}) |> Enum.map(&{&1, :none})
+    order = [Map.keys(running), Map.keys(demands)] |> Enum.concat() |> Enum.uniq() |> Enum.sort_by(&rank(state, &1))
 
-    if Allocation.allocate(capacity, demands, order, limits, running)[{id, :none}], do: :ok, else: {:error, :yielded}
+    if Allocation.allocate(capacity, demands, order, limits, running)[{id, feature}], do: :ok, else: {:error, :yielded}
+  end
+
+  defp rank(state, {p, feature}) do
+    order = with {_, o, _} <- state.demands[p], do: o
+    order = if is_list(order), do: order, else: []
+    position = if feature == :none, do: :none, else: Enum.find_index(order, &(&1 == feature)) || length(order)
+    {state.priorities[p] || :infinity, p, (position == :none && 1) || 0, if(is_integer(position), do: position, else: 0), to_string(feature)}
   end
 
   defp put_holders(state, id, holders, pid) do

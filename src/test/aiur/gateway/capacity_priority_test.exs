@@ -66,4 +66,38 @@ defmodule Aiur.Gateway.CapacityPriorityTest do
     assert granted(orchestrator("o/a", [101, 102, 103, 104, 105])) == 4
     assert %{held: 12} = Capacity.snapshot()
   end
+
+  test "within a project, features rank by feature_order; the lower-ranked feature yields" do
+    start_supervised!({Capacity, ceiling: 1, projects: %{"o/a" => nil}, priorities: %{"o/a" => 1}})
+    Capacity.report_demand("o/a", %{"f1" => 1, "f2" => 1}, ["f2", "f1"])
+
+    assert orchestrator_feature("o/a", 1, "f1") == {:error, :yielded}
+    assert orchestrator_feature("o/a", 2, "f2") == :ok
+  end
+
+  test "a lower-priority project's listed feature does not outrank a higher project's unlabelled work" do
+    start(%{"o/a" => nil, "o/b" => 8})
+    Capacity.report_demand("o/a", %{none: 12})
+    Capacity.report_demand("o/b", %{"f1" => 12}, ["f1"])
+
+    assert orchestrator_feature("o/b", 1, "f1") == {:error, :yielded}
+  end
+
+  defp orchestrator_feature(project, issue, feature) do
+    parent = self()
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Task,
+         fn ->
+           send(parent, {:feature_acquired, Capacity.acquire(project, issue, feature)})
+           receive do: (:stop -> :ok)
+         end},
+        id: make_ref()
+      )
+    )
+
+    assert_receive {:feature_acquired, result}, 1_000
+    result
+  end
 end

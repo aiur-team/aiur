@@ -57,4 +57,11 @@ defmodule Aiur.Orchestrator.MachineGrantWiringTest do
     assert Capacity.acquire("o/b", 2) == {:error, :yielded}
     send(b, :release)
   end
+
+  test "feature/1 takes the first sorted valid feature label, else :none" do
+    labels = &%Aiur.Issue{id: "1", identifier: "1", labels: &1}
+    assert MachineGrant.feature(labels.(["agent:todo", "feature:b", "feature:a"])) == "a"
+    assert MachineGrant.feature(labels.(["feature:Bad Slug"])) == :none
+    assert MachineGrant.feature(labels.(["agent:todo"])) == :none
+  end
 end
