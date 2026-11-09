@@ -58,8 +58,8 @@ cmd_gateway() {
   local verb="${1:-}" peer="" port="" categories="" json=0 full=0 arg opts item data list="" ttl="" url="" pin="" name="" token_file=""
   [ "$#" -gt 0 ] && shift
   case "$verb" in
-    permissions | grant | revoke | trust | discover | list | status | invite | join | register | remove | rotate) ;;
-    *) gateway_usage_error 'gateway requires permissions, grant, revoke, trust, discover, list, status, invite, join, register, remove or rotate' ;;
+    permissions | grant | revoke | trust | discover | list | status | reload | invite | join | register | remove | rotate) ;;
+    *) gateway_usage_error 'gateway requires permissions, grant, revoke, trust, discover, list, status, reload, invite, join, register, remove or rotate' ;;
   esac
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -89,7 +89,7 @@ cmd_gateway() {
   case "$verb" in
     grant) [ -n "$peer" ] && [ -n "$categories" ] || gateway_usage_error 'gateway grant requires a peer and categories' ;;
     revoke | trust | status) [ -n "$peer" ] || gateway_usage_error "gateway $verb requires a peer" ;;
-    list) [ -z "$peer" ] || gateway_usage_error "unexpected argument $peer" ;;
+    list | reload) [ -z "$peer" ] || gateway_usage_error "unexpected argument $peer" ;;
   esac
   [ "$verb" != trust ] || [ "$full" -eq 1 ] || gateway_usage_error 'gateway trust requires --full'
   opts=""
