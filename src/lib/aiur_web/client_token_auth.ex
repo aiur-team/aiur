@@ -3,6 +3,8 @@ defmodule AiurWeb.ClientTokenAuth do
   @behaviour Plug
   import Plug.Conn
 
+  alias Aiur.Gateway.Grants
+
   @impl Plug
   def init(opts), do: opts
 
@@ -61,12 +63,39 @@ defmodule AiurWeb.ClientTokenAuth do
     end
   end
 
-  defp authenticate(conn, token, write?) when is_binary(token) do
-    case Aiur.ClientTokens.authenticate(token) do
-      {:ok, name, scope} when not write? or scope == "write" ->
-        conn |> assign(:token_name, name) |> assign(:token_scope, scope)
+  defp assign_token(conn, t) do
+    conn |> assign(:token_name, t.name) |> assign(:token_scope, t.scope) |> assign(:token_peer, t.peer) |> assign(:token_categories, t.categories)
+  end
 
-      {:ok, _name, _scope} ->
+  # REST write routes carry no category of their own: only a token holding every category
+  # (legacy write) passes, except the messages route, which maps to `message`.
+  defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", _, "messages"]}, cats), do: "message" in cats or full?(cats)
+  defp rest_write_allowed?(_conn, cats), do: full?(cats)
+
+  defp full?(cats), do: Enum.all?(Aiur.ClientTokens.categories(), &(&1 in cats))
+
+  # On REST write routes a peer-bound token never exceeds its registry entry: a category the peer's `allows` has not
+  # (yet) confirmed is dropped. Reads and the control endpoint skip this; the control endpoint reports the real refusal.
+  defp narrow_to_registry({:ok, %{peer: peer} = t}, true) when is_binary(peer) do
+    {:ok, %{t | categories: Enum.filter(t.categories, &(Grants.allowed?(peer, t.name, &1) == :ok))}}
+  end
+
+  defp narrow_to_registry(other, _write?), do: other
+
+  defp authenticate(conn, token, write?) when is_binary(token) do
+    case token |> Aiur.ClientTokens.authenticate_full() |> narrow_to_registry(write?) do
+      {:ok, %{scope: "write"} = t} ->
+        # Only REST write pipelines gate; reads and the control endpoint (write? false) do not.
+        if not write? or rest_write_allowed?(conn, t.categories) do
+          assign_token(conn, t)
+        else
+          conn |> send_resp(403, "forbidden") |> halt()
+        end
+
+      {:ok, t} when not write? ->
+        assign_token(conn, t)
+
+      {:ok, _} ->
         conn |> send_resp(403, "forbidden") |> halt()
 
       :error ->

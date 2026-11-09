@@ -88,7 +88,7 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
   end
 
   defp pause do
-    orchestrator = AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
+    orchestrator = AiurWeb.EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server()
     PauseState.pause_state(orchestrator)
   end
 end

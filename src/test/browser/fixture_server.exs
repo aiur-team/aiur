@@ -12,6 +12,7 @@ Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/streamdeck_transcript.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
+Code.require_file("../support/browser_harness/projects_home_registry.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live fixture_live ticket_context_live voice_input_live voice_fixture_data voice_fixture_live executor_voice_control
@@ -159,7 +160,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{DashboardEndpoint, ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
+  alias Aiur.BrowserHarness.{DashboardEndpoint, ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures, ProjectsHomeRegistry}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
@@ -187,6 +188,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
+    ProjectsHomeRegistry.put!()
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)

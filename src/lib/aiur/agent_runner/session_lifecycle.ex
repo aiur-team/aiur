@@ -70,7 +70,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, TurnBudget.max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
-    orchestrator = Keyword.get(opts, :orchestrator, Aiur.Orchestrator)
+    orchestrator = Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
 
     {session_backend, rc?, session_opts} = resolve_session_options(issue, opts, worker_host)
 

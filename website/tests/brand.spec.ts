@@ -109,7 +109,7 @@ for (const theme of themes) {
     const codeLanguageLabel = page.locator('.lang').first()
     await expect.poll(async () => contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
 
-    const homeLink = page.getByRole('link', { name: 'Home' })
+    const homeLink = page.getByRole('link', { name: 'Home', exact: true })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')
     await expect(homeLink).toHaveAttribute('target', '_self')
     await page.route('https://aiur.team/', (route) => route.fulfill({

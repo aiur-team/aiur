@@ -24,7 +24,7 @@ defmodule Aiur.Handoff.CLI do
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
       timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
-      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) end)
+      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
 
       case snapshot_fun.() do
         :timeout ->

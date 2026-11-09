@@ -59,5 +59,11 @@ Entities: `project`, `feature`, `ticket` (field `order_key`, a fractional index 
 
 **S6 Gateway summary** (`GET /api/v1/gateway/summary`): `{gateway_id, gateway_label, observed_at, age_ms,
 connectivity, workload, capacity: {max, running}, projects: [{repo, observed_at, age_ms, focus_features, running,
-ready, owned_tickets, paused, pending_decisions}], executor_present}`.
+ready, owned_tickets, paused, agents, next_queue, pending_decisions}], executor_present}`.
+
+`agents`, `next_queue` and `pending_decisions` are each `{state, value, observed_at, age_ms}`. `state` is `known` or
+`unknown`; an unreadable store gives `unknown` with `value: null`, never `0`. `agents` is the project's current agent
+count, `next_queue.value` is `{number}` (the first startable queue item, `number: null` when nothing is ready), and
+`pending_decisions` is the count of Commands waiting on the operator. The queue serves only the configured tracker
+repo, so any other project reports `next_queue` as `unknown`.
 

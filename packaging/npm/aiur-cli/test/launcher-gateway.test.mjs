@@ -111,3 +111,63 @@ test("aiurdev --gateway local refuses a following selector with exit 64", () => 
     expect(r.stderr).toContain("use one of --gateway or --instance");
   }
 });
+
+const grantReg = (s) => `version: 1\ninstances:\n${entry("nook", s.url, ID.a, "Nook")}`;
+
+test("grant-changing gateway commands are refused over --gateway and --instance with exit 64 and no request", () => {
+  withServers(1, "ok\n__AIUR_CONTROL_EXIT__:0\n", ([s1]) => {
+    for (const sel of [["--gateway", "nook"], ["--instance", "nook"], ["--gateway", "all"]]) {
+      for (const verb of [["grant", "nook", "agents"], ["revoke", "nook"], ["trust", "nook", "--full"]]) {
+        const r = run(grantReg(s1), [...sel, "gateway", ...verb]);
+        expect(r.status).toBe(64);
+        expect(r.stderr).toContain("grant changes are local to the receiving gateway");
+      }
+    }
+    expect(total([s1])).toBe(0);
+  });
+});
+
+const AGENTS = '{"contract":"aiur.agents","contract_version":1,"running":[{"identifier":"1"}]}\n__AIUR_CONTROL_EXIT__:0\n';
+const statusData = () => {
+  const m = readFileSync(captureFile, "utf8").match(/LOCAL_EXPR:Aiur\.Gateway\.Cli\.(list|status)\(\[data: Base\.decode64!\("([^"]+)"\)(.*)\]\)/);
+  return { verb: m[1], rest: m[3], data: JSON.parse(Buffer.from(m[2], "base64").toString()) };
+};
+
+test("gateway list reads agents from every entry in parallel and keeps a dead entry's exit status", () => {
+  withServers(1, AGENTS, ([s1]) => {
+    const reg = `version: 1\ninstances:\n${entry("nook", s1.url, ID.a)}${entry("dead", "http://127.0.0.1:1", ID.b)}`;
+    const r = run(reg, ["--gateway", "local", "gateway", "list", "--json"]);
+    expect(r.status).toBe(0);
+    const { verb, rest, data } = statusData();
+    expect(verb).toBe("list");
+    expect(rest).toBe(", json: true");
+    const by = Object.fromEntries(data.map((d) => [d.name, d]));
+    expect(by.nook.status).toBe(0);
+    expect(by.nook.output).toContain('"contract":"aiur.agents"');
+    expect(by.dead.status).toBe(69);
+    expect(s1.requests().map((q) => q.body.expression)).toEqual(["Aiur.Handoff.CLI.agents()"]);
+    expect(s1.requests()[0].body.max_scope).toBe("read");
+  });
+});
+
+test("gateway status reads only the named entry and needs a name", () => {
+  withServers(2, AGENTS, ([s1, s2]) => {
+    const reg = `version: 1\ninstances:\n${entry("nook", s1.url, ID.a)}${entry("pc", s2.url, ID.b)}`;
+    expect(run(reg, ["--gateway", "local", "gateway", "status", "pc"]).status).toBe(0);
+    const { verb, rest, data } = statusData();
+    expect([verb, rest, data.map((d) => d.name)]).toEqual(["status", ', peer: Base.decode64!("cGM=")', ["pc"]]);
+    expect([s1.requests().length, s2.requests().length]).toEqual([0, 1]);
+    for (const args of [["status"], ["status", "no/such"], ["list", "pc"]]) {
+      expect(run(reg, ["--gateway", "local", "gateway", ...args]).status).toBe(64);
+    }
+    expect(s2.requests().length).toBe(1);
+  });
+});
+
+test("gateway usage errors exit 64", () => {
+  withServers(1, "ok\n__AIUR_CONTROL_EXIT__:0\n", ([s1]) => {
+    for (const args of [["grant", "nook"], ["grant"], ["trust", "nook"], ["revoke"], ["bogus"], ["grant", "nook", "Agents"]]) {
+      expect(run(grantReg(s1), ["--gateway", "local", "gateway", ...args]).status).toBe(64);
+    }
+  });
+});

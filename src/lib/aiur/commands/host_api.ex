@@ -33,7 +33,7 @@ defmodule Aiur.Commands.HostApi do
   @maximum_limit 100
   @maximum_answer_key_bytes 200
   @note_max 2000
-  @answer_keys ~w(idempotency_key expected_version option_id custom_response question_answers rationale)
+  @answer_keys ~w(idempotency_key expected_version option_id custom_response question_answers rationale feedback)
 
   @type scope :: Scope.t()
   @type read_error :: :not_found | :store_unavailable | {:invalid_query, term()}
@@ -117,7 +117,8 @@ defmodule Aiur.Commands.HostApi do
   Answers, supersedes or overrides one scoped Command as its authenticated user.
 
   `payload` accepts `idempotency_key`, `expected_version`, one of `option_id` /
-  `custom_response` / `question_answers`, an optional `rationale`, and
+  `custom_response` / `question_answers`, an optional `rationale`, optional
+  per-option `feedback`, and
   `replace: true` to replace an answer that already exists.
   """
   @spec answer(scope(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, answer_error()}
@@ -177,7 +178,14 @@ defmodule Aiur.Commands.HostApi do
           ]
         ])
 
-      {:ok, %{"command" => ComponentState.from_outcome(outcome, decision_id: decision.decision_id), "scope" => Scope.to_public(scope)}}
+      case outcome do
+        # The store refused the answer itself: surface it as the 422 the docs promise.
+        %{status: :error, reason: {:answer_invalid, detail}} ->
+          {:error, {:invalid_answer, detail}}
+
+        _ ->
+          {:ok, %{"command" => ComponentState.from_outcome(outcome, decision_id: decision.decision_id), "scope" => Scope.to_public(scope)}}
+      end
     end
   catch
     :exit, _reason -> {:error, :store_unavailable}

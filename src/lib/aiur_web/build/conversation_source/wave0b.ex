@@ -184,7 +184,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
     result =
       safe(fn ->
         fun = EndpointConfig.get(:build_conversation_snapshot_fun) || (&Aiur.Orchestrator.dashboard_snapshot/2)
-        fun.(Keyword.get(opts, :orchestrator, Aiur.Orchestrator), 2_000)
+        fun.(Keyword.get(opts, :orchestrator, Aiur.Orchestrator.server()), 2_000)
       end)
 
     case result do

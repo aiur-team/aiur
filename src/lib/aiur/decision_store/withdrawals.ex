@@ -24,9 +24,6 @@ defmodule Aiur.DecisionStore.Withdrawals do
         decision.decision_status not in [:open, :deferred] and not expired_unanswered_blocker?(decision) ->
           {:reply, {:error, {:conflict, decision.decision_status}}, state}
 
-        unresolvable_block?(decision) ->
-          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
-
         true ->
           persist_dismissal(decision, actor, state)
       end
@@ -35,10 +32,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  # Dismissal records a status and stops: it delivers nothing to a waiting
-  # agent. Live blocking Commands remain protected because dismissal would hide
-  # a real gate. An expired blocker no longer holds dispatch, so an operator may
-  # retire that stale record without leaving an invisible block.
+  # The operator may always dismiss a Command: `:dismissed` releases the
+  # dispatch gate and the dashboard tells a live agent to proceed. System
+  # sweeps (`Dedup`) keep this guard so they never close a live agent-filed
+  # block, which nothing would then release.
   @spec unresolvable_block?(term()) :: term()
   def unresolvable_block?(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: false
   def unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true

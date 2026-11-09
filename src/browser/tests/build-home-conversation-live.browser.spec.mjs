@@ -47,13 +47,30 @@ test.beforeEach(async ({ page }, info) => {
 const log = page => page.locator('#cv-log')
 const distance = page => log(page).evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)
 async function scrollUp(page, distance) {
+  // The initial render pins the log to the bottom in a later frame (conversation-bottom); scrolling up before
+  // it lands gets overwritten, which hides the pill under load (#7832). Wait for every pending frame.
+  await expect.poll(() => page.evaluate(() => window.liveAudit.frames.size)).toBe(0)
   await log(page).evaluate((el, d) => { el.scrollTop = el.scrollHeight - el.clientHeight - d; el.dispatchEvent(new Event('scroll')) }, distance)
 }
+// A late re-pin (resize delivery, media-query restyle) can still move the log; the offset must survive two frames (#7832).
+async function scrollUpStable(page, distance) {
+  await expect(async () => {
+    await scrollUp(page, distance)
+    await twoFrames(page)
+    expect(await log(page).evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(60)
+  }).toPass()
+}
 async function push(page, entries, fields = {}) {
-  await page.evaluate(async ({ entries, fields }) => {
-    const { fx } = await import('/build-home/state.js'), { MS } = await import('/build-home/modal/frame.js')
+  // Synchronous evaluate: an awaited dynamic import can be collected and reported as a navigation (#7426, #7832).
+  await page.evaluate(({ entries, fields }) => {
+    const { fx, MS } = window.buildConversation
     fx.receiveConversation({ v: 1, id: MS.t.id, kind: 'conversation-append', entries, ...fields })
   }, { entries, fields })
+}
+// Frame waits poll a flag: an awaited rAF promise inside evaluate can be collected and reported as a navigation (#7832).
+async function twoFrames(page) {
+  await page.evaluate(() => { window.framed = false; requestAnimationFrame(() => requestAnimationFrame(() => { window.framed = true })) })
+  await expect.poll(() => page.evaluate(() => window.framed)).toBe(true)
 }
 const entry = id => ({ id, k: 'say', text: 'New live message ' + id, at: null })
 async function mapGeometry(page) {
@@ -289,7 +306,7 @@ test('L9: reset removes retired listeners and observers; one scroll synchronizes
 })
 
 test('L23: three reopens retain one live registration set and one map rebuild for one appended child', async ({ page }) => {
-  const ticket = await page.evaluate(async () => (await import('/build-home/modal/frame.js')).MS.t)
+  const ticket = await page.evaluate(() => window.buildConversation.MS.t)
   for (let i = 0; i < 3; i++) {
     await page.locator('#bd-tk-close').click()
     await expect(page).toHaveURL(/\/build$/)
@@ -297,7 +314,7 @@ test('L23: three reopens retain one live registration set and one map rebuild fo
       listeners: window.liveAudit.listeners.filter(r => r.active && !r.target.isConnected).length,
       observers: window.liveAudit.observers.flatMap(o => [...o.targets]).filter(el => /^cv-/.test(el.id) && !el.isConnected).length,
     }))).toEqual({ listeners: 0, observers: 0 })
-    await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal(t), ticket)
+    await page.evaluate(t => { window.buildConversation.openModal(t) }, ticket)
     await expect(log(page).locator('[data-k]')).toHaveCount(100)
     await expect(page).toHaveURL(new RegExp('ticket=' + ticket.id + '$'))
   }
@@ -307,15 +324,15 @@ test('L23: three reopens retain one live registration set and one map rebuild fo
   await expect.poll(() => page.evaluate(() => ['cv-log', 'cv-map'].every(id =>
     window.liveAudit.observers.some(observer => observer.targets.has(document.getElementById(id)) && observer.deliveries > 0)
   ))).toBe(true)
-  await page.evaluate(async () => {
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  await twoFrames(page)
+  await page.evaluate(() => {
     window.mapBuilds = 0
     const mm = document.querySelector('#cv-mm')
     window.mapWatch = new MutationObserver(records => { window.mapBuilds += records.filter(r => r.type === 'childList' && r.target === mm).length })
     window.mapWatch.observe(mm, { childList: true })
   })
   await push(page, [entry('reopened')])
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await twoFrames(page)
   await expect(log(page).locator('[data-k]')).toHaveCount(101)
   await expect(log(page).locator('[data-eid=reopened]')).toHaveCount(1)
   expect(await page.evaluate(() => window.mapBuilds)).toBe(1)
@@ -340,7 +357,9 @@ test('L7: close cancels the pending map frame and late server/local appends leav
 for (const reducedMotion of ['reduce', 'no-preference']) {
   test('L21: pill and tick use ' + (reducedMotion === 'reduce' ? 'same-frame auto' : 'scrollend smooth') + ' scrolling', async ({ page }) => {
     await page.emulateMedia({ reducedMotion })
-    await scrollUp(page, 300); await push(page, [entry('motion')])
+    // The media-query handler restyles the page asynchronously; wait for it before scrolling (#7832).
+    await expect.poll(() => page.evaluate(() => !!document.querySelector('.rm'))).toBe(reducedMotion === 'reduce')
+    await scrollUpStable(page, 300); await push(page, [entry('motion')])
     await page.evaluate(() => {
       const log = document.querySelector('#cv-log'), scrollTo = log.scrollTo.bind(log)
       window.scrollCalls = []; window.scrollEnds = 0

@@ -8,9 +8,11 @@ defmodule Aiur.Application.Children do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Executor.Roster
   alias Aiur.Experiments.Auto
-  alias Aiur.GitHub.{Access, BlockerProgress, Config}
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Ownership
+  alias Aiur.Ownership.{Fence, FenceCommand}
 
   @doc """
   Build the supervision children for the given run shape.
@@ -114,6 +116,7 @@ defmodule Aiur.Application.Children do
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+      {Registry, keys: :unique, name: Aiur.ProjectRegistry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
@@ -173,7 +176,7 @@ defmodule Aiur.Application.Children do
       Aiur.Conversation.HeadTable,
       {Registry, keys: :unique, name: Aiur.Conversation.Registry},
       {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
-      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
       Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
@@ -242,7 +245,7 @@ defmodule Aiur.Application.Children do
       # `:label_catalogue_refresh?`; the table is always there for tests to drive.
       Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
-      Aiur.Events.SubscriptionStoreSupervisor,
+      {Aiur.Events.SubscriptionStoreSupervisor, name: Aiur.Events.subscription_store_supervisor()},
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
@@ -274,7 +277,7 @@ defmodule Aiur.Application.Children do
       # Intent store and sync precede the Orchestrator: its boot reads the fleet pause after a bounded pull.
       intent_children(),
       Aiur.GitHub.Listeners,
-      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
@@ -355,9 +358,24 @@ defmodule Aiur.Application.Children do
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
-      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
+      List.wrap(if(LeaseStore.configured?(), do: AgentBudgetSocket)) ++
+      Fence.child_specs() ++
+      fence_socket_child() ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+  end
+
+  defp fence_socket_child do
+    if Ownership.enabled?() do
+      [
+        Supervisor.child_spec(
+          {AgentBudgetSocket, name: Ownership.FenceSocket, socket_path: AgentBudgetSocket.fence_socket_path(), command_fun: &FenceCommand.execute/1},
+          id: Ownership.FenceSocket
+        )
+      ]
+    else
+      []
+    end
   end
 
   defp dashboard_cache_children(dashboard?, opts) do

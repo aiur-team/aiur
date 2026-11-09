@@ -23,7 +23,6 @@ defmodule Aiur.Project.StoreIsolationTest do
 
   setup do
     root = Path.join(System.tmp_dir!(), "project-isolation-#{System.unique_integer([:positive])}")
-    start_supervised!({Registry, keys: :unique, name: Aiur.ProjectRegistry})
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     a = project("o/a", root)
     b = project("o/b", root)

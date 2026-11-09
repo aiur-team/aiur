@@ -141,7 +141,7 @@ defmodule Aiur.ControlCLI.Settings do
   end
 
   defp snapshot_workspaces do
-    case Client.snapshot(Aiur.Orchestrator, 500) do
+    case Client.snapshot(Aiur.Orchestrator.server(), 500) do
       %{running: running, retrying: retrying} ->
         Enum.flat_map(running ++ retrying, &workspace_path/1)
 

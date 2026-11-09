@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Listeners do
   @type outcome :: %{connectivity: [{atom(), :ok | {:error, term()}}], poll_interval: pos_integer() | nil}
 
   @spec start_link(keyword()) :: Supervisor.on_start()
-  def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts), do: Supervisor.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
 
   # Each listener restarts alone; the orchestrator addresses it by name, so nothing above needs to restart.
   @impl true
@@ -38,7 +38,7 @@ defmodule Aiur.GitHub.Listeners do
 
   @spec reset() :: :ok
   def reset do
-    for {_id, pid, _type, _modules} <- Supervisor.which_children(__MODULE__), is_pid(pid), do: GenServer.call(pid, :reset, :infinity)
+    for {_id, pid, _type, _modules} <- Supervisor.which_children(Aiur.Project.whereis(__MODULE__)), is_pid(pid), do: GenServer.call(pid, :reset, :infinity)
     :ok
   end
 end

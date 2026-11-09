@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc "Whether the daemon is currently globally paused, or whether that truth is unavailable."
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
-  def globally_paused?, do: globally_paused?(Aiur.Orchestrator)
+  def globally_paused?, do: globally_paused?(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec globally_paused?(GenServer.server()) :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?(server) do
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc "Returns the global pause state and its recorded provenance."
   @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
-  def global_pause_status, do: global_pause_status(Aiur.Orchestrator)
+  def global_pause_status, do: global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator))
 
   @spec global_pause_status(GenServer.server()) ::
           {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
   """
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?),
-    do: set_global_pause(Aiur.Orchestrator, on?, "CLI")
+    do: set_global_pause(Aiur.Project.whereis(Aiur.Orchestrator), on?, "CLI")
 
   @spec set_global_pause(GenServer.server(), boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(server, on?) when is_boolean(on?), do: set_global_pause(server, on?, "CLI")
@@ -220,7 +220,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @doc "Recompute the fleet switch from the folded register (after a local write, direct delivery, or pull)."
   @spec sync_fleet_pause(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
-  def sync_fleet_pause(server \\ Aiur.Orchestrator) do
+  def sync_fleet_pause(server \\ Aiur.Project.whereis(Aiur.Orchestrator)) do
     if GenServer.whereis(server), do: {:ok, GenServer.call(server, :sync_fleet_pause, @call_timeout)}, else: {:error, :orchestrator_unavailable}
   catch
     :exit, _ -> {:error, :orchestrator_unavailable}

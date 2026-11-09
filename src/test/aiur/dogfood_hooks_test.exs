@@ -466,7 +466,9 @@ defmodule Aiur.DogfoodHooksTest do
         {"THIS_REPOSITORY_URL", origin},
         {"THIS_BASE_BRANCH", configured_base()},
         {"AIUR_TICKET_BRANCH", ticket_branch()},
-        {"AIUR_REPO_STATE_PATH", cache_root(workspace)}
+        {"AIUR_REPO_STATE_PATH", cache_root(workspace)},
+        {"AIUR_GIT_NAME", "Hook Agent"},
+        {"AIUR_GIT_EMAIL", "hook-agent@example.test"}
       ]
     )
   end

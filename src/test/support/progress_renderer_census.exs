@@ -4,8 +4,9 @@ defmodule Aiur.TestSupport.ProgressRendererCensus do
   @fields [:progress, :progress_resolution, :progress_resolved_count]
   @string_fields Enum.map(@fields, &Atom.to_string/1)
 
+  # The lookbehind skips a dotted event topic inside a string literal ("agent.progress.status").
   @template_patterns [
-    ~r/\b[a-z_][a-z0-9_]*\.(?:progress|progress_resolution|progress_resolved_count)\b/,
+    ~r/(?<![\w."])\b[a-z_][a-z0-9_]*\.(?:progress|progress_resolution|progress_resolved_count)\b/,
     ~r/\[(?:"progress"|:progress|"progress_resolution"|:progress_resolution|"progress_resolved_count"|:progress_resolved_count)\]/,
     ~r/Map\.(?:get|fetch|fetch!)\([^,\n]+,\s*:(?:progress|progress_resolution|progress_resolved_count)\)/
   ]

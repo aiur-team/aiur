@@ -31,6 +31,9 @@ defmodule AiurWeb.StaticAssets do
     executor-voice-controller.js
     executor-voice-hook.js
     sortable-table-hook.js
+    projects-home-hook.js
+    gateway-state.js
+    gateway-view-hook.js
     streamdeck-emulator-hook.js
     streamdeck-emulator-knob.js
     ticket-context-dialog-hook.js
@@ -68,6 +71,9 @@ defmodule AiurWeb.StaticAssets do
     "/nav-toggle-hook.js" => {"application/javascript", "priv/static/nav-toggle-hook.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
+    "/projects-home-hook.js" => {"application/javascript", "priv/static/projects-home-hook.js"},
+    "/gateway-state.js" => {"application/javascript", "priv/static/gateway-state.js"},
+    "/gateway-view-hook.js" => {"application/javascript", "priv/static/gateway-view-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
     "/streamdeck-emulator-knob.js" => {"application/javascript", "priv/static/streamdeck-emulator-knob.js"},

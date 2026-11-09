@@ -23,9 +23,10 @@ defmodule AiurWeb.RouteAuthCensusTest do
     :executor_hook_auth,
     :executor_hook_delivery_auth,
     :github_webhook,
-    :gateway_summary
+    :gateway_summary,
+    :gateway_write
   ]
-  @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}]
+  @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}, {:get, "/api/v1/gateway/hello"}, {:*, "/api/v1/gateway/hello"}, {:post, "/api/v1/gateway/enroll"}]
   @audited_sockets %{
     "/events" => AiurWeb.EventsSocket,
     "/live" => Phoenix.LiveView.Socket,

@@ -4,8 +4,10 @@
   "layer": 4,
   "kind": "in-app",
   "paths": [
-    "src/lib/aiur/control_call/audit.ex",
     "src/lib/aiur/control_call/replay_store.ex",
+    "src/lib/aiur/gateway/discovery.ex",
+    "src/lib/aiur/gateway/hello.ex",
+    "src/lib/aiur/gateway/invites.ex",
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",
@@ -49,6 +51,7 @@
   "requires": [
     "config",
     "event-bus",
+    "gateway-registry",
     "identity",
     "kernel",
     "listener-modes",
@@ -75,6 +78,7 @@
   ],
   "owns": {
     "config": [
+      "dashboard",
       "dashboard_auth",
       "observability",
       "server"
@@ -102,6 +106,7 @@
     "guide/gui.md"
   ],
   "config": [
+    "dashboard",
     "dashboard_auth",
     "observability",
     "server"

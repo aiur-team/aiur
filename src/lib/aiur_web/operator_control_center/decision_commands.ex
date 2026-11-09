@@ -186,7 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   # orchestrator's operator-message path already no-ops on a missing running
   # agent, so a single attempt covers both cases.
   defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
-    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server(), identifier, %{kind: :text, body: dismissal_text()})
     :ok
   end
 
@@ -298,9 +298,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     do: "This submission token was already used with different content. Review the refreshed answer."
 
   defp command_error({:conflict, :resolved}), do: "This Command is already resolved."
-
-  defp command_error({:conflict, :blocking_requires_answer}),
-    do: "This Command is still blocking its agent. Closing it would hide the block without releasing it — record an answer instead."
 
   defp command_error({:answer_invalid, {:option_id, :unknown}}), do: "That option is no longer available."
 

@@ -390,8 +390,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
+      # #7797: names the blockers the gate saw so a dispatch with an open blocker can be traced.
+      blockers = Enum.map(hydrated.blocked_by, &{Map.get(&1, :id), Map.get(&1, :state)})
+      Logger.info("Dependency gate passed #{State.issue_context(hydrated)} blockers=#{inspect(blockers)}")
+
       if OptimisticSlots.available?(hydrated, state, terminal_states) do
-        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, Keyword.put(opts, :dependency_checked, true))
       else
         maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
       end

@@ -16,6 +16,11 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-completed-tint': 60,
   // Governed local run (2026-10-30): 38.557s whole command including fixture startup; refresh from CI.
   'test:browser-suite -- build-home-native-hold': 39,
+  'test:projects-home-model': 5,
+  'test:gateway-state': 5,
+  'test:gateway-state': 5,
+  'test:browser-suite -- build-home-projects': 30,
+  'test:browser-suite -- build-home-gateway-view': 30,
   // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
   'test:executor-view': 60,
   // Local run (2026-10-30): one focused tab-preservation case, rounded up with fixture startup.

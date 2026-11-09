@@ -22,26 +22,20 @@ defmodule Aiur.Orchestrator do
 
   alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, StaleOwner, State, StatusReport}
 
-  alias Aiur.Orchestrator.{
-    TokenAccounting,
-    TrackedSet,
-    TrackerHealth,
-    TrackerTasks,
-    WorkspaceCleanup
-  }
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def read_held_messages(identifier, max \\ 50),
-    do: HeldReads.read(__MODULE__, identifier, max)
+  def read_held_messages(identifier, max \\ 50), do: HeldReads.read(server(), identifier, max)
+
+  @doc "The current project's orchestrator, or the global one with no project."
+  @spec server() :: GenServer.server()
+  def server, do: Aiur.Project.whereis(__MODULE__)
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name)
-    GenServer.start_link(__MODULE__, opts, name: name)
-  end
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name))
 
   @impl true
   def init(opts), do: Lifecycle.init(opts, &issue_tracked?/1)
@@ -49,7 +43,7 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
   def has_live_owner?(identifier),
-    do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+    do: StatusReport.has_live_owner_api(Aiur.Project.whereis(__MODULE__), identifier, 1_000)
 
   @doc false
   @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
@@ -89,6 +83,9 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
     do: GlobalPause.fleet_pause_info(state)
+
+  def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
+    do: {:noreply, StaleOwner.handle(state, identifier, epoch)}
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
@@ -461,7 +458,7 @@ defmodule Aiur.Orchestrator do
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
-  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+  def note_agent_activity(server \\ Aiur.Project.whereis(__MODULE__), identifier) when is_binary(identifier) do
     GenServer.cast(server, {:note_agent_activity, identifier})
   end
 

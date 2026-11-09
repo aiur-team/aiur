@@ -51,11 +51,12 @@ defmodule Aiur.ControlCall.Allowlist do
     {:status, 1, :read, [:keyword], %{status_timeout_ms: :positive, section_timeout_ms: :positive}},
     {:agents, 0, :read, [], %{}},
     {:agents, 1, :read, [:keyword], %{all: :boolean}},
-    {:watch, 0, &__MODULE__.watch_scope/1, [], %{mode: {:enum, [:full, :changes]}, json: :boolean}},
-    {:watch, 1, &__MODULE__.watch_scope/1, [:keyword], %{mode: {:enum, [:full, :changes]}, json: :boolean}},
-    {:alerts, 1, &__MODULE__.alerts_scope/1, [:keyword], %{argv: :literal_list, json: :boolean}},
+    {:watch, 0, &__MODULE__.watch_category/1, [], %{mode: {:enum, [:full, :changes]}, json: :boolean}},
+    {:watch, 1, &__MODULE__.watch_category/1, [:keyword], %{mode: {:enum, [:full, :changes]}, json: :boolean}},
+    {:alerts, 1, &__MODULE__.alerts_category/1, [:keyword], %{argv: :literal_list, json: :boolean}},
     {:alerts, 0, :read, [], %{}},
-    {:executor_sweep, 1, &__MODULE__.sweep_scope/1, [:keyword], %{apply: :boolean, json: :boolean}},
+    {:executor_sweep, 1, &__MODULE__.sweep_category/1, [:keyword], %{apply: :boolean, json: :boolean}},
+    {:ownership_migrate, 1, &__MODULE__.sweep_category/1, [:keyword], %{maps: :string_list, apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
      %{
@@ -68,20 +69,20 @@ defmodule Aiur.ControlCall.Allowlist do
        search: :string,
        cursor: :string
      }},
-    {:commands_repair, 0, :write, [], %{}},
-    {:commands_repair, 1, :write, [:keyword], %{json: :boolean}},
+    {:commands_repair, 0, :config, [], %{}},
+    {:commands_repair, 1, :config, [:keyword], %{json: :boolean}},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
-    {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
-    {:feature, 0, &__MODULE__.feature_scope/1, [], %{}},
-    {:lane, 1, &__MODULE__.lane_scope/1, [:keyword], @lane_options},
-    {:lane, 0, &__MODULE__.lane_scope/1, [], %{}},
-    {:epic, 1, &__MODULE__.epic_scope/1, [:keyword], @epic_options},
-    {:epic, 0, &__MODULE__.epic_scope/1, [], %{}},
+    {:feature, 1, &__MODULE__.feature_category/1, [:keyword], @feature_options},
+    {:feature, 0, &__MODULE__.feature_category/1, [], %{}},
+    {:lane, 1, &__MODULE__.lane_category/1, [:keyword], @lane_options},
+    {:lane, 0, &__MODULE__.lane_category/1, [], %{}},
+    {:epic, 1, &__MODULE__.epic_category/1, [:keyword], @epic_options},
+    {:epic, 0, &__MODULE__.epic_category/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
     {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
-    {:queue, 0, &__MODULE__.queue_scope/1, [], %{}},
-    {:queue, 1, &__MODULE__.queue_scope/1, [:keyword],
+    {:queue, 0, &__MODULE__.queue_category/1, [], %{}},
+    {:queue, 1, &__MODULE__.queue_category/1, [:keyword],
      %{
        verb: {:enum, [:show, :order, :add, :set, :remove, :reorder, :hold, :release, :recover, :clear]},
        caller_agent_workspace: :string,
@@ -100,21 +101,24 @@ defmodule Aiur.ControlCall.Allowlist do
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
-    {:history_label_writes, 1, &__MODULE__.history_label_scope/1, [:keyword],
+    {:history_label_writes, 1, &__MODULE__.history_label_category/1, [:keyword],
      %{action: {:enum, [:plan, :start, :pause, :resume, :status]}, expect: :non_negative, per_hour: :non_negative, epic_labels: :boolean, json: :boolean}},
     {:github_cost, 0, :read, [], %{}},
     {:github_cost, 1, :read, [:keyword], %{budget: {:enum, ["graphql", "core", "all"]}, format: {:enum, [:auto, :table, :records]}, json: :boolean}},
-    {:experiments, 0, &__MODULE__.experiment_scope/1, [],
+    {:experiments, 0, &__MODULE__.experiment_category/1, [],
      %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
-    {:experiments, 1, &__MODULE__.experiment_scope/1, [:keyword],
+    {:experiments, 1, &__MODULE__.experiment_category/1, [:keyword],
      %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
     {:capabilities, 1, :read, [:keyword], %{json: :boolean}},
     {:capabilities, 0, :read, [], %{}},
     {:github_usage, 0, :read, [], %{}},
     {:github_usage, 1, :read, [:keyword], %{json: :boolean}},
-    {:ticket_estimate, 0, &__MODULE__.estimate_scope/1, [], %{}},
-    {:ticket_estimate, 1, &__MODULE__.estimate_scope/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
-    {:operator_relay_answer, 1, :write, [:keyword],
+    {:ticket_estimate, 0, &__MODULE__.estimate_category/1, [], %{}},
+    {:ticket_estimate, 1, &__MODULE__.estimate_category/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
+    {:ticket_owner, 1, :read, [:keyword], %{ticket: {:regex, ~r/^(pr-)?[1-9][0-9]{0,9}$/}, json: :boolean}},
+    {:ticket_assign, 1, :tickets, [:keyword],
+     %{ticket: {:regex, ~r/^(pr-)?[1-9][0-9]{0,9}$/}, to: :non_empty_string, reason: :estimate_reason, as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}, json: :boolean}},
+    {:operator_relay_answer, 1, :executor, [:keyword],
      %{
        decision_id: :non_empty_string,
        option_id: :non_empty_string,
@@ -126,7 +130,7 @@ defmodule Aiur.ControlCall.Allowlist do
        auto_current: :boolean,
        supersede: :boolean
      }},
-    {:command_request, 1, :write, [:keyword],
+    {:command_request, 1, :message, [:keyword],
      %{
        question: :non_empty_string,
        options: :string_list,
@@ -141,10 +145,10 @@ defmodule Aiur.ControlCall.Allowlist do
        idempotency_key: :non_empty_string,
        json: :boolean
      }},
-    {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
-    {:executor_claim_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
-    {:executor_release_decision, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
-    {:executor_answer, 1, :write, [:keyword],
+    {:executor_ack, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_claim_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
+    {:executor_release_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_answer, 1, :executor, [:keyword],
      %{
        decision_id: :non_empty_string,
        option_id: :non_empty_string,
@@ -159,10 +163,10 @@ defmodule Aiur.ControlCall.Allowlist do
      %{decision_id: :non_empty_string, operator: :boolean, option_id: :non_empty_string, custom_response: :non_empty_string, expected_version: :positive, confirmation: :non_empty_string}},
     {:operator_answer_preview, 1, :deny, [:keyword],
      %{decision_id: :non_empty_string, operator: :boolean, option_id: :non_empty_string, custom_response: :non_empty_string, expected_version: :positive, confirmation: :non_empty_string}},
-    {:executor_escalate, 1, :write, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, reason: :non_empty_string, executor_id: :non_empty_string}},
-    {:executor_reclassify, 1, :write, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, rationale: :non_empty_string, executor_id: :string}},
-    {:executor_moot, 1, :write, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, reason_class: :non_empty_string, reason: :string, executor_id: :non_empty_string}},
-    {:executor_wait, 1, &__MODULE__.wait_scope/1, [:keyword],
+    {:executor_escalate, 1, :executor, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, reason: :non_empty_string, executor_id: :non_empty_string}},
+    {:executor_reclassify, 1, :executor, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, rationale: :non_empty_string, executor_id: :string}},
+    {:executor_moot, 1, :executor, [:keyword], %{decision_id: :non_empty_string, expected_version: :positive, reason_class: :non_empty_string, reason: :string, executor_id: :non_empty_string}},
+    {:executor_wait, 1, &__MODULE__.wait_category/1, [:keyword],
      %{
        timeout_ms: :positive,
        json: :boolean,
@@ -173,53 +177,53 @@ defmodule Aiur.ControlCall.Allowlist do
        harness: {:enum, ["claude", "codex"]},
        env: :executor_env
      }},
-    {:executor_wait, 0, :write, [], %{}},
+    {:executor_wait, 0, :executor, [], %{}},
     {:executor_check, 1, :deny, [:keyword], %{json: :boolean, repo_root: :non_empty_string}},
     {:executor_attach, 1, :deny, [:keyword], %{harness: {:enum, ["claude", "codex"]}, takeover?: :boolean, print_config: :boolean, repo_root: :non_empty_string}},
     {:executor_detach, 1, :deny, [:keyword], %{repo_root: :non_empty_string}},
     {:executor_session, 1, :read, [:keyword], %{json: :boolean}},
     {:executor_roster, 0, :read, [], %{}},
     {:executor_roster, 1, :read, [:keyword], %{json: :boolean}},
-    {:executor_fast_forward, 1, :write, [:positive], %{}},
-    {:executor_fast_forward, 2, :write, [:positive, :keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]+$/}}},
-    {:executor_claim, 1, :write, [:keyword], %{as: {:regex, ~r/^(?:[A-Za-z0-9._-]+)?$/}}},
-    {:executor_claim, 0, :write, [], %{}},
-    {:executor_release, 1, :write, [:keyword], %{as: {:regex, ~r/^(?:[A-Za-z0-9._-]+)?$/}}},
-    {:executor_release, 0, :write, [], %{}},
-    {:executor_revoke, 1, :write, [{:regex, ~r/^[A-Za-z0-9._-]+$/}], %{}},
-    {:executor_revoke, 2, :write, [{:regex, ~r/^[A-Za-z0-9._-]+$/}, :keyword], %{now: :integer}},
-    {:executor_emit, 2, :write, [:string, :string], %{}},
-    {:executor_subscribe, 1, :write, [:string], %{}},
-    {:executor_unsubscribe, 1, :write, [:string], %{}},
+    {:executor_fast_forward, 1, :executor, [:positive], %{}},
+    {:executor_fast_forward, 2, :executor, [:positive, :keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]+$/}}},
+    {:executor_claim, 1, :executor, [:keyword], %{as: {:regex, ~r/^(?:[A-Za-z0-9._-]+)?$/}}},
+    {:executor_claim, 0, :executor, [], %{}},
+    {:executor_release, 1, :executor, [:keyword], %{as: {:regex, ~r/^(?:[A-Za-z0-9._-]+)?$/}}},
+    {:executor_release, 0, :executor, [], %{}},
+    {:executor_revoke, 1, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}], %{}},
+    {:executor_revoke, 2, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}, :keyword], %{now: :integer}},
+    {:executor_emit, 2, :executor, [:string, :string], %{}},
+    {:executor_subscribe, 1, :executor, [:string], %{}},
+    {:executor_unsubscribe, 1, :executor, [:string], %{}},
     {:executor_subscriptions, 0, :read, [], %{}},
     {:executor_listen_validate, 1, :read, [:string], %{}},
-    {:todo, 1, :write, [:string_list], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
-    {:todo, 2, :write, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
-    {:redispatch, 2, :write, [:string_list, {:nullable, :string}], %{}},
-    {:reset_budget, 1, :write, [:string_list], %{}},
-    {:pause_global, 0, :write, [], %{}},
-    {:pause_fleet, 0, :write, [], %{}},
-    {:pause_fleet, 1, :write, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
-    {:resume_fleet, 0, :write, [], %{}},
-    {:resume_fleet, 1, :write, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
-    {:apply_fleet_pause_change, 1, :write, [:string], %{}},
-    {:resume_global, 0, :write, [], %{}},
-    {:set_max_agents, 1, :write, [:positive], %{}},
-    {:set_setting, 2, :write, [:string, :string], %{}},
-    {:set_setting, 3, :write, [:string, :string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
+    {:todo, 1, :tickets, [:string_list], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
+    {:todo, 2, :tickets, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
+    {:redispatch, 2, :agents, [:string_list, {:nullable, :string}], %{}},
+    {:reset_budget, 1, :config, [:string_list], %{}},
+    {:pause_global, 0, :agents, [], %{}},
+    {:pause_fleet, 0, :agents, [], %{}},
+    {:pause_fleet, 1, :agents, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
+    {:resume_fleet, 0, :agents, [], %{}},
+    {:resume_fleet, 1, :agents, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
+    {:apply_fleet_pause_change, 1, :agents, [:string], %{}},
+    {:resume_global, 0, :agents, [], %{}},
+    {:set_max_agents, 1, :config, [:positive], %{}},
+    {:set_setting, 2, :config, [:string, :string], %{}},
+    {:set_setting, 3, :config, [:string, :string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
     {:list_settings, 0, :read, [], %{}},
     {:list_settings, 1, :read, [:keyword], %{json: :boolean}},
-    {:unset_setting, 1, :write, [:string], %{}},
-    {:unset_setting, 2, :write, [:string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
-    {:message, 2, :write, [{:regex, ~r/^\d+$/}, :string], %{}},
-    {:message, 3, :write, [{:regex, ~r/^\d+$/}, :string, {:regex, ~r/^[A-Za-z0-9._:-]{1,128}$/}], %{}},
+    {:unset_setting, 1, :config, [:string], %{}},
+    {:unset_setting, 2, :config, [:string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
+    {:message, 2, :message, [{:regex, ~r/^\d+$/}, :string], %{}},
+    {:message, 3, :message, [{:regex, ~r/^\d+$/}, :string, {:regex, ~r/^[A-Za-z0-9._:-]{1,128}$/}], %{}},
     {:message_status, 1, :read, [:positive], %{}},
-    {:pause, 1, :write, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
-    {:resume, 1, :write, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
-    {:park, 1, :write, [:string_list], %{}},
-    {:take, 2, :write, [:string_list, :string], %{}},
-    {:release, 2, :write, [:string_list, :string], %{}},
-    {:recover_workspace, 2, :write, [:string, :positive], %{}},
+    {:pause, 1, :agents, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
+    {:resume, 1, :agents, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
+    {:park, 1, :agents, [:string_list], %{}},
+    {:take, 2, :tickets, [:string_list, :string], %{}},
+    {:release, 2, :tickets, [:string_list, :string], %{}},
+    {:recover_workspace, 2, :agents, [:string, :positive], %{}},
     {:usage, 0, :deny, [], %{}},
     {:usage, 1, :deny, [:atom], %{}},
     {:usage, 2, :deny, [:atom, :keyword], %{}},
@@ -241,11 +245,11 @@ defmodule Aiur.ControlCall.Allowlist do
                 [
                   {{test_probe, :actor, 0}, %{class: :read, positional: [], options: %{}}},
                   {{test_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
-                  {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
+                  {{test_probe, :write_wait, 1}, %{class: :agents, positional: [:atom], options: %{}}},
                   {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
                   {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
-                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
-                  {{[:Aiur, :ControlReplayTestProbe], :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
+                  {{controller_probe, :write_wait, 1}, %{class: :agents, positional: [:atom], options: %{}}},
+                  {{[:Aiur, :ControlReplayTestProbe], :write_wait, 1}, %{class: :agents, positional: [:atom], options: %{}}}
                 ]
               else
                 []
@@ -253,7 +257,7 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @rows Enum.map(@agent_rows, fn {function, arity, class, positional, options} -> {{@agent, function, arity}, %{class: class, positional: positional, options: options}} end) ++
           [
-            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_scope/1, positional: [:non_empty_string, :string_list], options: %{}}},
+            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_category/1, positional: [:non_empty_string, :string_list], options: %{}}},
             {{@handoff, :report, 0}, %{class: :read, positional: [], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :report, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
@@ -262,16 +266,27 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@usage, :rpc, 2}, %{class: :read, positional: [{:nullable, :string}, :boolean], options: %{}}},
             {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},
-            {{@sweep, :rpc, 1}, %{class: &__MODULE__.sweep_scope/1, positional: [:keyword], options: %{argv: :literal_list, json: :boolean}}},
+            {{@sweep, :rpc, 1}, %{class: &__MODULE__.sweep_category/1, positional: [:keyword], options: %{argv: :literal_list, json: :boolean}}},
             {{@pr_merge, :print_watcher_state, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
   @table Map.new(@rows)
-  @spec history_label_scope(list()) :: :read | :write | :deny
-  def history_label_scope([opts]) do
+  @categories Enum.map(Aiur.ClientTokens.categories(), &String.to_atom/1)
+
+  @doc "Permission categories a remote call can need. `:trust` is deliberately absent: nothing remote maps to it."
+  @spec categories() :: [atom()]
+  def categories, do: @categories
+
+  @spec scope_of(atom()) :: :read | :write | :deny
+  def scope_of(:read), do: :read
+  def scope_of(:deny), do: :deny
+  def scope_of(category) when category in @categories, do: :write
+
+  @spec history_label_category(list()) :: atom()
+  def history_label_category([opts]) do
     case Keyword.get(opts, :action, :status) do
       action when action in [:plan, :status] -> :read
-      :pause -> :write
+      :pause -> :tickets
       _ -> :deny
     end
   end
@@ -285,29 +300,29 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec facade_functions() :: [{atom(), non_neg_integer()}]
   def facade_functions, do: Facade.functions()
 
-  @spec listen_mode_scope(list()) :: :read | :write
-  def listen_mode_scope([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :write)
+  @spec listen_mode_category(list()) :: atom()
+  def listen_mode_category([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :agents)
 
-  @spec watch_scope(list()) :: :read | :write
-  def watch_scope(args), do: if(option(args, :mode) == :full, do: :read, else: :write)
+  @spec watch_category(list()) :: atom()
+  def watch_category(args), do: if(option(args, :mode) == :full, do: :read, else: :executor)
 
-  @spec wait_scope(list()) :: :write
-  def wait_scope(_args), do: :write
+  @spec wait_category(list()) :: atom()
+  def wait_category(_args), do: :executor
 
-  @spec estimate_scope(list()) :: :read | :write
-  def estimate_scope(args), do: if(option(args, :hours) || option(args, :clear, false), do: :write, else: :read)
+  @spec estimate_category(list()) :: atom()
+  def estimate_category(args), do: if(option(args, :hours) || option(args, :clear, false), do: :tickets, else: :read)
 
-  @spec feature_scope(list()) :: :read | :write
-  def feature_scope(args), do: if(option(args, :op) == :show, do: :read, else: :write)
+  @spec feature_category(list()) :: atom()
+  def feature_category(args), do: if(option(args, :op) == :show, do: :read, else: :tickets)
 
-  @spec lane_scope(list()) :: :read | :write
-  def lane_scope(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :write)
+  @spec lane_category(list()) :: atom()
+  def lane_category(args), do: if(option(args, :action) in [:show, :list], do: :read, else: :tickets)
 
-  @spec epic_scope(list()) :: :read | :write
-  def epic_scope(args), do: lane_scope(args)
+  @spec epic_category(list()) :: atom()
+  def epic_category(args), do: lane_category(args)
 
-  @spec queue_scope(list()) :: :read | :write | :deny
-  def queue_scope(args) do
+  @spec queue_category(list()) :: atom()
+  def queue_category(args) do
     verb = option(args, :verb, :show)
 
     cond do
@@ -315,17 +330,17 @@ defmodule Aiur.ControlCall.Allowlist do
       verb == :order and (option(args, :queue) || option(args, :to)) -> :deny
       verb == :order -> :read
       verb == :show -> :read
-      true -> :write
+      true -> :tickets
     end
   end
 
-  @spec alerts_scope(list()) :: :read | :deny
-  def alerts_scope(args), do: if(Enum.any?(option(args, :argv, []), &(&1 in ["ack", :ack])), do: :deny, else: :read)
+  @spec alerts_category(list()) :: atom()
+  def alerts_category(args), do: if(Enum.any?(option(args, :argv, []), &(&1 in ["ack", :ack])), do: :deny, else: :read)
 
-  @spec sweep_scope(list()) :: :read | :write
-  def sweep_scope(args), do: if(option(args, :apply, false), do: :write, else: :read)
+  @spec sweep_category(list()) :: atom()
+  def sweep_category(args), do: if(option(args, :apply, false), do: :tickets, else: :read)
 
-  @spec experiment_scope(list()) :: :read | :write
-  def experiment_scope(args), do: if(option(args, :verb) in [:show, :list, :stats, :events, :metrics, :analyze], do: :read, else: :write)
+  @spec experiment_category(list()) :: atom()
+  def experiment_category(args), do: if(option(args, :verb) in [:show, :list, :stats, :events, :metrics, :analyze], do: :read, else: :config)
   defp option(args, key, default \\ nil), do: Enum.find_value(List.wrap(args), default, fn item -> if is_list(item) and Keyword.keyword?(item), do: Keyword.get(item, key), else: nil end)
 end
