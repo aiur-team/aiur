@@ -2,6 +2,7 @@ defmodule Aiur.TicketReopenTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildQueue.Model.Edge
+  alias Aiur.BuildQueue.ReadModel
   alias Aiur.TicketReopen
 
   # A tracker double over the test process's dictionary: every call runs in the caller.
@@ -133,7 +134,7 @@ defmodule Aiur.TicketReopenTest do
     before = Process.get(:fake_issues)
     stale = put_in(queue_model(), [:sources, "tracker_observation", :freshness], :stale)
 
-    for model <- [Aiur.BuildQueue.ReadModel.unavailable(:read_timeout), stale] do
+    for model <- [ReadModel.unavailable(:read_timeout), stale] do
       assert {:error, :queue_unavailable} = run(id: 12, reason: "x", queue_fun: fn -> model end)
     end
 
