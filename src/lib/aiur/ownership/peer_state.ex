@@ -2,7 +2,7 @@ defmodule Aiur.Ownership.PeerState do
   @moduledoc """
   Local delegation state, one atomic file `ownership/delegation.json` under the Aiur home.
 
-  `peers` caches each peer's last project list (`gateway_id`, `label`, `daemon_key`, `projects`, `observed_at`);
+  `peers` caches each peer's last project list, written by `aiur gateway list|status` (`gateway_id`, `name`, `label`, `daemon_key`, `projects`, `observed_at`);
   `delegations` records the transfers this gateway wrote (the delegator is not in the ownership ref).
   A missing or corrupt file reads as empty. At most 500 delegations are kept, oldest dropped.
   """
@@ -21,7 +21,7 @@ defmodule Aiur.Ownership.PeerState do
     wanted = String.downcase(name)
 
     Enum.find_value(read()["peers"], fn {id, p} ->
-      if wanted in [String.downcase(id), String.downcase(p["label"] || "")], do: peer_map(id, p)
+      if wanted in Enum.map([id, p["label"] || "", p["name"] || ""], &String.downcase/1), do: peer_map(id, p)
     end)
   end
 

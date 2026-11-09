@@ -134,7 +134,7 @@ defmodule Aiur.Ownership.CLI do
   defp peer_target(to, opts) do
     case Keyword.get(opts, :peer_fun, &PeerState.peer/1).(to) do
       nil ->
-        {:error, "unknown gateway #{inspect(to)}; no project list or daemon key cached for it"}
+        {:error, "unknown gateway #{inspect(to)}; no project list or daemon key cached for it; read it first: aiur gateway status #{to}"}
 
       peer ->
         list = if peer.projects && peer.observed_at, do: %{projects: peer.projects, observed_at: peer.observed_at}
