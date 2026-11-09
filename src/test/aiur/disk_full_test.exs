@@ -39,7 +39,7 @@ defmodule Aiur.DiskFullTest do
     assert :ok = JsonStore.write_or_drop(path, %{"v" => 3})
     assert {:error, :enospc} = JsonStore.write(path, %{"v" => 4})
 
-    assert_receive {:alert, @topic, opts}
+    assert_receive {:alert, @topic, opts}, 1_000
     assert opts[:message] =~ path
     assert opts[:needs_attention] == true
     refute_receive {:alert, _, _}, 100
@@ -60,7 +60,7 @@ defmodule Aiur.DiskFullTest do
     assert {:failed, :enospc} = Journal.append(path, %{"n" => 2}, file_ops: FullDisk)
     assert {:failed, :enospc} = Journal.append(path, %{"n" => 3}, file_ops: FullDisk)
 
-    assert_receive {:alert, @topic, opts}
+    assert_receive {:alert, @topic, opts}, 1_000
     assert opts[:message] =~ path
     refute_receive {:alert, _, _}, 100
 
@@ -81,7 +81,7 @@ defmodule Aiur.DiskFullTest do
     assert :ok = ExecutorWakeInbox.enqueue(wake(1, "42"), name)
     assert :ok = ExecutorWakeInbox.enqueue(wake(2, "43"), name)
 
-    assert_receive {:alert, @topic, opts}
+    assert_receive {:alert, @topic, opts}, 1_000
     assert opts[:message] =~ pending_path
     refute_receive {:alert, _, _}, 100
     assert Process.whereis(name) == pid
@@ -93,7 +93,7 @@ defmodule Aiur.DiskFullTest do
     path = Path.join(root, "state.json")
     fill_disk(path)
     :ok = JsonStore.write_or_drop(path, %{})
-    assert_receive {:alert, @topic, _}
+    assert_receive {:alert, @topic, _}, 1_000
 
     free_disk()
     :ok = JsonStore.write_or_drop(path, %{})
@@ -103,7 +103,7 @@ defmodule Aiur.DiskFullTest do
 
     DiskFull.reset()
     :ok = JsonStore.write_or_drop(path, %{})
-    assert_receive {:alert, @topic, _}
+    assert_receive {:alert, @topic, _}, 1_000
   end
 
   defp wake(id, ticket) do
