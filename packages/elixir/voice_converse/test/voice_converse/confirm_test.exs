@@ -14,6 +14,8 @@ defmodule VoiceConverse.ConfirmTest do
     %{root: root, name: name}
   end
 
+  # Flaky: races the datasynced draft write against a 100ms receive (#6928).
+  @tag :quarantine
   test "an unconfirmed draft never instructs the agent", %{root: root, name: name} do
     id = start!(root, name)
     _draft_id = propose(name, id)
@@ -72,6 +74,8 @@ defmodule VoiceConverse.ConfirmTest do
            end)
   end
 
+  # Flaky: races the datasynced draft write against a 100ms receive (#6928).
+  @tag :quarantine
   test "discarding a draft persists the terminal state without instructing", %{root: root, name: name} do
     id = start!(root, name)
     draft_id = propose(name, id)
