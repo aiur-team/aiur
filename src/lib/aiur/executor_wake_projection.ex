@@ -1,6 +1,8 @@
 defmodule Aiur.ExecutorWakeProjection do
   @moduledoc false
 
+  alias Aiur.Events.Sanitizer
+
   @actions ~w(opened ready_for_review closed merged synchronize push passed failed paused parked_ready human_review)
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
   @sha ~r/\A[0-9a-fA-F]{7,64}\z/
@@ -116,7 +118,7 @@ defmodule Aiur.ExecutorWakeProjection do
         record
 
       answer ->
-        ticket = Map.get(Aiur.Commands.override_target_ticket(decision) || %{}, :identifier)
+        ticket = Aiur.Commands.override_target_ticket(decision).identifier
         {feature, epic} = owner(ticket, feature_lookup)
         question_answers = question_answers(answer.custom_response)
 
@@ -161,7 +163,7 @@ defmodule Aiur.ExecutorWakeProjection do
 
   defp owner(_ticket, _lookup), do: {nil, nil}
 
-  defp strip(text) when is_binary(text), do: Aiur.Events.Sanitizer.strip_untrusted_text(text)
+  defp strip(text) when is_binary(text), do: Sanitizer.strip_untrusted_text(text)
   defp strip(list) when is_list(list), do: Enum.map(list, &strip/1)
   defp strip(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, strip(value)} end)
   defp strip(other), do: other

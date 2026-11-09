@@ -3,6 +3,7 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.Commands.ExecutorDeliveryTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.BuildOrder.Features
   alias Aiur.Commands.ExecutorDelivery
   alias Aiur.DecisionStore.Retry
   alias Aiur.Executor.StatePaths
@@ -84,19 +85,17 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
   defp features(dir, members) do
     pid =
-      start_supervised!(
-        {Aiur.BuildOrder.Features, name: nil, state_dir: Path.join(dir, "features"), filesystem_sync_fun: fn -> :ok end, general_epics: fn -> {:ok, []} end, alert_fun: fn _, _, _ -> :ok end}
-      )
+      start_supervised!({Features, name: nil, state_dir: Path.join(dir, "features"), filesystem_sync_fun: fn -> :ok end, general_epics: fn -> {:ok, []} end, alert_fun: fn _, _, _ -> :ok end})
 
     meta = [server: pid, source: "cli:executor", actor: "executor"]
-    {:ok, _} = Aiur.BuildOrder.Features.create("fluid-orders", %{label: "Fluid orders"}, meta)
-    {:ok, _} = Aiur.BuildOrder.Features.add("fluid-orders", members, meta)
-    {:ok, _} = Aiur.BuildOrder.Features.epic_create("planning", %{label: "Planning"}, meta)
-    {:ok, _} = Aiur.BuildOrder.Features.epic_add("planning", ["fluid-orders"], meta)
+    {:ok, _} = Features.create("fluid-orders", %{label: "Fluid orders"}, meta)
+    {:ok, _} = Features.add("fluid-orders", members, meta)
+    {:ok, _} = Features.epic_create("planning", %{label: "Planning"}, meta)
+    {:ok, _} = Features.epic_add("planning", ["fluid-orders"], meta)
     pid
   end
 
-  defp lookup(server, timeout \\ 5_000), do: &Aiur.BuildOrder.Features.feature_and_epic(&1, server: server, timeout: timeout)
+  defp lookup(server, timeout \\ 5_000), do: &Features.feature_and_epic(&1, server: server, timeout: timeout)
 
   defp executor_answer(store, key, response) do
     {:ok, %{decision: d}} =
