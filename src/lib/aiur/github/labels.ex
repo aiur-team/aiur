@@ -301,6 +301,21 @@ defmodule Aiur.GitHub.Labels do
     end
   end
 
+  @waiting_label "gateway-waiting:project-missing"
+
+  @doc "The delegator's marker: the owning gateway does not run this repo. A projection, never a dispatch gate."
+  @spec gateway_waiting_label() :: String.t()
+  def gateway_waiting_label, do: @waiting_label
+
+  @doc "Ensure the waiting label exists in the configured repo."
+  @spec ensure_waiting_label() :: :ok | {:error, term()}
+  def ensure_waiting_label do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      ensure_with(owner, repo, token, [%{name: @waiting_label, color: "d4c5f9", description: "Delegated to a gateway that does not run this repo"}])
+    end
+  end
+
   @doc "Like `ensure/5` for labels that need a colour and description."
   @spec ensure_with(String.t(), String.t(), String.t(), [map()], keyword()) :: :ok | {:error, term()}
   def ensure_with(owner, repo, token, specs, opts \\ []) do

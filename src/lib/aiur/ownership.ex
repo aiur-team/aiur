@@ -10,6 +10,7 @@ defmodule Aiur.Ownership do
   alias Aiur.Ownership.GitHubRef
   alias Aiur.Ownership.Projection
   alias Aiur.Ownership.Record
+  alias Aiur.Ownership.WaitingLabel
 
   @type result :: {:ok, Record.t()} | :disabled | {:declined, :not_owner | :unknown | :ambiguous, term()}
 
@@ -45,6 +46,7 @@ defmodule Aiur.Ownership do
     with {:ok, self} <- self_identity(opts),
          {:ok, repo} <- repo(issue) do
       observed = read.(repo, ticket, [])
+      if Keyword.get(opts, :waiting_pass, true), do: waiting_pass(issue, repo, ticket, observed, self, opts)
 
       case Projection.reconcile(ref_read(observed), %{labels: issue.labels, self: self}) do
         {:ambiguous, reason} -> ambiguous(issue, reason, observed, opts)
@@ -73,6 +75,12 @@ defmodule Aiur.Ownership do
     end
 
     :ok
+  end
+
+  # Delegator housekeeping on every dispatch look at the ticket; never affects the dispatch result.
+  defp waiting_pass(issue, repo, ticket, observed, self, opts) do
+    fun = Keyword.get(opts, :waiting_fun, &WaitingLabel.run/5)
+    fun.(issue, repo, ticket, ref_read(observed), self.gateway_id)
   end
 
   defp ref_gateway_id({:owned, record}), do: record.gateway_id
