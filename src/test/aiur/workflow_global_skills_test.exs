@@ -1,6 +1,8 @@
 defmodule Aiur.WorkflowGlobalSkillsTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Config.{Schema, SkillsMapping}
   alias Aiur.Workflow
 
@@ -43,7 +45,7 @@ defmodule Aiur.WorkflowGlobalSkillsTest do
             docs: [a]
             UI: [global-ui]
           by_complexity:
-            "2": [global-two]
+            2: [global-two]
       """)
 
       File.write!(ctx.project, """
@@ -67,6 +69,21 @@ defmodule Aiur.WorkflowGlobalSkillsTest do
       assert %{docs: ["a"], ui: []} = mapped_skills(ctx.project)
     end
 
+    test "a project entry of [] removes the inherited key", ctx do
+      ctx.write_global.("agent:\n  skills:\n    by_lane:\n      docs: [a]\n      ui: [b]\n")
+      File.write!(ctx.project, "tracker:\n  kind: memory\nagent:\n  skills:\n    by_lane:\n      docs: []\n")
+
+      assert %{docs: [], ui: ["b"]} = mapped_skills(ctx.project)
+    end
+
+    test "an invalid global agent.skills is skipped with a warning naming the global file", ctx do
+      ctx.write_global.("agent:\n  skills:\n    by_lane:\n      docs: [\"Not A Skill\"]\n")
+      File.write!(ctx.project, "tracker:\n  kind: memory\nagent:\n  skills:\n    by_lane:\n      ui: [b]\n")
+
+      log = capture_log(fn -> assert %{docs: [], ui: ["b"]} = mapped_skills(ctx.project) end)
+      assert log =~ Path.join([System.get_env("HOME"), ".aiur", "config"])
+    end
+
     # Regression guard: passes without the inheritance change too; it pins that
     # a broken global file can never stop a project load.
     test "a malformed global config does not stop the project loading", ctx do
@@ -75,5 +92,13 @@ defmodule Aiur.WorkflowGlobalSkillsTest do
 
       assert %{docs: [], ui: ["b"]} = mapped_skills(ctx.project)
     end
+  end
+
+  test "nested non-dimension maps merge by key instead of replacing wholesale" do
+    global = %{"recommended" => %{"by_lane" => %{"docs" => ["a"]}}, "preload_max_bytes" => 1}
+    project = %{"recommended" => %{"by_lane" => %{"ui" => ["b"]}}, "preload_max_bytes" => 2}
+
+    assert SkillsMapping.merge(global, project) ==
+             %{"recommended" => %{"by_lane" => %{"docs" => ["a"], "ui" => ["b"]}}, "preload_max_bytes" => 2}
   end
 end

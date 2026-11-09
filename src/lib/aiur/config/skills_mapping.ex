@@ -71,16 +71,19 @@ defmodule Aiur.Config.SkillsMapping do
   @doc """
   Merge a global raw `agent.skills` map under a project raw map.
 
-  The project adds to the global mapping per dimension, and a project entry
-  replaces the global entry with the same key (keys compared as `normalize/1`
-  compares them). Any other project key replaces the global value. Raw values
-  stay raw, so `validate/1` still names a bad value in either layer.
+  Maps merge by key: the project adds to the global mapping per dimension, and
+  a project entry replaces the global entry with the same key (keys compared as
+  `normalize/1` compares them). A project entry of `[]` removes that key. Scalars
+  take the project value. Raw values stay raw, so `validate/1` still names a bad
+  value.
   """
   @spec merge(term(), term()) :: term()
   def merge(%{} = global, %{} = project) do
-    Map.merge(global, project, fn key, global_value, project_value ->
+    global
+    |> Map.merge(project, fn key, global_value, project_value ->
       merge_dimension(normalize_key(key), global_value, project_value)
     end)
+    |> Map.new(fn {key, value} -> {key, drop_removed(normalize_key(key), value)} end)
   end
 
   def merge(global, nil), do: global
@@ -94,7 +97,13 @@ defmodule Aiur.Config.SkillsMapping do
     |> Map.merge(project)
   end
 
+  defp merge_dimension(_key, %{} = global, %{} = project), do: merge(global, project)
   defp merge_dimension(_key, _global, project), do: project
+
+  defp drop_removed(dimension, %{} = entries) when dimension in @dimensions,
+    do: Map.reject(entries, fn {_key, skills} -> skills == [] end)
+
+  defp drop_removed(_key, value), do: value
 
   @doc "The empty mapping."
   @spec empty() :: normalized()
