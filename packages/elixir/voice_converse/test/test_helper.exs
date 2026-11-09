@@ -1,1 +1,1 @@
-ExUnit.start(exclude: [:quarantine])
+ExUnit.start()
