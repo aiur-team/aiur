@@ -517,6 +517,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
       assert preload.missing == []
     end
 
+    # Guard for the nested scan's ordering and depth bound; a top-level-only read also passes it.
     test "a top-level skill wins a name collision with a nested one, and nesting is bounded", %{workspace: workspace} do
       skill!(workspace, "shared", "Top level.", "TOP")
       skill!(workspace, "shared", "Nested.", "NESTED", ["vendor", "pack"])
