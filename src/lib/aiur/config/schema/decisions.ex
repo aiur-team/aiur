@@ -40,7 +40,7 @@ defmodule Aiur.Config.Schema.Decisions do
     field(:supervisor_allow_non_reversible, :boolean, default: false)
     # @config-reference config-configuration-17 decisions.embed_hosts
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail decisions.embed_hosts | array | `[]` | Hosts allowed to serve `embed` Command media (playable builds, interactive previews). A host also allows its subdomains. Empty turns embeds off. |
+    # @config-detail decisions.embed_hosts | array | `[]` | Hosts allowed to serve `embed` Command media (playable builds, interactive previews). A host matches exactly; list each subdomain you want to allow. Empty turns embeds off. |
     field(:embed_hosts, {:array, :string}, default: [])
   end
 
@@ -56,9 +56,16 @@ defmodule Aiur.Config.Schema.Decisions do
     |> update_change(:embed_hosts, &normalize_allowed_kinds/1)
   end
 
-  # A bare host name: no scheme, port, path or wildcard, so matching stays exact-or-subdomain.
+  @doc "True for a bare DNS host name: no scheme, port, path, wildcard or other characters."
+  @spec bare_host?(term()) :: boolean()
+  def bare_host?(host) when is_binary(host),
+    do: Regex.match?(~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/i, host)
+
+  def bare_host?(_host), do: false
+
+  # Embed hosts match exactly, so each entry must be a bare host name.
   defp validate_embed_hosts(field, hosts) do
-    if Enum.all?(hosts, &(is_binary(&1) and Regex.match?(~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/i, String.trim(&1)))),
+    if Enum.all?(hosts, &(is_binary(&1) and bare_host?(String.trim(&1)))),
       do: [],
       else: [{field, "must contain bare host names such as play.example.com"}]
   end

@@ -43,6 +43,7 @@ defmodule Aiur.Commands.Media do
   """
 
   alias Aiur.{Config, DecisionArtifact, SecretRedactor}
+  alias Aiur.Config.Schema.Decisions
 
   @kinds [:image, :animated_image, :video, :audio, :embed]
 
@@ -139,7 +140,7 @@ defmodule Aiur.Commands.Media do
   def publishable_url?(value, kind \\ nil)
 
   def publishable_url?(value, kind) when is_binary(value) and kind in [:embed, "embed"] do
-    not expiring_url?(value) and match?({:ok, _locator}, DecisionArtifact.validate_url(value, Config.decisions_embed_hosts()))
+    not expiring_url?(value) and match?({:ok, _locator}, embed_locator(value))
   end
 
   def publishable_url?(value, _kind) when is_binary(value) do
@@ -303,12 +304,25 @@ defmodule Aiur.Commands.Media do
       url == "" -> {:error, {:media, :locator_missing}}
       byte_size(url) > @locator_max -> {:error, {:media, :locator_too_long}}
       expiring_url?(url) -> {:error, {:media, :locator_expires}}
-      true -> embed_artifact(DecisionArtifact.validate_url(url, Config.decisions_embed_hosts()))
+      true -> embed_artifact(embed_locator(url))
     end
   end
 
   defp embed_artifact({:ok, locator}), do: {:ok, locator}
   defp embed_artifact({:error, reason}), do: {:error, {:media, artifact_error(reason)}}
+
+  # Embed hosts match exactly (an allowed itch.io must not frame every user's
+  # subdomain). The host must be a bare DNS name and the URL free of `\`,
+  # whitespace and control characters: browsers read `\` as a path separator,
+  # so `https://evil.com\x.play.example.com/` would frame evil.com.
+  defp embed_locator(url) do
+    host = URI.parse(url).host
+    hosts = Config.decisions_embed_hosts()
+
+    if not String.match?(url, ~r/[\\\s\x00-\x1f\x7f]/u) and Decisions.bare_host?(host) and String.downcase(host) in hosts,
+      do: DecisionArtifact.validate_url(url, hosts),
+      else: {:error, :artifact_url_host_not_allowed}
+  end
 
   defp locator(nil, _safe_roots), do: {:error, {:media, :locator_missing}}
 

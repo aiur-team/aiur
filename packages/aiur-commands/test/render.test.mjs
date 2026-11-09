@@ -362,6 +362,7 @@ test('every documented part is in the README and rendered', () => {
     renderCommand({ ...rich, state: 'pending', actions: { ...rich.actions, escalate: true } }),
     renderCommand({ ...rich, state: 'escalated' }),
     renderCommand({ ...rich, state: 'pending', media: [{ kind: 'video', mime_type: 'video/mp4', locator: { kind: 'attachment', attachment_id: 'x' } }, { kind: 'path', value: 'a' }] }),
+    renderCommand({ ...rich, state: 'pending', media: [{ kind: 'embed', mime_type: 'text/html', alt_text: 'Level 3', locator: { kind: 'url', value: 'https://play.example.com/' } }] }),
     renderList({ status: 'empty' }),
     renderList({ status: 'ready', commands: [rich] }),
   ].join('\n');

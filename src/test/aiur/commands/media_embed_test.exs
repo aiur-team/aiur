@@ -43,6 +43,13 @@ defmodule Aiur.Commands.MediaEmbedTest do
   test "each unsafe locator is refused with a stable error" do
     cases = [
       {"https://elsewhere.example.org/game", :locator_not_allowed},
+      {"https://notplay.example.com/", :locator_not_allowed},
+      {"https://play.example.com.evil.org/", :locator_not_allowed},
+      {"https://sub.play.example.com/", :locator_not_allowed},
+      # URI keeps `\` in the host; browsers split on it and would frame evil.com.
+      {"https://evil.com\\x.play.example.com/", :locator_not_allowed},
+      {"https://play.example.com/game\\..", :locator_not_allowed},
+      {"https://play.example.com/ga me", :locator_not_allowed},
       {"http://play.example.com/game", :locator_not_allowed},
       {"https://user:pass@play.example.com/game", :locator_not_allowed},
       {"https://play.example.com/game?X-Amz-Expires=300&X-Amz-Signature=abc", :locator_expires},
@@ -87,6 +94,8 @@ defmodule Aiur.Commands.MediaEmbedTest do
 
   test "the public projection republishes an embed only while its host stays allowlisted" do
     assert {:ok, [item]} = Media.normalize([embed()], [])
+    refute Media.publishable_url?("https://evil.com\\x.play.example.com/", :embed)
+    refute Media.publishable_url?("https://sub.play.example.com/", :embed)
     assert [%{"kind" => "embed", "locator" => %{"kind" => "url", "value" => @url}}] = Media.public([item])
 
     allow_embed_hosts([])
