@@ -54,9 +54,15 @@ defmodule AiurWeb.BuildLive do
     location = URI.parse(uri)
     socket = assign(socket, url_path: location.path, url_state: state)
     socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
-    query = URLState.to_query(state)
+    query = state |> URLState.to_query() |> keep_project(params["project"])
     {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", query)}
   end
+
+  # The canonical URL keeps the `AiurWeb.ProjectScope` pick, so a reconnect remounts the same project.
+  defp keep_project(query, project) when is_binary(project) and project != "",
+    do: [query, URI.encode_query(project: project)] |> Enum.reject(&(&1 == "")) |> Enum.join("&")
+
+  defp keep_project(query, _project), do: query
 
   defp patch_url(socket, current, query) do
     if current == query do
@@ -68,7 +74,8 @@ defmodule AiurWeb.BuildLive do
   end
 
   defp corrected_url?(params, query) do
-    sent = Map.reject(params, fn {key, value} -> key == "ticket" or not is_binary(value) or value == "" end)
+    # `project` belongs to `AiurWeb.ProjectScope`, not the build URL state.
+    sent = Map.reject(params, fn {key, value} -> key in ["ticket", "project"] or not is_binary(value) or value == "" end)
     Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
 

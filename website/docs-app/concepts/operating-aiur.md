@@ -285,6 +285,12 @@ and queue, and a state directory beside today's (`<state root>/<instance>/<repo 
 - **`aiur status --json`** prints `{"observed_at", "projects": [...]}`, one row per project with
   `state` (`running` or `failed`), the running-agent count and its snapshot age; the count is
   `null` when no current snapshot exists.
+- **The dashboard shows one project at a time.** Pick it from the Projects page, or add
+  `?project=<owner/repo>` to a dashboard or `/api/v1` URL; the browser session keeps the pick for the
+  rest of the visit. With exactly one project, no selection is needed. With several and no pick,
+  project pages send you to `/projects` to choose, and the project API endpoints answer `409`
+  `project_required` with the running project ids. A pick naming no running project answers `404`
+  `unknown_project`.
 - An invalid or unreadable `~/.aiur/machine` refuses daemon start rather than falling back to one project.
 
 ## Remote control

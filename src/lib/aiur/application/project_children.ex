@@ -32,7 +32,9 @@ defmodule Aiur.Application.ProjectChildren do
       Aiur.Orchestrator.SpendCap.Store,
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator, id), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
-      Aiur.BuildQueue.child(Keyword.get(opts, :recording?, true))
+      Aiur.BuildQueue.child(Keyword.get(opts, :recording?, true)),
+      # Last, so its isolated restarts never cascade through `:rest_for_one`; idle until a dashboard subscribes.
+      AiurWeb.Build.IndexSupervisor
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
