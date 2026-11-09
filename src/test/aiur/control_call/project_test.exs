@@ -8,6 +8,14 @@ defmodule Aiur.ControlCall.ProjectTest do
 
   @b64_b Base.encode64("t311/b")
 
+  defp stop(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    receive do: ({:DOWN, ^ref, _, _, _} -> :ok)
+    # Registry unregisters via its own monitor; let it process the exit.
+    Process.sleep(20)
+  end
+
   describe "resolve/3" do
     test "explicit match wins, case-insensitively, in registry case" do
       assert Project.resolve("T311/B", nil, ["t311/a", "t311/b"]) == {:ok, "t311/b"}
@@ -69,7 +77,7 @@ defmodule Aiur.ControlCall.ProjectTest do
           pid
         end
 
-      on_exit(fn -> Enum.each(pids, &Process.exit(&1, :kill)) end)
+      on_exit(fn -> Enum.each(pids, &stop/1) end)
       :ok
     end
 
@@ -89,6 +97,88 @@ defmodule Aiur.ControlCall.ProjectTest do
       assert {:ok, output} = ControlCall.run(parsed, 5_000, "token:t")
       assert output =~ "pick a project: "
       assert output =~ "__AIUR_CONTROL_EXIT__:64"
+    end
+  end
+
+  describe "single-project gateway (no projects: registry)" do
+    defmodule Identity do
+      @moduledoc false
+      def project_identity, do: "o/a"
+    end
+
+    setup do
+      previous = Application.get_env(:aiur, :project_identity_source)
+      Application.put_env(:aiur, :project_identity_source, Identity)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:aiur, :project_identity_source, previous),
+          else: Application.delete_env(:aiur, :project_identity_source)
+      end)
+    end
+
+    test "refuses a different explicit project and sets no context" do
+      assert {:error, "unknown project 'o/z'; this gateway has: o/a"} = Project.activate("o/z", nil)
+      assert Context.current_id() == nil
+    end
+
+    test "accepts the configured repo (any case) or no project, leaving Context unset" do
+      assert :ok = Project.activate("O/A", nil)
+      assert :ok = Project.activate(nil, nil)
+      assert Context.current_id() == nil
+    end
+  end
+
+  describe "run/3 routing on two projects" do
+    defmodule QueueStub do
+      @moduledoc false
+      use GenServer
+      def start_link({name, tag}), do: GenServer.start_link(__MODULE__, tag, name: name)
+      @impl true
+      def init(tag), do: {:ok, tag}
+      @impl true
+      def handle_call(:read_model, _from, tag), do: {:reply, %{"status" => "running", "snapshot" => %{"captured_at" => tag}}, tag}
+    end
+
+    setup do
+      for repo <- ["t311/a", "t311/b"] do
+        project = Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
+        parent = self()
+
+        pid =
+          spawn(fn ->
+            Aiur.Project.Registry.register_root(project)
+            {:ok, _} = QueueStub.start_link({Aiur.Project.Registry.via(repo, Aiur.BuildQueue.Server), "DATA-" <> repo})
+            send(parent, :registered)
+            Process.sleep(:infinity)
+          end)
+
+        assert_receive :registered, 1_000
+        on_exit(fn -> stop(pid) end)
+      end
+
+      :ok
+    end
+
+    test "queue show --project B reads B's queue, not A's" do
+      expr = ~s|Aiur.AgentControlCLI.queue(project: Base.decode64!("#{@b64_b}"), json: true)|
+      {:ok, call} = ControlCall.parse(expr, remote: true)
+      assert {:ok, output} = ControlCall.run(call, 5_000, "token:t")
+      assert output =~ "DATA-t311/b"
+      refute output =~ "DATA-t311/a"
+    end
+
+    test "activate/2 returns unknown project when the tree stops between list and lookup" do
+      calls = :counters.new(1, [])
+
+      lookup = fn id ->
+        :counters.add(calls, 1, 1)
+        # the listing pass (2 projects) sees both; the resolved lookup then finds nothing
+        if :counters.get(calls, 1) <= 2, do: Aiur.Project.Registry.project(id)
+      end
+
+      assert {:error, "unknown project 't311/b'; this gateway has: t311/a, t311/b"} = Project.activate("t311/b", nil, lookup)
+      assert Context.current_id() == nil
     end
   end
 end

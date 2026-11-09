@@ -91,24 +91,53 @@ defmodule Aiur.ControlCall.Project do
   end
 
   @doc "Resolves against the running projects and puts the context on the calling process. Returns a user message on failure."
-  @spec activate(String.t() | nil, String.t() | nil) :: :ok | {:error, String.t()}
-  def activate(project, hint) do
+  @spec activate(String.t() | nil, String.t() | nil, (String.t() -> Aiur.Project.t() | nil)) :: :ok | {:error, String.t()}
+  def activate(project, hint, lookup \\ &Registry.project/1) do
     # Running projects only: a failed tree cannot serve a command.
-    repos = for id <- Registry.project_ids(), project = Registry.project(id), do: project.repo
+    repos = for id <- Registry.project_ids(), project = lookup.(id), do: project.repo
 
     case resolve(project, hint, repos) do
       {:ok, nil} ->
-        :ok
+        single_project(project)
 
       {:ok, repo} ->
-        with %Aiur.Project{} = found <- Registry.project(repo), do: Context.put(found)
-        :ok
+        case lookup.(repo) do
+          %Aiur.Project{} = found ->
+            Context.put(found)
+            :ok
+
+          # The tree stopped between the list and the lookup: never fall back to the bare names.
+          nil ->
+            {:error, unknown_message(repo, repos)}
+        end
 
       {:error, {:ambiguous, repos}} ->
         {:error, "pick a project: " <> Enum.join(repos, ", ")}
 
       {:error, {:unknown, name, repos}} ->
-        {:error, "unknown project '#{name}'; this gateway has: " <> Enum.join(repos, ", ")}
+        {:error, unknown_message(name, repos)}
     end
   end
+
+  # No `projects:` registry: the gateway serves its one configured tracker repo, so a different
+  # explicit project is refused. Context stays unset, keeping single-project behaviour.
+  defp single_project(nil), do: :ok
+
+  defp single_project(project) do
+    case tracker_repo() do
+      nil -> :ok
+      repo -> if String.downcase(repo) == String.downcase(project), do: :ok, else: {:error, unknown_message(project, [repo])}
+    end
+  end
+
+  defp tracker_repo do
+    case Application.get_env(:aiur, :project_identity_source, Aiur.Tracker).project_identity() do
+      repo when is_binary(repo) and repo != "" -> repo
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp unknown_message(name, repos), do: "unknown project '#{name}'; this gateway has: " <> Enum.join(repos, ", ")
 end
