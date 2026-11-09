@@ -13,7 +13,7 @@ defmodule Aiur.ScriptsEpicTest do
         "epic-test",
         @engine
       ],
-      env: [{"USER", "tester"} | env],
+      env: [{"USER", "tester"}, {"GIT_DIR", "/nonexistent"} | env],
       stderr_to_stdout: true
     )
   end
@@ -28,7 +28,7 @@ defmodule Aiur.ScriptsEpicTest do
         "epic-test",
         @engine
       ],
-      env: [{"USER", "tester"} | env],
+      env: [{"USER", "tester"}, {"GIT_DIR", "/nonexistent"} | env],
       stderr_to_stdout: true
     )
   end

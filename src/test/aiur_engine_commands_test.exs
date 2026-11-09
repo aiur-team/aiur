@@ -28,7 +28,7 @@ defmodule AiurEngineCommandsTest do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
-        []
+        [{"GIT_DIR", "/nonexistent"}]
       )
 
     assert out =~
@@ -39,7 +39,7 @@ defmodule AiurEngineCommandsTest do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
-        []
+        [{"GIT_DIR", "/nonexistent"}]
       )
 
     assert out =~
@@ -53,7 +53,7 @@ defmodule AiurEngineCommandsTest do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
-        []
+        [{"GIT_DIR", "/nonexistent"}]
       )
 
     assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
@@ -261,7 +261,7 @@ defmodule AiurEngineCommandsTest do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
-        []
+        [{"GIT_DIR", "/nonexistent"}]
       )
 
     assert out =~

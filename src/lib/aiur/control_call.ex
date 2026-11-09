@@ -44,7 +44,7 @@ defmodule Aiur.ControlCall do
          {:ok, segments, function, raw_args} <- call_ast(ast),
          :ok <- grants_local(segments, function, opts),
          {:ok, entry} <- allowlisted(segments, function, length(raw_args)),
-         {:ok, project, hint, raw_args} <- Project.split_raw(raw_args),
+         {:ok, project, hint, raw_args} <- split_project(segments, function, raw_args),
          scoped? = {segments, function} in Project.project_scoped(),
          :ok <- project_applies(scoped?, project),
          :ok <- Literal.validate_raw_option_keys(entry, raw_args),
@@ -183,6 +183,10 @@ defmodule Aiur.ControlCall do
     if scope == :read, do: Task.shutdown(task, :brutal_kill), else: Task.ignore(task)
     {:error, :timeout}
   end
+
+  # config explain owns its own `project:` option (it names a project, not a command target).
+  defp split_project([:Aiur, :ControlCLI, :ConfigExplain], :explain, raw_args), do: {:ok, nil, nil, raw_args}
+  defp split_project(_segments, _function, raw_args), do: Project.split_raw(raw_args)
 
   defp project_applies(false, project) when is_binary(project), do: {:error, :project_not_applicable}
   defp project_applies(_scoped?, _project), do: :ok
