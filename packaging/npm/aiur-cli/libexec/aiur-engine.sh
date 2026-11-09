@@ -423,18 +423,7 @@ aiur_engine_main() {
       shift
       cmd_executor_revoke "$@"
       ;;
-    set)
-      shift
-      cmd_set "$@"
-      ;;
-    config)
-      shift
-      cmd_config "$@"
-      ;;
-    upgrade)
-      shift
-      cmd_upgrade "$@"
-      ;;
+    set | config | upgrade) shift; "cmd_$cmd" "$@" ;;
     pause | resume | park | take | release)
       shift
       case "$cmd" in
