@@ -21,8 +21,8 @@ defmodule Aiur.AgentSkills.PreloadTest do
     {:ok, workspace: workspace}
   end
 
-  defp skill!(workspace, name, description, body) do
-    dir = Path.join([workspace, ".claude", "skills", name])
+  defp skill!(workspace, name, description, body, parents \\ []) do
+    dir = Path.join([workspace, ".claude", "skills"] ++ parents ++ [name])
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, "SKILL.md"), "---\nname: #{name}\ndescription: \"#{description}\"\n---\n\n#{body}\n")
     :ok
@@ -388,6 +388,69 @@ defmodule Aiur.AgentSkills.PreloadTest do
     end
   end
 
+  describe "recommended skills" do
+    test "list name, description and load path in their own section without inlining", %{workspace: workspace} do
+      skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART BODY")
+      skill!(workspace, "sprite-sheets", "Pack sprite sheets.", "SPRITE SHEET BODY", ["vendor", "pack"])
+      skill!(workspace, "unrelated", "CI plumbing.", "UNRELATED BODY")
+
+      preload =
+        resolve(issue(["area:art"]), workspace, %{
+          "by_lane" => %{"art" => ["pixel-art"]},
+          "recommended" => %{"by_lane" => %{"art" => ["sprite-sheets", "pixel-art"]}}
+        })
+
+      # A skill both mapped and recommended stays mapped.
+      assert Enum.map(preload.mapped, & &1.name) == ["pixel-art"]
+      assert [%{name: "sprite-sheets", reason: "lane:art", path: path}] = preload.recommended
+      assert path == ".claude/skills/vendor/pack/sprite-sheets/SKILL.md"
+
+      block = Preload.prompt_block(preload)
+      assert block =~ "### Recommended skills (load on demand)"
+      assert block =~ "- `sprite-sheets` (lane:art) — Pack sprite sheets.\n  Load: `.claude/skills/vendor/pack/sprite-sheets/SKILL.md`"
+      refute block =~ "SPRITE SHEET BODY"
+      # Not repeated in the full index.
+      assert block |> String.split("`sprite-sheets`") |> length() == 2
+      assert position(block, "### Recommended skills") < position(block, "### Other installed skills")
+      assert Preload.dispatch_record(preload).skills_recommended == ["sprite-sheets"]
+    end
+
+    test "never count against preload_max_bytes", %{workspace: workspace} do
+      skill!(workspace, "big", "Big.", String.duplicate("x", 2_000))
+
+      preload =
+        resolve(issue(["area:art"]), workspace, %{
+          "preload_max_bytes" => 100,
+          "recommended" => %{"by_lane" => %{"art" => ["big"]}}
+        })
+
+      assert Enum.map(preload.recommended, & &1.name) == ["big"]
+      assert preload.truncated == []
+      assert preload.bytes == 0
+    end
+
+    test "a recommended name not installed is reported as missing", %{workspace: workspace} do
+      skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART BODY")
+
+      {preload, _log} =
+        with_log(fn -> resolve(issue(["area:art"]), workspace, %{"recommended" => %{"by_lane" => %{"art" => ["ghost-skill"]}}}) end)
+
+      assert preload.recommended == []
+      assert [%{name: "ghost-skill", reason: "recommended, lane:art"}] = preload.missing
+      assert preload.configured?
+    end
+
+    test "validation names a bad recommended dimension or skill" do
+      assert SkillsMapping.validate(%{"recommended" => %{"by_lane" => %{"art" => ["ok-skill"]}}}) == :ok
+      assert {:error, "agent.skills.recommended has unknown keys by_mood" <> _} = SkillsMapping.validate(%{"recommended" => %{"by_mood" => %{}}})
+
+      assert {:error, "agent.skills.recommended.by_lane.art names invalid skills a/b" <> _} =
+               SkillsMapping.validate(%{"recommended" => %{"by_lane" => %{"art" => ["a/b"]}}})
+
+      assert SkillsMapping.validate(%{"recommended" => ["x"]}) == {:error, "agent.skills.recommended must be a map"}
+    end
+  end
+
   describe "config reading" do
     test "re-resolves from the settings it is given, so a config edit applies to the next dispatch", %{workspace: workspace} do
       skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART BODY")
@@ -438,6 +501,31 @@ defmodule Aiur.AgentSkills.PreloadTest do
       assert Map.has_key?(installed, "pixel-art")
       assert installed["pixel-art"].description == "Draw sprites."
       assert installed["pixel-art"].bytes > 0
+    end
+
+    test "indexes a vendored skill nested under its pack directory", %{workspace: workspace} do
+      # Only a nested skill: a top-level-only read finds nothing here.
+      skill!(workspace, "deep-skill", "Vendored.", "DEEP BODY", ["vendor", "pack"])
+
+      installed = Preload.installed_skills(workspace)
+
+      assert Map.keys(installed) == ["deep-skill"]
+      assert installed["deep-skill"].description == "Vendored."
+
+      preload = resolve(issue(["area:art"]), workspace, %{"by_lane" => %{"art" => ["deep-skill"]}})
+      assert Enum.map(preload.mapped, & &1.name) == ["deep-skill"]
+      assert preload.missing == []
+    end
+
+    test "a top-level skill wins a name collision with a nested one, and nesting is bounded", %{workspace: workspace} do
+      skill!(workspace, "shared", "Top level.", "TOP")
+      skill!(workspace, "shared", "Nested.", "NESTED", ["vendor", "pack"])
+      skill!(workspace, "too-deep", "Too deep.", "DEEP", ["a", "b", "c"])
+
+      installed = Preload.installed_skills(workspace)
+
+      assert installed["shared"].description == "Top level."
+      refute Map.has_key?(installed, "too-deep")
     end
 
     test "an absent workspace resolves to no installed skills", %{workspace: workspace} do

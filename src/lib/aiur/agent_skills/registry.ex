@@ -1,6 +1,6 @@
 defmodule Aiur.AgentSkills.Registry do
   @moduledoc """
-  Reads the skills installed in a workspace, keyed by directory name.
+  Reads the skills installed in a workspace, keyed by skill directory name.
 
   Kept apart from `Aiur.AgentSkills.Preload` so the file-reading and
   frontmatter-parsing concern stays separate from the ticket-to-skill mapping
@@ -12,12 +12,16 @@ defmodule Aiur.AgentSkills.Registry do
   # to be scannable next to the preloaded text.
   @index_description_chars 140
   @fallback_install_path ".claude/skills"
+  # `<name>`, `<group>/<name>` and `<group>/<pack>/<name>` below an install path.
+  @max_depth 3
 
   @doc """
   The skills installed in `workspace`, keyed by directory name.
 
   Reads every provider install path and keeps the first copy of each skill name,
-  so a `.codex/skills` link to `.claude/skills` counts once.
+  so a `.codex/skills` link to `.claude/skills` counts once. A skill nested up to
+  three directories deep (`vendor/<pack>/<skill>/SKILL.md`) is keyed by its own
+  directory name; a shallower skill of the same name wins.
   """
   @spec installed_skills(Path.t() | nil) :: %{String.t() => map()}
   def installed_skills(workspace) when is_binary(workspace) do
@@ -35,21 +39,43 @@ defmodule Aiur.AgentSkills.Registry do
     _kind, _reason -> [@fallback_install_path]
   end
 
-  defp read_skill_dir(directory, acc) do
+  # Breadth-first, so a skill nearer the install path wins a name collision with
+  # a nested one (`vendor/<pack>/<skill>`). A directory holding a SKILL.md is a
+  # skill and is not searched further; depth is bounded so a symlink loop or a
+  # large tree cannot stall prompt building.
+  defp read_skill_dir(root, acc) do
+    {acc, _dirs} =
+      Enum.reduce(1..@max_depth, {acc, [root]}, fn _level, {acc, dirs} ->
+        dirs
+        |> Enum.flat_map(&children/1)
+        |> Enum.reduce({acc, []}, &visit/2)
+        |> then(fn {acc, next} -> {acc, Enum.reverse(next)} end)
+      end)
+
+    acc
+  end
+
+  defp children(directory) do
     case File.ls(directory) do
-      {:ok, entries} -> Enum.reduce(entries, acc, &read_skill(&2, directory, &1))
-      {:error, _reason} -> acc
+      {:ok, entries} -> entries |> Enum.reject(&String.starts_with?(&1, ".")) |> Enum.sort() |> Enum.map(&Path.join(directory, &1))
+      {:error, _reason} -> []
     end
   end
 
-  defp read_skill(acc, directory, name) do
-    path = Path.join([directory, name, @skill_file])
+  defp visit(entry, {acc, next}) do
+    path = Path.join(entry, @skill_file)
 
-    with true <- File.regular?(path),
-         {:ok, text} <- File.read(path) do
-      Map.put_new(acc, name, %{name: name, description: description(text), text: text, bytes: byte_size(text), path: path})
-    else
-      _unreadable -> acc
+    cond do
+      File.regular?(path) -> {read_skill(acc, Path.basename(entry), path), next}
+      File.dir?(entry) -> {acc, [entry | next]}
+      true -> {acc, next}
+    end
+  end
+
+  defp read_skill(acc, name, path) do
+    case File.read(path) do
+      {:ok, text} -> Map.put_new(acc, name, %{name: name, description: description(text), text: text, bytes: byte_size(text), path: path})
+      {:error, _unreadable} -> acc
     end
   end
 
