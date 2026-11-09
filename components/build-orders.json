@@ -14,6 +14,7 @@
     "src/lib/aiur/feature_cli.ex",
     "src/lib/aiur/feature_cli/**",
     "src/lib/aiur/lane_cli.ex",
+    "src/lib/aiur/ticket_reopen.ex",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
     "src/lib/aiur_web/build_order_presenter/**"
@@ -47,6 +48,7 @@
     "Aiur.BuildOrdersCLI",
     "Aiur.EpicCLI",
     "Aiur.FeatureCLI",
+    "Aiur.TicketReopen",
     "AiurWeb.BuildOrder.DataSource",
     "AiurWeb.BuildOrder.Runtime"
   ],
