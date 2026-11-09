@@ -96,10 +96,14 @@ Reclassification records the Executor's rationale and increments the Command
 version. A separate `aiur executor-answer` must use the new version.
 
 Aiur warns when reversible human-required Commands offer only low-risk options
-and when an Executor-unanswerable nonblocking Command expires. Expired blockers
-remain answerable until answered or mooted. A matching agent re-raise replaces
-an expired Command with a new open Command; the old record is mooted so it no
-longer inflates the open or awaiting counts.
+and when an Executor-unanswerable nonblocking Command expires. A Command routed
+to you (Needs you, or Needs you and Executor) never expires on age or agent
+stop. An Executor-only nonblocking Command expires once its agent stops and it
+is five minutes old.
+
+Expired blockers remain answerable until answered or mooted. A matching agent
+re-raise replaces an expired Command with a new open Command; the old record is
+mooted so it no longer inflates the open or awaiting counts.
 
 A blocking Command never waits in silence. When it is created, the Executor gets
 one `ticket.<N>.agent.attention.operator-decision` wake with the decision id,
@@ -110,10 +114,9 @@ alerts the operator at 45 minutes, then every hour. A Command that gates 10 or
 more open tickets alerts the operator at 15 minutes. Answering the Command
 resolves the alert and stops the ladder.
 
-The ladder is computed from the
-Command's age, so a restart continues it. `aiur status` prints
-`DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket, gates M)`;
-the sorted IDs identify the exact Commands included in the count.
+The ladder is computed from the Command's age, so a restart continues it. `aiur
+status` prints `DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket,
+gates M)`; the sorted IDs identify the exact Commands included in the count.
 
 That line counts the same Commands as `aiur command --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
@@ -278,10 +281,9 @@ PR and corrective ticket when known. Text chips distinguish queued (including
 slot and resume waits), delivered, implemented and superseded states. Delivery
 alone does not establish implementation.
 
-A worker-attested push reads “Implemented
-in PR #N (awaiting merge)”; the durable state remains delivered until merge
-evidence confirms it. Inbox badges remain until implementation
-or supersession.
+A worker-attested push reads “Implemented in PR #N (awaiting merge)”; the
+durable state remains delivered until merge evidence confirms it. Inbox badges
+remain until implementation or supersession.
 
 The Build header shows a collapsed override count badge. Open it for ticket
 numbers and Command links; close it with the badge, Escape or an outside click. `aiur commands` includes the same state and links in its override
@@ -310,11 +312,10 @@ merged PR head must contain a worker-attested commit made after delivery.
 The worker attests its pushed checkout head at handoff; repository push notifications alone do not attest work.
 An update-branch, main merge or rebase without that worker receipt cannot mark it implemented.
 
-If the PR merges first,
-Aiur automatically routes the override to a corrective ticket and records
-“PR merged before the change; corrective ticket #M”. A late worker push cannot
-reverse this outcome. Overrides delivered while a PR is queued for merge follow
-the same rule; Aiur does not dequeue the PR.
+If the PR merges first, Aiur automatically routes the override to a corrective
+ticket and records “PR merged before the change; corrective ticket #M”. A late
+worker push cannot reverse this outcome. Overrides delivered while a PR is
+queued for merge follow the same rule; Aiur does not dequeue the PR.
 
 Push evidence needs a verified PR head-update timestamp later than
 delivery; unknown or same-second chronology stays unproven. Queue acceptance alone does not mean implementation.
@@ -337,11 +338,10 @@ delivery, the override state becomes `failed`; confirmed delivery remains
 visible. Retries back off from one minute to one hour. Permanent failures
 alert immediately; other failures alert after three attempts.
 
-The corrective
-ticket enters normal dispatch and capacity limits; merged history is preserved.
-A later override targets this corrective ticket while its PR remains unmerged.
-It keeps the observed active-worker, resume or capacity-wait route.
-For corrective work, `implemented` requires the corrective PR to merge.
+The corrective ticket enters normal dispatch and capacity limits; merged history
+is preserved. A later override targets this corrective ticket while its PR
+remains unmerged. It keeps the observed active-worker, resume or capacity-wait
+route. For corrective work, `implemented` requires the corrective PR to merge.
 
 For a confirmed unmerged ticket, `resume_pending` and `capacity_wait` overrides form a
 journal-backed resume queue. Resumable workers continue on the same ticket,
@@ -377,10 +377,9 @@ successor for normal dispatch.
 An operator pause added during retirement keeps
 the successor parked until the operator resumes the work.
 
-Failure keeps the override queued and opens an
-Executor Command. The override records its recovery path and reason.
-Overrides never rewrite merged work. Direct legacy supersede calls retain their pre-delivery
-guard.
+Failure keeps the override queued and opens an Executor Command. The override
+records its recovery path and reason. Overrides never rewrite merged work.
+Direct legacy supersede calls retain their pre-delivery guard.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.
@@ -441,7 +440,7 @@ answerable.
 ## Media on a Command
 
 A Command's prompt, each of its options, and a submitted answer can carry typed
-media: `image`, `animated_image`, `video` or `audio`. Text-only Commands are
+media: `image`, `animated_image`, `video`, `audio` or `embed`. Text-only Commands are
 unchanged, and a Command with no media decodes, persists and renders exactly as
 before.
 
@@ -449,11 +448,11 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 
 | Field | Meaning |
 | --- | --- |
-| Kind | `image`, `animated_image`, `video`, or `audio`. |
+| Kind | `image`, `animated_image`, `video`, `audio`, or `embed` (an interactive page such as a playable build). |
 | MIME type | Allowlisted for the kind, for example `image/png` or `video/mp4`. |
-| Locator | An allowlisted HTTPS URL, or a local file under a configured root. |
-| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images. |
-| Size, dimensions, duration | Optional bounds checked against the kind's limit. |
+| Locator | An allowlisted HTTPS URL, or a local file under a configured root. An `embed` takes only an HTTPS URL on the [`decisions.embed_hosts`](../reference/configuration-daemon.md#decisions) list, empty by default, plus optional `params` appended to its query. |
+| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images and for embeds. |
+| Size, dimensions, duration | Optional bounds checked against the kind's limit; an embed's `duration_hint` is in seconds. |
 | Poster | A still frame for video or audio. |
 
 A worker sends media in the `decision.requested` payload that already carries

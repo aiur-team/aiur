@@ -54,8 +54,8 @@ defmodule Aiur.Commands.Media.Projection do
       "width" => fetch(item, :width),
       "height" => fetch(item, :height),
       "duration_ms" => fetch(item, :duration_ms),
-      "locator" => public_locator(fetch(item, :locator)),
-      "poster" => public_locator(fetch(item, :poster))
+      "locator" => public_locator(fetch(item, :locator), fetch(item, :kind)),
+      "poster" => public_locator(fetch(item, :poster), nil)
     }
   end
 
@@ -64,31 +64,33 @@ defmodule Aiur.Commands.Media.Projection do
   # cross the canonical boundary and the component contract without a second
   # path rewrite. Anything without a resolvable locator becomes `nil` instead of
   # raising.
-  defp public_locator(nil), do: nil
+  defp public_locator(nil, _kind), do: nil
 
   # A URL locator is republished only when it still passes the ingestion checks;
   # a signed or non-allowlisted URL would hand a credential to an untrusted
   # client, so it projects as an unavailable item instead.
-  defp public_locator(%{kind: :url, value: value}), do: public_url(value)
+  # An embed is checked against its own allowlist, so removing a host from
+  # `decisions.embed_hosts` stops republishing Commands that already carry it.
+  defp public_locator(%{kind: :url, value: value}, kind), do: public_url(value, kind)
 
-  defp public_locator(%{"kind" => "url", "value" => value}), do: public_url(value)
+  defp public_locator(%{"kind" => "url", "value" => value}, kind), do: public_url(value, kind)
 
-  defp public_locator(%{"kind" => "attachment", "attachment_id" => id}) when is_binary(id),
+  defp public_locator(%{"kind" => "attachment", "attachment_id" => id}, _kind) when is_binary(id),
     do: %{"kind" => "attachment", "attachment_id" => id}
 
-  defp public_locator(%{value: value}) when is_binary(value),
+  defp public_locator(%{value: value}, _kind) when is_binary(value),
     do: %{"kind" => "attachment", "attachment_id" => Media.attachment_id(%{value: value})}
 
-  defp public_locator(%{"value" => value}) when is_binary(value),
+  defp public_locator(%{"value" => value}, _kind) when is_binary(value),
     do: %{"kind" => "attachment", "attachment_id" => Media.attachment_id(%{value: value})}
 
-  defp public_locator(_locator), do: nil
+  defp public_locator(_locator, _kind), do: nil
 
-  defp public_url(value) when is_binary(value) do
-    if Media.publishable_url?(value), do: %{"kind" => "url", "value" => value}, else: nil
+  defp public_url(value, kind) when is_binary(value) do
+    if Media.publishable_url?(value, kind), do: %{"kind" => "url", "value" => value}, else: nil
   end
 
-  defp public_url(_value), do: nil
+  defp public_url(_value, _kind), do: nil
 
   @doc """
   Durable option list for the canonical request snapshot.

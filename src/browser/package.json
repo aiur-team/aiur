@@ -22,7 +22,7 @@
     "test:build-home-layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-layout.browser.spec.mjs",
     "test:build-home-assets": "node scripts/run-browser-tests.mjs tests/build-home-assets.browser.spec.mjs",
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
-    "test:command-answer": "node scripts/run-browser-tests.mjs tests/command-answer.browser.spec.mjs",
+    "test:command-answer": "node scripts/run-browser-tests.mjs tests/command-answer.browser.spec.mjs tests/command-embed.browser.spec.mjs",
     "test:build-index-live": "node scripts/run-browser-tests.mjs tests/build-index-live.browser.spec.mjs",
     "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs tests/shell-history-contrast.browser.spec.mjs tests/shell-reflow.browser.spec.mjs",
     "test:shell-width": "node scripts/run-browser-tests.mjs tests/shell-content-width.browser.spec.mjs",
