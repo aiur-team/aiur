@@ -18,8 +18,6 @@ defmodule Aiur.DiskFull do
 
   require Logger
 
-  alias Aiur.Signal
-
   @topic "system.disk.pressure"
   @key {__MODULE__, :state}
   @realert_ms 10 * 60_000
@@ -48,7 +46,7 @@ defmodule Aiur.DiskFull do
 
     if :atomics.compare_exchange(ref, 1, 0, 1) == :ok and (last == 0 or now - last >= @realert_ms) do
       :atomics.put(ref, 2, now)
-      alert = Application.get_env(:aiur, :disk_full_alert_fun, &Signal.alert/2)
+      alert = Application.get_env(:aiur, :disk_full_alert_fun, &emit/2)
       {:ok, _pid} = Task.start(fn -> alert.(@topic, alert_opts(path)) end)
     end
 
@@ -61,6 +59,14 @@ defmodule Aiur.DiskFull do
     ref = state()
     :atomics.put(ref, 1, 0)
     :atomics.put(ref, 2, 0)
+  end
+
+  # The kernel sits below the alert pipeline, so it reaches the configured sink the way `Aiur.Signal` does.
+  defp emit(topic, opts) do
+    case Application.get_env(:aiur, :signal, [])[:alert_sink] do
+      nil -> :ok
+      sink -> sink.emit_system(topic, opts)
+    end
   end
 
   defp alert_opts(path) do
