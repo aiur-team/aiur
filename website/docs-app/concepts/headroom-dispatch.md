@@ -143,6 +143,7 @@ With `projects:` set, one broker shares slots first-come. A project starts an
 agent only under `capacity.max_agents` (or `--max-agents`), its
 `projects[].max_agents`, and its own limits: the lowest wins. Slots return on
 the next poll tick, or at once if a project crashes. Unset means no machine cap.
+
 If the broker is not running, projects fall back to their own limits; if it is running but
 slow (over one second), the start is refused and retried on the next poll.
 
