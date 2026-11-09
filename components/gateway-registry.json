@@ -4,10 +4,12 @@
   "layer": 2,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/gateway/capacity.ex",
     "src/lib/aiur/gateway/grants.ex",
     "src/lib/aiur/gateway/registry.ex"
   ],
   "facades": [
+    "Aiur.Gateway.Capacity",
     "Aiur.Gateway.Grants",
     "Aiur.Gateway.Registry"
   ],

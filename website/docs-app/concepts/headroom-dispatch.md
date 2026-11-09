@@ -137,5 +137,16 @@ resets in 2h`), and an alert fires when a route starts being floored and when it
 recovers. If every route is floored, the ticket waits for a reset instead of
 failing its dispatch.
 
+## Machine capacity across projects
+
+With `projects:` set in `~/.aiur/machine`, one broker shares the machine's slots
+between the projects. A project starts an agent only if the machine is under
+`capacity.max_agents` (or `--max-agents`), the project is under its
+`projects[].max_agents`, and its own `agent.max_concurrent_agents` and load
+envelope allow it: the lowest of these wins. Grants are first-come. A project
+returns a slot on its next poll tick after the agent ends, and a crashed project
+returns all of its slots at once. With `capacity.max_agents` unset there is no
+machine cap. Without `projects:` nothing changes.
+
 See also [`agent.account_selection`](/reference/configuration) and
 [Accounts by backend](/guide/claude-accounts).
