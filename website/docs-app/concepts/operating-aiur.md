@@ -284,6 +284,10 @@ and queue, and a state directory beside today's (`<state root>/<instance>/<repo 
 - **`aiur status --json`** prints `{"observed_at", "projects": [...]}`, one row per project with
   `state` (`running` or `failed`), the running-agent count and its snapshot age; the count is
   `null` when no current snapshot exists.
+- **The dashboard shows one project at a time.** Add `?project=<owner/repo>` to a dashboard URL or
+  to `/api/v1/state` to pick it. With exactly one project, no selection is needed. With several and
+  no valid selection, `/api/v1/state` answers `409` with code `project_required` and the running
+  project ids.
 - An invalid or unreadable `~/.aiur/machine` refuses daemon start rather than falling back to one project.
 
 ## Remote control
