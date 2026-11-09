@@ -101,6 +101,82 @@ defmodule Aiur.ExecutorWakeProjection do
     end
   end
 
+  @doc """
+  Adds the accepted answer, its ticket, and the ticket's Build Order feature and
+  epic to an `executor.decision.answered` wake, so the Executor can act without
+  extra reads (#7874). Answer text is sanitized and named in `untrusted_fields`.
+  `feature`/`epic` are `nil` when the registry has no owner or cannot be read.
+  """
+  @spec with_answer(map(), Aiur.Decision.t(), keyword()) :: map()
+  def with_answer(record, decision, opts \\ []) do
+    case Aiur.Decision.answer_for_action(decision, decision.active_action_id) do
+      nil ->
+        record
+
+      answer ->
+        ticket = Map.get(Aiur.Commands.Overrides.target_ticket(decision) || %{}, :identifier)
+        feature = feature(ticket, opts)
+        question_answers = question_answers(answer.custom_response)
+
+        Map.merge(record, %{
+          "ticket" => ticket,
+          "feature" => feature,
+          "epic" => epic(feature, opts),
+          "option_id" => answer.selected_option_id,
+          "question_answers" => strip(question_answers),
+          "custom_response" => if(question_answers, do: nil, else: strip(answer.custom_response)),
+          "feedback" => strip(answer.feedback),
+          "rejected" => answer.rejected,
+          "actor" => %{"kind" => to_string(answer.actor.kind), "id" => answer.actor.id},
+          "actor_source" => answer.actor |> Map.get(:source) |> then(&(&1 && to_string(&1))),
+          "untrusted_fields" => ~w(custom_response question_answers feedback)
+        })
+    end
+  end
+
+  # Multi-question answers are stored JSON-encoded in custom_response (Commands.Answering.QuestionAnswers).
+  defp question_answers(response) when is_binary(response) do
+    case Jason.decode(response) do
+      {:ok, %{"kind" => "question_answers", "question_answers" => answers}} when is_map(answers) -> answers
+      _other -> nil
+    end
+  end
+
+  defp question_answers(_response), do: nil
+
+  defp feature(ticket, opts) when is_binary(ticket) do
+    with {number, ""} <- Integer.parse(ticket),
+         {:ok, %{feature: slug}} when is_binary(slug) <- Aiur.BuildOrder.Features.owner(number, registry_opts(opts)) do
+      slug
+    else
+      _none -> nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp feature(_ticket, _opts), do: nil
+
+  defp epic(feature, opts) when is_binary(feature) do
+    with {:ok, %{epics: epics}} <- Aiur.BuildOrder.Features.epics(registry_opts(opts)),
+         %{slug: slug} <- Enum.find(epics, &(feature in Map.get(&1, :features, []))) do
+      slug
+    else
+      _none -> nil
+    end
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp epic(_feature, _opts), do: nil
+
+  defp registry_opts(opts), do: [server: Keyword.get(opts, :feature_server, Aiur.BuildOrder.Features), timeout: 500]
+
+  defp strip(text) when is_binary(text), do: Aiur.Events.Sanitizer.strip_untrusted_text(text)
+  defp strip(list) when is_list(list), do: Enum.map(list, &strip/1)
+  defp strip(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, strip(value)} end)
+  defp strip(other), do: other
+
   defp observation_marker(record, event) do
     case value(event, :observation) do
       "initial_sync" -> Map.put(record, "observation", "initial_sync")
