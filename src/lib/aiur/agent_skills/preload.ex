@@ -28,6 +28,7 @@ defmodule Aiur.AgentSkills.Preload do
 
   require Logger
 
+  alias Aiur.AgentSkills.Preload.Prompt
   alias Aiur.AgentSkills.Registry
   alias Aiur.BuildOrder.Features
   alias Aiur.Config.SkillsMapping
@@ -114,46 +115,13 @@ defmodule Aiur.AgentSkills.Preload do
     }
   end
 
-  @doc """
-  The prompt block, or `""` when the workspace has no readable skills.
-
-  Mapped skills come first with their full `SKILL.md` text, then every other
-  installed skill as a one-line index, then anything mapped but not installed.
-  """
+  @doc "The prompt block, or `\"\"` when the workspace has no readable skills. See `Preload.Prompt`."
   @spec prompt_block(t()) :: String.t()
-  def prompt_block(%__MODULE__{} = preload) do
-    if preload.mapped == [] and preload.recommended == [] and preload.index == [] and preload.missing == [] do
-      ""
-    else
-      [
-        heading(),
-        mapped_section(preload),
-        truncated_section(preload),
-        recommended_section(preload),
-        index_section(preload),
-        missing_section(preload)
-      ]
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
-      |> Kernel.<>("\n")
-    end
-  end
+  defdelegate prompt_block(preload), to: Prompt
 
-  @doc """
-  A short pointer to the mapped skills for a resumed session, or `""` when none
-  are mapped. The thread may have lost the inlined text to compaction, so this
-  names each skill, its reason and its `SKILL.md` path instead of repeating it.
-  """
+  @doc "A short pointer to the mapped skills for a resumed session, or `\"\"` when none are mapped."
   @spec pointer_block(t()) :: String.t()
-  def pointer_block(%__MODULE__{mapped: [], truncated: []}), do: ""
-
-  def pointer_block(%__MODULE__{} = preload) do
-    entries = Enum.map_join(preload.mapped ++ preload.truncated, "\n", &"- `#{&1.name}` (#{&1.reason}) — `#{&1.path}`")
-
-    "## Skills for this ticket (pointer)\n\n" <>
-      "These skills are mapped to this ticket. If their instructions are no longer in your context, re-read each `SKILL.md` before continuing.\n\n" <>
-      entries <> "\n\n"
-  end
+  defdelegate pointer_block(preload), to: Prompt
 
   @doc "One-line summary naming each mapped skill and its reason."
   @spec summary(t()) :: String.t()
@@ -192,71 +160,6 @@ defmodule Aiur.AgentSkills.Preload do
   @doc "Whether any skill resolved for the ticket, from config or an override."
   @spec mapped?(t()) :: boolean()
   def mapped?(%__MODULE__{mapped: mapped}), do: mapped != []
-
-  defp heading do
-    """
-    ## Skills for this ticket
-
-    Load the mapped skills first: they fit this ticket's work, and their instructions are
-    inlined below so you can start without opening a file. Recommended skills also fit, but
-    are listed with a path to open when the work needs them. Every other installed skill is
-    listed after them as a name and description you can load on demand.\
-    """
-  end
-
-  defp mapped_section(%__MODULE__{mapped: []}), do: ""
-
-  defp mapped_section(%__MODULE__{mapped: mapped}) do
-    entries = Enum.map_join(mapped, "\n\n", &mapped_entry/1)
-    "### Mapped skills (load first)\n\n" <> entries
-  end
-
-  defp mapped_entry(%Skill{} = skill) do
-    ["#### `", skill.name, "` — mapped by ", skill.reason, "\n\n", String.trim(skill.text || "")]
-    |> IO.iodata_to_binary()
-  end
-
-  defp truncated_section(%__MODULE__{truncated: []}), do: ""
-
-  defp truncated_section(%__MODULE__{truncated: truncated}) do
-    entries = Enum.map_join(truncated, "\n", &"- `#{&1.name}` (#{&1.reason}) — #{index_description(&1.description)}")
-
-    "### Mapped skills over the inline budget (load on demand)\n\n" <>
-      "The `agent.skills.preload_max_bytes` budget is spent before these, so load them yourself when the work needs them.\n\n" <>
-      entries
-  end
-
-  defp recommended_section(%__MODULE__{recommended: []}), do: ""
-
-  defp recommended_section(%__MODULE__{recommended: recommended}) do
-    entries =
-      Enum.map_join(recommended, "\n", fn skill ->
-        "- `#{skill.name}` (#{skill.reason}) — #{skill.description || index_description(nil)}\n  Load: `#{skill.path}`"
-      end)
-
-    "### Recommended skills (load on demand)\n\n" <>
-      "These fit this ticket but are not inlined. Read the `SKILL.md` at the path shown when the work needs it.\n\n" <>
-      entries
-  end
-
-  defp index_section(%__MODULE__{index: []}), do: ""
-
-  defp index_section(%__MODULE__{index: index}) do
-    entries = Enum.map_join(index, "\n", &"- `#{&1.name}` — #{index_description(&1.description)}")
-
-    "### Other installed skills (load on demand)\n\n" <> entries
-  end
-
-  defp missing_section(%__MODULE__{missing: []}), do: ""
-
-  defp missing_section(%__MODULE__{missing: missing}) do
-    entries = Enum.map_join(missing, "\n", &"- `#{&1.name}` (#{&1.reason})")
-
-    "### Mapped skills not installed here\n\n" <>
-      "These names are mapped to this ticket but have no `SKILL.md` in this workspace, so they\n" <>
-      "are not inlined. Do not stall on them: record the gap in your workpad and carry on with\n" <>
-      "the skills above.\n\n" <> entries
-  end
 
   # --- resolution -----------------------------------------------------------
 
@@ -470,8 +373,6 @@ defmodule Aiur.AgentSkills.Preload do
   @doc false
   @spec description(String.t()) :: String.t() | nil
   defdelegate description(text), to: Registry
-
-  defp index_description(description), do: Registry.index_description(description)
 
   defp names(skills), do: Enum.map(skills, & &1.name)
 
