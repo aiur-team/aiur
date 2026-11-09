@@ -188,6 +188,8 @@ defmodule VoiceConverse.Tools.CommandAnswerTest do
       {:ok, session} = SessionRegistry.lookup(name, id)
       ref = :sys.get_state(session).provider_ref
       :ok = FakeProvider.emit(ref, event("call-1", "d1", "Approve"))
+      # Returns only after the session has handled the emitted ToolCall.
+      _ = :sys.get_state(session)
 
       assert_receive {:answered, "d1", "Approve", _key}
       assert_receive {:fake_provider, :tool_result, "call-1", %{text: @answered, is_error: false}}

@@ -29,6 +29,7 @@ defmodule VoiceConverse.ToolsTest do
     provider = provider(name, id)
 
     :ok = FakeProvider.emit(provider, tool_call("list_open_commands"))
+    settle(name, id)
 
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: text, is_error: false}}
     assert text =~ "unavailable"
@@ -47,6 +48,7 @@ defmodule VoiceConverse.ToolsTest do
     provider = provider(name, id)
 
     :ok = FakeProvider.emit(provider, tool_call("get_details", %{"section" => "conversation", "n" => 500}))
+    settle(name, id)
 
     assert_receive {:details_options, [n: 30]}
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: text, is_error: false}}
@@ -59,7 +61,10 @@ defmodule VoiceConverse.ToolsTest do
 
     :ok = FakeProvider.emit(provider(name, id), tool_call("get_status"))
 
-    assert_receive {:fake_provider, :tool_result_before_return, session, "call-1", _result}
+    # The session blocks in tool_result until we continue it, so settle/2 would deadlock here.
+    {:fake_provider, :tool_result_before_return, session, "call-1", _result} =
+      receive_barrier({:fake_provider, :tool_result_before_return, _session, "call-1", _result})
+
     assert {:ok, records, _meta} = TranscriptStore.read(root, id)
 
     assert [%{"type" => "tool_call"}, %{"type" => "tool_result"}] =
@@ -73,6 +78,7 @@ defmodule VoiceConverse.ToolsTest do
     provider = provider(name, id)
 
     :ok = FakeProvider.emit(provider, tool_call("not_a_tool"))
+    settle(name, id)
 
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: "Unknown tool.", is_error: true}}
   end
@@ -226,6 +232,7 @@ defmodule VoiceConverse.ToolsTest do
     id = start!(root, name, %{id: "target"}, allowed_tools: ["get_status", "end_conversation"])
     provider = provider(name, id)
     :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "Send this now"}))
+    settle(name, id)
 
     assert_receive {:fake_provider, :tool_result, "call-1",
                     %{is_error: true, text: "Tool is unavailable in this conversation."}}
@@ -241,6 +248,7 @@ defmodule VoiceConverse.ToolsTest do
     provider = provider(name, id)
 
     :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "Bearer secret"}))
+    settle(name, id)
 
     assert_receive {:voice_conversation, ^id,
                     %Events.ToolCall{name: "propose_instruction", params: %{"text" => "[redacted]"}}}
@@ -287,7 +295,8 @@ defmodule VoiceConverse.ToolsTest do
 
     :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
 
-    assert_receive {:draft_ready_to_broadcast, ^id}
+    # The session blocks in event_broadcast until released, so settle/2 would deadlock here.
+    assert {:draft_ready_to_broadcast, ^id} = receive_barrier({:draft_ready_to_broadcast, ^id})
     assert {:ok, records, _meta} = TranscriptStore.read(root, id)
     assert Enum.any?(records, &(&1["type"] == "draft" and &1["status"] == "proposed"))
 
@@ -296,18 +305,18 @@ defmodule VoiceConverse.ToolsTest do
     assert_receive {:voice_conversation, ^id, {:draft, %{status: "proposed"}}}
   end
 
-  # Flaky: races the datasynced tool writes against a 100ms receive (#6928).
-  @tag :quarantine
   test "provider confirmation-like tools leave drafts proposed", %{root: root, name: name} do
     id = start!(root, name, %{id: "target"})
     provider = provider(name, id)
     :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
+    settle(name, id)
 
     assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
     assert_receive {:fake_provider, :tool_result, "call-1", %{is_error: false}}
 
     for tool_name <- ["confirm_draft", "confirm", "send"] do
       :ok = FakeProvider.emit(provider, %Events.ToolCall{call_id: tool_name, name: tool_name, params: %{}})
+      settle(name, id)
       assert_receive {:fake_provider, :tool_result, ^tool_name, %{is_error: true}}
       assert_draft_status(name, id, draft_id, :proposed)
     end
@@ -319,6 +328,7 @@ defmodule VoiceConverse.ToolsTest do
     id = start!(root, name, %{id: "target"})
     provider = provider(name, id)
     :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
+    settle(name, id)
 
     assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
     assert_receive {:fake_provider, :tool_result, "call-1", %{is_error: false}}
@@ -358,8 +368,10 @@ defmodule VoiceConverse.ToolsTest do
 
     :ok = FakeProvider.emit(provider, tool_call("end_conversation"))
 
-    assert_receive {:fake_provider, :tool_result, "call-1", %{text: "Ending.", is_error: false}}
+    # The session sends both and then exits, so settle/2 could hit a dead process. Wait for
+    # the later message; the session sent tool_result first, so it is already in the mailbox.
     assert_receive {:voice_conversation, ^id, {:ended, :user_end}}, 1_000
+    assert_received {:fake_provider, :tool_result, "call-1", %{text: "Ending.", is_error: false}}
     assert {:ok, records, _meta} = TranscriptStore.read(root, id)
     assert Enum.any?(records, &(&1["type"] == "tool_result" and &1["summary"] == "Ending."))
   end
@@ -406,6 +418,12 @@ defmodule VoiceConverse.ToolsTest do
   defp provider(name, id) do
     {:ok, session} = SessionRegistry.lookup(name, id)
     :sys.get_state(session).provider_ref
+  end
+
+  # Returns only after the session has handled every message emit/2 already enqueued.
+  defp settle(name, id) do
+    {:ok, session} = SessionRegistry.lookup(name, id)
+    _ = :sys.get_state(session)
   end
 
   defp assert_draft_status(name, id, draft_id, status) do

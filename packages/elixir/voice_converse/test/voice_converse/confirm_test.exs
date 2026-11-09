@@ -14,8 +14,6 @@ defmodule VoiceConverse.ConfirmTest do
     %{root: root, name: name}
   end
 
-  # Flaky: races the datasynced draft write against a 100ms receive (#6928).
-  @tag :quarantine
   test "an unconfirmed draft never instructs the agent", %{root: root, name: name} do
     id = start!(root, name)
     _draft_id = propose(name, id)
@@ -74,8 +72,6 @@ defmodule VoiceConverse.ConfirmTest do
            end)
   end
 
-  # Flaky: races the datasynced draft write against a 100ms receive (#6928).
-  @tag :quarantine
   test "discarding a draft persists the terminal state without instructing", %{root: root, name: name} do
     id = start!(root, name)
     draft_id = propose(name, id)
@@ -138,6 +134,9 @@ defmodule VoiceConverse.ConfirmTest do
         :sys.get_state(session).provider_ref,
         %Events.ToolCall{call_id: "propose", name: "propose_instruction", params: %{"text" => "ship it"}}
       )
+
+    # emit/2 has enqueued the ToolCall; this call returns only after the session has handled it.
+    _ = :sys.get_state(session)
 
     assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
     draft_id
