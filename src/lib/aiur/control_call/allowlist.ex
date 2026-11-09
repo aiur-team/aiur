@@ -8,7 +8,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @usage [:Aiur, :Usage, :CLI]
   @ticket_usage [:Aiur, :TicketUsageCLI]
   @sweep [:Aiur, :ExecutorSweep, :CLI]
-  @provenance [:Aiur, :Config, :ProvenanceCLI]
+  @provenance [:Aiur, :ControlCLI, :ConfigExplain]
   @pr_merge [:Aiur, :PrMerge, :Record]
   @feature_options %{
     op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :show]},

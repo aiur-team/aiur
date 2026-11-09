@@ -182,16 +182,9 @@ defmodule Aiur.Config.Provenance do
 
   # `aiur set max-agents` is session-only orchestrator state, not an override entry.
   defp session_cap(opts) do
-    case (opts[:session_cap_fun] || (&session_cap_default/0)).() do
+    case (opts[:session_cap_fun] || fn -> nil end).() do
       cap when is_integer(cap) -> [%{layer: "L5", source: "session cap (aiur set max-agents)", value: cap}]
       _ -> []
-    end
-  end
-
-  defp session_cap_default do
-    case Aiur.Orchestrator.Client.max_concurrent_agents() do
-      %{configured: configured, max: max} when is_integer(max) and max != configured -> max
-      _ -> nil
     end
   end
 

@@ -15,7 +15,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     sweep: [:Aiur, :ExecutorSweep, :CLI],
     pr_merge: [:Aiur, :PrMerge, :Record],
     listen: [:Aiur, :ListenModeCli],
-    provenance: [:Aiur, :Config, :ProvenanceCLI]
+    provenance: [:Aiur, :ControlCLI, :ConfigExplain]
   }
 
   # {module, function, arities, client gate words that send it}. Keyed by {segments, function, arity}

@@ -1,18 +1,27 @@
-defmodule Aiur.Config.ProvenanceCLI do
+defmodule Aiur.ControlCLI.ConfigExplain do
   @moduledoc false
 
   import Aiur.ControlCLI.Protocol
 
   alias Aiur.Config.Provenance
+  alias Aiur.Orchestrator.Client
 
   @spec explain(String.t(), keyword()) :: :ok
   def explain(key, opts \\ []) when is_binary(key) and is_list(opts) do
     guarded("config explain #{key}", fn ->
-      case Provenance.explain(key, Keyword.take(opts, [:project])) do
+      case Provenance.explain(key, Keyword.merge(Keyword.take(opts, [:project]), session_cap_fun: &session_cap/0)) do
         {:ok, report} -> print(report, Keyword.get(opts, :json, false))
         {:error, reason} -> fail(reason)
       end
     end)
+  end
+
+  # `aiur set max-agents` is session-only orchestrator state, not an override entry.
+  defp session_cap do
+    case Client.max_concurrent_agents() do
+      %{configured: configured, max: max} when is_integer(max) and max != configured -> max
+      _ -> nil
+    end
   end
 
   defp print(report, true) do

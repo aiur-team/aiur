@@ -443,7 +443,7 @@ cmd_config() {
   [ -n "$key" ] || { echo "aiur: usage: aiur config explain <key> [--project owner/repo] [--json]" >&2; exit 64; }
   local opts="json: $json"
   [ -z "$project" ] || opts+=", project: Base.decode64!(\"$(encode_control_value "$project")\")"
-  run_control_rpc "Aiur.Config.ProvenanceCLI.explain(Base.decode64!(\"$(encode_control_value "$key")\"), $opts)"
+  run_control_rpc "Aiur.ControlCLI.ConfigExplain.explain(Base.decode64!(\"$(encode_control_value "$key")\"), $opts)"
 }
 
 cmd_listen_mode() {
