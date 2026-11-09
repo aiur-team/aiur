@@ -1,6 +1,7 @@
 # Per-question answer flags (--answer, --answer-text, --answers-file). Sourced by aiur-engine.sh.
 # Shared by executor-answer, operator-relay-answer and `aiur command ID --relayed`;
 # QA_EXTRA is how many extra arguments the flag consumed.
+# @cli-reference aiur operator-relay-answer ID --answer Q=ID --answer-text Q=TEXT --answers-file PATH | Per-question answers for a multi-question Command, with the same rules as `executor-answer`. | aiur operator-relay-answer dec_123 --expected-version 1 --answer scope=core --answer order=last --quote "core, last" --relayed-by exec-1 --idempotency-key relay-1
 question_answer_flag() {
   local flag="${1%%=*}" value
   QA_EXTRA=0

@@ -316,7 +316,6 @@ aiur_engine_main() {
       shift
       cmd_commands "$@"
       ;;
-    # @cli-reference aiur operator-relay-answer ID --answer Q=ID --answer-text Q=TEXT --answers-file PATH | Per-question answers for a multi-question Command, with the same rules as `executor-answer`. | aiur operator-relay-answer dec_123 --expected-version 1 --answer scope=core --answer order=last --quote "core, last" --relayed-by exec-1 --idempotency-key relay-1
     # @cli-reference aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1
     operator-relay-answer)
       shift
