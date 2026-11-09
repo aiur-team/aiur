@@ -87,7 +87,8 @@ defmodule AiurWeb.BuildLive do
     Process.send_after(self(), :build_snapshot_timeout, @snapshot_timeout_ms)
     # The footer paints before the snapshot lands; seed it with the last daemon reading (#4915).
     socket = assign(socket, :daemon_hint, %{daemon: DataSource.last_daemon(source, opts), now: System.system_time(:millisecond)})
-    start_async(socket, :build_snapshot, fn -> DataSource.call(source, :snapshot, [opts]) end)
+    # The read runs in a task; carry the project `AiurWeb.ProjectScope` picked for this LiveView.
+    start_async(socket, :build_snapshot, Aiur.Project.Task.bind(fn -> DataSource.call(source, :snapshot, [opts]) end))
   end
 
   @impl true

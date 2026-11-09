@@ -3,13 +3,17 @@ defmodule AiurWeb.ProjectScopeTest do
   use Aiur.TestSupport
 
   import ExUnit.CaptureLog
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2, recycle: 1]
+  import Phoenix.LiveViewTest
   import Plug.Conn
   import Plug.Test
 
   alias Aiur.Project
   alias Aiur.Project.{Context, Supervisors, Table, Watcher}
-  alias AiurWeb.PresenterFixtures
   alias Aiur.TestSupport.WorkflowFiles
+  alias AiurWeb.PresenterFixtures
+
+  @endpoint AiurWeb.Endpoint
 
   setup do
     root = Aiur.TestSupport.tmp_root!("project-scope")
@@ -40,11 +44,59 @@ defmodule AiurWeb.ProjectScopeTest do
     end)
   end
 
-  test "with one project the dashboard needs no selection", %{root: root} do
+  test "an unknown pick is a 404 naming it; every orchestrator handler asks for a pick", %{root: root} do
     start_publishing(project("o/a", root, 3))
+    start_publishing(project("o/b", root, 5))
+
+    with_http_server(fn ->
+      conn = request("/api/v1/state?project=o/zzz")
+      assert conn.status == 404
+      assert %{"error" => %{"code" => "unknown_project"}, "project" => "o/zzz", "projects" => ["o/a", "o/b"]} = Jason.decode!(conn.resp_body)
+
+      for {method, path} <- [{:get, "/api/v1/ENG-1"}, {:post, "/api/v1/refresh"}, {:post, "/api/v1/ENG-1/pause"}, {:post, "/api/v1/ENG-1/cancel"}] do
+        conn = request(path, method)
+        assert {conn.status, Jason.decode!(conn.resp_body)["error"]["code"]} == {409, "project_required"}, "#{method} #{path}"
+      end
+    end)
+  end
+
+  test "the session remembers a pick for the rest of the visit", %{root: root} do
+    start_publishing(project("o/a", root, 3))
+    start_publishing(project("o/b", root, 5))
+
+    with_http_server(fn ->
+      assert %{"capacity" => %{"configured" => 5}} = await_snapshot("/api/v1/state?project=o/b")
+      picked = request("/api/v1/state?project=o/b")
+      assert %{"capacity" => %{"configured" => 5}} = picked |> request_after("/api/v1/state") |> json_body()
+    end)
+  end
+
+  test "with several projects and no pick, project pages send the visitor to pick one", %{root: root} do
+    start_publishing(project("o/a", root, 3))
+    start_publishing(project("o/b", root, 5))
+
+    with_http_server(fn ->
+      assert {:error, {:redirect, %{to: "/projects?pick=required"}}} = live(browser_conn(), "/build")
+      assert {:error, {:redirect, %{to: "/projects?pick=unknown&unknown=o%2Fzzz"}}} = live(browser_conn(), "/build?project=o/zzz")
+    end)
+  end
+
+  test "with one project the dashboard needs no selection", %{root: root} do
+    a = project("o/a", root, 3)
+    start_publishing(a)
 
     with_http_server(fn ->
       assert %{"capacity" => %{"configured" => 3}} = await_snapshot("/api/v1/state")
+    end)
+  end
+
+  test "with one project the build home reads that project's index and daemon", %{root: root} do
+    start_publishing(project("o/a", root, 3))
+
+    with_http_server(fn ->
+      {:ok, view, _html} = live(browser_conn(), "/build")
+      assert %{build_state: :ready, build_snapshot: snapshot} = await_build(view)
+      assert snapshot["daemon"]["state"] not in ["offline", "unknown"]
     end)
   end
 
@@ -69,7 +121,7 @@ defmodule AiurWeb.ProjectScopeTest do
 
   defp with_http_server(fun) do
     capture_log(fn ->
-      {:ok, pid} = Aiur.HttpServer.start_link(host: "127.0.0.1", port: 0, dashboard_writable: false)
+      {:ok, pid} = Aiur.HttpServer.start_link(host: "127.0.0.1", port: 0, dashboard_writable: true)
 
       try do
         fun.()
@@ -79,11 +131,36 @@ defmodule AiurWeb.ProjectScopeTest do
     end)
   end
 
-  defp request(path) do
-    :get
+  defp request(path, method \\ :get) do
+    method
     |> conn(path)
+    |> put_req_header("origin", "http://localhost")
+    |> put_req_header("x-aiur-request", "1")
     |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
     |> AiurWeb.Endpoint.call(AiurWeb.Endpoint.init([]))
+  end
+
+  defp request_after(previous, path) do
+    previous
+    |> recycle()
+    |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+    |> get(path)
+  end
+
+  defp await_build(view, attempts \\ 100) do
+    assigns = :sys.get_state(view.pid).socket.assigns
+
+    cond do
+      assigns.build_state != :loading -> assigns
+      attempts == 0 -> flunk("build home never left :loading")
+      true -> Process.sleep(50) && await_build(view, attempts - 1)
+    end
+  end
+
+  defp json_body(conn), do: Jason.decode!(conn.resp_body)
+
+  defp browser_conn do
+    build_conn() |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
   end
 
   # A fresh orchestrator publishes its first snapshot asynchronously.

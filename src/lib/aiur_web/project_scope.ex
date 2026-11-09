@@ -4,47 +4,81 @@ defmodule AiurWeb.ProjectScope do
   resolves that project's Orchestrator instead of the bare name projects mode never
   registers.
 
-  The `project` query parameter selects a running project; with exactly one project
-  it is the default. With several projects and no valid selection the request has no
-  project, and `unselected?/0` lets a handler say so. Without `projects:` this is a no-op.
+  The `project` query parameter picks a running project and the session remembers it
+  for the rest of the visit; with exactly one project it is the default. With several
+  projects and no pick, or a pick naming no running project, the request has no
+  project: project-scoped API handlers answer through `call(conn, :required)` and
+  project-scoped LiveViews redirect to `/projects` to pick one. Without `projects:`
+  this is a no-op.
 
   Runs as an endpoint plug and as a LiveView `on_mount` hook. HTTP connection
   processes serve many requests, so every call resets the previous selection.
   """
   @behaviour Plug
 
+  import Plug.Conn
+
   alias Aiur.Project.{Context, Registry}
 
-  @unselected {__MODULE__, :unselected}
+  @status {__MODULE__, :status}
+  @session_key "aiur_project"
+  # Machine-level pages that render without a project; every other dashboard page reads one.
+  @machine_views [AiurWeb.ProjectsHomeLive, AiurWeb.GatewayLive, AiurWeb.InstanceRosterLive]
 
   @impl Plug
   def init(opts), do: opts
 
   @impl Plug
-  def call(conn, _opts), do: conn |> Plug.Conn.fetch_query_params() |> tap(&select(&1.query_params))
-
-  @spec on_mount(atom(), map() | :not_mounted_at_router, map(), Phoenix.LiveView.Socket.t()) :: {:cont, Phoenix.LiveView.Socket.t()}
-  def on_mount(:default, params, _session, socket) do
-    select(if is_map(params), do: params, else: %{})
-    {:cont, socket}
+  def call(conn, :required) do
+    case status() do
+      nil -> conn
+      status -> conn |> put_status(http_status(status)) |> Phoenix.Controller.json(error_body(status)) |> halt()
+    end
   end
 
-  @doc "True when several projects run and this request picked none of them."
-  @spec unselected?() :: boolean()
-  def unselected?, do: Process.get(@unselected, false)
+  def call(conn, _opts) do
+    conn = fetch_query_params(conn)
+    requested = normalize(conn.query_params["project"])
+
+    # Only an explicit pick is remembered, so a later second project never inherits the one-project default.
+    case select(requested, normalize(get_session(conn, @session_key))) do
+      {:picked, ^requested} -> put_session(conn, @session_key, requested)
+      _other -> conn
+    end
+  end
+
+  @spec on_mount(atom(), map() | :not_mounted_at_router, map(), Phoenix.LiveView.Socket.t()) ::
+          {:cont, Phoenix.LiveView.Socket.t()} | {:halt, Phoenix.LiveView.Socket.t()}
+  def on_mount(:default, params, session, socket) do
+    requested = if is_map(params), do: normalize(params["project"])
+    select(requested, normalize(session[@session_key]))
+
+    case status() do
+      nil -> {:cont, socket}
+      _status when socket.view in @machine_views -> {:cont, socket}
+      status -> {:halt, Phoenix.LiveView.redirect(socket, to: "/projects?" <> URI.encode_query(pick_query(status)))}
+    end
+  end
+
+  @doc "Why this request has no project: `nil` when it has one or projects mode is off."
+  @spec status() :: nil | :unselected | {:unknown, String.t()}
+  def status, do: Process.get(@status)
 
   @doc "The running project ids a request can pick from."
   @spec project_ids() :: [Aiur.Project.id()]
   def project_ids, do: Registry.project_ids()
 
-  defp select(params) do
+  defp select(requested, remembered) do
     Context.delete()
-    Process.delete(@unselected)
+    Process.delete(@status)
+    ids = Registry.project_ids()
 
-    case {Registry.project_ids(), params |> Map.get("project") |> normalize()} do
-      {[], _requested} -> :ok
-      {[only], nil} -> put(only)
-      {ids, requested} -> if requested in ids, do: put(requested), else: unselect()
+    cond do
+      ids == [] -> :none
+      requested != nil -> if requested in ids, do: put(requested), else: unselect({:unknown, requested})
+      remembered in ids -> put(remembered)
+      match?([_only], ids) -> put(hd(ids))
+      true -> unselect(:unselected)
     end
   end
 
@@ -53,11 +87,30 @@ defmodule AiurWeb.ProjectScope do
 
   defp put(id) do
     case Registry.project(id) do
-      %Aiur.Project{} = project -> Context.put(project)
-      nil -> unselect()
+      %Aiur.Project{} = project ->
+        Context.put(project)
+        {:picked, id}
+
+      nil ->
+        unselect({:unknown, id})
     end
   end
 
   # A request process has no project lineage, so a deleted Context reads as no project.
-  defp unselect, do: Process.put(@unselected, true)
+  defp unselect(status) do
+    Process.put(@status, status)
+    status
+  end
+
+  defp http_status(:unselected), do: 409
+  defp http_status({:unknown, _id}), do: 404
+
+  defp error_body(:unselected),
+    do: %{error: %{code: "project_required", message: "Several projects are running; pick one with ?project=<owner/repo>"}, projects: project_ids()}
+
+  defp error_body({:unknown, id}),
+    do: %{error: %{code: "unknown_project", message: "No running project is named #{id}"}, project: id, projects: project_ids()}
+
+  defp pick_query(:unselected), do: [pick: "required"]
+  defp pick_query({:unknown, id}), do: [pick: "unknown", unknown: id]
 end

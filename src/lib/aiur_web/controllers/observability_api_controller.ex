@@ -12,18 +12,12 @@ defmodule AiurWeb.ObservabilityApiController do
   alias AiurWeb.{EndpointConfig, Presenter}
   alias Plug.Conn
 
+  # The handlers that read an Orchestrator answer "pick a project" when projects mode has none for this request.
+  plug(AiurWeb.ProjectScope, :required when action in [:state, :issue, :refresh, :send_message, :pause, :resume])
+
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
-    if AiurWeb.ProjectScope.unselected?() do
-      conn
-      |> put_status(409)
-      |> json(%{
-        error: %{code: "project_required", message: "Several projects are running; pick one with ?project=<owner/repo>"},
-        projects: AiurWeb.ProjectScope.project_ids()
-      })
-    else
-      json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
-    end
+    json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
