@@ -52,6 +52,16 @@ defmodule Aiur.AgentRunner.SkillPreloadEventTest do
 
     assert_receive {:session_execution_info, "gid-abc-1", info}, 1_000
     assert info.skills == "skills: pixel-art (lane:art); missing: ghost-skill"
+
+    skill_md_bytes = byte_size(File.read!(Path.join([workspace, ".claude", "skills", "pixel-art", "SKILL.md"])))
+
+    assert info.skill_preload == %{
+             mapped: [%{name: "pixel-art", reason: "lane:art"}],
+             truncated: [],
+             missing: ["ghost-skill"],
+             bytes: skill_md_bytes,
+             max_bytes: SkillsMapping.max_bytes(SkillsMapping.normalize(%{}))
+           }
   end
 
   test "writes nothing for a remote worker host or an unresolved preload", %{workspace: workspace} do

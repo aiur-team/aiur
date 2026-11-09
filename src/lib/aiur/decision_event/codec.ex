@@ -93,8 +93,10 @@ defmodule Aiur.DecisionEvent.Codec do
   def normalize_data(:decision_mooted, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, reason_class} <- Validation.bounded_required(Validation.get(raw, :reason_class), @reason_max, :reason_class),
          {:ok, detail} <- Validation.bounded_optional(Validation.get(raw, :detail), @detail_max, :detail),
+         {:ok, idempotency_id} <- Validation.bounded_optional(Validation.get(raw, :idempotency_id), @reason_max, :idempotency_id),
+         {:ok, rationale} <- Validation.bounded_optional(Validation.get(raw, :rationale), @detail_max, :rationale),
          {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)) do
-      {:ok, %{reason_class: reason_class, detail: detail, actor: actor}}
+      {:ok, %{reason_class: reason_class, detail: detail, idempotency_id: idempotency_id, rationale: rationale, actor: actor}}
     end
   end
 
@@ -343,15 +345,10 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def data_to_json_safe(:decision_mooted, data) do
-    base = %{
-      "reason_class" => data.reason_class,
-      "actor" => ActorSource.to_json_safe(data.actor)
-    }
-
-    case data.detail do
-      nil -> base
-      detail -> Map.put(base, "detail", detail)
-    end
+    %{"reason_class" => data.reason_class, "actor" => ActorSource.to_json_safe(data.actor)}
+    |> put_present("detail", data.detail)
+    |> put_present("idempotency_id", Map.get(data, :idempotency_id))
+    |> put_present("rationale", Map.get(data, :rationale))
   end
 
   def data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),
@@ -401,4 +398,7 @@ defmodule Aiur.DecisionEvent.Codec do
       "detail" => data.detail
     }
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 end

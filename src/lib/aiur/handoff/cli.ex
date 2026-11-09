@@ -157,8 +157,15 @@ defmodule Aiur.Handoff.CLI do
   end
 
   defp agents_payload(%{running: running}) when is_list(running) do
-    rows = Enum.map(running, &Map.take(&1, [:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from]))
-    rows = Enum.map(rows, &Map.put(&1, :provider_pid, Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])))
+    rows =
+      Enum.map(running, fn row ->
+        row
+        |> Map.take([:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from])
+        |> Map.put(:provider_pid, Report.provider_pid(row[:provider_pid] || row[:codex_app_server_pid]))
+        # null, never an empty report, when the preload is unknown (e.g. an adopted session).
+        |> Map.put(:skill_preload, row[:skill_preload])
+      end)
+
     %{contract: @agents_contract, contract_version: @contract_version, running: rows}
   end
 
