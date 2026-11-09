@@ -6,8 +6,9 @@ defmodule Aiur.AgentRunner.SkillGate do
   after the workspace is prepared and before any session starts. A mapped
   skill with no `SKILL.md`, or a mapped set over `agent.skills.preload_max_bytes`,
   raises an alert naming the ticket, the skills and their mapping reasons.
-  Under `agent.skills.strict` the dispatch is blocked; otherwise it proceeds with
-  every installed mapped skill inlined.
+  Under `agent.skills.strict` the dispatch is blocked (held on the preflight
+  pause, so a resume re-checks); otherwise it proceeds with every installed
+  mapped skill inlined.
   """
 
   alias Aiur.AgentSkills.Preload
@@ -16,11 +17,17 @@ defmodule Aiur.AgentRunner.SkillGate do
   @doc """
   `:ok` to start the session, or `{:blocked, message}` under strict mode.
 
-  Options: `:skill_preload` (an already-resolved preload) and `:alert_fun`
-  (defaults to `Aiur.Alerts.emit_system/2`).
+  Options: `:skill_preload` (an already-resolved preload), `:alert_fun`
+  (defaults to `Aiur.Alerts.emit_system/2`) and `:worker_host`.
   """
   @spec check(Aiur.Issue.t(), Path.t(), keyword()) :: :ok | {:blocked, String.t()}
+  # ponytail: skill files are read from the local filesystem, so a remote (SSH)
+  # workspace is not gated; gate it once Preload can read a worker host.
   def check(issue, workspace, opts \\ []) do
+    if is_nil(Keyword.get(opts, :worker_host)), do: gate(issue, workspace, opts), else: :ok
+  end
+
+  defp gate(issue, workspace, opts) do
     preload = Keyword.get_lazy(opts, :skill_preload, fn -> Preload.resolve(issue, workspace) end)
 
     case problems(preload) do

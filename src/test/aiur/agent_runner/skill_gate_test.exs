@@ -56,6 +56,15 @@ defmodule Aiur.AgentRunner.SkillGateTest do
     end
   end
 
+  test "a remote worker host is not gated, since skills are read from the local filesystem", %{workspace: workspace} do
+    parent = self()
+    mapping = SkillsMapping.normalize(%{"strict" => true, "by_lane" => %{"art" => ["ghost-skill"]}})
+    preload = Preload.resolve(issue(), workspace, settings: %{build_order: %{lanes: []}}, mapping: mapping)
+    alert = fn topic, opts -> send(parent, {:alert, topic, opts}) end
+    assert :ok = SkillGate.check(issue(), workspace, skill_preload: preload, worker_host: "worker-1", alert_fun: alert)
+    refute_received {:alert, _, _}
+  end
+
   describe "a mapped set over preload_max_bytes" do
     test "strict mode blocks and names the skills and their bytes against the budget", %{workspace: workspace} do
       skill!(workspace, "big", String.duplicate("x", 300))

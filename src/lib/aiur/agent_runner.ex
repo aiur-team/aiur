@@ -298,11 +298,7 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
-    # A blocked mandatory skill set holds the ticket on the preflight pause, so
-    # no session starts and an automatic resume re-checks the workspace.
-    # ponytail: skill files are read from the local filesystem, so a remote
-    # (SSH) workspace is not gated; gate it once Preload can read a worker host.
-    case if(is_nil(worker_host), do: SkillGate.check(issue, workspace), else: :ok) do
+    case SkillGate.check(issue, workspace, worker_host: worker_host) do
       :ok -> run_activated_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
       {:blocked, message} -> {:before_run_failed, :mandatory_skills, message, :mandatory_skills}
     end
