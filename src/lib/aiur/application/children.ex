@@ -326,7 +326,7 @@ defmodule Aiur.Application.Children do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(
       cli_children ++
-        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog] ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog, Aiur.DiskWatchdog] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,

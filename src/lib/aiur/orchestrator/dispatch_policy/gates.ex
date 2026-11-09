@@ -204,7 +204,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   # admit them or dialyzer intersects the inferred 5-key hold with a closed
   # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
   @type admission_reason :: %{
-          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :cpu_pressure | :provider,
+          :signal => :memory | :disk | :file_descriptors | :github_quota | :run_queue | :load | :cpu_pressure | :provider,
           :measured => term(),
           :threshold => term(),
           optional(:reclaimable_cpu_percent) => number(),
@@ -216,7 +216,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, GitHub quota, CPU pressure
+  priority order is memory, disk, file descriptors, GitHub quota, CPU pressure
   (run queue/load fallback), provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
@@ -232,12 +232,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   end
 
   defp resource_admission_gate(
-         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
+         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample} = probes,
          github_quota
        ) do
+    disk_gate = Aiur.DiskWatchdog.dispatch_gate(Map.get(probes, :disk_status))
+
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
+
+      disk_gate != :dispatch ->
+        disk_gate
 
       fd_gate(fd_sample) == :hold ->
         {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}

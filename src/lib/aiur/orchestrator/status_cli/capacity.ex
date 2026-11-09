@@ -113,6 +113,9 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
   defp admission_detail(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
     do: "CPU PSI some avg60=#{pressure}% threshold=#{threshold}%"
 
+  defp admission_detail(%{signal: :disk, measured: used, threshold: threshold, detail: detail}),
+    do: "disk used=#{used}% threshold=#{threshold}% #{detail}"
+
   defp admission_detail(%{signal: :memory, measured: memory, threshold: threshold}),
     do: "free memory=#{memory}MB threshold=#{threshold}MB"
 

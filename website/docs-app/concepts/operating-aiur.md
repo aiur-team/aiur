@@ -189,6 +189,7 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
 | Daemon memory watchdog | The daemon BEAM above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once, naming the five processes that hold the most memory. The kernel OOM killer leaves no crash dump, so this alert is the evidence. |
+| Disk pressure watchdog | Every minute Aiur checks the filesystems that hold `workspace.root`, the run-log root and `~/.aiur`. Above `monitoring.disk_alert_percent` used (default 90%), it raises `system.disk.pressure` once. The alert names the filesystem, its use, its free space and the largest workspace directories. At `monitoring.disk_stop_dispatch_percent` (default 97%), it stops new dispatch, and `aiur status` shows the reason. `system.disk.pressure.resolved` clears the alert, and dispatch resumes. If the check fails, the `DISK` line shows `unknown`, not 0%. |
 
 An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
 
