@@ -39,7 +39,7 @@ defmodule Aiur.AgentRunner.SkillGateTest do
 
       assert message =~ "#7866"
       assert message =~ "not installed: ghost-skill (lane:art)"
-      assert_receive {:alert, "ticket.7866.skills.blocked", opts}
+      assert_received {:alert, "ticket.7866.skills.blocked", opts}
       assert opts[:needs_attention] == true
       assert opts[:message] == message
       assert %Issue{identifier: "7866"} = opts[:issue]
@@ -48,7 +48,7 @@ defmodule Aiur.AgentRunner.SkillGateTest do
     test "non-strict mode dispatches and raises a warning alert, not only a log line", %{workspace: workspace} do
       assert :ok = check(workspace, %{"by_lane" => %{"art" => ["ghost-skill"]}})
 
-      assert_receive {:alert, "ticket.7866.skills.warning", opts}
+      assert_received {:alert, "ticket.7866.skills.warning", opts}
       assert opts[:severity] == "warning"
       refute opts[:needs_attention]
       assert opts[:message] =~ "not installed: ghost-skill (lane:art)"
@@ -62,14 +62,14 @@ defmodule Aiur.AgentRunner.SkillGateTest do
       assert {:blocked, message} = check(workspace, %{"strict" => true, "preload_max_bytes" => 100, "by_lane" => %{"art" => ["big"]}})
 
       assert message =~ ~r/over agent.skills.preload_max_bytes: \d+\/100 bytes \(big \d+\)/
-      assert_receive {:alert, "ticket.7866.skills.blocked", _opts}
+      assert_received {:alert, "ticket.7866.skills.blocked", _opts}
     end
 
     test "non-strict mode dispatches with a warning alert", %{workspace: workspace} do
       skill!(workspace, "big", String.duplicate("x", 300))
 
       assert :ok = check(workspace, %{"preload_max_bytes" => 100, "by_lane" => %{"art" => ["big"]}})
-      assert_receive {:alert, "ticket.7866.skills.warning", opts}
+      assert_received {:alert, "ticket.7866.skills.warning", opts}
       assert opts[:message] =~ "/100 bytes"
     end
   end
@@ -78,7 +78,7 @@ defmodule Aiur.AgentRunner.SkillGateTest do
     skill!(workspace, "small", "small")
 
     assert :ok = check(workspace, %{"strict" => true, "by_lane" => %{"art" => ["small"]}})
-    refute_receive {:alert, _topic, _opts}, 50
+    refute_received {:alert, _topic, _opts}
   end
 
   describe "agent.skills.strict config" do
