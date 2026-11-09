@@ -13,6 +13,7 @@
     "src/lib/aiur/current_run_membership/**",
     "src/lib/aiur/disk_watchdog.ex",
     "src/lib/aiur/dispatch_budget_store.ex",
+    "src/lib/aiur/gateway/allocation.ex",
     "src/lib/aiur/gateway/capacity.ex",
     "src/lib/aiur/handoff.ex",
     "src/lib/aiur/handoff/adopter.ex",

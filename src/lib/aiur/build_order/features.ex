@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.Features do
 
   alias Aiur.BuildOrder.Epics.Journal, as: EpicJournal
   alias Aiur.BuildOrder.Epics.Operations, as: EpicOperations
-  alias Aiur.BuildOrder.Features.{Journal, Operations, Persistence, Reads, RootImportMapping}
+  alias Aiur.BuildOrder.Features.{Journal, LabelRules, Operations, Persistence, Reads, RootImportMapping}
   alias Aiur.BuildOrder.ProviderHealth
 
   @topic "build-order-features:changed"
@@ -15,6 +15,9 @@ defmodule Aiur.BuildOrder.Features do
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
   end
+
+  @doc "Parses a `feature:<slug>` label into `{:ok, slug}`, else `:ignore`."
+  defdelegate parse_label(label), to: LabelRules, as: :parse
 
   @spec create(String.t(), map(), keyword()) :: result()
   def create(slug, attrs, meta), do: write(:create, slug, attrs, meta)
