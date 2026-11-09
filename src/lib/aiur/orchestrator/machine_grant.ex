@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.MachineGrant do
   """
 
   alias Aiur.Gateway.Capacity
-  alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, Slots, State}
   alias Aiur.Project.Context
 
   @spec headroom() :: :infinity | non_neg_integer()
@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.MachineGrant do
     end
   end
 
-  @spec acquire(term()) :: :ok | {:error, :machine_full | :project_full}
+  @spec acquire(term()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
   def acquire(issue_id) do
     case Context.current_id() do
       nil -> :ok
@@ -35,11 +35,18 @@ defmodule Aiur.Orchestrator.MachineGrant do
     end
   end
 
-  @doc "Tells the broker how many of `issues` dispatch would start, so higher-priority projects get slots first. Returns `state`."
+  @doc """
+  Tells the broker how many of `issues` this project could start, so higher-priority
+  projects get slots first. Machine headroom is deliberately not counted: a full
+  machine must not zero the demand, or a waiting project never reclaims a freed slot.
+  Returns `state`.
+  """
   @spec report_demand(State.t(), [Aiur.Issue.t()]) :: State.t()
   def report_demand(%State{} = state, issues) do
     with id when id != nil <- Context.current_id() do
-      Capacity.report_demand(id, Enum.count(issues, &DispatchPolicy.should_dispatch_issue?(&1, state)))
+      ready = Enum.count(issues, &(DispatchPolicy.dispatch_candidate_decision(&1, state) == :dispatch and DispatchPolicy.state_slots_available?(&1, state)))
+      local_free = max(Slots.effective_concurrent_agent_limit(state) - Slots.used_slots(state), 0)
+      Capacity.report_demand(id, min(ready, local_free))
     end
 
     state

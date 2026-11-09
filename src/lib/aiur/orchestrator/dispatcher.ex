@@ -337,6 +337,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         state = %{state | snapshot_ready?: true}
 
+        # Publish all rows, including claims still within the recovery grace period.
         StatusReport.notify_dashboard(state)
         issues = StartupClaimReconciler.Observation.dispatch_candidates(state, issues)
 
