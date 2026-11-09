@@ -18,6 +18,8 @@ question_answer_flag() {
     --answers-file)
       # Read on the caller's machine; the daemon may run elsewhere.
       [ -f "$value" ] && [ -r "$value" ] || { echo "aiur: --answers-file cannot read $value" >&2; exit 64; }
+      # The file travels base64-encoded inside one control RPC argument.
+      [ "$(wc -c < "$value")" -le 65536 ] || { echo "aiur: --answers-file $value is larger than 65536 bytes" >&2; exit 64; }
       QA_FILE="$(cat -- "$value")" ;;
   esac
 }

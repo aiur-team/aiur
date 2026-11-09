@@ -4,8 +4,8 @@ defmodule Aiur.Commands.CLIAnswers do
 
   `--answer QUESTION=OPTION[,OPTION]` (repeatable) picks options by id or
   label, `--answer-text QUESTION=TEXT` (repeatable) supplies free text for an
-  `allow_other` question, and `--answers-file` carries JSON in the
-  `question_answers` shape. QUESTION is a question id or its header. All three
+  `allow_other` question, and `--answers-file` carries JSON of
+  `{QUESTION: {"options": [...], "text": "..."}}`. QUESTION is a question id or its header. All three
   produce the same encoded payload, so a retry through another form replays.
   """
 
@@ -13,6 +13,8 @@ defmodule Aiur.Commands.CLIAnswers do
   alias Aiur.Commands.Answering.QuestionAnswers
 
   @flag_keys [:answers, :answer_texts, :answers_json]
+  # Matches the launcher's limit; the file travels inside one control RPC.
+  @max_file_bytes 65_536
 
   @doc "Whether the caller passed any per-question answer flag."
   @spec requested?(keyword()) :: boolean()
@@ -61,8 +63,14 @@ defmodule Aiur.Commands.CLIAnswers do
         "--answer #{get(question, :question_id)}=#{value}"
       end)
 
-    json = Map.new(questions, &{get(&1, :question_id), ["<option-id or label>"]}) |> Jason.encode!()
+    json = Map.new(questions, &{get(&1, :question_id), file_template(&1)}) |> Jason.encode!()
     %{flags: flags, json: json}
+  end
+
+  defp file_template(question) do
+    if get(question, :allow_other) == false,
+      do: %{"options" => ["<option-id>"]},
+      else: %{"options" => ["<option-id>"], "text" => "<free text, or delete this key>"}
   end
 
   @doc "Unanswered question ids with their headers, for an incomplete answer."
@@ -137,13 +145,13 @@ defmodule Aiur.Commands.CLIAnswers do
       |> String.split(",")
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
-      |> collect(&option_entry(key, question, &1))
+      |> collect(&option_entry("--answer #{key}", question, &1))
     end
   end
 
-  defp option_entry(key, question, choice) do
+  defp option_entry(where, question, choice) do
     case option_label(question, choice) do
-      nil -> {:usage, "--answer #{key}: unknown option #{inspect(choice)}; choose one of #{option_ids(question)}"}
+      nil -> {:usage, "#{where}: unknown option #{inspect(choice)}; choose one of #{option_ids(question)}"}
       label -> {:ok, [{get(question, :question_id), label}]}
     end
   end
@@ -155,28 +163,53 @@ defmodule Aiur.Commands.CLIAnswers do
     end
   end
 
+  defp file_entries(json, _questions) when byte_size(json) > @max_file_bytes,
+    do: {:usage, "--answers-file is larger than #{@max_file_bytes} bytes"}
+
   defp file_entries(json, questions) do
     case Jason.decode(json) do
       {:ok, %{"question_answers" => answers}} when is_map(answers) -> collect(answers, &file_values(&1, questions))
       {:ok, answers} when is_map(answers) -> collect(answers, &file_values(&1, questions))
-      _invalid -> {:usage, "--answers-file must hold a JSON object of question ids to answer lists"}
+      _invalid -> {:usage, ~s(--answers-file must hold a JSON object of question ids to {"options": [...], "text": "..."})}
     end
   end
 
-  defp file_values({key, values}, questions) do
-    with {:ok, question} <- find_question(key, questions) do
-      collect(List.wrap(values), &file_value(question, &1))
+  # Each answer says what it is: "options" are option ids or labels, refused when
+  # unknown (like --answer); "text" is free text (like --answer-text). No guessing.
+  defp file_values({key, %{} = answer}, questions) do
+    where = "--answers-file #{key}"
+
+    with {:ok, question} <- find_question(key, questions),
+         [] <- Map.keys(answer) -- ["options", "text"],
+         {:ok, options} <- file_options(where, question, Map.get(answer, "options", [])),
+         {:ok, text} <- file_text(where, question, Map.get(answer, "text")) do
+      {:ok, options ++ text}
+    else
+      [_ | _] = unknown -> {:usage, ~s(#{where}: unknown keys #{Enum.join(unknown, ", ")}; use "options" and "text")}
+      usage -> usage
     end
   end
 
-  defp file_value(question, value) when is_binary(value) do
-    case option_label(question, String.trim(value)) do
-      nil -> with :ok <- allows_text(question), do: {:ok, [{get(question, :question_id), String.trim(value)}]}
-      label -> {:ok, [{get(question, :question_id), label}]}
+  defp file_values({key, _answer}, _questions), do: {:usage, ~s(--answers-file #{key}: expected {"options": [...], "text": "..."})}
+
+  defp file_options(where, question, options) when is_list(options) do
+    if Enum.all?(options, &is_binary/1),
+      do: collect(options, &option_entry(where, question, String.trim(&1))),
+      else: {:usage, "#{where}: options must be option ids or labels"}
+  end
+
+  defp file_options(where, _question, _options), do: {:usage, "#{where}: options must be a list"}
+
+  defp file_text(_where, _question, nil), do: {:ok, []}
+
+  defp file_text(where, question, text) when is_binary(text) do
+    case String.trim(text) do
+      "" -> {:usage, "#{where}: text is empty"}
+      trimmed -> with :ok <- allows_text(question), do: {:ok, [{get(question, :question_id), trimmed}]}
     end
   end
 
-  defp file_value(question, value), do: {:usage, "--answers-file: #{get(question, :question_id)} has a non-text answer #{inspect(value)}"}
+  defp file_text(where, _question, _text), do: {:usage, "#{where}: text must be a string"}
 
   defp find_question(key, questions) do
     by_id = Enum.find(questions, &(get(&1, :question_id) == key))
@@ -184,7 +217,8 @@ defmodule Aiur.Commands.CLIAnswers do
 
     case {by_id, by_header} do
       {nil, [question]} -> {:ok, question}
-      {nil, _none_or_many} -> {:usage, "unknown question #{inspect(key)}; use one of #{Enum.map_join(questions, ", ", &label/1)}"}
+      {nil, [_, _ | _] = many} -> {:usage, "header #{inspect(key)} matches questions #{Enum.map_join(many, ", ", &get(&1, :question_id))}; use the question id"}
+      {nil, []} -> {:usage, "unknown question #{inspect(key)}; use one of #{Enum.map_join(questions, ", ", &label/1)}"}
       {question, _headers} -> {:ok, question}
     end
   end

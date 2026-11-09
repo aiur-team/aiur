@@ -115,6 +115,11 @@ defmodule AiurEngineCommandsTest do
     assert rpc_opts(rpc <> ~s|cmd_operator_relay_answer dec --expected-version 3 --answers-file #{file} --quote q --relayed-by e --idempotency-key k|)[:answers_json] == ~s({"scope":["core"]})
     assert rpc_opts(rpc <> ~s|cmd_command dec --relayed --quote q --answer scope=core|)[:answers] == ["scope=core"]
 
+    File.write!(file, String.duplicate(" ", 65_537))
+    {out, 64} = run_sourced_engine(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answers-file #{file} --rationale r --idempotency-key k|, [])
+    assert out =~ "--answers-file #{file} is larger than 65536 bytes"
+    refute out =~ "RPC:"
+
     moot = rpc_opts(rpc <> ~s|cmd_executor_moot dec --expected-version 3 --reason-class ticket_closed --idempotency-key mk --rationale shipped|)
     assert {moot[:idempotency_key], moot[:rationale]} == {"mk", "shipped"}
 

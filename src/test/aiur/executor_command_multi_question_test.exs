@@ -3,7 +3,7 @@ defmodule Aiur.ExecutorCommandMultiQuestionTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.Commands.Answering
+  alias Aiur.Commands.{Answering, CLIAnswers}
   alias Aiur.{CommandsCLI, DecisionEvent, DecisionStore, ExecutorCommandCLI}
 
   @questions [
@@ -59,7 +59,8 @@ defmodule Aiur.ExecutorCommandMultiQuestionTest do
     assert {0, ""} = answer(ctx, answers: ["scope=core", "scope=cli", "order=last"], answer_texts: ["note=Ship behind a flag"])
     flags_hash = recorded(ctx).answer.content_hash
 
-    file_json = Jason.encode!(%{"question_answers" => %{"scope" => ["cli", "core"], "order" => ["last"], "note" => ["Ship behind a flag"]}})
+    file_json =
+      Jason.encode!(%{"question_answers" => %{"scope" => %{"options" => ["cli", "core"]}, "order" => %{"options" => ["last"]}, "note" => %{"text" => "Ship behind a flag"}}})
 
     stdout =
       capture_io(fn ->
@@ -72,6 +73,30 @@ defmodule Aiur.ExecutorCommandMultiQuestionTest do
     # Same key, same content: the store replays instead of conflicting.
     assert stdout =~ "duplicate"
     assert recorded(ctx).answer.content_hash == flags_hash
+  end
+
+  test "--answers-file refuses a mistyped option id on an allow_other question instead of recording it as text", ctx do
+    file_json = Jason.encode!(%{"scope" => %{"options" => ["core"]}, "order" => %{"options" => ["last"]}, "note" => %{"options" => ["lsat"]}})
+    assert {64, stderr} = answer(ctx, answers_json: file_json)
+    assert stderr =~ ~s(--answers-file note: unknown option "lsat")
+    assert recorded(ctx).answer == nil
+  end
+
+  test "--answers-file refuses a bare answer list, which cannot say whether a value is an option or text", ctx do
+    assert {64, stderr} = answer(ctx, answers_json: Jason.encode!(%{"scope" => ["core"], "order" => ["last"], "note" => ["none"]}))
+    assert stderr =~ ~s(expected {"options")
+    assert recorded(ctx).answer == nil
+  end
+
+  test "the answers file is capped before it is decoded" do
+    big = Jason.encode!(%{"note" => %{"text" => String.duplicate("x", 70_000)}})
+    assert {:usage, "--answers-file is larger than 65536 bytes"} = CLIAnswers.resolve([answers_json: big], @questions)
+  end
+
+  test "a header shared by two questions is refused as ambiguous, naming both ids" do
+    questions = [%{question_id: "a", header: "Pick", options: [%{id: "x", label: "X"}]}, %{question_id: "b", header: "Pick", options: [%{id: "x", label: "X"}]}]
+    assert CLIAnswers.resolve([answers: ["pick=x"]], questions) == {:usage, ~s(header "pick" matches questions a, b; use the question id)}
+    assert {:ok, %{"a" => ["X"], "b" => ["X"]}} = CLIAnswers.resolve([answers: ["a=x", "b=x"]], questions)
   end
 
   test "omitting a question names it and records nothing", ctx do
@@ -100,6 +125,15 @@ defmodule Aiur.ExecutorCommandMultiQuestionTest do
     answers = filled |> String.split("--answer ", trim: true) |> Enum.map(&String.trim/1)
     assert {0, ""} = answer(ctx, answers: answers)
     assert Answering.decode_question_answers(@questions, recorded(ctx).answer) == {:ok, %{"scope" => ["Core", "Web"], "order" => ["First"], "note" => ["Nothing"]}}
+
+    [_, json] = Regex.run(~r/Answers file template \(--answers-file\): (.+)$/m, output)
+    template = Jason.decode!(json)
+    assert template["note"] == %{"options" => ["<option-id>"], "text" => "<free text, or delete this key>"}
+    assert template["order"] == %{"options" => ["<option-id>"]}
+
+    filled = %{template | "scope" => %{"options" => ["core", "web"]}, "order" => %{"options" => ["first"]}, "note" => %{"text" => "Later, maybe"}}
+    {:ok, answers} = CLIAnswers.resolve([answers_json: Jason.encode!(filled)], @questions)
+    assert answers == %{"scope" => ["Core", "Web"], "order" => ["First"], "note" => ["Later, maybe"]}
   end
 
   test "executor-moot replayed with one idempotency key records one moot", ctx do
