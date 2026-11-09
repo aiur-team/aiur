@@ -5,6 +5,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsSkillPreloadJsonTest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.Handoff.CLI
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 
   import TestFixture, except: [setup: 1]
@@ -52,7 +53,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsSkillPreloadJsonTest do
   end
 
   defp agents_json_rows do
-    output = capture_io(fn -> Aiur.Handoff.CLI.agents() end)
+    output = capture_io(fn -> CLI.agents() end)
     [json | _markers] = String.split(output, "\n", trim: true)
     %{"contract" => "aiur.agents", "running" => rows} = Jason.decode!(json)
     rows
