@@ -188,7 +188,7 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
-| Daemon memory watchdog | The daemon BEAM above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once, naming the five processes that hold the most memory. The kernel OOM killer leaves no crash dump, so this alert is the evidence. |
+| Daemon memory watchdog | Daemon memory (resident or BEAM total) above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once and logs the five largest processes and ETS tables, plus any process too busy to answer. Any one process whose heap passes 4 GiB is killed, and the daemon log records its pid and stack trace. The kernel OOM killer leaves no crash dump, so these log lines are the evidence. |
 
 An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
 

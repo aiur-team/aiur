@@ -85,7 +85,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-03 -->
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
-| `monitoring.daemon_memory_alert_fraction` | float | 0.5 | Share of host memory the daemon's BEAM may use before Aiur raises `system.daemon.memory_high` once, naming the processes that hold the most memory. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
+| `monitoring.daemon_memory_alert_fraction` | float | 0.5 | Share of host memory the daemon may use, by resident memory or `:erlang.memory(:total)`, before Aiur raises `system.daemon.memory_high` once and logs the largest processes (memory, queue length), any that do not answer, and the largest ETS tables. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
 
 ## workspace
 
