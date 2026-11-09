@@ -31,7 +31,7 @@ defmodule Aiur.Commands.Routing.AudienceTest do
       store: ctx.store,
       clock: fn -> Agent.get(ctx.clock, & &1) end,
       config: @config,
-      alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+      alert_fun: fn topic, message, opts -> send(parent, {:alert, topic, Keyword.put(opts, :message, message)}) end,
       roster_fun: fn _opts ->
         case Agent.get(ctx.roster, & &1) do
           :offline -> %{executors: []}

@@ -3,8 +3,8 @@ defmodule Aiur.Commands.Routing do
   use GenServer
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionPubSub, DecisionStore}
   alias Aiur.Commands.Routing.{Policy, Sweep}
+  alias Aiur.{Config, DecisionPubSub, DecisionStore, Signal}
   alias Aiur.Executor.Roster
 
   @ceiling_ms 30_000
@@ -22,7 +22,7 @@ defmodule Aiur.Commands.Routing do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       roster_fun: Keyword.get(opts, :roster_fun, &Roster.build/1),
       config: Keyword.get(opts, :config, &Config.decision_escalation/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       waiting_alerted: MapSet.new(),
       timer_ref: nil,
       next_due_at: nil
@@ -127,7 +127,7 @@ defmodule Aiur.Commands.Routing do
     |> Enum.reject(&MapSet.member?(state.waiting_alerted, &1.decision_id))
     |> Enum.reduce(state, fn decision, acc ->
       message = "Executor-only Command #{decision.decision_id} on ##{decision.ticket.identifier} is waiting: no live Executor (#{liveness})."
-      acc.alert_fun.(@waiting_topic, message: message, needs_attention: true, severity: "warning")
+      acc.alert_fun.(@waiting_topic, message, needs_attention: true, severity: "warning", central: true)
       %{acc | waiting_alerted: MapSet.put(acc.waiting_alerted, decision.decision_id)}
     end)
   end
