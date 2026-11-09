@@ -17,6 +17,7 @@ defmodule Aiur.Config.Schema.Decisions do
   @primary_key false
 
   @type t :: %__MODULE__{
+          embed_hosts: [String.t()],
           escalation: Escalation.t(),
           native_capture: Aiur.Config.Schema.Decisions.NativeCapture.t(),
           require_suggested_responses: boolean(),
@@ -37,16 +38,29 @@ defmodule Aiur.Config.Schema.Decisions do
     # @config-reference config-configuration-17 decisions.supervisor_allow_non_reversible
     # @config-detail decisions.supervisor_allow_non_reversible | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
     field(:supervisor_allow_non_reversible, :boolean, default: false)
+    # @config-reference config-configuration-17 decisions.embed_hosts
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail decisions.embed_hosts | array | `[]` | Hosts allowed to serve `embed` Command media (playable builds, interactive previews). A host also allows its subdomains. Empty turns embeds off. |
+    field(:embed_hosts, {:array, :string}, default: [])
   end
 
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible, :require_suggested_responses], empty_values: [])
+    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible, :require_suggested_responses, :embed_hosts], empty_values: [])
     |> cast_embed(:escalation)
     |> cast_embed(:native_capture)
     |> validate_change(:supervisor_allowed_kinds, &validate_allowed_kinds/2)
     |> update_change(:supervisor_allowed_kinds, &normalize_allowed_kinds/1)
+    |> validate_change(:embed_hosts, &validate_embed_hosts/2)
+    |> update_change(:embed_hosts, &normalize_allowed_kinds/1)
+  end
+
+  # A bare host name: no scheme, port, path or wildcard, so matching stays exact-or-subdomain.
+  defp validate_embed_hosts(field, hosts) do
+    if Enum.all?(hosts, &(is_binary(&1) and Regex.match?(~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+\z/i, String.trim(&1)))),
+      do: [],
+      else: [{field, "must contain bare host names such as play.example.com"}]
   end
 
   defp validate_allowed_kinds(field, kinds) when length(kinds) > @max_allowed_kinds do

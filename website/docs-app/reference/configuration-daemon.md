@@ -320,6 +320,7 @@ An exported value wins, followed by the global file and then the repository file
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-17 -->
 | --- | --- | --- | --- |
+| `decisions.embed_hosts` | array | `[]` | Hosts allowed to serve `embed` Command media (playable builds, interactive previews). A host also allows its subdomains. Empty turns embeds off. |
 | `decisions.escalation.enabled` | boolean | true | Enables escalation of Executor Commands to the operator. |
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |

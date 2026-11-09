@@ -2,8 +2,8 @@ defmodule Aiur.Commands.Media do
   @moduledoc """
   Typed media contract for Command prompts, options and answers.
 
-  A media item is one of four kinds — `image`, `animated_image`, `video`,
-  `audio` — and carries the metadata a client needs to render it safely:
+  A media item is one of five kinds — `image`, `animated_image`, `video`,
+  `audio`, `embed` — and carries the metadata a client needs to render it safely:
   a MIME type, a stable locator, and alt text or a caption. Nothing here is
   a second Command model: items travel inside the canonical request snapshot
   (`Aiur.Decision.media`, option `media`) and the canonical
@@ -19,6 +19,15 @@ defmodule Aiur.Commands.Media do
   re-canonicalizes and re-checks containment at read time — validating at
   ingestion does not prove a later symlink swap has not reintroduced escape.
 
+  ## Embeds
+
+  An `embed` is an interactive page (a playable build, a level preview) a
+  client shows in a sandboxed iframe. Its locator must be an https URL on the
+  separate `decisions.embed_hosts` allowlist, which is empty by default, so
+  embeds stay off until an operator names a host. An optional `params` map is
+  appended to the URL's query string before validation, and `duration_hint`
+  (seconds) is stored as `duration_ms`.
+
   ## Rejected media
 
   `normalize/2` returns the first failure as a stable, matchable atom pair.
@@ -33,15 +42,16 @@ defmodule Aiur.Commands.Media do
   before this contract existed and replays unchanged.
   """
 
-  alias Aiur.{DecisionArtifact, SecretRedactor}
+  alias Aiur.{Config, DecisionArtifact, SecretRedactor}
 
-  @kinds [:image, :animated_image, :video, :audio]
+  @kinds [:image, :animated_image, :video, :audio, :embed]
 
   @mime_types %{
     image: ~w(image/png image/jpeg image/webp image/avif),
     animated_image: ~w(image/gif image/webp image/apng image/avif),
     video: ~w(video/mp4 video/webm video/quicktime),
-    audio: ~w(audio/mpeg audio/mp4 audio/aac audio/ogg audio/wav audio/webm)
+    audio: ~w(audio/mpeg audio/mp4 audio/aac audio/ogg audio/wav audio/webm),
+    embed: ~w(text/html)
   }
 
   @max_bytes %{
@@ -56,10 +66,13 @@ defmodule Aiur.Commands.Media do
   @caption_max 500
   @locator_max 4_096
   @attachment_prefix "med_"
+  @max_params 20
+  @param_key_max 64
+  @param_value_max 256
 
   @signed_url_keys ~r/(signature|sig|token|expires|x-amz-|googleaccessid|key-pair-id|policy|credential|se=)/i
 
-  @type kind :: :image | :animated_image | :video | :audio
+  @type kind :: :image | :animated_image | :video | :audio | :embed
   @type locator :: %{kind: :path | :url, value: String.t()}
   @type item :: %{
           kind: kind(),
@@ -94,6 +107,7 @@ defmodule Aiur.Commands.Media do
            | :duration_invalid
            | :poster_not_allowed
            | :poster_invalid
+           | :params_invalid
            | :attachment_unknown
            | :attachment_invalid}
 
@@ -105,9 +119,9 @@ defmodule Aiur.Commands.Media do
   @spec mime_types(kind()) :: [String.t()]
   def mime_types(kind), do: Map.get(@mime_types, kind, [])
 
-  @doc "Maximum bytes accepted for one media kind."
-  @spec max_bytes(kind()) :: pos_integer()
-  def max_bytes(kind), do: Map.fetch!(@max_bytes, kind)
+  @doc "Maximum bytes accepted for one media kind; an embed is a page, so it has none."
+  @spec max_bytes(kind()) :: pos_integer() | nil
+  def max_bytes(kind), do: Map.get(@max_bytes, kind)
 
   @doc "Whether `kind` is part of the contract."
   @spec kind?(term()) :: boolean()
@@ -121,12 +135,18 @@ defmodule Aiur.Commands.Media do
   locator that fails them stays out of a public projection instead of being
   handed to a dashboard or an embedding host.
   """
-  @spec publishable_url?(term()) :: boolean()
-  def publishable_url?(value) when is_binary(value) do
+  @spec publishable_url?(term(), term()) :: boolean()
+  def publishable_url?(value, kind \\ nil)
+
+  def publishable_url?(value, kind) when is_binary(value) and kind in [:embed, "embed"] do
+    not expiring_url?(value) and match?({:ok, _locator}, DecisionArtifact.validate_url(value, Config.decisions_embed_hosts()))
+  end
+
+  def publishable_url?(value, _kind) when is_binary(value) do
     not expiring_url?(value) and match?({:ok, _locator}, DecisionArtifact.validate(value, []))
   end
 
-  def publishable_url?(_value), do: false
+  def publishable_url?(_value, _kind), do: false
 
   @doc "Opaque, stable attachment identity for one validated locator."
   @spec attachment_id(%{required(:value) => String.t(), optional(atom()) => any()}) :: String.t()
@@ -167,14 +187,14 @@ defmodule Aiur.Commands.Media do
 
   defp normalize_item(raw, safe_roots) when is_map(raw) do
     with {:ok, kind} <- kind(get(raw, :kind)),
-         {:ok, mime_type} <- mime_type(kind, get(raw, :mime_type)),
+         {:ok, mime_type} <- mime_type(kind, get(raw, :mime_type) || default_mime(kind)),
          {:ok, alt_text} <- alt_text(kind, get(raw, :alt_text)),
          {:ok, caption} <- bounded(get(raw, :caption), @caption_max, :caption_too_long),
-         {:ok, locator} <- locator(get(raw, :locator), safe_roots),
+         {:ok, locator} <- item_locator(kind, raw, safe_roots),
          {:ok, size} <- byte_limit(kind, get(raw, :byte_size)),
          {:ok, width} <- dimension(get(raw, :width)),
          {:ok, height} <- dimension(get(raw, :height)),
-         {:ok, duration_ms} <- duration(kind, get(raw, :duration_ms)),
+         {:ok, duration_ms} <- duration(kind, get(raw, :duration_ms) || hint_ms(get(raw, :duration_hint))),
          {:ok, poster} <- poster(kind, get(raw, :poster), safe_roots) do
       {:ok,
        %{
@@ -206,6 +226,9 @@ defmodule Aiur.Commands.Media do
 
   defp kind(_kind), do: {:error, {:media, :invalid_kind}}
 
+  defp default_mime(:embed), do: "text/html"
+  defp default_mime(_kind), do: nil
+
   defp mime_type(_kind, nil), do: {:error, {:media, :mime_type_missing}}
 
   defp mime_type(kind, mime) when is_binary(mime) do
@@ -218,7 +241,8 @@ defmodule Aiur.Commands.Media do
 
   # Alt text is the accessible name for a still or animated image; playable
   # media can lean on its caption and the player's own label instead.
-  defp alt_text(kind, alt_text) when kind in [:image, :animated_image] do
+  # An embed needs it too: it is what a client that cannot run the page shows.
+  defp alt_text(kind, alt_text) when kind in [:image, :animated_image, :embed] do
     case bounded(alt_text, @alt_text_max, :alt_text_too_long) do
       {:ok, nil} -> {:error, {:media, :alt_text_required}}
       other -> other
@@ -241,6 +265,50 @@ defmodule Aiur.Commands.Media do
   end
 
   defp bounded(_value, _max, error), do: {:error, {:media, error}}
+
+  defp item_locator(:embed, raw, _safe_roots) do
+    with {:ok, url} <- embed_url(get(raw, :locator), get(raw, :params)) do
+      validate_embed_url(url)
+    end
+  end
+
+  defp item_locator(_kind, raw, safe_roots), do: locator(get(raw, :locator), safe_roots)
+
+  defp embed_url(nil, _params), do: {:error, {:media, :locator_missing}}
+  defp embed_url(%{} = raw, params), do: embed_url(get(raw, :value), params)
+  defp embed_url(url, params) when is_binary(url) and params in [nil, %{}], do: {:ok, url}
+
+  defp embed_url(url, params) when is_binary(url) and is_map(params) and map_size(params) <= @max_params do
+    if Enum.all?(params, &valid_param?/1) do
+      uri = URI.parse(url)
+      query = Enum.join(Enum.reject([uri.query, URI.encode_query(params)], &(&1 in [nil, ""])), "&")
+      {:ok, URI.to_string(%{uri | query: query})}
+    else
+      {:error, {:media, :params_invalid}}
+    end
+  end
+
+  defp embed_url(url, _params) when is_binary(url), do: {:error, {:media, :params_invalid}}
+  defp embed_url(_url, _params), do: {:error, {:media, :locator_not_allowed}}
+
+  defp valid_param?({key, value}) do
+    key = if is_atom(key), do: Atom.to_string(key), else: key
+
+    is_binary(key) and key != "" and String.length(key) <= @param_key_max and
+      (is_number(value) or is_boolean(value) or (is_binary(value) and String.length(value) <= @param_value_max))
+  end
+
+  defp validate_embed_url(url) do
+    cond do
+      url == "" -> {:error, {:media, :locator_missing}}
+      byte_size(url) > @locator_max -> {:error, {:media, :locator_too_long}}
+      expiring_url?(url) -> {:error, {:media, :locator_expires}}
+      true -> embed_artifact(DecisionArtifact.validate_url(url, Config.decisions_embed_hosts()))
+    end
+  end
+
+  defp embed_artifact({:ok, locator}), do: {:ok, locator}
+  defp embed_artifact({:error, reason}), do: {:error, {:media, artifact_error(reason)}}
 
   defp locator(nil, _safe_roots), do: {:error, {:media, :locator_missing}}
 
@@ -286,6 +354,7 @@ defmodule Aiur.Commands.Media do
   defp artifact_error(reason), do: reason
 
   defp byte_limit(_kind, nil), do: {:ok, nil}
+  defp byte_limit(:embed, _size), do: {:error, {:media, :byte_size_invalid}}
 
   defp byte_limit(kind, size) when is_integer(size) and size > 0 do
     if size > max_bytes(kind), do: {:error, {:media, :too_large}}, else: {:ok, size}
@@ -299,10 +368,15 @@ defmodule Aiur.Commands.Media do
 
   defp duration(_kind, nil), do: {:ok, nil}
 
-  defp duration(kind, value) when kind in [:video, :animated_image, :audio] and is_integer(value) and value > 0,
+  defp duration(kind, value) when kind in [:video, :animated_image, :audio, :embed] and is_integer(value) and value > 0,
     do: {:ok, value}
 
   defp duration(_kind, _value), do: {:error, {:media, :duration_invalid}}
+
+  # `duration_hint` is the embed author's estimate in seconds; it is stored as `duration_ms`.
+  defp hint_ms(nil), do: nil
+  defp hint_ms(seconds) when is_number(seconds) and seconds > 0, do: round(seconds * 1_000)
+  defp hint_ms(_seconds), do: :invalid
 
   defp poster(_kind, nil, _safe_roots), do: {:ok, nil}
 

@@ -196,7 +196,7 @@ const typedMedia = [
 ];
 
 test('every typed media kind has a documented token', () => {
-  assert.deepEqual(MEDIA_KINDS, ['image', 'animated_image', 'video', 'audio']);
+  assert.deepEqual(MEDIA_KINDS, ['image', 'animated_image', 'video', 'audio', 'embed']);
 });
 
 test('typed media renders accessible image, animated, video and audio elements', () => {

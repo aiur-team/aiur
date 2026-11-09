@@ -4,8 +4,8 @@ defmodule AiurWeb.Components.CommandMedia do
 
   One component serves every Command consumer — the dashboard Command detail and
   its options, the inline Command cards in a conversation, and any embeddable
-  surface — so an image, animated image, video or audio item looks and behaves
-  the same everywhere. Items arrive as the public projection from
+  surface — so an image, animated image, video, audio or embed item looks and
+  behaves the same everywhere. Items arrive as the public projection from
   `Aiur.Commands.Media.public/1`; a local file is an `attachment` reference that
   this component points at the authorized media route, never at a filesystem
   path.
@@ -18,12 +18,18 @@ defmodule AiurWeb.Components.CommandMedia do
     custom key map, and take an `aria-label` from the caption or alt text. Their
     fallback content carries an "Open media" link for a client that cannot play
     the format.
+  * An embed loads nothing until the operator clicks "Load": the iframe starts
+    without a `src`, runs with `sandbox="allow-scripts"` only (no same-origin,
+    no top navigation, no popups) and sends no referrer. Its alt text and an
+    "Open in a new tab" link stay beside it for a page that will not run framed.
   * An item whose locator cannot be resolved to a URL — no attachment id, or an
     attachment in a consumer with no Command context — renders an explicit
     unavailable panel instead of a broken element.
   """
 
   use Phoenix.Component
+
+  alias Phoenix.LiveView.JS
 
   attr(:items, :list, default: [])
   attr(:decision_id, :string, default: nil)
@@ -92,6 +98,26 @@ defmodule AiurWeb.Components.CommandMedia do
     """
   end
 
+  defp media_element(%{item: %{"kind" => "embed"}} = assigns) do
+    assigns = assign(assigns, :src, item_source(assigns.item, assigns.decision_id, assigns.path_prefix))
+
+    ~H"""
+    <div class="command-media__embed" phx-click={load_embed(@src)}>
+      <button type="button" class="command-media__embed-load">Load {accessible_name(@item)}</button>
+      <iframe
+        title={accessible_name(@item)}
+        sandbox="allow-scripts"
+        referrerpolicy="no-referrer"
+        loading="lazy"
+        width={dimension(@item, "width")}
+        height={dimension(@item, "height")}
+        hidden
+      ></iframe>
+      <p class="command-media__embed-fallback">{alt(@item)} <a href={@src} target="_blank" rel="noopener noreferrer">Open in a new tab</a></p>
+    </div>
+    """
+  end
+
   defp media_element(assigns) do
     ~H"""
     <div class="command-media__unavailable" role="status">
@@ -111,7 +137,18 @@ defmodule AiurWeb.Components.CommandMedia do
   `"/api/v1/decisions"` (supervisor credentials).
   """
   @spec item_source(term(), String.t() | nil, String.t()) :: String.t() | nil
-  def item_source(item, decision_id, path_prefix \\ "/api/v1/decisions") do
+  def item_source(item, decision_id, path_prefix \\ "/api/v1/decisions")
+
+  # An embed is framed only from its own URL, which the projection drops once the
+  # host leaves `decisions.embed_hosts`; the attachment route would redirect around that.
+  def item_source(%{"kind" => "embed"} = item, _decision_id, _path_prefix) do
+    case Map.get(item, "locator") do
+      %{"kind" => "url", "value" => value} when is_binary(value) -> value
+      _other -> nil
+    end
+  end
+
+  def item_source(item, decision_id, path_prefix) do
     locator = if is_map(item), do: Map.get(item, "locator") || Map.get(item, :locator)
 
     case source(locator, decision_id, path_prefix) do
@@ -164,6 +201,15 @@ defmodule AiurWeb.Components.CommandMedia do
 
   defp attachment_url(id, decision_id, path_prefix) do
     "#{String.trim_trailing(path_prefix, "/")}/#{decision_id}/media/#{id}"
+  end
+
+  # The wrapper drops its own click binding once loaded, so a later click does not reload the page.
+  defp load_embed(src) do
+    {"src", src}
+    |> JS.set_attribute(to: {:inner, "iframe"})
+    |> JS.remove_attribute("hidden", to: {:inner, "iframe"})
+    |> JS.hide(to: {:inner, "button"})
+    |> JS.remove_attribute("phx-click")
   end
 
   defp kind(item) when is_map(item) do
