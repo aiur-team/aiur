@@ -1,6 +1,7 @@
 defmodule Aiur.WorkflowGlobalSkillsTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Config.{Schema, SkillsMapping}
   alias Aiur.Workflow
 
   setup do
@@ -26,10 +27,10 @@ defmodule Aiur.WorkflowGlobalSkillsTest do
 
     defp mapped_skills(path) do
       {:ok, %{config: config}} = Workflow.load(path)
-      {:ok, settings} = Aiur.Config.Schema.parse(config)
+      {:ok, settings} = Schema.parse(config)
       mapping = settings.agent.skills
-      lane = &Aiur.Config.SkillsMapping.skills_for(mapping, "by_lane", &1)
-      complexity = &Aiur.Config.SkillsMapping.skills_for(mapping, "by_complexity", &1)
+      lane = &SkillsMapping.skills_for(mapping, "by_lane", &1)
+      complexity = &SkillsMapping.skills_for(mapping, "by_complexity", &1)
       %{docs: lane.("docs"), ui: lane.("ui"), level_2: complexity.(2), max_bytes: mapping.preload_max_bytes}
     end
 

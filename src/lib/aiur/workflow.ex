@@ -8,7 +8,7 @@ defmodule Aiur.Workflow do
   `prompt_file:` is absent the prompt falls back to the built-in default template.
   """
 
-  alias Aiur.Config.Overrides
+  alias Aiur.Config.{Overrides, SkillsMapping}
 
   alias Aiur.Project.Context
   alias Aiur.WorkflowStore
@@ -313,7 +313,7 @@ defmodule Aiur.Workflow do
          {:ok, content} <- File.read(global_path),
          {:ok, %{"agent" => %{"skills" => %{} = global_skills}}} <- yaml_to_map(content) do
       agent = agent || %{}
-      Map.put(config, "agent", Map.put(agent, "skills", Aiur.Config.SkillsMapping.merge(global_skills, agent["skills"])))
+      Map.put(config, "agent", Map.put(agent, "skills", SkillsMapping.merge(global_skills, agent["skills"])))
     else
       _no_global_skills -> config
     end
