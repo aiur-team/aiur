@@ -113,6 +113,10 @@ defmodule Aiur.Executor.StatePaths do
   @spec claims_path() :: Path.t()
   def claims_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.claims.json")
 
+  @doc "Executor Commands held until their blocker tickets merge."
+  @spec pending_commands_path() :: Path.t()
+  def pending_commands_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.pending-commands.json")
+
   @doc "Fingerprints of the executor-sweep findings already published."
   @spec sweep_seen_path() :: Path.t()
   def sweep_seen_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.sweep.seen.json")

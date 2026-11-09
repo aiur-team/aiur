@@ -51,6 +51,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("command request", fn -> opts |> ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec command_cancel(keyword()) :: :ok
+  def command_cancel(opts) do
+    guarded("command cancel", fn -> opts |> ExecutorRequest.cancel(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)

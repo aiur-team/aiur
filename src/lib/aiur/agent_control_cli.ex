@@ -31,6 +31,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate commands_repair(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   @spec command_request(keyword()) :: :ok
   defdelegate command_request(opts), to: Aiur.ControlCLI.EntryPoints
+  @spec command_cancel(keyword()) :: :ok
+  defdelegate command_cancel(opts), to: Aiur.ControlCLI.EntryPoints
 
   defdelegate operator_relay_answer(opts), to: Aiur.ControlCLI.EntryPoints
   @spec executor_ack(keyword()) :: :ok

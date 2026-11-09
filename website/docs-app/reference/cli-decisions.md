@@ -169,6 +169,33 @@ The [Executor hook generator](/concepts/executor#generated-hook-settings) includ
 delivery hooks and preserves user handlers; Claude installs locally and Codex
 prints configuration for an explicit merge and trust review.
 
+### Pending Commands (`--after`)
+
+`aiur command request <question> --after 5,6` stores the Command as pending
+instead of publishing it. It reaches no inbox until every listed ticket is
+merged, which means closed with reason `completed`. It then publishes with the
+idempotency key printed at request time.
+
+At request time each ticket is read once. An unknown ticket, one already closed
+without merging, or a tracker that cannot report closure (Linear, memory) is
+refused with exit `64`. If every ticket has already merged, the Command
+publishes at once.
+
+There is no polling timer. A ticket is read again only when the daemon sees its
+PR merge or its agent state move to `done` or `cancelled`, and once at daemon
+start. Those reads are metered as `pending_commands`. A ticket closed by hand
+with no PR or agent state change is noticed at the next start.
+
+Any other closure drops the Command: `not_planned`, `duplicate`, no reason, any
+other reason, or a deleted ticket. The drop raises a
+`ticket.<blocker>.agent.attention.command_dropped` attention for the Executor.
+A Command the daemon refuses at publication is dropped the same way. An entry
+leaves the store only after its attention is recorded.
+
+Pending Commands survive a daemon restart. `aiur command` lists them with their
+tickets, and `aiur command cancel <pending-id>` removes one. Media is checked
+again at publication.
+
 ### `executor-wait` outcomes
 
 Executor-originated Command answers produce `executor.decision.answered` wakes

@@ -9,8 +9,12 @@ defmodule Aiur.CommandsCLI.Printer do
     Enum.each(envelope["sources"], fn {name, value} -> IO.puts("#{name}: #{value["state"]}; freshness #{value["freshness"]}") end)
 
     case get_in(envelope, ["data", "selected"]) do
-      nil -> print_rows(get_in(envelope, ["data", "page", "decisions"]) || [], get_in(envelope, ["snapshot", "captured_at"]))
-      decision -> print_detail(decision, get_in(envelope, ["snapshot", "captured_at"]), get_in(envelope, ["data", "history"]) || [])
+      nil ->
+        print_rows(get_in(envelope, ["data", "page", "decisions"]) || [], get_in(envelope, ["snapshot", "captured_at"]))
+        print_pending(get_in(envelope, ["data", "pending"]))
+
+      decision ->
+        print_detail(decision, get_in(envelope, ["snapshot", "captured_at"]), get_in(envelope, ["data", "history"]) || [])
     end
 
     page = get_in(envelope, ["data", "page"])
@@ -19,6 +23,14 @@ defmodule Aiur.CommandsCLI.Printer do
   end
 
   defp partial_rows?(page), do: Enum.any?(page["decisions"] || [], &(&1["freshness"] == "partial"))
+
+  defp print_pending(nil), do: IO.puts("Pending Commands: unavailable")
+  defp print_pending([]), do: :ok
+
+  defp print_pending(rows) do
+    IO.puts("Pending until their tickets merge:")
+    Enum.each(rows, &IO.puts("#{&1["id"]}  after #{Enum.map_join(&1["after"], ", ", fn id -> "##{id}" end)}  #{&1["short_summary"] || &1["question"]}"))
+  end
 
   defp print_rows([], _captured_at), do: IO.puts("No Commands match this filter.")
 

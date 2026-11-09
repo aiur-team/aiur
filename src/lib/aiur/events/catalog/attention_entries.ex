@@ -12,6 +12,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.before_run_resume_exhausted", "orchestration"},
     # aiur/orchestrator/retry_engine/hold_streak.ex
     {"ticket.*.agent.attention.budget-hold-persistent", "orchestration"},
+    # aiur/control_cli/pending_commands.ex
+    {"ticket.*.agent.attention.command_dropped", "control-cli"},
     # aiur/orchestrator/comment_wake/dispatch.ex
     {"ticket.*.agent.attention.comment_wake_dispatch_declined", "orchestration"},
     # aiur/orchestrator/comment_wake/idle_rework.ex
