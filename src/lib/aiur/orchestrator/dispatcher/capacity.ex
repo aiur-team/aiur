@@ -198,7 +198,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       load_threshold: Map.get(sample, :load_threshold, Config.max_load_average()),
       target: Map.get(sample, :target, Config.target_load_average()),
       provider_backends: DispatchPolicy.read_provider_backends(),
-      github_quota: DispatchPolicy.read_github_quota()
+      github_quota: DispatchPolicy.read_github_quota(),
+      disk_status: Aiur.DiskWatchdog.current()
     })
   end
 
@@ -401,6 +402,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         "threshold_mb=#{threshold_mb}"
     )
   end
+
+  defp log_admission_hold(%{signal: :disk, measured: used_percent, threshold: threshold, detail: detail}),
+    do: Logger.warning("aiur_perf disk_hold used_percent=#{used_percent} threshold=#{threshold} #{detail}")
 
   defp log_admission_hold(%{signal: :file_descriptors, measured: sample}) do
     log_fd_hold(sample)
