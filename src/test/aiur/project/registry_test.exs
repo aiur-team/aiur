@@ -8,13 +8,16 @@ defmodule Aiur.Project.RegistryTest do
     me = self()
 
     root =
-      spawn(fn ->
-        {:ok, _} = ProjectRegistry.register_root(project)
-        send(me, :registered)
-        Process.sleep(:infinity)
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, _} = ProjectRegistry.register_root(project)
+           send(me, :registered)
+           receive do: (:never -> :ok)
+         end}
+      )
 
-    assert_receive :registered
+    assert_receive :registered, 1_000
     assert ProjectRegistry.root_pid(project.id) == root
 
     # Hold the partitions so the Registry cannot process the root's exit: the window the race lives in.
@@ -24,7 +27,7 @@ defmodule Aiur.Project.RegistryTest do
 
     ref = Process.monitor(root)
     Process.exit(root, :kill)
-    assert_receive {:DOWN, ^ref, :process, _, :killed}
+    assert_receive {:DOWN, ^ref, :process, _, :killed}, 1_000
 
     refute project.id in ProjectRegistry.project_ids()
     assert ProjectRegistry.root_pid(project.id) == nil
