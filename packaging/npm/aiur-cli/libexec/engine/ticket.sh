@@ -125,10 +125,12 @@ cmd_ticket_reopen() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --json) json=1 ;;
-      --reason|--state)
-        [ "$#" -gt 1 ] || { echo "aiur: $1 requires a value" >&2; exit 64; }
-        if [ "$1" = --reason ]; then reason="$2"; else state="$2"; fi
-        shift ;;
+      --reason)
+        [ "$#" -gt 1 ] || { echo 'aiur: --reason requires a value' >&2; exit 64; }
+        reason="$2"; shift ;;
+      --state)
+        [ "$#" -gt 1 ] || { echo 'aiur: --state requires a value' >&2; exit 64; }
+        state="$2"; shift ;;
       *) echo "aiur: unknown ticket reopen option: $1" >&2; exit 64 ;;
     esac
     shift
