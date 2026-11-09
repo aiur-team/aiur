@@ -4,6 +4,8 @@
   "layer": 3,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/gateway/state_migration.ex",
+    "src/lib/aiur/gateway/state_migration_cli.ex",
     "src/lib/aiur/machine/instance_record.ex"
   ],
   "facades": [
@@ -11,6 +13,7 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "config",
     "identity",
     "kernel"
   ],

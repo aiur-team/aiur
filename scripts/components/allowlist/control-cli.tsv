@@ -16,6 +16,7 @@ R-optional	Aiur.Executor.StatePaths	MP-R2-C2-T07: full-product app boot supplies
 R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorSweep.CLI	#5211 routes the optional sweep CLI through the shared control-protocol guard
+R-optional	Aiur.Gateway.StateMigrationCli	#7661 `aiur gateway migrate-state` is dispatched by the control CLI; the verb is owned by machine-gateway
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.LaneCLI	#7493 lane verbs are the canonical spelling and the control CLI delegates to the build-orders lane CLI
