@@ -18,7 +18,7 @@ defmodule Aiur.ControlCLI.MediaSpec do
 
     with :ok <- present(locator),
          {:ok, attrs} <- attrs(pairs) do
-      mime = attrs["mime"] || mime(locator)
+      mime = attrs["mime"] || mime(attrs["kind"], locator)
 
       item =
         %{locator: locator, mime_type: mime, kind: attrs["kind"] || kind(mime), alt_text: attrs["alt"], caption: attrs["caption"]}
@@ -40,11 +40,14 @@ defmodule Aiur.ControlCLI.MediaSpec do
     end)
   end
 
-  defp mime(locator), do: locator |> URI.parse() |> Map.get(:path) |> to_string() |> MIME.from_path()
+  # An embed URL names a page, not a file; `Media.normalize/2` defaults it to text/html.
+  defp mime("embed", _locator), do: nil
+  defp mime(_kind, locator), do: locator |> URI.parse() |> Map.get(:path) |> to_string() |> MIME.from_path()
 
   defp kind(mime) when mime in ["image/gif", "image/apng"], do: "animated_image"
   defp kind("image/" <> _rest), do: "image"
   defp kind("video/" <> _rest), do: "video"
   defp kind("audio/" <> _rest), do: "audio"
+  defp kind("text/html"), do: "embed"
   defp kind(_mime), do: nil
 end

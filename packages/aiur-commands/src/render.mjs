@@ -52,7 +52,7 @@ function labelOf(options, key) {
 const STATE_ORDER = ['conflict', 'error', 'unavailable', 'expired', 'escalated', 'rejected', 'revised', 'answered', 'pending'];
 
 /** The typed Command media kinds the contract can carry. */
-export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
+export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio', 'embed'];
 
 /** The human label for a Command or list state. */
 export function stateLabel(state) {
@@ -223,6 +223,8 @@ function typedMediaMarkup(item, command, options) {
   ].join('');
   const name = escapeHtml(item.alt_text ?? item.caption ?? 'Command media');
 
+  if (kind === 'embed') return embedMarkup(item, source, name, size, caption, options);
+
   if (kind === 'image' || kind === 'animated_image') {
     return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="${escapeHtml(kind)}">
   <img src="${escapeHtml(source)}" alt="${name}" loading="lazy" decoding="async"${size}>
@@ -252,6 +254,59 @@ function typedMediaMarkup(item, command, options) {
 </figure>`;
 }
 
+// An embed is an interactive page. The iframe sits in an inert <template> until
+// the operator clicks Load (see `loadEmbed`), and runs with scripts only: no
+// same-origin access, no top navigation, no popups, no referrer. A host that
+// cannot frame pages passes `embeds: false` and gets the alt text and a link.
+function embedMarkup(item, source, name, size, caption, options) {
+  const href = escapeHtml(source);
+  const fallback = `<p class="aiur-command-embed-fallback" data-part="embed-fallback">${escapeHtml(item.alt_text ?? '')} <a href="${href}" target="_blank" rel="noopener noreferrer">Open in a new tab</a></p>`;
+  const frame = options?.embeds === false
+    ? ''
+    : `<div class="aiur-command-embed" data-part="embed">
+    <button type="button" data-part="embed-load" data-aiur-embed-load>Load ${name}</button>
+    <template data-part="embed-frame"><iframe src="${href}" title="${name}" sandbox="allow-scripts" referrerpolicy="no-referrer"${size}></iframe></template>
+  </div>`;
+
+  return `<figure class="aiur-command-media-item" data-part="media-item" data-media-kind="embed">
+  ${frame}
+  ${fallback}
+  ${caption}
+</figure>`;
+}
+
+/**
+ * Replaces one embed's Load button with its sandboxed iframe.
+ *
+ * @param {Element} button an element carrying `data-aiur-embed-load`
+ * @returns {HTMLIFrameElement | null} the loaded iframe
+ */
+export function loadEmbed(button) {
+  const container = button?.closest?.('[data-part="embed"]');
+  const template = container?.querySelector('template[data-part="embed-frame"]');
+  if (!template) return null;
+
+  button.replaceWith(template.content.cloneNode(true));
+  template.remove();
+  return container.querySelector('iframe');
+}
+
+/**
+ * Loads an embed when its Load button inside `root` is clicked.
+ *
+ * @param {Element | Document} root
+ * @returns {() => void} removes the listener
+ */
+export function bindEmbeds(root) {
+  const onClick = (event) => {
+    const button = event.target?.closest?.('[data-aiur-embed-load]');
+    if (button && root.contains(button)) loadEmbed(button);
+  };
+
+  root.addEventListener('click', onClick);
+  return () => root.removeEventListener('click', onClick);
+}
+
 function captionMarkup(item) {
   if (!item?.caption) return '';
   const kind = item.kind === 'animated_image' ? '<span class="aiur-command-media-kind" data-part="media-kind">Animated</span>' : '';
@@ -262,6 +317,8 @@ function captionMarkup(item) {
 // scoped Commands media route when the host tells the renderer its base URL.
 // Anything else is unavailable rather than a broken element.
 function mediaSource(item, command, options) {
+  // An embed frames only its own URL, never the attachment route.
+  if (item?.kind === 'embed') return item.locator?.kind === 'url' && isHttps(item.locator.value) ? item.locator.value : null;
   return locatorSource(item?.locator, command, options);
 }
 
@@ -345,7 +402,7 @@ function noticeMarkup(command) {
  * Renders one Command component.
  *
  * @param {import('./contract.d.ts').CommandComponent} command
- * @param {{answerUrl?: string, escalateUrl?: string, method?: string, mediaBaseUrl?: string, labels?: Partial<typeof DEFAULT_LABELS>}} [options]
+ * @param {{answerUrl?: string, escalateUrl?: string, method?: string, mediaBaseUrl?: string, embeds?: boolean, labels?: Partial<typeof DEFAULT_LABELS>}} [options]
  * @returns {string}
  */
 export function renderCommand(command, options = {}) {
