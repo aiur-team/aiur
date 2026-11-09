@@ -1,6 +1,8 @@
 defmodule Aiur.ExecutorWakeProjection do
   @moduledoc false
 
+  alias Aiur.Events.Sanitizer
+
   @actions ~w(opened ready_for_review closed merged synchronize push passed failed paused parked_ready human_review)
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
   @sha ~r/\A[0-9a-fA-F]{7,64}\z/
@@ -100,6 +102,103 @@ defmodule Aiur.ExecutorWakeProjection do
       :ignore
     end
   end
+
+  @doc """
+  Adds the accepted answer, its ticket, and the ticket's Build Order feature and
+  epic to an `executor.decision.answered` wake, so the Executor can act without
+  extra reads (#7874). Answer text is sanitized and named in `untrusted_fields`.
+  `feature`/`epic` come from `feature_lookup` (ticket number ->
+  `{:ok, %{feature, epic}} | :unknown`) and are `nil` when it has no owner,
+  is absent, or exits.
+  """
+  @spec with_answer(map(), Aiur.Decision.t(), (pos_integer() -> {:ok, map()} | :unknown) | nil) :: map()
+  def with_answer(record, decision, feature_lookup \\ nil) do
+    case Aiur.Decision.answer_for_action(decision, decision.active_action_id) do
+      nil ->
+        record
+
+      answer ->
+        ticket = Aiur.Commands.override_target_ticket(decision).identifier
+        {feature, epic} = owner(ticket, feature_lookup)
+
+        record
+        |> Map.merge(%{"ticket" => ticket, "feature" => feature, "epic" => epic})
+        |> Map.merge(answer_fields(answer))
+        |> Map.put("untrusted_fields", ~w(custom_response question_answers feedback))
+    end
+  end
+
+  @doc """
+  Adds a changed premise's answers to a `premise-changed` attention wake: the
+  new answer under the answered-wake keys (`nil` fields when mooted), the old
+  answer in the same shape under `previous`, and the ticket's `feature`/`epic`
+  from `feature_lookup` as in `with_answer/3`.
+  """
+  @spec with_premise_answers(map(), Aiur.DecisionAnswer.t() | nil, Aiur.DecisionAnswer.t() | nil, (pos_integer() -> {:ok, map()} | :unknown) | nil) ::
+          map()
+  def with_premise_answers(record, answer, previous, feature_lookup \\ nil) do
+    {feature, epic} = owner(record["ticket"], feature_lookup)
+
+    record
+    |> Map.merge(%{"feature" => feature, "epic" => epic})
+    |> Map.merge(answer_fields(answer))
+    |> Map.merge(%{
+      "previous" => if(previous, do: answer_fields(previous)),
+      "untrusted_fields" => ~w(custom_response question_answers feedback previous moot_reason)
+    })
+  end
+
+  defp answer_fields(nil), do: Map.new(~w(option_id question_answers custom_response feedback rejected actor actor_source), &{&1, nil})
+
+  defp answer_fields(answer) do
+    question_answers = question_answers(answer.custom_response)
+
+    %{
+      "option_id" => answer.selected_option_id,
+      "question_answers" => strip(question_answers),
+      "custom_response" => if(question_answers, do: nil, else: strip(answer.custom_response)),
+      "feedback" => strip(answer.feedback),
+      "rejected" => answer.rejected,
+      "actor" => actor(answer.actor),
+      "actor_source" => answer.actor |> source() |> then(&(&1 && to_string(&1)))
+    }
+  end
+
+  defp actor(%{kind: kind} = actor), do: %{"kind" => to_string(kind), "id" => Map.get(actor, :id)}
+  defp actor(_actor), do: nil
+
+  defp source(actor) when is_map(actor), do: Map.get(actor, :source)
+  defp source(_actor), do: nil
+
+  # Multi-question answers are stored JSON-encoded in custom_response (Commands.Answering.QuestionAnswers).
+  defp question_answers(response) when is_binary(response) do
+    case Jason.decode(response) do
+      {:ok, %{"kind" => "question_answers", "question_answers" => answers}} when is_map(answers) -> answers
+      _other -> nil
+    end
+  end
+
+  defp question_answers(_response), do: nil
+
+  # The lookup is injected so this component does not depend on build-orders. A
+  # dead or slow registry must not crash the listener and lose the answer.
+  defp owner(ticket, lookup) when is_binary(ticket) and is_function(lookup, 1) do
+    with {number, ""} <- Integer.parse(ticket),
+         {:ok, %{feature: feature, epic: epic}} when is_binary(feature) <- lookup.(number) do
+      {feature, epic}
+    else
+      _unknown -> {nil, nil}
+    end
+  catch
+    :exit, _reason -> {nil, nil}
+  end
+
+  defp owner(_ticket, _lookup), do: {nil, nil}
+
+  defp strip(text) when is_binary(text), do: Sanitizer.strip_untrusted_text(text)
+  defp strip(list) when is_list(list), do: Enum.map(list, &strip/1)
+  defp strip(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, strip(value)} end)
+  defp strip(other), do: other
 
   defp observation_marker(record, event) do
     case value(event, :observation) do

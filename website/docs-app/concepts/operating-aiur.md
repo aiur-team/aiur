@@ -188,7 +188,9 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
-| Daemon memory watchdog | The daemon BEAM above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once, naming the five processes that hold the most memory. The kernel OOM killer leaves no crash dump, so this alert is the evidence. |
+| Disk pressure watchdog | Every minute Aiur checks the filesystems that hold `workspace.root`, the run-log root and `~/.aiur`. Above `monitoring.disk_alert_percent` used (default 90%), it raises `system.disk.pressure` once. The alert names the filesystem, its use, its free space and the largest workspace directories. At `monitoring.disk_stop_dispatch_percent` (default 97%), or below `monitoring.disk_stop_dispatch_free_gb` free (default 10 GiB), it stops new dispatch until usage is 2 points under the line, and `aiur status` shows the reason and the sample's age. `system.disk.pressure.resolved` clears the alert. If the check fails or times out, the `DISK` line shows `unknown`; if the watchdog stops sampling, it shows `stale`, never an old percentage. |
+| Daemon memory watchdog | Daemon memory (resident or BEAM total) above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once and logs the five largest processes and ETS tables, plus any process too busy to answer. Any one process whose heap passes 4 GiB is killed, and the daemon log records its pid and stack trace. The kernel OOM killer leaves no crash dump, so these log lines are the evidence. |
+| Full disk | A daemon state file or run-log write that fails with "No space left on device" raises one `system.disk.pressure` needs-attention alert naming the path. The daemon keeps running and drops the failed writes; the next successful write ends the episode, and a new episode alerts again after ten minutes. |
 | Project tree | A project in `projects:` whose tree fails to start or crash-loops raises `system.project.boot_failed` (repo and reason, never the config path); `.resolved` follows when `aiur gateway reload` starts it. |
 
 An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
@@ -284,6 +286,12 @@ and queue, and a state directory beside today's (`<state root>/<instance>/<repo 
 - **`aiur status --json`** prints `{"observed_at", "projects": [...]}`, one row per project with
   `state` (`running` or `failed`), the running-agent count and its snapshot age; the count is
   `null` when no current snapshot exists.
+- **The dashboard shows one project at a time.** Pick it from the Projects page, or add
+  `?project=<owner/repo>` to a dashboard or `/api/v1` URL; the browser session keeps the pick for the
+  rest of the visit. With exactly one project, no selection is needed. With several and no pick,
+  project pages send you to `/projects` to choose, and the project API endpoints answer `409`
+  `project_required` with the running project ids. A pick naming no running project answers `404`
+  `unknown_project`.
 - An invalid or unreadable `~/.aiur/machine` refuses daemon start rather than falling back to one project.
 
 ## Remote control

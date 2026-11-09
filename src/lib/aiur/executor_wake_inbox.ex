@@ -19,6 +19,27 @@ defmodule Aiur.ExecutorWakeInbox do
   @spec enqueue(map(), GenServer.server()) :: :ok
   def enqueue(record, server \\ __MODULE__) when is_map(record), do: GenServer.call(server, {:enqueue, record})
 
+  @doc """
+  Projects an attention event to a wake record and enqueues it, keeping the
+  event's extra string fields. `"answer"` and `"previous"` may carry a premise
+  change's `DecisionAnswer`s; they are rendered in the answered-wake shape. A
+  stopped inbox drops the wake. `feature_lookup` fills `feature`/`epic` as in
+  `ExecutorWakeProjection.with_premise_answers/4`.
+  """
+  @spec enqueue_attention(map(), GenServer.server(), (pos_integer() -> {:ok, map()} | :unknown) | nil) :: :ok
+  def enqueue_attention(event, server \\ __MODULE__, feature_lookup \\ nil) do
+    {answer, event} = Map.pop(event, "answer")
+    {previous, event} = Map.pop(event, "previous")
+
+    with {:ok, record} <- Aiur.ExecutorWakeProjection.project(event), pid when pid != nil <- GenServer.whereis(server) do
+      event |> Map.merge(record) |> Aiur.ExecutorWakeProjection.with_premise_answers(answer, previous, feature_lookup) |> enqueue(pid)
+    end
+
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
   @spec wait(non_neg_integer(), GenServer.server()) :: {:ok, [map()]} | :timeout | {:error, term()}
   def wait(timeout_ms, server \\ __MODULE__) when is_integer(timeout_ms) and timeout_ms >= 0 do
     wait(timeout_ms, nil, false, server)

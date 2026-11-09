@@ -201,6 +201,28 @@ defmodule Aiur.CodingAgent.UsageFloorGateTest do
       assert UsageFloorGate.credit_reading("openrouter", provider_view_fun: fn :openrouter -> observed_view(%{"credits-remaining" => %{kind: :credit}}) end) == nil
     end
 
+    # #7879: a $0 balance on a key with no known limit, with the floor off.
+    test "a spent balance holds the route even without a known limit or a floor" do
+      exhausted = %{"credits-remaining" => %{kind: :credit, remaining: 0, credits: %{status: :exhausted, amount: 0}}}
+      candidate = %{backend: "openrouter", account: nil, route: "openrouter"}
+
+      gate_opts =
+        opts(
+          usage_floor_percent_fun: fn _backend -> 0 end,
+          provider_view_fun: fn :openrouter -> observed_view(exhausted) end
+        )
+
+      assert {[], [%{candidate: ^candidate, held: %{remaining_percent: +0.0}}]} = UsageFloorGate.split_candidates([candidate], %{}, gate_opts)
+    end
+
+    test "a stale spent balance does not hold the route" do
+      exhausted = %{"credits-remaining" => %{kind: :credit, remaining: 0, credits: %{status: :exhausted, amount: 0}}}
+      candidate = %{backend: "openrouter", account: nil, route: "openrouter"}
+      stale = fn :openrouter -> %{observed_view(exhausted) | freshness: :stale} end
+
+      assert {[^candidate], []} = UsageFloorGate.split_candidates([candidate], %{}, opts(provider_view_fun: stale))
+    end
+
     test "an unobserved provider has no reading" do
       assert UsageFloorGate.credit_reading("openrouter", provider_view_fun: fn :openrouter -> %{state: :unknown} end) == nil
     end

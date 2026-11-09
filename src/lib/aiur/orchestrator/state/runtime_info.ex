@@ -122,7 +122,9 @@ defmodule Aiur.Orchestrator.State.RuntimeInfo do
           # The skills this worker loaded first and why, as the preload summary
           # the dispatch record also carries. Absent for a run that never
           # reported one, so `aiur agents` shows nothing rather than "none".
-          skills: optional_runtime_string(info[:skills])
+          skills: optional_runtime_string(info[:skills]),
+          # Structured form of the same preload; nil (unknown) when never reported.
+          skill_preload: if(is_map(info[:skill_preload]), do: info[:skill_preload])
         }
 
         {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}

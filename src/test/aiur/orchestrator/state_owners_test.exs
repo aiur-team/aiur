@@ -113,12 +113,19 @@ defmodule Aiur.Orchestrator.StateOwnersTest do
     @lib |> Path.join("**/*.ex") |> Path.wildcard() |> Enum.flat_map(&scan_file/1) |> MapSet.new()
   end
 
-  defp scan_file(path), do: path |> File.read!() |> StateWriteScan.scan_source(@fields) |> MapSet.to_list()
+  defp scan_file(path), do: path |> read_source!() |> StateWriteScan.scan_source(@fields) |> MapSet.to_list()
 
   defp owner_member?(module, owner) do
     Enum.any?(Owners.members_of(owner), fn member ->
       module == member or
         (member != Aiur.Orchestrator and String.starts_with?(Atom.to_string(module), Atom.to_string(member) <> "."))
     end)
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

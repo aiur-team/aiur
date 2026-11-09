@@ -148,16 +148,19 @@ defmodule Aiur.Journal do
   def append_many(path, events, opts) when is_binary(path) and is_list(events) do
     encoded = Enum.map_join(events, "", fn event when is_map(event) -> Jason.encode!(event) <> "\n" end)
 
-    with :ok <- reject_symlink(path),
-         {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
-      try do
-        append_record(fd, path, encoded, Keyword.get(opts, :file_ops, :file))
-      after
-        :file.close(fd)
+    result =
+      with :ok <- reject_symlink(path),
+           {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
+        try do
+          append_record(fd, path, encoded, Keyword.get(opts, :file_ops, :file))
+        after
+          :file.close(fd)
+        end
+      else
+        {:error, reason} -> {:failed, reason}
       end
-    else
-      {:error, reason} -> {:failed, reason}
-    end
+
+    Aiur.DiskFull.observe(path, result)
   end
 
   @doc "Atomically replaces a prepared journal with pre-encoded records."

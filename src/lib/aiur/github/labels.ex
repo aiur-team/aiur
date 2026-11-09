@@ -50,12 +50,14 @@ defmodule Aiur.GitHub.Labels do
   @executor_suffix "executor"
   @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
+  @premise_changed_suffix "premise-changed"
   @marker_suffixes [
     @watch_suffix,
     @paused_suffix,
     @parked_suffix,
     @queued_suffix,
-    @rate_limit_fallback_suffix
+    @rate_limit_fallback_suffix,
+    @premise_changed_suffix
   ]
 
   @type request :: %{
@@ -151,6 +153,10 @@ defmodule Aiur.GitHub.Labels do
   @doc "The marker that records ownership of an automatic usage-limit fallback."
   @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
   def rate_limit_fallback_marker_labels(prefix), do: ["#{prefix}:#{@rate_limit_fallback_suffix}"]
+
+  @doc "Suffix of the marker set on a ticket whose `Premises:` decision changed."
+  @spec premise_changed_suffix() :: String.t()
+  def premise_changed_suffix, do: @premise_changed_suffix
 
   @spec marker_labels(String.t()) :: [String.t()]
   def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
@@ -298,6 +304,21 @@ defmodule Aiur.GitHub.Labels do
     with {:ok, {owner, repo}} <- Access.parse_repo(),
          {:ok, token} <- Access.require_token() do
       ensure_with(owner, repo, token, [gateway_label(slug)])
+    end
+  end
+
+  @waiting_label "gateway-waiting:project-missing"
+
+  @doc "The delegator's marker: the owning gateway does not run this repo. A projection, never a dispatch gate."
+  @spec gateway_waiting_label() :: String.t()
+  def gateway_waiting_label, do: @waiting_label
+
+  @doc "Ensure the waiting label exists in the configured repo."
+  @spec ensure_waiting_label() :: :ok | {:error, term()}
+  def ensure_waiting_label do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      ensure_with(owner, repo, token, [%{name: @waiting_label, color: "d4c5f9", description: "Delegated to a gateway that does not run this repo"}])
     end
   end
 

@@ -5,13 +5,14 @@ defmodule Aiur.DecisionStore.Withdrawals do
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
+  alias Aiur.DecisionEvent
   alias Aiur.DecisionStore.AgentLifecycle
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Siblings
-  alias Aiur.Signal
+  alias Aiur.{SecretRedactor, Signal}
 
   @spec handle_dismiss(term(), term(), term()) :: term()
   def handle_dismiss(decision_id, opts, state) do
@@ -179,22 +180,24 @@ defmodule Aiur.DecisionStore.Withdrawals do
          {:ok, actor} <- Answers.fetch_actor(opts),
          {:ok, reason_class} <- moot_reason_class(payload),
          {:ok, detail} <- moot_detail(payload),
+         moot <- moot_fields(decision, reason_class, detail, payload),
+         :ok <- moot_replay(state, decision, moot),
          :ok <- require_moot_version(decision, payload) do
       case decision.decision_status do
         :open ->
-          persist_mooting(decision, reason_class, detail, actor, state)
+          persist_mooting(decision, moot, actor, state)
 
         :deferred ->
-          persist_mooting(decision, reason_class, detail, actor, state)
+          persist_mooting(decision, moot, actor, state)
 
         :expired when decision.blocking and is_nil(decision.answer) ->
-          persist_mooting(decision, reason_class, detail, actor, state)
+          persist_mooting(decision, moot, actor, state)
 
         :moot ->
           {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
 
         :decided ->
-          moot_undelivered(decision, reason_class, detail, actor, state)
+          moot_undelivered(decision, moot, actor, state)
 
         status when status in [:acknowledged, :resolved] ->
           {:reply, {:error, {:conflict, :answer_delivered}}, state}
@@ -203,6 +206,7 @@ defmodule Aiur.DecisionStore.Withdrawals do
           {:reply, {:error, {:conflict, status}}, state}
       end
     else
+      {:duplicate, decision} -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
   end
@@ -212,10 +216,10 @@ defmodule Aiur.DecisionStore.Withdrawals do
   # the audit trail, the `:moot` status stops every later dispatch, and the
   # delivery gate refuses a copy that is already queued (#2711). A delivered
   # answer is immutable, so this is refused once any action was delivered.
-  defp moot_undelivered(decision, reason_class, detail, actor, state) do
+  defp moot_undelivered(decision, moot, actor, state) do
     with :ok <- require_withdrawable(decision),
          :ok <- require_executor_may_withdraw(decision, actor) do
-      case persist_mooting(decision, reason_class, detail, actor, state) do
+      case persist_mooting(decision, moot, actor, state) do
         {:reply, {:ok, %{status: :accepted}}, _next_state} = reply ->
           FailureAttention.emit_withdrawn_delivery_resolution(decision, decision.active_action_id, :moot)
           reply
@@ -320,6 +324,43 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
+  # A retried moot carries the same idempotency key. Only its digest is kept,
+  # matching how answer keys become action ids. The same key with different
+  # fields is a conflict, as it is for executor-answer.
+  defp moot_fields(decision, reason_class, detail, payload) do
+    key =
+      case AgentLifecycle.payload_value(payload, :idempotency_key) do
+        key when is_binary(key) and key != "" -> DecisionAnswer.action_id(decision.decision_id, key |> String.trim() |> SecretRedactor.redact())
+        _none -> nil
+      end
+
+    rationale =
+      case AgentLifecycle.payload_value(payload, :rationale) do
+        value when is_binary(value) -> if String.trim(value) == "", do: nil, else: String.trim(value)
+        _none -> nil
+      end
+
+    %{reason_class: reason_class, detail: detail, idempotency_id: key, rationale: rationale}
+  end
+
+  defp moot_replay(_state, _decision, %{idempotency_id: nil}), do: :ok
+
+  defp moot_replay(state, %Decision{decision_status: :moot} = decision, moot) do
+    recorded =
+      state.audit_history
+      |> Map.get(decision.decision_id, [])
+      |> Enum.filter(&match?(%DecisionEvent{type: :decision_mooted}, &1))
+      |> List.last()
+
+    cond do
+      is_nil(recorded) or Map.get(recorded.data, :idempotency_id) != moot.idempotency_id -> :ok
+      Map.take(recorded.data, [:reason_class, :detail, :rationale]) == Map.take(moot, [:reason_class, :detail, :rationale]) -> {:duplicate, decision}
+      true -> {:error, {:conflict, {:idempotency_conflict, moot.idempotency_id}}}
+    end
+  end
+
+  defp moot_replay(_state, _decision, _moot), do: :ok
+
   defp moot_detail(payload) do
     case AgentLifecycle.payload_value(payload, :reason) || AgentLifecycle.payload_value(payload, :detail) do
       value when is_binary(value) ->
@@ -333,11 +374,18 @@ defmodule Aiur.DecisionStore.Withdrawals do
     end
   end
 
-  defp persist_mooting(decision, reason_class, detail, actor, state) do
-    data = %{reason_class: reason_class, detail: detail, actor: actor}
+  defp persist_mooting(decision, moot, actor, state) do
+    data = Map.put(moot, :actor, actor)
 
     case Persistence.build_and_persist_event(:decision_mooted, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
+        Map.get(next_state, :premise_notifier, fn _change -> :ok end).(%{
+          decision_id: decision.decision_id,
+          kind: :mooted,
+          old_answer: Decision.active_answer(decision),
+          moot_reason: moot.detail || to_string(moot.reason_class)
+        })
+
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 
       {:error, reason} ->

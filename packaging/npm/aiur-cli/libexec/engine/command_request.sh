@@ -1,9 +1,16 @@
 # Executor-originated Command requests. Context files are read on the caller's machine.
 # @cli-reference aiur command request <question> --media FILE-OR-URL[,kind=K,alt=TEXT,caption=TEXT,option=ID] | Attaches typed media to the prompt, or to one option with `option=ID`; repeatable. Local files must sit under a configured root and become attachments; HTTPS URLs must be allowlisted; expiring URLs are refused. MIME type and kind are inferred from the extension unless `mime=` or `kind=` is given. | aiur command request 'Which sprite?' --option a=Left --option b=Right --media shots/a.png,option=a,alt='Left sprite'
+# @cli-reference aiur command request <question> --after TICKET[,TICKET...] | Holds the Command as pending until every listed ticket is closed as completed, then publishes it. Unknown tickets and trackers that cannot report closure are refused. Any other closure drops it and raises an Executor attention. `aiur command` lists pending Commands. | aiur command request 'Which build feels better?' --option a=First --option b=Second --after 5,6
+# @cli-reference aiur command cancel PENDING-ID | Removes a pending `--after` Command before it publishes. | aiur command cancel pend_1a2b3c4d
 cmd_command() {
   if [ "${1:-}" = request ]; then
     shift
     cmd_command_request "$@"
+    return
+  fi
+  if [ "${1:-}" = cancel ]; then
+    [ "$#" -eq 2 ] && [[ "$2" =~ ^pend_[0-9a-f]{8}$ ]] || { echo "aiur: command cancel expects one pending ID (pend_xxxxxxxx)" >&2; exit 64; }
+    run_control_rpc "Aiur.AgentControlCLI.command_cancel([pending_id: \"$2\"])"
     return
   fi
 
@@ -42,6 +49,7 @@ cmd_command() {
       --quote=*) quote="${arg#--quote=}" ;;
       --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: command --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --answer|--answer=*|--answer-text|--answer-text=*|--answers-file|--answers-file=*) question_answer_flag "$@"; shift "$QA_EXTRA" ;;
       *) echo "aiur: command received an unexpected argument: $arg" >&2; exit 64 ;;
     esac
     shift
@@ -52,7 +60,10 @@ cmd_command() {
     local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
     local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
     [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
-    if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
+    if question_answers_given; then
+      [ -z "$option_id$custom_response" ] || { echo "aiur: command takes --answer/--answer-text/--answers-file or --option/--custom-response, not both" >&2; exit 64; }
+      opts="$opts$(question_answer_argument)"
+    elif [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
     elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
       opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
@@ -64,6 +75,8 @@ cmd_command() {
   else
     [ -z "$idempotency_key" ] || { echo "aiur: command --idempotency-key requires --relayed" >&2; exit 64; }
     [ -z "$quote" ] || { echo "aiur: command --quote requires --relayed" >&2; exit 64; }
+    # ponytail: the interactive operator path previews one answer; per-question answers need --relayed or the dashboard.
+    ! question_answers_given || { echo "aiur: command --answer/--answer-text/--answers-file require --relayed; answer interactively in the dashboard" >&2; exit 64; }
     if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       cmd_operator_answer "$decision_id" --option "$option_id" --operator
     elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
@@ -77,7 +90,7 @@ cmd_command() {
 
 cmd_command_request() {
   local question="${1:-}" arg key value opts context_file="" context="" executor_id=""
-  local options="" media="" recommend="" blocking=true urgency=normal ticket="" summary="" idempotency_key="" json=false
+  local after="" options="" media="" recommend="" blocking=true urgency=normal ticket="" summary="" idempotency_key="" json=false
   [ -n "$question" ] && [[ "$question" != -* ]] || { echo "aiur: command request expects one question" >&2; exit 64; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -85,10 +98,10 @@ cmd_command_request() {
     case "$arg" in
       --blocking) blocking=true; shift; continue ;;
       --json) json=true; shift; continue ;;
-      --option|--media|--recommend|--urgency|--ticket|--context-file|--short-summary|--executor-id|--idempotency-key)
+      --option|--media|--recommend|--urgency|--ticket|--context-file|--short-summary|--executor-id|--idempotency-key|--after)
         [ "$#" -gt 1 ] && [ -n "$2" ] || { echo "aiur: command request $arg requires a value" >&2; exit 64; }
         key="$arg"; value="$2"; shift ;;
-      --option=*|--media=*|--recommend=*|--urgency=*|--ticket=*|--context-file=*|--short-summary=*|--executor-id=*|--idempotency-key=*)
+      --option=*|--media=*|--recommend=*|--urgency=*|--ticket=*|--context-file=*|--short-summary=*|--executor-id=*|--idempotency-key=*|--after=*)
         key="${arg%%=*}"; value="${arg#*=}"
         [ -n "$value" ] || { echo "aiur: command request $key requires a value" >&2; exit 64; } ;;
       *) echo "aiur: command request received an unexpected argument: $arg" >&2; exit 64 ;;
@@ -106,6 +119,7 @@ cmd_command_request() {
       --short-summary) summary="$value" ;;
       --executor-id) executor_id="$value" ;;
       --idempotency-key) idempotency_key="$value" ;;
+      --after) after="$value" ;;
     esac
     shift
   done
@@ -121,10 +135,10 @@ cmd_command_request() {
     executor_id="${AIUR_EXECUTOR_ID:-$(hostname)-${instance_key:0:12}}"
   fi
   opts="question: Base.decode64!(\"$(encode_control_value "$question")\"), options: [$options], media: [$media], blocking: $blocking, json: $json"
-  for key in recommend urgency ticket short_summary executor_id idempotency_key long_context_markdown; do
+  for key in recommend urgency ticket short_summary executor_id idempotency_key long_context_markdown after; do
     case "$key" in
       recommend) value="$recommend" ;; urgency) value="$urgency" ;; ticket) value="$ticket" ;; short_summary) value="$summary" ;;
-      executor_id) value="$executor_id" ;; idempotency_key) value="$idempotency_key" ;; long_context_markdown) value="$context" ;;
+      executor_id) value="$executor_id" ;; idempotency_key) value="$idempotency_key" ;; long_context_markdown) value="$context" ;; after) value="$after" ;;
     esac
     [ -z "$value" ] || opts="$opts, $key: Base.decode64!(\"$(encode_control_value "$value")\")"
   done

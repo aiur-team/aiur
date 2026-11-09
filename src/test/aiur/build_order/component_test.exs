@@ -93,7 +93,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.UsageLedger,
     Aiur.UsageCompaction.Coordinator,
     Aiur.UsageAggregate.Store,
-    {Aiur.DecisionStore, [name: Aiur.DecisionStore]},
+    {Aiur.DecisionStore, [name: Aiur.DecisionStore, premise_notifier: &Aiur.Application.Children.premise_notifier/1]},
     {Aiur.DecisionMetrics.Writer, [path: @metrics_path]},
     Aiur.DecisionMetrics,
     Aiur.RecentMergeStore,
@@ -151,7 +151,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Logs.Retention,
     Aiur.Executor.Claims,
     Aiur.ExecutorWakeInbox,
-    Aiur.ExecutorListener,
+    {Aiur.ExecutorListener, feature_lookup: &Component.feature_and_epic/1},
     AiurWeb.ControlCenterCache,
     AiurWeb.FinancialData.Supervisor,
     {Aiur.HttpServer, dashboard_pages?: true},
@@ -173,6 +173,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.MemoryWatchdog,
+    Aiur.DiskWatchdog,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
@@ -227,7 +228,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
-          Aiur.Executor.TranscriptIngest
+          Aiur.Executor.TranscriptIngest,
+          Aiur.ControlCLI.PendingCommands
         ]
 
     assert Aiur.Application.child_specs(@opts) == expected

@@ -3,6 +3,7 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
 
   alias Aiur.Commands
   alias Aiur.ControlCLI.MediaSpec
+  alias Aiur.ControlCLI.PendingCommands
 
   @spec request(keyword(), keyword()) :: 0 | 1 | 64
   def request(params, deps \\ []) do
@@ -10,8 +11,9 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
          {:ok, options} <- options(Keyword.get(params, :options, [])),
          {:ok, options, recommendation} <- recommend(options, params[:recommend]),
          {:ok, media, options} <- media(Keyword.get(params, :media, []), options),
-         :ok <- validate_identity(params[:executor_id]) do
-      submit(params, options, recommendation, media, deps)
+         :ok <- validate_identity(params[:executor_id]),
+         {:ok, blockers} <- blockers(params[:after]) do
+      if blockers == [], do: submit(params, options, recommendation, media, deps), else: defer(params, blockers, deps)
     else
       {:error, reason} -> error(deps, reason, 64)
     end
@@ -25,6 +27,59 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   # The launcher resolves identity on the caller's machine before RPC.
   defp validate_identity(id) when is_binary(id) and byte_size(id) > 0, do: :ok
   defp validate_identity(_id), do: {:error, "requester identity is required"}
+
+  @doc "Cancels a pending `--after` Command before it publishes."
+  @spec cancel(keyword(), keyword()) :: 0 | 1 | 64
+  def cancel(params, deps \\ []) do
+    id = params[:pending_id]
+    report = Keyword.get(deps, :error_fun, &IO.puts(:stderr, &1))
+
+    case PendingCommands.cancel(id, Keyword.get(deps, :pending_server, PendingCommands)) do
+      {:ok, _entry} ->
+        IO.puts("Cancelled pending Command #{id}")
+        0
+
+      {:error, :not_found} ->
+        report.("aiur: command cancel found no pending Command #{id}")
+        64
+
+      {:error, reason} ->
+        report.("aiur: command cancel failed (#{inspect(reason)})")
+        1
+    end
+  end
+
+  defp blockers(nil), do: {:ok, []}
+  defp blockers(raw), do: PendingCommands.parse_after(raw)
+
+  # Media is re-validated at publication, when the request runs again without --after.
+  defp defer(params, blockers, deps) do
+    case PendingCommands.defer(params, blockers, Keyword.get(deps, :pending_server, PendingCommands)) do
+      {:ok, entry} ->
+        print_pending(entry, params[:json])
+        0
+
+      # A refusal names the blocker that cannot work; nothing was stored.
+      {:error, reason} when is_binary(reason) ->
+        error(deps, "--after refused: #{reason}", 64)
+
+      {:error, reason} ->
+        error(deps, "cannot store pending Command (#{inspect(reason)})", 1)
+    end
+  end
+
+  defp print_pending(entry, true),
+    do: IO.puts(Jason.encode!(%{pending_id: entry["id"], after: entry["after"], status: entry["status"], source_id: entry["params"]["idempotency_key"]}))
+
+  defp print_pending(%{"status" => "published"} = entry, _json) do
+    IO.puts("Every ticket after #{Enum.map_join(entry["after"], ", ", &"##{&1}")} has merged; published the Command now")
+    IO.puts("Idempotency key: #{entry["params"]["idempotency_key"]}\nView: aiur command")
+  end
+
+  defp print_pending(entry, _json) do
+    IO.puts("Pending Command #{entry["id"]}: publishes after #{Enum.map_join(entry["after"], ", ", &"##{&1}")} merge")
+    IO.puts("Cancel: aiur command cancel #{entry["id"]}\nView: aiur command")
+  end
 
   defp submit(params, options, recommendation, media, deps) do
     executor_id = params[:executor_id]

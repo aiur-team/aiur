@@ -12,6 +12,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.before_run_resume_exhausted", "orchestration"},
     # aiur/orchestrator/retry_engine/hold_streak.ex
     {"ticket.*.agent.attention.budget-hold-persistent", "orchestration"},
+    # aiur/control_cli/pending_commands.ex
+    {"ticket.*.agent.attention.command_dropped", "control-cli"},
     # aiur/orchestrator/comment_wake/dispatch.ex
     {"ticket.*.agent.attention.comment_wake_dispatch_declined", "orchestration"},
     # aiur/orchestrator/comment_wake/idle_rework.ex
@@ -74,6 +76,10 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.paused-max_agent_duration", "orchestration"},
     # aiur/orchestrator/duration_cap_release.ex
     {"ticket.*.agent.attention.paused-max_agent_duration.resolved", "orchestration"},
+    # aiur/orchestrator/premise_changes.ex
+    {"ticket.*.agent.attention.premise-changed", "orchestration"},
+    # aiur/ticket_reopen.ex
+    {"ticket.*.agent.attention.reopened", "orchestration"},
     # aiur/orchestrator/comment_wake/reactivation.ex
     {"ticket.*.agent.attention.review_rework_refused", "orchestration"},
     # aiur/orchestrator/rework_gate.ex

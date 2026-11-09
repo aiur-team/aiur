@@ -187,7 +187,7 @@ answer, reject, revise or escalate.
 ## Command media
 
 A Command's prompt and each of its options can carry typed media: `image`,
-`animated_image`, `video`, or `audio`. The component's `media[]` holds those
+`animated_image`, `video`, `audio`, or `embed`. The component's `media[]` holds those
 items, and an option's own `media[]` sits on the option.
 
 A typed item has a `kind`, a `mime_type`, a `locator`, and alt text or a caption.
@@ -218,9 +218,19 @@ server-local path never appears at all.
 host's Aiur origin. Without it, an attachment item renders an unavailable panel
 instead of a broken element. Pass the same option to `renderList`.
 
-The renderer covers all four kinds: images and animated images render with their
-alt text and caption, and video and audio use native `controls` with a poster
-where the item has one. A Command whose media cannot be resolved still renders.
+Images and animated images render with their alt text and caption, and video and
+audio use native `controls` with a poster where the item has one. A Command whose
+media cannot be resolved still renders.
+
+An `embed` item is an interactive page, such as a playable build. Its locator is
+always a `url` on the operator's `decisions.embed_hosts` list. The renderer shows a
+Load button and keeps the iframe in an inert `<template>` until it is clicked;
+call `bindEmbeds(root)` once (or `loadEmbed(button)` yourself) to wire the click.
+
+The iframe runs with `sandbox="allow-scripts"` only, so it gets no same-origin
+access, top navigation or popups, and it sends no referrer. The alt text and an
+"Open in a new tab" link render beside it. A client that cannot frame pages
+passes `embeds: false` and gets only the alt text and the link.
 
 ## Theme the component
 

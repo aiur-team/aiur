@@ -93,6 +93,7 @@ defmodule AiurWeb.Build.IndexSource do
     :exit, _ -> {:error, :index_not_running}
   end
 
-  defp server(opts), do: Keyword.get(opts, :server, Index)
+  # Projects mode runs one index per project tree; `whereis/1` follows the request's project.
+  defp server(opts), do: Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(Index) end)
   defp timeout(opts), do: Keyword.get(opts, :timeout, 4_000)
 end

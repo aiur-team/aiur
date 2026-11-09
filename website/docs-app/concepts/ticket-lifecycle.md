@@ -42,12 +42,12 @@ never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:2
 
 ### Markers are not states
 
-**`agent:paused` is not a state label.** Five suffixes are **markers**,
+**`agent:paused` is not a state label.** Six suffixes are **markers**,
 deliberately kept out of the state machine so the orchestrator never treats
-them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
+them as dispatch states (`src/lib/aiur/github/labels.ex`):
 
 ```text
-watch  paused  parked  queued  rate-limit-fallback
+watch  paused  parked  queued  rate-limit-fallback  premise-changed
 ```
 | Marker | Meaning |
 | --- | --- |
@@ -56,6 +56,7 @@ watch  paused  parked  queued  rate-limit-fallback
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
 | `agent:queued` | Build queue membership; does not authorize or trigger dispatch. Before downgrading to a release without this marker, run `aiur queue clear --remove-markers --yes` and wait for success. It keeps `agent:todo`; budget-held writes resume on retry. Older releases can misread the marker as a conflicting state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
+| `agent:premise-changed` | A decision listed on the ticket's `Premises:` line was revised, superseded or mooted. Aiur sets it on open tickets and wakes the Executor with the old and new answer; the Executor removes it after reviewing the ticket. |
 
 Markers **survive state swaps** (`GitHub.IssueState`): they overlay a state
 rather than replacing it.

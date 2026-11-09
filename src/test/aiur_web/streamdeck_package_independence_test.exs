@@ -18,9 +18,16 @@ defmodule AiurWeb.StreamdeckPackageIndependenceTest do
     offenders =
       files
       |> Enum.reject(&(Path.relative_to(&1, @src) in @prose_only))
-      |> Enum.filter(&(&1 |> File.read!() |> String.contains?("packages/" <> "streamdeck")))
+      |> Enum.filter(&(&1 |> read_source!() |> String.contains?("packages/" <> "streamdeck")))
       |> Enum.map(&Path.relative_to(&1, @src))
 
     assert offenders == []
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

@@ -14,7 +14,8 @@ defmodule Aiur.ControlCall.GateParityTest do
     ticket_usage: [:Aiur, :TicketUsageCLI],
     sweep: [:Aiur, :ExecutorSweep, :CLI],
     pr_merge: [:Aiur, :PrMerge, :Record],
-    listen: [:Aiur, :ListenModeCli]
+    listen: [:Aiur, :ListenModeCli],
+    provenance: [:Aiur, :ControlCLI, :ConfigExplain]
   }
 
   # {module, function, arities, client gate words that send it}. Keyed by {segments, function, arity}
@@ -29,6 +30,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :commands, [0, 1], ~w(commands)},
     {:agent, :commands_repair, [0, 1], ~w(commands)},
     {:agent, :command_request, [1], ~w(command)},
+    {:agent, :command_cancel, [1], ~w(command)},
     {:agent, :units, [0, 1], ~w(units)},
     {:agent, :feature, [0, 1], ~w(feature)},
     {:agent, :lane, [0, 1], ~w(lane)},
@@ -44,6 +46,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :ticket_estimate, [0, 1], ~w(ticket)},
     {:agent, :ticket_owner, [1], ~w(ticket)},
     {:agent, :ticket_assign, [1], ~w(ticket)},
+    {:agent, :ticket_reopen, [1], ~w(ticket)},
     {:agent, :operator_relay_answer, [1], ~w(operator-relay-answer)},
     {:agent, :executor_ack, [1], ~w(executor-ack)},
     {:agent, :executor_claim_decision, [1], ~w(executor-claim-decision)},
@@ -89,7 +92,8 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:usage, :legacy_accounts, [2], ~w(accounts)},
     {:ticket_usage, :rpc, [2], ~w(ticket-usage)},
     {:sweep, :rpc, [1], ~w(executor-sweep)},
-    {:listen, :run, [2], ~w(listen-mode)}
+    {:listen, :run, [2], ~w(listen-mode)},
+    {:provenance, :explain, [2], ~w(config)}
   ]
 
   # Deny-class or deliberately unsent functions.

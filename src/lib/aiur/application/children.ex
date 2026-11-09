@@ -11,7 +11,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
-  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Orchestrator.{InstanceHeartbeatMetadata, PremiseChanges}
   alias Aiur.Ownership
   alias Aiur.Ownership.{Fence, FenceCommand}
   alias Aiur.Project.Supervisors, as: ProjectSupervisors
@@ -234,7 +234,8 @@ defmodule Aiur.Application.Children do
       # over it.
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
-      {Aiur.DecisionStore, name: Aiur.DecisionStore},
+      # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &__MODULE__.premise_notifier/1},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
@@ -329,7 +330,7 @@ defmodule Aiur.Application.Children do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(
       cli_children ++
-        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog] ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog, Aiur.DiskWatchdog] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,
@@ -348,7 +349,13 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_backfill, opts) ++
         List.wrap(
           if(recording?,
-            do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest]
+            do: [
+              Aiur.Executor.Session,
+              Aiur.Executor.SessionIngest,
+              {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+              Aiur.Executor.TranscriptIngest,
+              Aiur.ControlCLI.PendingCommands
+            ]
           )
         )
     )
@@ -363,7 +370,7 @@ defmodule Aiur.Application.Children do
     pollers = ProjectChildren.pollers()
 
     Enum.reject(children, &(child_module(&1) in pollers)) ++
-      [ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+      [Aiur.Gateway.Capacity, ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
   end
 
   defp child_module({module, _opts}), do: module
@@ -445,7 +452,7 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   defp recording_children(true),
-    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, {Aiur.ExecutorListener, feature_lookup: &BuildOrders.feature_and_epic/1}]
 
   defp recording_children(false), do: []
 
@@ -459,6 +466,12 @@ defmodule Aiur.Application.Children do
     %{executors: executors} = Roster.build(record?: false)
     Enum.any?(executors, &(&1.state in [:active, :idle]))
   end
+
+  @doc false
+  # A named capture (not a closure) keeps the DecisionStore child spec comparable.
+  @spec premise_notifier(map()) :: :ok
+  def premise_notifier(change),
+    do: PremiseChanges.notify_async(change, wake: fn event -> Aiur.ExecutorWakeInbox.enqueue_attention(event, Aiur.ExecutorWakeInbox, &BuildOrders.feature_and_epic/1) end)
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil

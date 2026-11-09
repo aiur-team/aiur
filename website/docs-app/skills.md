@@ -76,7 +76,7 @@ Only the Executor overrides estimates, with `aiur ticket estimate … --reason`.
 
 ## Matching skills to a ticket
 
-Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
+Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, then any recommended skills with a path to load, and every other installed skill after them as a name and description to load on demand.
 
 `agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
 
@@ -98,6 +98,16 @@ Labels come first, then lanes, then the owning feature, then its epic, then comp
 
 Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
 
+### Global and project layers
+
+`agent.skills` is the one key a project `.aiur/config` inherits from the global `~/.aiur/config`. Put mappings every repository shares in the global file; a project file adds its own entries on top.
+
+Maps merge by key, at every level. A project `by_lane.ui` entry sits beside a global `by_lane.docs` entry, and a project entry with the same key as a global one replaces the global list (keys compare as matching does).
+
+A project entry of `[]` removes the inherited key, so `by_lane: {docs: []}` maps nothing for docs. Scalars such as `preload_max_bytes` take the project value.
+
+A missing, unparseable or invalid global `agent.skills` contributes nothing; an invalid one logs a warning that names `~/.aiur/config`. The global file is read when the project config loads or reloads, so an edit to the global file alone takes effect on the next project reload or restart.
+
 ### Per-ticket override
 
 A `skills:<name>` label adds skills to one ticket without a config edit. It names a `by_label` entry when one exists, otherwise it names one skill directly.
@@ -111,11 +121,39 @@ agent:
 
 A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills only: a, b` line replaces the configured set for that ticket. A line inside a fenced code block is documentation and does not count.
 
+A `Premises: dec_0123456789abcdef, dec_fedcba9876543210` line names the Command decisions the ticket is built on. Each id is `dec_` plus 16 lowercase hex characters. Backticks are allowed; any other token is ignored with a warning in the daemon log. The same fenced-code rule applies.
+
+When one of those decisions is revised, superseded or mooted, Aiur adds `agent:premise-changed` to the open ticket and messages a running worker. The Executor gets one wake per changed decision: the new answer, the old one under `previous`, or the moot reason.
+
 ### Worker prompt and the index
 
 Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
 
 `agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+
+### Recommended skills
+
+`agent.skills.recommended` takes the same five `by_*` maps for skills that fit the ticket but should not be inlined. They appear under `### Recommended skills (load on demand)` with the skill's name, the reason that matched, its `description:` and the workspace-relative path of its `SKILL.md`.
+
+Their text is never inlined, so they never count against `preload_max_bytes`. A skill that is also mapped stays in the mapped tier, and `Skills only:` replaces the recommended set as well.
+
+```yaml
+agent:
+  skills:
+    by_lane:
+      art: [pixel-art]
+    recommended:
+      by_lane:
+        art: [sprite-sheets, palette-discipline]
+```
+
+### Nested skills
+
+Skills are found up to three directories below an install path: `<skill>`, `<group>/<skill>` and `<group>/<pack>/<skill>`, each holding a `SKILL.md`. A nested skill such as `vendor/<pack>/<skill>/SKILL.md` is named by its own directory, so map it as `<skill>`.
+
+When two skills share a name, the shallower one wins. Aiur stops searching inside a directory once it finds a `SKILL.md` there, and skips directories whose names start with a dot.
+
+It descends only into real directories, never through a symlink, and lists at most 256 directories per install path.
 
 A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
 

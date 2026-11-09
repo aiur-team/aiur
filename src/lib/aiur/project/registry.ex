@@ -34,15 +34,17 @@ defmodule Aiur.Project.Registry do
   @spec project_ids() :: [Aiur.Project.id()]
   def project_ids do
     if Process.whereis(@registry) do
-      @registry
-      |> Registry.select([{{{:"$1", @root}, :_, :_}, [], [:"$1"]}])
+      for({id, pid} <- Registry.select(@registry, [{{{:"$1", @root}, :"$2", :_}, [], [{{:"$1", :"$2"}}]}]), Process.alive?(pid), do: id)
       |> Enum.sort()
     else
       []
     end
   end
 
+  # The Registry unregisters a dead root asynchronously, so a just-crashed root can still be listed.
   defp lookup(project_id) do
-    if Process.whereis(@registry), do: Registry.lookup(@registry, {String.downcase(project_id), @root}), else: []
+    if Process.whereis(@registry),
+      do: for({pid, _} = entry <- Registry.lookup(@registry, {String.downcase(project_id), @root}), Process.alive?(pid), do: entry),
+      else: []
   end
 end

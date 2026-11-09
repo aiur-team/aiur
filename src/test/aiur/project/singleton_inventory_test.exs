@@ -20,14 +20,14 @@ defmodule Aiur.Project.SingletonInventoryTest do
     Map.new(rows)
   end
 
-  # Module => file for every lib module that registers a process under its own name.
+  # Module => source for every lib module that registers a process under its own name.
   defp scanned do
     for file <- Path.wildcard(Path.join(@lib, "**/*.ex")),
-        src = File.read!(file),
+        src = read_source!(file),
         Regex.match?(@registering, src),
         [_, mod] <- [Regex.run(~r/^\s*defmodule ([A-Za-z0-9_.]+) do/m, src)],
         into: %{},
-        do: {mod, file}
+        do: {mod, src}
   end
 
   test "every module registering under its own name is classified by the ADR" do
@@ -44,10 +44,17 @@ defmodule Aiur.Project.SingletonInventoryTest do
     offenders =
       for {mod, {"per-project", ticket}} <- adr(),
           ticket =~ ~r/^MPG-30[345]/,
-          file = scanned[mod],
-          not Regex.match?(~r/Aiur\.Project\.(?:via|name|whereis)\(/, File.read!(file)),
+          src = scanned[mod],
+          not Regex.match?(~r/Aiur\.Project\.(?:via|name|whereis)\(/, src),
           do: mod
 
     assert offenders == []
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end
