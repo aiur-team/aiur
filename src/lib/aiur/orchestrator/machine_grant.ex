@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.MachineGrant do
   """
 
   alias Aiur.Gateway.Capacity
-  alias Aiur.Orchestrator.{ControlLifecycle, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, State}
   alias Aiur.Project.Context
 
   @spec headroom() :: :infinity | non_neg_integer()
@@ -33,6 +33,16 @@ defmodule Aiur.Orchestrator.MachineGrant do
       :ok -> start.()
       {:error, _full} -> unchanged
     end
+  end
+
+  @doc "Tells the broker how many of `issues` dispatch would start, so higher-priority projects get slots first. Returns `state`."
+  @spec report_demand(State.t(), [Aiur.Issue.t()]) :: State.t()
+  def report_demand(%State{} = state, issues) do
+    with id when id != nil <- Context.current_id() do
+      Capacity.report_demand(id, Enum.count(issues, &DispatchPolicy.should_dispatch_issue?(&1, state)))
+    end
+
+    state
   end
 
   @spec sync(State.t()) :: :ok

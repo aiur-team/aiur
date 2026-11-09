@@ -140,7 +140,14 @@ failing its dispatch.
 
 ## Machine capacity across projects
 
-With `projects:` set, one broker shares slots first-come. A project starts an
+With `projects:` set, one broker shares slots by priority. Each project reports
+how many tickets it could start; a project yields a slot to any project with a
+lower `projects[].priority` number (ties by repo) that has ready work and room
+under its own limits. The higher project fills to its maximum first, and when it
+has no ready work the others use every free slot. A running agent is never
+stopped to make room: a project that becomes ready later waits for the next
+slot to free. A project that has not reported in two minutes counts as having no
+other demand, so a hung project cannot hold slots back. A project starts an
 agent only under `capacity.max_agents` (or `--max-agents`), its
 `projects[].max_agents`, and its own limits: the lowest wins. Slots return on
 the next poll tick, or at once if a project crashes. Unset means no machine cap.

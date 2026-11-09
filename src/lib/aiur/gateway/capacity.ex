@@ -6,7 +6,14 @@ defmodule Aiur.Gateway.Capacity do
   read on the dispatch hot path. `acquire/2` takes a slot when a worker starts;
   `sync/2` replaces a project's holders with the orchestrator's own truth each
   tick, which releases finished work. The broker monitors each holder process, so
-  a crashed orchestrator returns its grants at once. Grants are first-come.
+  a crashed orchestrator returns its grants at once.
+
+  When a project reports its ready work (`report_demand/2`), `acquire/2` yields
+  to any higher-priority project that has ready work and room, using
+  `Aiur.Gateway.Allocation`: lower `projects[].priority` first, ties by repo id.
+  Priority only orders new starts; a running agent is never stopped. A project
+  that never reported (or whose report is older than two minutes) is treated as
+  asking for just this one start, so it can never hold slots back from others.
 
   The ceiling is `--max-agents` when given, else `capacity.max_agents` in
   `~/.aiur/machine`; unset means no machine cap. `projects[].max_agents` bounds
@@ -20,10 +27,12 @@ defmodule Aiur.Gateway.Capacity do
 
   require Logger
 
+  alias Aiur.Gateway.Allocation
   alias Aiur.Machine.Settings
 
   @table :aiur_gateway_capacity
   @call_timeout 1_000
+  @demand_ttl_ms 120_000
 
   @type project_id :: String.t()
 
@@ -44,12 +53,16 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   @doc "Takes a slot for `issue_id`; idempotent. A missing broker grants it; a slow one refuses."
-  @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full | :broker_timeout}
+  @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
   def acquire(project_id, issue_id), do: call({:acquire, project_id, issue_id, self()}, :ok, {:error, :broker_timeout})
 
   @doc "Replaces the project's holders with `issue_ids`, the issues now occupying slots."
   @spec sync(project_id(), Enumerable.t()) :: :ok
   def sync(project_id, issue_ids), do: call({:sync, project_id, MapSet.new(issue_ids), self()}, :ok)
+
+  @doc "Records how many tickets `project_id` could start now; refreshed each poll."
+  @spec report_demand(project_id(), non_neg_integer()) :: :ok
+  def report_demand(project_id, ready), do: call({:demand, project_id, ready}, :ok)
 
   @spec snapshot() :: %{ceiling: pos_integer() | nil, held: non_neg_integer(), projects: [map()]} | :unavailable
   def snapshot, do: call(:snapshot, :unavailable)
@@ -73,19 +86,21 @@ defmodule Aiur.Gateway.Capacity do
   @impl true
   def init(opts) do
     :ets.new(@table, [:named_table, :protected, read_concurrency: true])
-    {ceiling, maxes} = limits(opts)
-    state = %{ceiling: ceiling, projects: Map.new(maxes, fn {id, max} -> {id, %{max: max, holders: MapSet.new(), ref: nil}} end)}
+    {ceiling, maxes, priorities} = limits(opts)
+    state = %{ceiling: ceiling, priorities: priorities, demands: %{}, projects: Map.new(maxes, fn {id, max} -> {id, %{max: max, holders: MapSet.new(), ref: nil}} end)}
     publish(state)
     {:ok, state}
   end
 
-  # `:ceiling` and `:projects` (id => max) exist so tests need no machine file.
+  # `:ceiling`, `:projects` (id => max) and `:priorities` exist so tests need no machine file.
   defp limits(opts) do
     if Keyword.has_key?(opts, :projects) do
-      {opts[:ceiling], opts[:projects]}
+      {opts[:ceiling], opts[:projects], Keyword.get(opts, :priorities, %{})}
     else
       {:ok, settings} = Settings.get()
-      {override() || settings.capacity.max_agents, Map.new(settings.projects, &{String.downcase(&1.repo), &1.max_agents})}
+      id = &String.downcase(&1.repo)
+
+      {override() || settings.capacity.max_agents, Map.new(settings.projects, &{id.(&1), &1.max_agents}), Map.new(settings.projects, &{id.(&1), &1.priority})}
     end
   end
 
@@ -93,7 +108,7 @@ defmodule Aiur.Gateway.Capacity do
   def handle_call({:acquire, id, issue_id, pid}, _from, %{projects: projects} = state) do
     case projects do
       %{^id => project} ->
-        case admit(state, project, issue_id) do
+        case admit(state, id, project, issue_id) do
           :ok -> {:reply, :ok, put_holders(state, id, MapSet.put(project.holders, issue_id), pid)}
           error -> {:reply, error, state}
         end
@@ -109,6 +124,10 @@ defmodule Aiur.Gateway.Capacity do
       else: {:reply, :ok, state}
   end
 
+  def handle_call({:demand, id, ready}, _from, state) do
+    {:reply, :ok, put_in(state.demands[id], {ready, System.monotonic_time(:millisecond)})}
+  end
+
   def handle_call(:snapshot, _from, state) do
     rows = Enum.map(state.projects, fn {id, p} -> %{id: id, held: MapSet.size(p.holders), max: p.max} end)
     {:reply, %{ceiling: state.ceiling, held: total(state), projects: rows}, state}
@@ -122,13 +141,38 @@ defmodule Aiur.Gateway.Capacity do
     {:noreply, state}
   end
 
-  defp admit(state, %{holders: holders, max: max}, issue_id) do
+  defp admit(state, project_id, %{holders: holders, max: max}, issue_id) do
     cond do
       MapSet.member?(holders, issue_id) -> :ok
       max && MapSet.size(holders) >= max -> {:error, :project_full}
       state.ceiling && total(state) >= state.ceiling -> {:error, :machine_full}
-      true -> :ok
+      true -> priority_check(state, project_id, issue_id)
     end
+  end
+
+  # Would the priority walk give this project a new start? Other projects count
+  # only by their fresh reported demand; this project counts at least this ask.
+  defp priority_check(state, id, _issue_id) do
+    now = System.monotonic_time(:millisecond)
+    running = Map.new(state.projects, fn {p, v} -> {{p, :none}, MapSet.size(v.holders)} end)
+
+    demands =
+      for {p, {ready, at}} <- state.demands, p != id, now - at <= @demand_ttl_ms, ready > 0, into: %{} do
+        {{p, :none}, %{ready: ready, promoted: 0}}
+      end
+
+    own =
+      case state.demands[id] do
+        {ready, at} when now - at <= @demand_ttl_ms -> ready
+        _ -> 0
+      end
+
+    demands = Map.put(demands, {id, :none}, %{ready: max(own, 1), promoted: 0})
+    limits = for {p, %{max: max}} <- state.projects, max, into: %{}, do: {p, max}
+    capacity = state.ceiling || Enum.sum(Map.values(running)) + Enum.sum(for {_, d} <- demands, do: d.ready)
+    order = state.projects |> Map.keys() |> Enum.sort_by(&{state.priorities[&1] || :infinity, &1}) |> Enum.map(&{&1, :none})
+
+    if Allocation.allocate(capacity, demands, order, limits, running)[{id, :none}], do: :ok, else: {:error, :yielded}
   end
 
   defp put_holders(state, id, holders, pid) do
