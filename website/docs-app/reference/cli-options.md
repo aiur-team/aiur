@@ -139,7 +139,7 @@ A contract version 1 daemon ignores `request_id`. Audit lines carry `request_id`
 
 ### Choosing a project
 
-A gateway can serve several projects (repositories). `--project <owner/repo>` names the one a command works on. It is accepted right after the selector (`aiur --gateway nook --project o/b queue show`) or after the command name (`aiur --gateway nook queue show --project o/b`).
+`--project <owner/repo>` names the project a command works on, right after the selector or after the command name (`aiur --gateway nook queue show --project o/b`).
 
 | Command | Takes `--project` |
 | --- | --- |
