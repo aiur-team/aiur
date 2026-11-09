@@ -226,6 +226,7 @@ An `embed` item is an interactive page, such as a playable build. Its locator is
 always a `url` on the operator's `decisions.embed_hosts` list. The renderer shows a
 Load button and keeps the iframe in an inert `<template>` until it is clicked;
 call `bindEmbeds(root)` once (or `loadEmbed(button)` yourself) to wire the click.
+
 The iframe runs with `sandbox="allow-scripts"` only, so it gets no same-origin
 access, top navigation or popups, and it sends no referrer. The alt text and an
 "Open in a new tab" link render beside it. A client that cannot frame pages

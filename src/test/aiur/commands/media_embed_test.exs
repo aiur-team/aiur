@@ -3,6 +3,7 @@ defmodule Aiur.Commands.MediaEmbedTest do
 
   alias Aiur.Commands.Media
   alias Aiur.Config.Schema
+  alias Aiur.ControlCLI.MediaSpec
   alias Aiur.Workflow
 
   @url "https://play.example.com/builds/42/index.html"
@@ -107,7 +108,7 @@ defmodule Aiur.Commands.MediaEmbedTest do
   end
 
   test "the CLI --media spec builds an option-bound embed that validates" do
-    assert {:ok, {"a", item}} = Aiur.ControlCLI.MediaSpec.parse(@url <> ",kind=embed,alt=Play level 3,option=a")
+    assert {:ok, {"a", item}} = MediaSpec.parse(@url <> ",kind=embed,alt=Play level 3,option=a")
     assert item == %{locator: @url, kind: "embed", alt_text: "Play level 3"}
 
     assert {:ok, [%{kind: :embed, mime_type: "text/html"}]} = Media.normalize([item], [])
