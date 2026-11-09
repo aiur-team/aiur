@@ -6,15 +6,15 @@ defmodule Aiur.Ownership.CLI do
   injectable option (`:read_fun`, `:transfer_fun`, `:liveness_fun`, `:identity_fun`, `:open_pr_fun`,
   `:disable_fun`, `:repo`, `:now`) so the tests never reach GitHub or the store.
 
-  Transfer targets are limited to this gateway until the peer registry (MPG-206) exists: the record
-  needs the target's `daemon_key`, which only the target knows.
+  A transfer to a peer needs the peer's `daemon_key` and project list from `PeerState` (`:peer_fun`); a
+  fresh list that lacks the repo refuses (64), an unknown or stale one warns and writes.
   """
 
   alias Aiur.Gateway.Identity, as: GatewayIdentity
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LandingWithdrawal
   alias Aiur.Orchestrator.ReworkGate
-  alias Aiur.Ownership.{GitHubRef, Liveness}
+  alias Aiur.Ownership.{Delegation, GitHubRef, Liveness, PeerState}
 
   @ticket ~r/\A(pr-)?[1-9][0-9]{0,9}\z/
 
@@ -126,8 +126,30 @@ defmodule Aiur.Ownership.CLI do
       not is_binary(to) or to == "" -> {:error, "--to <gateway> is required"}
       is_nil(identity.gateway_id) -> {:error, "gateway identity unavailable; cannot assign"}
       String.downcase(to) in [String.downcase(identity.gateway_label || ""), identity.gateway_id] -> {:ok, identity}
-      true -> {:error, "unknown gateway #{inspect(to)}; only this gateway (#{identity.gateway_label}) can be targeted"}
+      true -> peer_target(to, opts)
     end
+  end
+
+  # A peer is judged on its project list before anything is written. Unknown evidence only warns.
+  defp peer_target(to, opts) do
+    case Keyword.get(opts, :peer_fun, &PeerState.peer/1).(to) do
+      nil ->
+        {:error, "unknown gateway #{inspect(to)}; no project list or daemon key cached for it"}
+
+      peer ->
+        list = if peer.projects && peer.observed_at, do: %{projects: peer.projects, observed_at: peer.observed_at}
+        warn(opts, Delegation.check_target(list, repo(opts), to, now(opts)), peer)
+    end
+  end
+
+  defp warn(_opts, {:refuse, message}, _peer), do: {:error, message}
+
+  defp warn(opts, check, peer) do
+    with {:warn, message} <- check, do: Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1)).("aiur: warning: #{message}")
+
+    if is_binary(peer.daemon_key),
+      do: {:ok, %{gateway_id: peer.gateway_id, gateway_label: peer.label, daemon_key: peer.daemon_key, peer: true}},
+      else: {:error, "#{peer.label || peer.gateway_id}'s daemon key is unknown; nothing written"}
   end
 
   defp identity do
@@ -176,12 +198,20 @@ defmodule Aiur.Ownership.CLI do
       new_owner = %{gateway_id: target.gateway_id, gateway_label: target.gateway_label, daemon_key: target.daemon_key, actor: actor(opts), note: note}
 
       case Keyword.get(opts, :transfer_fun, &GitHubRef.transfer/4).(repo(opts), ticket, observed, new_owner) do
-        {:won, new} -> finish(ticket, new, record.epoch, opts, false)
+        {:won, new} -> delegated(ticket, new, target, opts) && finish(ticket, new, record.epoch, opts, false)
         {:lost, current} -> refuse(opts, "ownership changed to #{current.gateway_label} at epoch #{current.epoch}; re-read with aiur ticket owner")
         {:unknown, reason} -> unknown(opts, "transfer outcome unknown (#{inspect(reason)}); retry: aiur ticket assign #{ticket} --to #{opts[:to]} --reason <text>")
       end
     end
   end
+
+  # The delegator is not in the ref, so the transfer is remembered locally for the waiting-label pass.
+  defp delegated(ticket, new, %{peer: true}, opts) do
+    Keyword.get(opts, :delegation_fun, &PeerState.add_delegation/1).(%{repo: repo(opts), ticket: ticket, gateway_id: new.gateway_id, epoch: new.epoch, at: iso(now(opts))})
+    true
+  end
+
+  defp delegated(_ticket, _new, _target, _opts), do: true
 
   # Auto-merge is disabled only after the transfer is on record, so a failure here never leaves it
   # off on a ticket the old owner still holds; the transfer stands and the retry is safe.
