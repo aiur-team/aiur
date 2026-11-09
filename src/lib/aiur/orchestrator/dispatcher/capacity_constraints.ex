@@ -28,7 +28,13 @@ defmodule Aiur.Orchestrator.Dispatcher.CapacityConstraints do
       probes.provider_backends
     )
     |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
+    |> maybe_record_disk_constraint(Aiur.DiskWatchdog.dispatch_gate(Map.get(probes, :disk_status)))
   end
+
+  defp maybe_record_disk_constraint(state, {:hold, reason}),
+    do: record_capacity_constraint(state, :disk, "used_percent=#{reason.measured} threshold=#{reason.threshold} #{reason.detail}")
+
+  defp maybe_record_disk_constraint(state, :dispatch), do: state
 
   @doc false
   @spec record_capacity_sample(State.t(), map()) :: State.t()

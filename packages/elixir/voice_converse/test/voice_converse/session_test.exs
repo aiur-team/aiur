@@ -224,8 +224,12 @@ defmodule VoiceConverse.SessionTest do
     {:ok, id} = start!(name, event_broadcast: event_broadcast)
     assert_receive {:voice_conversation_state, ^id, :connecting}
     assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    monitor = Process.monitor(session)
     assert :ok = VoiceConverse.end_session(name, id)
-    assert_receive {:end_ready_to_broadcast, ^id}
+    # The session sends end_ready_to_broadcast before it exits, so after DOWN the message is already here.
+    assert_receive {:DOWN, ^monitor, :process, ^session, :normal}, 1_000
+    assert_received {:end_ready_to_broadcast, ^id}
     assert_end_and_cleanup(root, id, "user_end")
   end
 
@@ -322,8 +326,6 @@ defmodule VoiceConverse.SessionTest do
     assert {:error, :target_gone} = VoiceConverse.start_session(name, %{id: "gone", alive: false}, [])
   end
 
-  # Flaky: grace can fire before the provider conversation id is recorded (#6928).
-  @tag :quarantine
   test "transport grace and terminate persist transport_lost without restarting", %{root: root, name: name} do
     config = config!(root, name, limits: %{max_sessions: 2})
     start_instance(config)
@@ -340,7 +342,10 @@ defmodule VoiceConverse.SessionTest do
     assert_eventually(fn -> :sys.get_state(session).provider_ref != nil end)
     Process.exit(client, :kill)
     assert_eventually(fn -> :sys.get_state(session).transport_token != nil end)
+    monitor = Process.monitor(session)
     send(session, {:transport_grace, :sys.get_state(session).transport_token})
+    # No client is left to receive {:ended, _}; exit is the barrier that cleanup_enqueued follows session_ended.
+    assert_receive {:DOWN, ^monitor, :process, ^session, :normal}, 1_000
     assert_end_and_cleanup(root, id, "transport_lost")
     assert_eventually(fn -> VoiceConverse.SessionRegistry.lookup(name, id) == :error end)
 

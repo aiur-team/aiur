@@ -240,7 +240,7 @@ defmodule VoiceConverse.Session do
   defp handle_provider_event(%Events.UserTranscript{final?: true, text: text} = event, state) do
     state = %{state | last_user_at: state.clock.()}
 
-    with {:ok, state} <- TextTiming.flush_before_user(state) do
+    with {:ok, state} <- state |> VoiceConverse.Session.StreamText.flush_all() |> TextTiming.flush_before_user() do
       persist_and_broadcast(
         state,
         %{type: "user_turn", turn_id: "user", text: redact(state, text), at: now(state)},
@@ -260,10 +260,8 @@ defmodule VoiceConverse.Session do
 
   defp handle_provider_event(%kind{} = event, state)
        when kind in [Events.AgentText, Events.AgentTextTiming, Events.AgentAudio, Events.Interruption] do
-    case TextTiming.handle(state, event) do
+    case VoiceConverse.Session.StreamText.handle_and_broadcast(state, event) do
       {:ok, state} ->
-        broadcast(state, TextTiming.redact_for_broadcast(event, state.config.redactor))
-
         next =
           if match?(%Events.Interruption{}, event) or match?(%Events.AgentText{final?: true}, event),
             do: :listening,
@@ -387,7 +385,7 @@ defmodule VoiceConverse.Session do
     Runtime.cancel_timer(state.transport_timer)
     duration_s = max(DateTime.diff(state.clock.(), state.started_at), 0)
 
-    with {:ok, state} <- TextTiming.finish(state),
+    with {:ok, state} <- VoiceConverse.Session.StreamText.finish(state),
          {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
          {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
