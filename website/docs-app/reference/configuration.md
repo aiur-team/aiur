@@ -179,7 +179,7 @@ the machine, independently of repository workflows.
 | `machine:transport.tls.advertise_host` | string | `null` | DNS name without scheme or port. |
 | `machine:transport.allow_cleartext_overlay` | boolean | `false` | Allows eligible overlay transport when consumed. |
 | `machine:transport.cleartext_overlay_cidrs` | CIDR array | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | IPv4 or IPv6 prefixes; catch-all `/0` ranges are rejected. |
-| `machine:projects` | list | `[]` | Repos this machine serves; duplicate `repo` (case-insensitive) or `config` is rejected. A write replaces the whole list. Nothing reads it yet. |
+| `machine:projects` | list | `[]` | Repos this machine serves; duplicate `repo` (case-insensitive) or `config` is rejected. A write replaces the whole list. Read at daemon start (one project tree per entry; see [One daemon, several projects](/concepts/operating-aiur#one-daemon-several-projects)); `aiur gateway reload` applies additions and removals. |
 | `machine:projects.repo` | string | required | `owner/name`. |
 | `machine:projects.config` | path | required | Absolute or `~/`-relative path to the project's `.aiur/config`; expanded on load, never printed in errors. |
 | `machine:projects.max_agents` | integer | `null` | At least 1; `null` means no project ceiling. |
