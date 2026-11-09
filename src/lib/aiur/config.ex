@@ -252,6 +252,15 @@ defmodule Aiur.Config do
   @spec decisions_require_suggested_responses?() :: boolean()
   def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
 
+  @doc "Hosts allowed to serve `embed` Command media; `[]` (embeds off) when config cannot be read."
+  @spec decisions_embed_hosts() :: [String.t()]
+  def decisions_embed_hosts do
+    case settings() do
+      {:ok, settings} -> settings.decisions.embed_hosts
+      {:error, _reason} -> []
+    end
+  end
+
   defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings

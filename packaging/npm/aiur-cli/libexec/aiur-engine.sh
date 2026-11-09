@@ -130,7 +130,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-lane <key>=<label>]... [--epic-hue <key>=<gruvbox-name or 0-359>]... [--lane-icon <key>=<heroicon>]... [--as <who>] [--json]
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
-       aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full  local only
+       aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full | reload  local only
        aiur gateway discover [--port N] | list | status <gateway>  [--json]  find gateways, show connectivity and agents (read-only)
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]

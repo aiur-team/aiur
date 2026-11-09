@@ -58,7 +58,7 @@ export interface CommandV2 {
  * Typed media on a Command prompt, option or answer. A local file is an attachment reference; a filesystem path is never projected.
  */
 export interface CommandMedia {
-  kind: "image" | "animated_image" | "video" | "audio";
+  kind: "image" | "animated_image" | "video" | "audio" | "embed";
   /**
    * MIME type allowlisted for the media kind.
    */
@@ -86,7 +86,7 @@ export interface CommandMedia {
         attachment_id: string;
       };
   /**
-   * Required as accessible text for image and animated_image items.
+   * Required as accessible text for image, animated_image and embed items; a client that cannot frame an embed shows it with a link.
    */
   alt_text?: string | null;
   caption?: string | null;
