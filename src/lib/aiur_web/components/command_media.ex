@@ -113,8 +113,8 @@ defmodule AiurWeb.Components.CommandMedia do
         height={dimension(@item, "height")}
         hidden
       ></iframe>
-      <p class="command-media__embed-fallback">{alt(@item)} <a href={@src} target="_blank" rel="noopener noreferrer">Open in a new tab</a></p>
     </div>
+    <p class="command-media__embed-fallback">{alt(@item)} <a href={@src} target="_blank" rel="noopener noreferrer">Open in a new tab</a></p>
     """
   end
 

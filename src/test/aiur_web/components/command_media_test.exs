@@ -149,6 +149,8 @@ defmodule AiurWeb.Components.CommandMediaTest do
 
       [link] = Floki.find(doc, ".command-media__embed-fallback a")
       assert Floki.attribute(link, "href") == [url]
+      # Opening the link must not also load the frame, so it sits outside the click binding.
+      assert Floki.find(wrapper, "a") == []
     end
 
     test "is unavailable without a URL locator rather than framing the attachment route" do
