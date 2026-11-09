@@ -54,6 +54,7 @@ defmodule Aiur.Gateway.Capacity do
   defp bound(nil, _held), do: :infinity
   defp bound(limit, held), do: max(limit - held, 0)
 
+  # Fail open: a stuck broker must not stop dispatch, so a missed ceiling beats a halted fleet.
   defp call(request, fallback) do
     GenServer.call(__MODULE__, request, @call_timeout)
   catch

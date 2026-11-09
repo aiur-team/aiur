@@ -64,4 +64,37 @@ defmodule Aiur.Orchestrator.SlotsMachineTest do
     assert Enum.sort(ids) == ["paused", "work"]
     assert length(ids) == Slots.used_slots(state)
   end
+
+  test "a refused acquire starts no worker and returns the state unchanged" do
+    start_supervised!({Capacity, ceiling: 1, projects: %{"o/a" => nil, "o/b" => nil}})
+    holder("o/b", [1])
+    Context.put(project("o/a"))
+    state = %State{max_concurrent_agents: 8}
+
+    assert MachineGrant.granted("x", state, fn -> send(self(), :started) && flunk("worker started") end) == state
+    refute_received :started
+    assert %{held: 1} = Capacity.snapshot()
+  end
+
+  test "a granted acquire starts the worker and holds the slot" do
+    start_supervised!({Capacity, ceiling: 1, projects: %{"o/a" => nil}})
+    Context.put(project("o/a"))
+
+    assert MachineGrant.granted("x", %State{}, fn -> :started end) == :started
+    assert %{held: 1} = Capacity.snapshot()
+  end
+
+  test "the tick sync releases a slot whose worker has finished" do
+    start_supervised!({Capacity, ceiling: 2, projects: %{"o/a" => nil}})
+    Context.put(project("o/a"))
+    working = %State{running: %{"w" => entry(:working)}}
+
+    assert :ok = MachineGrant.sync(working)
+    assert %{held: 1} = Capacity.snapshot()
+    assert Capacity.headroom("o/a") == 1
+
+    assert :ok = MachineGrant.sync(%State{})
+    assert %{held: 0} = Capacity.snapshot()
+    assert Capacity.headroom("o/a") == 2
+  end
 end

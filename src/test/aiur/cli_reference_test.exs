@@ -10,7 +10,7 @@ defmodule Aiur.CLIReferenceTest do
              name: :max_agents,
              type: :integer,
              syntax: "aiur --max-agents 6",
-             description: "Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding.",
+             description: "Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. With `projects:` set in `~/.aiur/machine` it also sets the machine-wide ceiling, overriding `capacity.max_agents`.",
              example: "aiur --max-agents 6"
            }
 
