@@ -63,7 +63,7 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.decision_dispatch.saturated.resolved", "commands"},
     # aiur/agent_runner/decision_lifecycle_failure_alert.ex
     {"system.decision_lifecycle.recording_failed", "agent-runner"},
-    # aiur/disk_watchdog.ex
+    # aiur/disk_watchdog.ex; aiur/disk_full.ex
     {"system.disk.pressure", "kernel"},
     # aiur/disk_watchdog.ex
     {"system.disk.pressure.resolved", "kernel"},

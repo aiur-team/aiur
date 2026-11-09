@@ -20,16 +20,29 @@ defmodule Aiur.Fs do
     tmp = path <> ".tmp." <> System.pid() <> "." <> Integer.to_string(System.unique_integer([:positive]))
     mode = Keyword.get(opts, :mode)
 
-    result =
+    written =
       if Keyword.get(opts, :fsync, false) do
         write_with_fsync(tmp, contents, mode)
       else
         write(tmp, contents, mode)
       end
 
-    case result do
-      :ok -> rename_or_cleanup(tmp, path)
-      {:error, reason} -> cleanup_error(tmp, reason)
+    result = with :ok <- written, do: injected_fault(path)
+
+    result =
+      case result do
+        :ok -> rename_or_cleanup(tmp, path)
+        {:error, reason} -> cleanup_error(tmp, reason)
+      end
+
+    Aiur.DiskFull.observe(path, result)
+  end
+
+  # Test seam: a full disk cannot be produced for a temp-and-rename write without root (#7925).
+  defp injected_fault(path) do
+    case Application.get_env(:aiur, :atomic_write_fault_fun) do
+      nil -> :ok
+      fault -> fault.(path)
     end
   end
 
@@ -59,7 +72,8 @@ defmodule Aiur.Fs do
           :file.sync(fd)
         end
       after
-        :ok = :file.close(fd)
+        # Sync already reported any write failure; a close error must not raise out of a store's server.
+        _ = :file.close(fd)
       end
     end
   end

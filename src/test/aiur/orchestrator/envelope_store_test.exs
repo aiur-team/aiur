@@ -68,6 +68,6 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
   test "write failure returns an error", %{path: path, now: now} do
     File.mkdir_p!(path)
     on_exit(fn -> File.rmdir(path) end)
-    assert {:error, {:write_failed, MatchError}} = EnvelopeStore.save(7, 16, now)
+    assert {:error, {:write_failed, File.Error}} = EnvelopeStore.save(7, 16, now)
   end
 end
