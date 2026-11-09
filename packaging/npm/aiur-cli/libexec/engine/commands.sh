@@ -49,10 +49,13 @@ cmd_status() {
       case "$arg" in
         --handoff) handoff=1 ;;
         --json) json=true ;;
-        *) die "status accepts --handoff [--json]" ;;
+        *) die "status accepts [--handoff] [--json]" ;;
       esac
     done
-    [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
+    if [ "$handoff" -eq 0 ]; then
+      run_control_rpc "Aiur.AgentControlCLI.status(json: true)"
+      return
+    fi
     if [ "$json" = true ]; then
       run_control_rpc "Aiur.Handoff.CLI.report(json: true)"
     else

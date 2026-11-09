@@ -189,6 +189,7 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
 | Daemon memory watchdog | Daemon memory (resident or BEAM total) above `monitoring.daemon_memory_alert_fraction` of host memory (default half) raises `system.daemon.memory_high` once and logs the five largest processes and ETS tables, plus any process too busy to answer. Any one process whose heap passes 4 GiB is killed, and the daemon log records its pid and stack trace. The kernel OOM killer leaves no crash dump, so these log lines are the evidence. |
+| Project tree | A project in `projects:` whose tree fails to start or crash-loops raises `system.project.boot_failed` (repo and reason, never the config path); `.resolved` follows when `aiur gateway reload` starts it. |
 
 An idle ticket absent from the active poll is retained for at most five unresolved refresh attempts. Then `ticket.<id>.terminal_verification_abandoned` raises one attention with its identifier and cause. A returned ticket resets the counter; deferred batches and in-flight reads do not consume attempts. Restart resets these in-memory counters.
 
@@ -263,6 +264,27 @@ retry on later polls without consuming the three-attempt limit.
 
 Other failed writes raise an attention. Exhausting three attempts raises an explicit
 Executor attention and retains the claim until intervention or a new daemon boot.
+
+## One daemon, several projects
+
+With `projects:` set in `~/.aiur/machine` (see [machine settings](/reference/configuration#machine-settings-aiur-machine)),
+one daemon serves several repositories. Machine-level services (dashboard, GitHub budget, providers,
+Executor plumbing) start once, configured by the daemon's own `.aiur/config`.
+
+Each entry then gets its own project tree: its `.aiur/config`, orchestrator, event exchange, snapshot
+and queue, and a state directory beside today's (`<state root>/<instance>/<repo name>`). With
+`projects:` empty or absent the daemon starts exactly the single-project tree it always has.
+
+- **Failure stays in one project.** A project whose config does not parse, or whose tree restarts more
+  than three times in five seconds, stops alone and raises `system.project.boot_failed`. The other
+  projects keep polling. Nothing retries it automatically.
+- **`aiur gateway reload`** applies edits to `projects:`: it starts added (and previously failed)
+  projects, stops removed ones and leaves every other tree running. A changed `config:` for a
+  running project needs a daemon restart.
+- **`aiur status --json`** prints `{"observed_at", "projects": [...]}`, one row per project with
+  `state` (`running` or `failed`), the running-agent count and its snapshot age; the count is
+  `null` when no current snapshot exists.
+- An invalid or unreadable `~/.aiur/machine` refuses daemon start rather than falling back to one project.
 
 ## Remote control
 
