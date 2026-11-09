@@ -1,40 +1,52 @@
 defmodule Aiur.TestSupport.SupervisorExit do
   @moduledoc false
 
-  @reason_key {__MODULE__, :reason}
+  # Every observed exit, oldest first. A later restart must not erase one: the
+  # suite reports leaks at its end, after test helpers restarted the app (#5886).
+  @exits_key {__MODULE__, :exits}
   @monitor_key {__MODULE__, :monitor}
   @pid_key {__MODULE__, :pid}
   @name_key {__MODULE__, :name}
   @notify_key {__MODULE__, :notify}
 
-  def start_monitoring(name \\ Aiur.Supervisor, notify_pid \\ nil) do
+  def start_monitoring do
+    :persistent_term.put(@exits_key, [])
+    start_monitoring(Aiur.Supervisor, nil)
+  end
+
+  def start_monitoring(name, notify_pid \\ nil) do
     :persistent_term.put(@name_key, name)
     :persistent_term.put(@notify_key, notify_pid)
-    :persistent_term.put(@reason_key, nil)
     monitor(Process.whereis(name))
   end
 
-  def exit_reason, do: :persistent_term.get(@reason_key)
+  @doc "The most recent exit reason of the monitored supervisor, kept after it restarts."
+  def exit_reason do
+    name = :persistent_term.get(@name_key)
+
+    case for({^name, reason, _last} <- :persistent_term.get(@exits_key, []), do: reason) do
+      [] -> nil
+      reasons -> List.last(reasons)
+    end
+  end
 
   def runtime_child_errors([]), do: []
 
   def runtime_child_errors(leaks) do
-    reason_note =
-      case exit_reason() do
-        nil -> ""
-        reason -> " (Aiur.Supervisor exit reason: #{inspect(reason)})"
-      end
+    name = :persistent_term.get(@name_key)
+    exits = for {^name, reason, last} <- :persistent_term.get(@exits_key, []), do: "#{inspect(reason)} after #{last || "unknown"}"
+    reason_note = if exits == [], do: "", else: " (#{inspect(name)} exits: #{Enum.join(exits, "; ")})"
 
     ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}#{reason_note}"]
   end
 
-  def handle_info({:DOWN, ref, :process, _object, reason}, state) do
+  def handle_info({:DOWN, ref, :process, _object, reason}, last_finished) do
     if ref == :persistent_term.get(@monitor_key) do
-      record_exit(reason, :persistent_term.get(@pid_key))
+      record_exit(reason, last_finished, :persistent_term.get(@pid_key))
       notify({:supervisor_exit, reason})
     end
 
-    {:noreply, state}
+    {:noreply, last_finished}
   end
 
   def handle_info(:refresh_supervisor_monitor, state) do
@@ -44,7 +56,6 @@ defmodule Aiur.TestSupport.SupervisorExit do
       pid when is_pid(pid) ->
         if pid != :persistent_term.get(@pid_key) do
           monitor(pid)
-          :persistent_term.put(@reason_key, nil)
           notify({:supervisor_monitor_restored, pid})
         end
 
@@ -67,8 +78,9 @@ defmodule Aiur.TestSupport.SupervisorExit do
     :persistent_term.put(@monitor_key, Process.monitor(:persistent_term.get(@name_key)))
   end
 
-  defp record_exit(reason, pid) do
-    :persistent_term.put(@reason_key, reason)
+  defp record_exit(reason, last_finished, pid) do
+    exit = {:persistent_term.get(@name_key), reason, last_finished}
+    :persistent_term.put(@exits_key, :persistent_term.get(@exits_key, []) ++ [exit])
     Process.send_after(self(), :refresh_supervisor_monitor, 250)
     :persistent_term.put(@pid_key, pid)
   end
