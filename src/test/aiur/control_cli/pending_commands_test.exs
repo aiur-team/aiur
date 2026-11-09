@@ -95,7 +95,7 @@ defmodule Aiur.ControlCLI.PendingCommandsTest do
 
       assert PendingCommands.list(@server) == []
       assert DecisionStore.list(store) == []
-      assert_receive {:event, %{:topic => "ticket.6.agent.attention.command_dropped", "message" => message, "needs_attention" => true}}
+      assert_received {:event, %{:topic => "ticket.6.agent.attention.command_dropped", "message" => message, "needs_attention" => true}}
       assert message =~ "Pending Command #{id} dropped: ticket 6 #{label}"
       Agent.update(tracker, &%{&1 | closures: %{}})
     end
@@ -105,7 +105,7 @@ defmodule Aiur.ControlCLI.PendingCommandsTest do
     set(tracker, "5", {:error, :not_found})
     event("ticket.5.pr.merged")
     assert PendingCommands.list(@server) == []
-    assert_receive {:event, %{:topic => "ticket.5.agent.attention.command_dropped", "message" => message, "needs_attention" => true}}
+    assert_received {:event, %{:topic => "ticket.5.agent.attention.command_dropped", "message" => message, "needs_attention" => true}}
     assert message =~ "ticket 5 not_found"
   end
 
