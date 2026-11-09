@@ -44,6 +44,35 @@ defmodule Aiur.RunTelemetry.CohortContextTest do
     refute Map.has_key?(context, :settings)
   end
 
+  test "a reload broadcast on a running project's config topic persists new context", %{root: root} do
+    project = %Aiur.Project{id: "o/telemetry", repo: "o/telemetry", config_path: Path.join(root, "c"), state_root: root}
+    parent = self()
+
+    pid =
+      spawn_link(fn ->
+        {:ok, _} = Aiur.Project.Registry.register_root(project)
+        send(parent, :registered)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :registered
+    on_exit(fn -> Process.exit(pid, :kill) end)
+
+    {:ok, settings} = Agent.start_link(fn -> %{agent: %{max_concurrent_agents: 2}} end)
+    builder = fn -> RunContext.build(Agent.get(settings, & &1)) end
+    path = Path.join(root, "project-telemetry.ndjson")
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "project", context_builder: builder)
+    Writer.flush(writer)
+    before = length(records(path))
+
+    Agent.update(settings, &put_in(&1, [:agent, :max_concurrent_agents], 5))
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "workflow_store:configuration:o/telemetry", {:workflow_config_updated, 1})
+    Writer.flush(writer)
+
+    assert length(records(path)) == before + 1
+    GenServer.stop(writer)
+  end
+
   test "boot, config broadcasts and segment rolls persist context", %{root: root} do
     {:ok, settings} = Agent.start_link(fn -> %{agent: %{max_concurrent_agents: 2}} end)
     builder = fn -> RunContext.build(Agent.get(settings, & &1)) end
