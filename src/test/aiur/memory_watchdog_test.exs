@@ -47,14 +47,19 @@ defmodule Aiur.MemoryWatchdogTest do
   end
 
   test "a process that does not answer is listed as unresponsive instead of hanging the snapshot" do
-    stuck = spawn(fn -> Process.sleep(:infinity) end)
+    stuck = start_supervised!({Agent, fn -> nil end})
     Process.register(stuck, :memory_watchdog_test_stuck)
-    on_exit(fn -> Process.exit(stuck, :kill) end)
 
     # Stands in for a process in a long garbage collection, which does not answer Process.info/2.
     hangs = fn
-      ^stuck, _items -> Process.sleep(:infinity)
-      pid, items -> Process.info(pid, items)
+      ^stuck, _items ->
+        receive do
+        after
+          :infinity -> nil
+        end
+
+      pid, items ->
+        Process.info(pid, items)
     end
 
     snapshot = MemoryWatchdog.snapshot(pids: [self(), stuck], probe_timeout_ms: 200, info_fun: hangs)
