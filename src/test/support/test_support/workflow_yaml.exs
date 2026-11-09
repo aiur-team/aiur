@@ -170,6 +170,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
         "  routing: #{yaml_value(agent_routing)}",
         "  turn_timeout_ms: #{yaml_value(Keyword.get(config, :agent_turn_timeout_ms))}",
         "  stall_timeout_ms: #{yaml_value(Keyword.get(config, :agent_stall_timeout_ms))}",
+        if(Keyword.has_key?(config, :agent_skills), do: "  skills: #{yaml_value(Keyword.get(config, :agent_skills))}"),
         agent_backend_yaml(agent_kind, config)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))

@@ -113,15 +113,26 @@ A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills onl
 
 ### Worker prompt and the index
 
-Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
+Mapped skills are inlined in full under `### Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
 
-`agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+### Mapped skills are mandatory
 
-A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
+Mapped skills are the worker's role instructions, so they are never truncated or moved to load on demand. `agent.skills.preload_max_bytes` is a budget, not a cap: a mapped set past it is still inlined whole.
+
+Before a worker starts, Aiur checks the mapped set. A mapped name with no installed `SKILL.md`, or a mapped set over `preload_max_bytes`, raises an alert that names the ticket, each skill and the reason that mapped it, or the bytes against the budget:
+
+- By default (`agent.skills.strict: false`) the worker still starts and the alert is a warning (`ticket.<id>.skills.warning`). The prompt lists a missing skill under `### Mapped skills not installed here`.
+- With `agent.skills.strict: true` no worker starts. The alert (`ticket.<id>.skills.blocked`) needs attention, and `aiur agents` / `aiur status` show the ticket paused as a preflight failure. Install the skill or fix the mapping; the paused ticket is retried automatically and starts once the check passes.
+
+```yaml
+agent:
+  skills:
+    strict: true
+```
 
 ### Visibility
 
-`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, truncated names and the inlined byte count.
+`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, the inlined byte count, the budget and whether the set is over it.
 
 ### Configuration is read per dispatch
 

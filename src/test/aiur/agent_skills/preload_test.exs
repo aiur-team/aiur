@@ -369,10 +369,10 @@ defmodule Aiur.AgentSkills.PreloadTest do
   defp position(text, needle), do: text |> :binary.match(needle) |> elem(0)
 
   describe "inline byte budget" do
-    test "keeps the first skills inside the budget and lists the rest to load on demand", %{workspace: workspace} do
+    test "never moves a mapped skill to load on demand; an over-budget set is inlined whole and recorded", %{workspace: workspace} do
       skill!(workspace, "first", "First.", String.duplicate("a", 200))
       skill!(workspace, "second", "Second.", String.duplicate("b", 200))
-      skill!(workspace, "third", "Third.", String.duplicate("c", 200))
+      skill!(workspace, "third", "Third.", String.duplicate("c", 200) <> "THIRD SENTINEL")
 
       preload =
         resolve(issue(["area:art"]), workspace, %{
@@ -380,11 +380,24 @@ defmodule Aiur.AgentSkills.PreloadTest do
           "preload_max_bytes" => 500
         })
 
-      assert Enum.map(preload.mapped, & &1.name) == ["first", "second"]
-      assert Enum.map(preload.truncated, & &1.name) == ["third"]
-      assert preload.bytes <= 500
-      assert Preload.prompt_block(preload) =~ "### Mapped skills over the inline budget"
-      assert Preload.summary(preload) =~ "truncated: third"
+      block = Preload.prompt_block(preload)
+
+      assert Enum.map(preload.mapped, & &1.name) == ["first", "second", "third"]
+      assert preload.bytes > 500
+      assert Preload.over_budget?(preload)
+      assert block =~ "THIRD SENTINEL"
+      refute block =~ "load on demand)\n\n- `third`"
+      refute block =~ "over the inline budget"
+      assert Preload.summary(preload) =~ "over budget: #{preload.bytes}/500 bytes"
+      assert %{skills_over_budget: true, skills_max_bytes: 500} = Preload.dispatch_record(preload)
+    end
+
+    test "a mapped set inside the budget is not over budget", %{workspace: workspace} do
+      skill!(workspace, "first", "First.", "small")
+      preload = resolve(issue(["area:art"]), workspace, %{"by_lane" => %{"art" => ["first"]}})
+
+      refute Preload.over_budget?(preload)
+      refute Preload.summary(preload) =~ "over budget"
     end
   end
 

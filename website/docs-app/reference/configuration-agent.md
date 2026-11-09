@@ -70,7 +70,8 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.skills.by_feature` | map | `%{}` | Owning feature slug to skill names. |
 | `agent.skills.by_label` | map | `%{}` | Ticket label to skill names. A `skills:<name>` label selects the same entry, or names one skill directly. |
 | `agent.skills.by_lane` | map | `%{}` | Lane slug to skill names. A lane comes from the `lane:`, `area:` and `build-lane:` label suffixes and from a configured lane's label matchers. |
-| `agent.skills.preload_max_bytes` | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
+| `agent.skills.preload_max_bytes` | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt. Mapped skills are never truncated: a mapped set past it is still inlined and raises a warning alert, or blocks the dispatch under `agent.skills.strict`. |
+| `agent.skills.strict` | boolean | `false` | Makes mapped skills a dispatch requirement. When `true`, a mapped skill with no `SKILL.md` in the workspace, or a mapped set over `preload_max_bytes`, starts no worker: the ticket pauses as a preflight failure and an attention alert names the ticket, the skills and their mapping reasons. When `false`, the same cases dispatch and raise a warning alert. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Final watchdog; Codex probes every 60s, then replaces silence. 0 disables only this watchdog. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
 | `agent.synthetic_load_kill_detected` | boolean | false | When false, a busy loop detected by behaviour and any orphaned generator are report-only: logged with pid and command line and alerted once, but left running. Set true to kill them too (busy loops above the cap, orphans outright). |

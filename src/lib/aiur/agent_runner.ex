@@ -8,7 +8,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
   alias Aiur.AgentRunner.McpSocketFailure
-  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, SkillGate, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Config.HostedAuthPolicy
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -298,6 +298,15 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    # A blocked mandatory skill set holds the ticket on the preflight pause, so
+    # no session starts and an automatic resume re-checks the workspace.
+    case SkillGate.check(issue, workspace) do
+      :ok -> run_activated_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+      {:blocked, message} -> {:before_run_failed, :mandatory_skills, message, :mandatory_skills}
+    end
+  end
+
+  defp run_activated_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
     case Ownership.activate(ownership) do
       {:ok, active_ownership} ->
         WorkspaceGuard.record_setup_end(issue, opts, :success, nil)
