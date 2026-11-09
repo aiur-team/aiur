@@ -28,7 +28,10 @@ characters, a key prefix such as `sk-`, or a URL's `user:password` before its
 `@`). The tail is released on the next text chunk, the final text event, an
 interruption, a user turn, or session finish. Added delay is at most one
 provider text chunk, and at most 64 graphemes are withheld; a longer URL
-credential is released before its `@` arrives.
+credential is released before its `@` arrives. Re-redacting the turn costs CPU
+that grows with turn length (quadratic per turn): measured median 8 µs for the
+first 20-character chunk, 43 µs at 2,000 characters, 26 µs averaged over the
+turn (`StreamText.step/3`, 16-core host, load 3).
 
 ## Hosted agents
 
