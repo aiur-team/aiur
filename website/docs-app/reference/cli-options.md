@@ -45,7 +45,6 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur command` | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | `aiur command` |
 | `aiur command --filter open` | Applies the existing Command filters through the canonical singular command. | `aiur command --filter open` |
 | `aiur command cancel PENDING-ID` | Removes a pending `--after` Command before it publishes. | `aiur command cancel pend_1a2b3c4d` |
-| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery. | `aiur command dec_123` |
 | `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery; a multi-question Command adds every question and a fill-in answer template. | `aiur command dec_123` |
 | `aiur command DECISION-ID --custom-response TEXT` | Records a local operator's bounded text answer after interactive confirmation. | `aiur command dec_123 --custom-response 'Wait for a fresh build'` |
 | `aiur command DECISION-ID --option ID` | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | `aiur command dec_123 --option keep` |
