@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, Issue, ModelAvailability}
+  alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.Orchestrator.{RateLimitFallback, State}
 
   @wait_seconds 600
@@ -14,12 +14,26 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
       get_in(entry, [:usage_limit_session, :backend]) || CodingAgent.backend_for(issue)
   end
 
-  # The complexity route, when it leads away from the limited backend. Moving
-  # there needs no fallback labels: a fresh dispatch already resolves to it.
+  # The complexity route, when it leads away from the limited backend, or else
+  # for a backend other than the primary the first available `agent.priority`
+  # backend (#7879). Moving there needs no fallback labels: a fresh dispatch
+  # already resolves to it.
   @spec route_backend(Issue.t(), String.t(), keyword()) :: String.t() | nil
   def route_backend(issue, current_backend, opts) do
     route = Keyword.get_lazy(opts, :routing_backend, fn -> CodingAgent.routing_backend(issue) end)
-    if is_binary(route) and route != current_backend, do: route
+
+    cond do
+      is_binary(route) and route != current_backend -> route
+      current_backend != Keyword.get_lazy(opts, :primary_backend, &Config.rate_limit_primary_backend/0) -> priority_backend(current_backend, opts)
+      true -> nil
+    end
+  end
+
+  defp priority_backend(current_backend, opts) do
+    opts
+    |> Keyword.get_lazy(:priority_backends, &Config.agent_priority_backends/0)
+    |> Enum.reject(&(&1 == current_backend))
+    |> ModelAvailability.first_available(opts)
   end
 
   @spec backend(Issue.t(), String.t(), String.t() | nil, keyword()) :: String.t() | nil
@@ -53,6 +67,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
     is_binary(backend) and backend in CodingAgent.known_backends() and backend != current_backend and
       ModelAvailability.available?(backend, opts) and is_nil(CodingAgent.override_backend(issue))
   end
+
+  # A credit refusal does not reset on its own, so waiting gains nothing.
+  defp wait_elapsed?(%{usage_limit_session: %{credit_limited: true}}, _opts), do: true
 
   defp wait_elapsed?(entry, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())

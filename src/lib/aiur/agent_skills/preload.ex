@@ -147,6 +147,19 @@ defmodule Aiur.AgentSkills.Preload do
   @spec over_budget?(t()) :: boolean()
   def over_budget?(%__MODULE__{bytes: bytes, max_bytes: max_bytes}), do: is_integer(max_bytes) and bytes > max_bytes
 
+  @doc "The machine-readable preload facts `aiur agents --json` reports per running worker."
+  @spec report(t()) :: map()
+  def report(%__MODULE__{} = preload) do
+    %{
+      mapped: Enum.map(preload.mapped, &%{name: &1.name, reason: &1.reason}),
+      # Mapped skills are never truncated; the key stays for the aiur.agents v1 schema.
+      truncated: [],
+      missing: names(preload.missing),
+      bytes: preload.bytes,
+      max_bytes: preload.max_bytes
+    }
+  end
+
   @doc "The dispatch-record event body for one preload resolution."
   @spec dispatch_record(t()) :: map()
   def dispatch_record(%__MODULE__{} = preload) do
