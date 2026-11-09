@@ -56,7 +56,7 @@ defmodule Aiur.ControlCall do
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
       module = Module.concat(segments)
-      {:ok, %{module: module, function: function, args: args, scope: scope, category: category, project: scoped? && {project, hint}}}
+      {:ok, %{module: module, function: function, args: args, scope: scope, category: category, project: scoped? && {project, hint}, remote: Keyword.get(opts, :remote, false)}}
     else
       {:error, _} = error -> error
       {:unknown_atom, name} -> {:error, {:unknown_on_build, name}}
@@ -72,7 +72,7 @@ defmodule Aiur.ControlCall do
   def run(%{module: module, function: function, args: args, scope: scope} = call, timeout_ms, actor)
       when is_atom(module) and is_atom(function) and is_list(args) and is_integer(timeout_ms) and timeout_ms >= 0 and is_binary(actor) do
     :ok = validate_run_call(module, function, args, scope)
-    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> execute(module, function, args, actor, Map.get(call, :project)) end)
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> execute(module, function, args, actor, Map.get(call, :project), Map.get(call, :remote, false)) end)
     task |> Task.yield(timeout_ms) |> run_result(task, scope)
   end
 
@@ -190,11 +190,13 @@ defmodule Aiur.ControlCall do
   defp activate_project({project, hint}), do: Project.activate(project, hint)
   defp activate_project(_gateway_scoped), do: :ok
 
-  defp execute(module, function, args, actor, project) do
+  defp execute(module, function, args, actor, project, remote?) do
     {:ok, io} = StringIO.open("")
     previous = Process.group_leader()
     Process.group_leader(self(), io)
     put_actor(actor)
+    # Only a parsed remote (gateway) call may omit caller_cwd; see ControlCLI.Settings.
+    Process.put(:aiur_control_remote_call, remote?)
 
     try do
       case activate_project(project) do

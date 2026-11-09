@@ -48,7 +48,8 @@ defmodule Aiur.ControlCall.ProjectTest do
 
     test "set_setting accepts a remote call with no caller_cwd" do
       expr = ~s|Aiur.AgentControlCLI.set_setting("k", "1", project: Base.decode64!("#{@b64_b}"), caller_agent_workspace_env: "")|
-      assert {:ok, %{project: {"t311/b", nil}}} = ControlCall.parse(expr, remote: true)
+      assert {:ok, %{project: {"t311/b", nil}, remote: true}} = ControlCall.parse(expr, remote: true)
+      assert {:ok, %{remote: false}} = ControlCall.parse(expr, remote: false)
     end
 
     test "every project-scoped function exists in the allowlist" do
