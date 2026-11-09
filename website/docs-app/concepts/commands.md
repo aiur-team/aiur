@@ -96,7 +96,11 @@ Reclassification records the Executor's rationale and increments the Command
 version. A separate `aiur executor-answer` must use the new version.
 
 Aiur warns when reversible human-required Commands offer only low-risk options
-and when an Executor-unanswerable nonblocking Command expires. Expired blockers
+and when an Executor-unanswerable nonblocking Command expires. A Command routed
+to you (Needs you, or Needs you and Executor) never expires because its agent
+stopped or because of its age; it ends only when answered, superseded or
+mooted. A nonblocking Command routed only to the Executor still expires once its
+agent stops and it is five minutes old. Expired blockers
 remain answerable until answered or mooted. A matching agent re-raise replaces
 an expired Command with a new open Command; the old record is mooted so it no
 longer inflates the open or awaiting counts.
