@@ -89,8 +89,14 @@ cmd_gateway() {
     local -a migrate_args=()
     [ "$apply" -eq 0 ] || migrate_args+=(--apply)
     [ -z "$from_key" ] || migrate_args+=(--from-key "$from_key")
-    run_init gateway migrate-state "${migrate_args[@]+"${migrate_args[@]}"}"
-    return $?
+    # Calls the gateway-trust module directly: the control CLI must not depend on an optional component.
+    resolve_release
+    build_init_cmd
+    init_argv_file
+    write_argv "${migrate_args[@]+"${migrate_args[@]}"}"
+    export AIUR_ARGV_FILE="$argv_file"
+    release_cmd[${#release_cmd[@]}-1]='System.halt(Aiur.Gateway.StateMigrationCli.main(Aiur.CLI.argv_from_file()))'
+    exec "${release_cmd[@]}"
   fi
   case "$verb" in
     join) [ -n "$peer" ] && [ -n "$name" ] || gateway_usage_error 'gateway join requires an invite code and --name'; gateway_join "$peer" "$name"; return $? ;;

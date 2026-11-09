@@ -4,7 +4,6 @@ defmodule Aiur.CLI do
   """
 
   alias Aiur.CLI.{Banner, ReferenceOptions, RuntimeDeps, Subcommands, Usage}
-  alias Aiur.Gateway.StateMigrationCli
   alias Aiur.Workflow
   @repo "aiur-team/aiur"
   @version Mix.Project.config()[:version]
@@ -29,7 +28,6 @@ defmodule Aiur.CLI do
 
   @spec main([String.t()]) :: :ok | no_return()
   def main(["pr" | args]), do: Aiur.PrMergeCLI.main(args)
-  def main(["gateway", "migrate-state" | args]), do: System.halt(StateMigrationCli.main(args))
   def main(args), do: args |> evaluate() |> dispatch()
 
   defp dispatch(:ok), do: wait_for_shutdown()
