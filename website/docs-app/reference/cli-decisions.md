@@ -14,7 +14,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 
 `aiur ticket reopen <id> --reason <text> [--state todo|rework] [--json]` reopens a closed ticket for redo (daemon required); `--state` defaults to `todo`. A missing or blank reason exits 64 with usage, and an open ticket, a ticket that was never in a Build Order, or an unavailable or stale build queue is refused before any write.
 
-Closing keeps feature membership and native `blocked_by` edges. Reopen re-adds the `<prefix>:queued` marker so a build-queue item keeps its position, which puts its list, feature and epic edges back in force, and re-declares each Build Order graph edge to an open ticket whose GitHub edge was removed, so open dependents wait behind it again. Planner edges are never written to GitHub.
+Closing keeps feature membership and native `blocked_by` edges. Reopen re-adds the `<prefix>:queued` marker so a build-queue item keeps its position, which puts its list, feature and epic edges back in force, and re-declares each Build Order graph edge to an open ticket whose GitHub edge was removed, so open dependents wait behind it again.
 
 Reopen posts the reason on the issue and raises a `ticket.<id>.agent.attention.reopened` attention listing every link; dependents that already started keep running.
 
