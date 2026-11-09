@@ -12,7 +12,7 @@ ensure_gateway_grants_local() {
   [ "${1:-}" = gateway ] || return 0
   case "${2:-}" in
     grant | revoke | trust) echo 'aiur: grant changes are local to the receiving gateway' >&2; return 64 ;;
-    invite | join | register | remove | rotate) echo "aiur: $2 is local to the gateway it changes" >&2; return 64 ;;
+    invite | join | register | remove | rotate | migrate-state) echo "aiur: $2 is local to the gateway it changes" >&2; return 64 ;;
   esac
 }
 
@@ -55,17 +55,19 @@ gateway_collect() {
 }
 
 cmd_gateway() {
-  local verb="${1:-}" peer="" port="" categories="" json=0 full=0 arg opts item data list="" ttl="" url="" pin="" name="" token_file=""
+  local verb="${1:-}" peer="" port="" categories="" json=0 full=0 arg opts item data list="" ttl="" url="" pin="" name="" token_file="" apply=0 from_key=""
   [ "$#" -gt 0 ] && shift
   case "$verb" in
-    permissions | grant | revoke | trust | discover | list | status | reload | invite | join | register | remove | rotate) ;;
-    *) gateway_usage_error 'gateway requires permissions, grant, revoke, trust, discover, list, status, reload, invite, join, register, remove or rotate' ;;
+    permissions | grant | revoke | trust | discover | list | status | reload | invite | join | register | remove | rotate | migrate-state) ;;
+    *) gateway_usage_error 'gateway requires permissions, grant, revoke, trust, discover, list, status, reload, invite, join, register, remove, rotate or migrate-state' ;;
   esac
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --json) case "$verb" in permissions | discover | list | status) ;; *) gateway_usage_error '--json requires gateway permissions, discover, list or status' ;; esac; json=1 ;;
       --port) [ "$verb" = discover ] && [[ "${2:-}" =~ ^[0-9]{1,5}$ ]] || gateway_usage_error '--port requires gateway discover and a number'; port="$2"; shift ;;
+      --apply) [ "$verb" = migrate-state ] || gateway_usage_error '--apply requires gateway migrate-state'; apply=1 ;;
+      --from-key) [ "$verb" = migrate-state ] && [[ "${2:-}" =~ ^[a-f0-9]{10}$ ]] || gateway_usage_error '--from-key requires gateway migrate-state and 10 lowercase hex characters'; from_key="$2"; shift ;;
       --full) [ "$verb" = trust ] || gateway_usage_error '--full requires gateway trust'; full=1 ;;
       --grant) [ "$verb" = invite ] && [ -n "${2:-}" ] || gateway_usage_error '--grant requires gateway invite and a category list'; categories="$2"; shift ;;
       --ttl) [ "$verb" = invite ] && [[ "${2:-}" =~ ^[0-9]+[smhd]?$ ]] || gateway_usage_error '--ttl requires gateway invite and a duration such as 10m'; ttl="$2"; shift ;;
@@ -81,6 +83,15 @@ cmd_gateway() {
     esac
     shift
   done
+  if [ "$verb" = migrate-state ]; then
+    [ -z "$peer" ] || gateway_usage_error "unexpected argument $peer"
+    aiur_resolve_identity
+    local -a migrate_args=()
+    [ "$apply" -eq 0 ] || migrate_args+=(--apply)
+    [ -z "$from_key" ] || migrate_args+=(--from-key "$from_key")
+    run_init gateway migrate-state "${migrate_args[@]+"${migrate_args[@]}"}"
+    return $?
+  fi
   case "$verb" in
     join) [ -n "$peer" ] && [ -n "$name" ] || gateway_usage_error 'gateway join requires an invite code and --name'; gateway_join "$peer" "$name"; return $? ;;
     register) gateway_register "$peer" "$url" "$token_file" "$pin"; return $? ;;
