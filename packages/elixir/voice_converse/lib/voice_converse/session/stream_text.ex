@@ -43,32 +43,46 @@ defmodule VoiceConverse.Session.StreamText do
 
   defp stream_text(state, %Events.AgentText{} = event) do
     key = to_string(event.turn_id)
-    %{raw: raw, sent: sent} = Map.get(state.broadcast_streams, key, %{raw: "", sent: ""})
-    raw = raw <> event.text
-    held = Redact.holdback(raw)
-    safe = raw |> String.slice(0, String.length(raw) - held) |> state.config.redactor.()
-    {sent, events} = unsent(sent, safe, event)
-    {%{state | broadcast_streams: Map.put(state.broadcast_streams, key, %{raw: raw, sent: sent})}, events}
+    stream = Map.get(state.broadcast_streams, key, %{raw: "", sent: ""})
+    {stream, text} = step(stream, event.text, state.config.redactor)
+    {%{state | broadcast_streams: Map.put(state.broadcast_streams, key, stream)}, emit(event, text)}
   end
 
-  defp unsent(sent, redacted, event) do
+  @doc false
+  # Pure stream step: appends `chunk` and returns the new masked text to send, or nil.
+  @spec step(map(), String.t(), (String.t() -> String.t())) :: {map(), String.t() | nil}
+  def step(%{raw: raw, sent: sent}, chunk, redactor) do
+    raw = raw <> chunk
+    safe = raw |> String.slice(0, String.length(raw) - Redact.holdback(raw)) |> redactor.()
+    {sent, text} = unsent(sent, safe)
+    {%{raw: raw, sent: sent}, text}
+  end
+
+  @doc false
+  # Pure release of the held tail when the turn ends.
+  @spec drain(map(), (String.t() -> String.t())) :: String.t() | nil
+  def drain(%{raw: raw, sent: sent}, redactor), do: sent |> unsent(redactor.(raw)) |> elem(1)
+
+  defp unsent(sent, redacted) do
     case redacted do
-      ^sent -> {sent, []}
-      <<^sent::binary-size(byte_size(sent)), new::binary>> -> {redacted, [%{event | text: new}]}
+      ^sent -> {sent, nil}
+      <<^sent::binary-size(byte_size(sent)), new::binary>> -> {redacted, new}
       # Redaction rewrote text already sent; the final event carries the full masked turn.
-      _ -> {sent, []}
+      _ -> {sent, nil}
     end
   end
+
+  defp emit(_event, nil), do: []
+  defp emit(event, text), do: [%{event | text: text}]
 
   defp flush(state, id) do
     case Map.pop(state.broadcast_streams, to_string(id)) do
       {nil, _} ->
         {state, []}
 
-      {%{raw: raw, sent: sent}, streams} ->
+      {stream, streams} ->
         event = %Events.AgentText{turn_id: id, text: "", final?: false}
-        {_, events} = unsent(sent, state.config.redactor.(raw), event)
-        {%{state | broadcast_streams: streams}, events}
+        {%{state | broadcast_streams: streams}, emit(event, drain(stream, state.config.redactor))}
     end
   end
 
