@@ -48,7 +48,7 @@ defmodule Aiur.ControlCall.Allowlist do
   # Each signature has {scope, positional constraints, keyword constraints}.
   @agent_rows [
     {:status, 0, :read, [], %{status_timeout_ms: :positive, section_timeout_ms: :positive}},
-    {:status, 1, :read, [:keyword], %{status_timeout_ms: :positive, section_timeout_ms: :positive}},
+    {:status, 1, :read, [:keyword], %{status_timeout_ms: :positive, section_timeout_ms: :positive, json: :boolean}},
     {:agents, 0, :read, [], %{}},
     {:agents, 1, :read, [:keyword], %{all: :boolean}},
     {:watch, 0, &__MODULE__.watch_category/1, [], %{mode: {:enum, [:full, :changes]}, json: :boolean}},
@@ -234,6 +234,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:prepare_handoff, 0, :deny, [], %{}},
     {:prepare_handoff, 1, :deny, [:keyword], %{}},
     {:main_watch_state, 0, :deny, [], %{}},
+    {:status_projects_json, 0, :deny, [], %{}},
     {:main_watch_inherited?, 2, :deny, [:any, :any], %{}},
     {:executor_listen, 0, :deny, [], %{}},
     {:executor_listen, 1, :deny, [:keyword], %{topic: :string}}

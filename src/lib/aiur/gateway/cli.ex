@@ -13,6 +13,8 @@ defmodule Aiur.Gateway.Cli do
   alias Aiur.ClientTokens
   alias Aiur.ControlCall.Audit
   alias Aiur.Gateway.{Discovery, GrantRequest, Hello, Identity, Invites, Registry, Status}
+  alias Aiur.Project.Config, as: ProjectConfig
+  alias Aiur.Project.Supervisors
 
   @actor "cli_local"
   @overlap_seconds 600
@@ -224,6 +226,25 @@ defmodule Aiur.Gateway.Cli do
 
   @spec revoke(keyword()) :: :ok
   def revoke(opts), do: guarded("gateway revoke", fn -> opts |> do_revoke() |> exit_marker() end)
+
+  @doc "`aiur gateway reload`: apply `projects:` additions and removals in `~/.aiur/machine` to the running daemon."
+  @spec reload(keyword()) :: :ok
+  def reload(_opts \\ []), do: guarded("gateway reload", fn -> exit_marker(do_reload()) end)
+
+  defp do_reload do
+    if Process.whereis(Supervisors) do
+      result = Supervisors.reload(ProjectConfig.configured())
+      failed = Enum.map(result.failed, fn {id, reason} -> "#{id} (#{inspect(reason, limit: 5, printable_limit: 120)})" end)
+      Enum.each([started: result.started, stopped: result.stopped, unchanged: result.unchanged, failed: failed], fn {key, ids} -> IO.puts("#{key}: #{names(ids)}") end)
+      0
+    else
+      IO.puts("this daemon started with no projects: in ~/.aiur/machine; restart it to serve projects")
+      0
+    end
+  end
+
+  defp names([]), do: "-"
+  defp names(ids), do: Enum.join(ids, ", ")
 
   defp do_grant(opts, categories) do
     with :ok <- check_categories(categories),
