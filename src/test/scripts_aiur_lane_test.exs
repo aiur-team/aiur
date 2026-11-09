@@ -10,7 +10,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
-      env: env,
+      env: [{"GIT_DIR", "/nonexistent"} | env],
       stderr_to_stdout: true
     )
   end
@@ -26,7 +26,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
-      env: env,
+      env: [{"GIT_DIR", "/nonexistent"} | env],
       stderr_to_stdout: true
     )
   end
@@ -40,7 +40,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
-      env: env,
+      env: [{"GIT_DIR", "/nonexistent"} | env],
       stderr_to_stdout: true
     )
   end
