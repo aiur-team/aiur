@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner.SkillGateTest do
   alias Aiur.AgentRunner.SkillGate
   alias Aiur.AgentSkills.Preload
   alias Aiur.Config.SkillsMapping
+  alias Aiur.TestSupport.WorkflowFiles
 
   setup do
     workspace = Aiur.TestSupport.tmp_root!("aiur-skill-gate")
@@ -104,7 +105,7 @@ defmodule Aiur.AgentRunner.SkillGateTest do
       write_workflow_file!(path, workspace_root: Path.join(root, "workspaces"), codex_command: "#{codex} app-server", max_turns: 1)
       strict = String.replace(File.read!(path), "\nagent:\n", "\nagent:\n  skills:\n    strict: true\n", global: false)
       assert strict =~ "strict: true"
-      Aiur.TestSupport.WorkflowFiles.write_workflow_file_atomic!(path, strict)
+      WorkflowFiles.write_workflow_file_atomic!(path, strict)
       :ok = Aiur.WorkflowStore.force_reload(15_000)
 
       issue = %Issue{id: "issue-gate", identifier: "MT-7866", title: "Gate", description: "Skills: ghost-skill", state: "In Progress", labels: []}

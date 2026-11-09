@@ -115,8 +115,8 @@ defmodule Aiur.AgentRunner.SkillsBlockBackendParityTest do
       agent_kind: "claude",
       workspace_root: root,
       command:
-        "while IFS= read -r line; do echo \"$line\" >> #{trace}; case \"$line\" in " <>
-          "*'\"initialize\"'*) echo '#{init}' ;; *'\"thread/start\"'*) echo '#{thread}' ;; " <>
+        ~s(while IFS= read -r line; do echo "$line" >> #{trace}; case "$line" in ) <>
+          ~s(*'"initialize"'*\) echo '#{init}' ;; *'"thread/start"'*\) echo '#{thread}' ;; ) <>
           "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; esac; done"
     )
 
