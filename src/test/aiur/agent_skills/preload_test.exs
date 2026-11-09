@@ -529,6 +529,28 @@ defmodule Aiur.AgentSkills.PreloadTest do
       refute Map.has_key?(installed, "too-deep")
     end
 
+    test "the nested scan does not follow a symlinked directory out of the install path", %{workspace: workspace} do
+      outside = Path.join([workspace, "outside", "pack", "escaped"])
+      File.mkdir_p!(outside)
+      File.write!(Path.join(outside, "SKILL.md"), "---\nname: escaped\ndescription: \"Outside.\"\n---\n\nOUTSIDE\n")
+      skill!(workspace, "inside", "Inside.", "INSIDE", ["real", "pack"])
+      File.ln_s!(Path.join(workspace, "outside"), Path.join([workspace, ".claude", "skills", "vendor"]))
+
+      installed = Preload.installed_skills(workspace)
+
+      assert Map.has_key?(installed, "inside")
+      refute Map.has_key?(installed, "escaped")
+    end
+
+    test "the nested scan lists a bounded number of directories per install path", %{workspace: workspace} do
+      root = Path.join([workspace, ".claude", "skills"])
+      for group <- 1..300, do: File.mkdir_p!(Path.join(root, "group-#{String.pad_leading("#{group}", 3, "0")}"))
+      # Sorts after every group, so its directory is past the listing cap.
+      skill!(workspace, "late-skill", "Late.", "LATE", ["zzz"])
+
+      refute Map.has_key?(Preload.installed_skills(workspace), "late-skill")
+    end
+
     test "an absent workspace resolves to no installed skills", %{workspace: workspace} do
       assert Preload.installed_skills(nil) == %{}
       assert Preload.installed_skills(Path.join(workspace, "missing")) == %{}

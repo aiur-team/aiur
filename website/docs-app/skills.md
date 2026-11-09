@@ -133,7 +133,7 @@ agent:
 
 ### Nested skills
 
-Skills are found up to three directories below an install path: `<skill>`, `<group>/<skill>` and `<group>/<pack>/<skill>`, each holding a `SKILL.md`. A nested skill such as `vendor/<pack>/<skill>/SKILL.md` is named by its own directory, so map it as `<skill>`. When two skills share a name, the shallower one wins. Aiur stops searching inside a directory once it finds a `SKILL.md` there, and skips directories whose names start with a dot.
+Skills are found up to three directories below an install path: `<skill>`, `<group>/<skill>` and `<group>/<pack>/<skill>`, each holding a `SKILL.md`. A nested skill such as `vendor/<pack>/<skill>/SKILL.md` is named by its own directory, so map it as `<skill>`. When two skills share a name, the shallower one wins. Aiur stops searching inside a directory once it finds a `SKILL.md` there, and skips directories whose names start with a dot. It descends only into real directories, never through a symlink, and lists at most 256 directories per install path.
 
 A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
 

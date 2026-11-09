@@ -14,6 +14,8 @@ defmodule Aiur.AgentSkills.Registry do
   @fallback_install_path ".claude/skills"
   # `<name>`, `<group>/<name>` and `<group>/<pack>/<name>` below an install path.
   @max_depth 3
+  # Directories listed per install path, the root included.
+  @max_dirs 256
 
   @doc """
   The skills installed in `workspace`, keyed by directory name.
@@ -41,15 +43,19 @@ defmodule Aiur.AgentSkills.Registry do
 
   # Breadth-first, so a skill nearer the install path wins a name collision with
   # a nested one (`vendor/<pack>/<skill>`). A directory holding a SKILL.md is a
-  # skill and is not searched further; depth is bounded so a symlink loop or a
-  # large tree cannot stall prompt building.
+  # skill and is not searched further. The scan descends only into real
+  # directories, never through a symlink, so it cannot walk out of the install
+  # path; depth and the number of directories listed are both bounded so a large
+  # tree cannot stall prompt building.
   defp read_skill_dir(root, acc) do
-    {acc, _dirs} =
-      Enum.reduce(1..@max_depth, {acc, [root]}, fn _level, {acc, dirs} ->
-        dirs
+    {acc, _dirs, _budget} =
+      Enum.reduce(1..@max_depth, {acc, [root], @max_dirs}, fn _level, {acc, dirs, budget} ->
+        listed = Enum.take(dirs, budget)
+
+        listed
         |> Enum.flat_map(&children/1)
         |> Enum.reduce({acc, []}, &visit/2)
-        |> then(fn {acc, next} -> {acc, Enum.reverse(next)} end)
+        |> then(fn {acc, next} -> {acc, Enum.reverse(next), budget - length(listed)} end)
       end)
 
     acc
@@ -67,10 +73,12 @@ defmodule Aiur.AgentSkills.Registry do
 
     cond do
       File.regular?(path) -> {read_skill(acc, Path.basename(entry), path), next}
-      File.dir?(entry) -> {acc, [entry | next]}
+      real_directory?(entry) -> {acc, [entry | next]}
       true -> {acc, next}
     end
   end
+
+  defp real_directory?(path), do: match?({:ok, %File.Stat{type: :directory}}, File.lstat(path))
 
   defp read_skill(acc, name, path) do
     case File.read(path) do
