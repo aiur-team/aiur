@@ -9,6 +9,7 @@ defmodule Aiur.Commands.CLIAnswers do
   produce the same encoded payload, so a retry through another form replays.
   """
 
+  alias Aiur.Commands
   alias Aiur.Commands.Answering.QuestionAnswers
 
   @flag_keys [:answers, :answer_texts, :answers_json]
@@ -71,6 +72,34 @@ defmodule Aiur.Commands.CLIAnswers do
     |> Enum.reject(&(get(&1, :question_id) in answered_ids))
     |> Enum.map_join(", ", &label/1)
   end
+
+  @doc "Read a Command's decision (questions included) from the store."
+  @spec fetch_decision(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def fetch_decision(decision_id, deps) do
+    get_fun = Keyword.get(deps, :get_fun, fn id, store -> Commands.get(id, store: store) end)
+
+    case get_fun.(decision_id, Keyword.get(deps, :decision_store, Commands.default_store())) do
+      {:ok, %{decision: decision}} -> {:ok, decision}
+      {:error, reason} -> {:error, reason}
+    end
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  @doc "Name the unanswered questions when a single legacy answer meets a multi-question Command."
+  @spec name_unanswered(term(), String.t(), keyword()) :: term()
+  def name_unanswered({:error, {:answer_invalid, {:question_answers, :incomplete}}} = error, decision_id, deps) do
+    case fetch_decision(decision_id, deps) do
+      {:ok, %{questions: [first | _rest] = questions}} ->
+        missing = describe_missing(questions, [Map.get(first, :question_id)])
+        {:usage, "every question needs an answer; unanswered: #{missing}. Use --answer/--answer-text or --answers-file; aiur command #{decision_id} prints the template"}
+
+      _unavailable ->
+        error
+    end
+  end
+
+  def name_unanswered(result, _decision_id, _deps), do: result
 
   defp flag_entries(pairs, texts, questions) do
     with {:ok, options} <- each(pairs, "--answer", &option_entries(&1, &2, questions)),

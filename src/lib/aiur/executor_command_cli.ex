@@ -20,7 +20,7 @@ defmodule Aiur.ExecutorCommandCLI do
 
   def answer(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_answer(params, deps),
-         {:ok, result} <- call_answer(normalized, deps) |> name_unanswered(normalized.decision_id, deps) do
+         {:ok, result} <- call_answer(normalized, deps) |> CLIAnswers.name_unanswered(normalized.decision_id, deps) do
       ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
@@ -184,36 +184,9 @@ defmodule Aiur.ExecutorCommandCLI do
         {:usage, "answer takes --answer/--answer-text/--answers-file or --option/--custom-response, not both"}
 
       true ->
-        with {:ok, decision} <- fetch_decision(decision_id, deps), do: CLIAnswers.encode(params, decision.questions)
+        with {:ok, decision} <- CLIAnswers.fetch_decision(decision_id, deps), do: CLIAnswers.encode(params, decision.questions)
     end
   end
-
-  defp fetch_decision(decision_id, deps) do
-    get_fun = Keyword.get(deps, :get_fun, fn id, store -> Commands.get(id, store: store) end)
-
-    case get_fun.(decision_id, Keyword.get(deps, :decision_store, Commands.default_store())) do
-      {:ok, %{decision: decision}} -> {:ok, decision}
-      {:error, reason} -> {:error, reason}
-    end
-  catch
-    :exit, reason -> {:error, {:store_unavailable, reason}}
-  end
-
-  @doc false
-  # A legacy single answer to a multi-question Command covers only the first question.
-  @spec name_unanswered(term(), String.t(), keyword()) :: term()
-  def name_unanswered({:error, {:answer_invalid, {:question_answers, :incomplete}}} = error, decision_id, deps) do
-    case fetch_decision(decision_id, deps) do
-      {:ok, %{questions: [first | _rest] = questions}} ->
-        missing = CLIAnswers.describe_missing(questions, [Map.get(first, :question_id)])
-        {:usage, "every question needs an answer; unanswered: #{missing}. Use --answer/--answer-text or --answers-file; aiur command #{decision_id} prints the template"}
-
-      _unavailable ->
-        error
-    end
-  end
-
-  def name_unanswered(result, _decision_id, _deps), do: result
 
   defp one_answer(params) do
     option_id = trimmed(Keyword.get(params, :option_id))

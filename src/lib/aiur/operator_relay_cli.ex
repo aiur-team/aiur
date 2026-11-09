@@ -2,11 +2,12 @@ defmodule Aiur.OperatorRelayCLI do
   @moduledoc "Records an operator's already-given answer with explicit relay attribution."
 
   alias Aiur.{Commands, ExecutorCommandCLI}
+  alias Aiur.Commands.CLIAnswers
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ []) do
     with {:ok, payload, actor} <- normalize(params, deps),
-         {:ok, result} <- record(params, payload, actor, deps) |> ExecutorCommandCLI.name_unanswered(params[:decision_id], deps) do
+         {:ok, result} <- record(params, payload, actor, deps) |> CLIAnswers.name_unanswered(params[:decision_id], deps) do
       IO.puts("aiur: answered by operator, relayed by #{actor.id}: Command #{params[:decision_id]} (#{result.status})")
       0
     else
