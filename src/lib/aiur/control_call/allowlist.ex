@@ -115,6 +115,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:github_usage, 1, :read, [:keyword], %{json: :boolean}},
     {:ticket_estimate, 0, &__MODULE__.estimate_category/1, [], %{}},
     {:ticket_estimate, 1, &__MODULE__.estimate_category/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
+    {:ticket_reopen, 1, :tickets, [:keyword], %{id: :positive, state: {:enum, ["todo", "rework"]}, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
     {:ticket_owner, 1, :read, [:keyword], %{ticket: {:regex, ~r/^(pr-)?[1-9][0-9]{0,9}$/}, json: :boolean}},
     {:ticket_assign, 1, :tickets, [:keyword],
      %{ticket: {:regex, ~r/^(pr-)?[1-9][0-9]{0,9}$/}, to: :non_empty_string, reason: :estimate_reason, as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}, json: :boolean}},

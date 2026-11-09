@@ -2,8 +2,9 @@
 cmd_ticket() {
   case "${1:-}" in
     owner|assign) cmd_ticket_ownership "$@"; return ;;
+    reopen) shift; cmd_ticket_reopen "$@"; return ;;
     estimate) ;;
-    *) echo 'aiur: unknown ticket subcommand (expected estimate, owner or assign)' >&2; exit 64 ;;
+    *) echo 'aiur: unknown ticket subcommand (expected estimate, reopen, owner or assign)' >&2; exit 64 ;;
   esac
   shift
   local id="${1:-}" hours="" reason="" by="cli:${USER:-unknown}" clear=0 json=0 arg opts
@@ -113,4 +114,32 @@ cmd_ownership() {
   [ "$apply" -eq 0 ] || opts="$opts, apply: true"
   [ "$json" -eq 0 ] || opts="$opts, json: true"
   run_control_rpc "Aiur.AgentControlCLI.ownership_migrate([$opts])"
+}
+
+# `reopen <n> --reason <text> [--state todo|rework] [--json]`: reopen a closed ticket and restore its links.
+cmd_ticket_reopen() {
+  local usage='usage: aiur ticket reopen <id> --reason <text> [--state todo|rework] [--json]'
+  local id="${1:-}" reason="" state=todo json=0 by="cli:${USER:-unknown}" opts
+  [[ "$id" =~ ^[1-9][0-9]{0,9}$ ]] || { echo 'aiur: ticket reopen expects a positive numeric id' >&2; echo "$usage" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      --reason)
+        [ "$#" -gt 1 ] || { echo 'aiur: --reason requires a value' >&2; exit 64; }
+        reason="$2"; shift ;;
+      --state)
+        [ "$#" -gt 1 ] || { echo 'aiur: --state requires a value' >&2; exit 64; }
+        state="$2"; shift ;;
+      *) echo "aiur: unknown ticket reopen option: $1" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$reason" =~ [^[:space:]] ]] && ! [[ "$reason" =~ [[:cntrl:]] ]] && [ "${#reason}" -le 500 ] || {
+    echo 'aiur: ticket reopen requires --reason with 1..500 characters without controls' >&2; echo "$usage" >&2; exit 64;
+  }
+  case "$state" in todo|rework) ;; *) echo 'aiur: --state must be todo or rework' >&2; exit 64 ;; esac
+  opts="id: $id, state: \"$state\", reason: Base.decode64!(\"$(encode_control_value "$reason")\"), by: Base.decode64!(\"$(encode_control_value "$by")\")"
+  [ "$json" -eq 0 ] || opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.ticket_reopen([$opts])"
 }
