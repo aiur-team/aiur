@@ -91,7 +91,10 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   @spec split_candidates([map()], map(), keyword()) :: {[map()], [held_entry()]}
   def split_candidates(candidates, readings, opts \\ []) when is_list(candidates) and is_map(readings) do
     candidates
-    |> Enum.map(&{&1, UsageFloor.decision(reading_for(&1, readings, opts), floor_for(&1, opts))})
+    |> Enum.map(fn candidate ->
+      reading = reading_for(candidate, readings, opts)
+      {candidate, UsageFloor.decision(reading, effective_floor(reading, floor_for(candidate, opts)))}
+    end)
     |> Enum.reduce({[], []}, fn
       {candidate, {:held, held}}, {allowed, held_entries} -> {allowed, [%{candidate: candidate, held: held} | held_entries]}
       {candidate, :allow}, {allowed, held_entries} -> {[candidate | allowed], held_entries}
@@ -294,6 +297,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
          used when is_number(used) <- credit_used_percent(view) do
       %{
         windows: %{"credits" => used},
+        credit_exhausted: used >= 100,
         source: "provider_meter",
         age_seconds: Map.get(view, :age_seconds),
         stale: Map.get(view, :freshness) in [:stale, :unknown]
@@ -313,11 +317,23 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
     windows
     |> Enum.map(fn {_id, window} -> window end)
     |> Enum.find_value(fn window ->
-      if Map.get(window, :kind) == :credit and is_number(Map.get(window, :used_percent)), do: Map.get(window, :used_percent)
+      if Map.get(window, :kind) == :credit, do: window_used_percent(window)
     end)
   end
 
   defp credit_used_percent(_view), do: nil
+
+  # A spent balance is fully used even when the key's limit is unknown (#7879).
+  defp window_used_percent(%{credits: %{status: :exhausted}}), do: 100
+  defp window_used_percent(%{remaining: remaining}) when is_number(remaining) and remaining <= 0, do: 100
+  defp window_used_percent(%{used_percent: used}) when is_number(used), do: used
+  defp window_used_percent(_window), do: nil
+
+  # A spent balance cannot serve a request, so it holds the route even when the
+  # floor is off; a stale reading still never holds (#7879).
+  defp effective_floor(%{credit_exhausted: true}, floor) when is_integer(floor) and floor > 0, do: floor
+  defp effective_floor(%{credit_exhausted: true}, _floor), do: 1
+  defp effective_floor(_reading, floor), do: floor
 
   # A held candidate's label is the route's backend plus its account, while a
   # route is the configured string (`claude:opus`). Scoping a recovery by route
