@@ -5,6 +5,7 @@ defmodule Aiur.Handoff.ProjectFingerprintTest do
   alias Aiur.Handoff
   alias Aiur.Handoff.{Adopter, Record}
   alias Aiur.Orchestrator.State
+  alias Aiur.Project.Context
   alias Aiur.TestSupport.WorkflowFiles
 
   @hello %{"protocol" => 1, "spawn_nonce" => "nonce", "provider_pid" => 123, "relay_id" => "relay", "lossy" => false}
@@ -36,7 +37,7 @@ defmodule Aiur.Handoff.ProjectFingerprintTest do
             "from_version" => "test",
             "generation" => 1,
             "config_fingerprint" => Handoff.config_fingerprint(),
-            "project_id" => Aiur.Project.Context.current_id(),
+            "project_id" => Context.current_id(),
             "agents" => agents
           },
           extra

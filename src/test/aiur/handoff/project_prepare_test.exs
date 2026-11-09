@@ -3,7 +3,7 @@ defmodule Aiur.Handoff.ProjectPrepareTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.Handoff.{CLI, Record}
+  alias Aiur.Handoff.{CLI, Protection, Record}
 
   test "restart --keep-agents in projects mode prepares every project and reports both ids", %{a: a, b: b} do
     # Projects mode runs no bare orchestrator, so the single-project snapshot would say "not running".
@@ -12,7 +12,7 @@ defmodule Aiur.Handoff.ProjectPrepareTest do
     assert GenServer.whereis(Aiur.Orchestrator) == nil
 
     # prepare stores a per-project Protection entry; leaving it behind leaks into later tests.
-    on_exit(fn -> Enum.each([a, b], &in_project(&1, fn -> Aiur.Handoff.Protection.reset() end)) end)
+    on_exit(fn -> Enum.each([a, b], &in_project(&1, fn -> Protection.reset() end)) end)
 
     output = capture_io(fn -> CLI.prepare() end)
 

@@ -1,7 +1,9 @@
 defmodule Aiur.Handoff.CLI do
   @moduledoc "CLI boundary for handoff preflight, outcomes and provider identity."
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
+  alias Aiur.Handoff.All
   alias Aiur.Handoff.Report
+  alias Aiur.Project.Registry
 
   @agents_contract "aiur.agents"
   @contract_version 1
@@ -24,7 +26,7 @@ defmodule Aiur.Handoff.CLI do
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
       # Projects mode has no bare orchestrator to snapshot; each project is prepared in its own context.
-      if Aiur.Project.Registry.project_ids() != [], do: prepare_running(opts), else: prepare_single(opts)
+      if Registry.project_ids() != [], do: prepare_running(opts), else: prepare_single(opts)
     end)
   end
 
@@ -107,19 +109,22 @@ defmodule Aiur.Handoff.CLI do
 
   # Projects mode prepares every project in its own context; the marker carries all handoff ids.
   defp default_prepare do
-    case Aiur.Project.Registry.project_ids() do
+    case Registry.project_ids() do
       [] ->
         Aiur.AgentControlCLI.prepare_handoff()
 
       _projects ->
-        with {:ok, %{projects: results, handoff_ids: ids}} <- Aiur.Handoff.All.prepare_all(), true <- ids != [] do
-          oks = for {_id, {:ok, r}} <- results, do: r
-          {:ok, %{handoff_id: Enum.join(ids, ","), skipped: Enum.flat_map(oks, & &1.skipped), agents: Enum.flat_map(oks, & &1.agents)}}
-        else
-          false -> {:error, :no_project_prepared}
+        case All.prepare_all() do
+          {:ok, %{handoff_ids: []}} -> {:error, :no_project_prepared}
+          {:ok, all} -> {:ok, merge_prepared(all)}
           {:error, _} = error -> error
         end
     end
+  end
+
+  defp merge_prepared(%{projects: results, handoff_ids: ids}) do
+    oks = for {_id, {:ok, r}} <- results, do: r
+    %{handoff_id: Enum.join(ids, ","), skipped: Enum.flat_map(oks, & &1.skipped), agents: Enum.flat_map(oks, & &1.agents)}
   end
 
   @spec report(keyword()) :: :ok

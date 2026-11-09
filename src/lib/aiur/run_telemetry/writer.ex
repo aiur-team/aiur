@@ -29,6 +29,7 @@ defmodule Aiur.RunTelemetry.Writer do
   alias Aiur.RunTelemetry.{FactsCapture, LedgerRetention, Lifecycle, RunContext, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
   alias Aiur.RunTelemetry.Writer.Retention, as: WriterRetention
+  alias Aiur.WorkflowStore.Reload
 
   @external_event_patterns Aiur.RunTelemetry.DaemonEvents.patterns()
 
@@ -93,7 +94,7 @@ defmodule Aiur.RunTelemetry.Writer do
   @impl true
   def init(opts) do
     subscribe_external_events()
-    Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.WorkflowStore.Reload.any_configuration_topic())
+    Phoenix.PubSub.subscribe(Aiur.PubSub, Reload.any_configuration_topic())
 
     path = Keyword.get(opts, :path, RunTelemetry.telemetry_file())
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
