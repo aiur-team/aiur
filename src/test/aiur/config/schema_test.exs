@@ -199,11 +199,11 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
-  test "operator relay defaults off and must be explicitly enabled" do
+  test "operator relay defaults on and an explicit false opts out" do
     assert {:ok, defaults} = Schema.parse(%{})
-    assert defaults.executor.relay_operator_answers == false
-    assert {:ok, enabled} = Schema.parse(%{"executor" => %{"relay_operator_answers" => true}})
-    assert enabled.executor.relay_operator_answers == true
+    assert defaults.executor.relay_operator_answers == true
+    assert {:ok, disabled} = Schema.parse(%{"executor" => %{"relay_operator_answers" => false}})
+    assert disabled.executor.relay_operator_answers == false
     assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"executor" => %{"relay_operator_answers" => "yes please"}})
     assert message =~ "relay_operator_answers"
   end

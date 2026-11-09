@@ -10,6 +10,8 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.config_example() =~ "GITHUB_TOKEN is the default daemon credential"
     assert Templates.config_example() =~ "github_app.account names the daemon's distinct App bot login"
     refute Templates.config_example() =~ "the App private key are set (preferred"
+    assert Templates.config_example() =~ "#   relay_operator_answers: true\n"
+    assert Templates.config_example() =~ "On by default; set false to opt out."
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"

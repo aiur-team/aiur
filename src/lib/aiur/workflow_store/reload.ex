@@ -297,7 +297,9 @@ defmodule Aiur.WorkflowStore.Reload do
     _kind, _reason -> :ok
   end
 
-  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
+  # On by default: only an explicit `false` disables relaying.
+  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => false}}}}), do: false
+  defp relay_enabled?(%{workflow: %{config: config}}) when is_map(config), do: true
   defp relay_enabled?(_state), do: false
 
   defp maybe_announce_reversible_human_required_delegation(previous, current) do
