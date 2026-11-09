@@ -23,20 +23,25 @@ defmodule Aiur.Handoff.CLI do
   @spec prepare(keyword()) :: :ok
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
-      timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
-      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
-
-      case snapshot_fun.() do
-        :timeout ->
-          failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
-
-        :unavailable ->
-          failure("orchestrator is not running")
-
-        snapshot ->
-          prepare_snapshot(snapshot, opts)
-      end
+      # Projects mode has no bare orchestrator to snapshot; each project is prepared in its own context.
+      if Aiur.Project.Registry.project_ids() != [], do: prepare_running(opts), else: prepare_single(opts)
     end)
+  end
+
+  defp prepare_single(opts) do
+    timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
+    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
+
+    case snapshot_fun.() do
+      :timeout ->
+        failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
+
+      :unavailable ->
+        failure("orchestrator is not running")
+
+      snapshot ->
+        prepare_snapshot(snapshot, opts)
+    end
   end
 
   defp prepare_snapshot(snapshot, opts) do
@@ -178,7 +183,7 @@ defmodule Aiur.Handoff.CLI do
     result = Report.latest_all(opts)
     expected = opts |> Keyword.get(:expected_id) |> then(&(&1 && String.split(&1, ",")))
 
-    if is_nil(expected) or match?({:ok, %{handoff_id: id}} when is_binary(id), result) and covers?(result, expected) do
+    if is_nil(expected) or (match?({:ok, %{handoff_id: id}} when is_binary(id), result) and covers?(result, expected)) do
       result
     else
       if System.monotonic_time(:millisecond) < deadline do
