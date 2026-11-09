@@ -8,12 +8,25 @@ defmodule Aiur.ControlCall.ProjectTest do
 
   @b64_b Base.encode64("t311/b")
 
-  defp stop(pid) do
-    ref = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    receive do: ({:DOWN, ^ref, _, _, _} -> :ok)
-    # Registry unregisters via its own monitor; let it process the exit.
-    Process.sleep(20)
+  # Runs `fun` in a supervised process that stays alive (so its Registry entries
+  # persist) until the test ends; returns once `fun` has finished.
+  defp hold(id, fun) do
+    parent = self()
+
+    start_supervised!(%{
+      id: id,
+      start:
+        {Task, :start_link,
+         [
+           fn ->
+             fun.()
+             send(parent, {:held, id})
+             receive do: (:release -> :ok)
+           end
+         ]}
+    })
+
+    assert_receive {:held, ^id}, 1_000
   end
 
   describe "resolve/3" do
@@ -62,23 +75,14 @@ defmodule Aiur.ControlCall.ProjectTest do
 
   describe "against two registered projects" do
     setup do
-      pids =
-        for repo <- ["t311/a", "t311/b"] do
-          project = Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
-          parent = self()
+      for repo <- ["t311/a", "t311/b"] do
+        hold({:project, repo}, fn ->
+          Aiur.Project.Registry.register_root(
+            Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
+          )
+        end)
+      end
 
-          pid =
-            spawn(fn ->
-              Aiur.Project.Registry.register_root(project)
-              send(parent, {:registered, repo})
-              Process.sleep(:infinity)
-            end)
-
-          assert_receive {:registered, ^repo}, 1_000
-          pid
-        end
-
-      on_exit(fn -> Enum.each(pids, &stop/1) end)
       :ok
     end
 
@@ -143,19 +147,13 @@ defmodule Aiur.ControlCall.ProjectTest do
 
     setup do
       for repo <- ["t311/a", "t311/b"] do
-        project = Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
-        parent = self()
+        hold({:queue, repo}, fn ->
+          Aiur.Project.Registry.register_root(
+            Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
+          )
 
-        pid =
-          spawn(fn ->
-            Aiur.Project.Registry.register_root(project)
-            {:ok, _} = QueueStub.start_link({Aiur.Project.Registry.via(repo, Aiur.BuildQueue.Server), "DATA-" <> repo})
-            send(parent, :registered)
-            Process.sleep(:infinity)
-          end)
-
-        assert_receive :registered, 1_000
-        on_exit(fn -> stop(pid) end)
+          {:ok, _} = QueueStub.start_link({Aiur.Project.Registry.via(repo, Aiur.BuildQueue.Server), "DATA-" <> repo})
+        end)
       end
 
       :ok
