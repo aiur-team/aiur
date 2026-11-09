@@ -345,7 +345,13 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_backfill, opts) ++
         List.wrap(
           if(recording?,
-            do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest, Aiur.Commands.Deferred]
+            do: [
+              Aiur.Executor.Session,
+              Aiur.Executor.SessionIngest,
+              {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+              Aiur.Executor.TranscriptIngest,
+              Aiur.Commands.Deferred
+            ]
           )
         )
     )
