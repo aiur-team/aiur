@@ -163,14 +163,10 @@ defmodule AiurWeb.ProjectScopeTest do
     |> get(path)
   end
 
-  defp await_build(view, attempts \\ 100) do
-    assigns = :sys.get_state(view.pid).socket.assigns
-
-    cond do
-      assigns.build_state != :loading -> assigns
-      attempts == 0 -> flunk("build home never left :loading")
-      true -> Process.sleep(50) && await_build(view, attempts - 1)
-    end
+  # `render_async/1` waits for the mount's `start_async` snapshot read to finish.
+  defp await_build(view) do
+    render_async(view, 10_000)
+    :sys.get_state(view.pid).socket.assigns
   end
 
   defp json_body(conn), do: Jason.decode!(conn.resp_body)
@@ -179,21 +175,10 @@ defmodule AiurWeb.ProjectScopeTest do
     build_conn() |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
   end
 
-  # A fresh orchestrator publishes its first snapshot asynchronously.
-  defp await_snapshot(path, attempts \\ 100) do
+  # `start_publishing/1` publishes each project's snapshot before the request runs.
+  defp await_snapshot(path) do
     conn = request(path)
-    payload = Jason.decode!(conn.resp_body)
-
-    cond do
-      conn.status == 200 and not Map.has_key?(payload, "error") ->
-        payload
-
-      attempts == 0 ->
-        flunk("no snapshot for #{path}: #{conn.status} #{conn.resp_body}")
-
-      true ->
-        Process.sleep(50)
-        await_snapshot(path, attempts - 1)
-    end
+    assert conn.status == 200, "no snapshot for #{path}: #{conn.resp_body}"
+    Jason.decode!(conn.resp_body)
   end
 end
