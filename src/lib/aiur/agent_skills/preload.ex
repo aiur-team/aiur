@@ -138,6 +138,18 @@ defmodule Aiur.AgentSkills.Preload do
     |> append_when(preload.truncated, "truncated: ")
   end
 
+  @doc "The machine-readable preload facts `aiur agents --json` reports per running worker."
+  @spec report(t()) :: map()
+  def report(%__MODULE__{} = preload) do
+    %{
+      mapped: Enum.map(preload.mapped, &%{name: &1.name, reason: &1.reason}),
+      truncated: names(preload.truncated),
+      missing: names(preload.missing),
+      bytes: preload.bytes,
+      max_bytes: preload.max_bytes
+    }
+  end
+
   @doc "The dispatch-record event body for one preload resolution."
   @spec dispatch_record(t()) :: map()
   def dispatch_record(%__MODULE__{} = preload) do
