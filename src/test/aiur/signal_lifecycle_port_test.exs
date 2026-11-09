@@ -91,7 +91,14 @@ defmodule Aiur.SignalLifecyclePortTest do
     assert files != []
 
     for file <- files, not String.starts_with?(Path.relative_to(file, root), "aiur/run_telemetry/") do
-      refute File.read!(file) =~ "RunTelemetry.Lifecycle", file
+      refute read_source!(file) =~ "RunTelemetry.Lifecycle", file
     end
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

@@ -209,7 +209,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       relative = Path.relative_to(path, @lib_root)
 
       path
-      |> File.read!()
+      |> read_source!()
       |> String.split("\n")
       |> Enum.with_index(1)
       |> Enum.filter(fn {line, _number} ->
@@ -217,5 +217,12 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       end)
       |> Enum.map(fn {line, number} -> {relative, number, String.trim(line)} end)
     end)
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

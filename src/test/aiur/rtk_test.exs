@@ -223,7 +223,7 @@ defmodule Aiur.RtkTest do
         path not in [
           Path.join(@repo_root, "src/lib/aiur/rtk.ex"),
           Path.join(@repo_root, "src/lib/aiur_web/live/analytics_live/panels.ex")
-        ] and String.contains?(File.read!(path), "Aiur.Rtk")
+        ] and String.contains?(read_source!(path), "Aiur.Rtk")
       end)
 
     call_site_modules = Enum.map(call_sites, &Path.relative_to(&1, @repo_root))
@@ -233,5 +233,12 @@ defmodule Aiur.RtkTest do
              "src/lib/aiur/rtk_startup_check.ex"
            ],
            "Aiur.Rtk has unexpected call sites: #{inspect(call_site_modules)}"
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end
