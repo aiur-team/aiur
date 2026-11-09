@@ -363,7 +363,7 @@ defmodule Aiur.Application.Children do
     pollers = ProjectChildren.pollers()
 
     Enum.reject(children, &(child_module(&1) in pollers)) ++
-      [ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+      [Aiur.Gateway.Capacity, ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
   end
 
   defp child_module({module, _opts}), do: module
