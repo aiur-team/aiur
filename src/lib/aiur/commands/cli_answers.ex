@@ -217,7 +217,7 @@ defmodule Aiur.Commands.CLIAnswers do
 
     case {by_id, by_header} do
       {nil, [question]} -> {:ok, question}
-      {nil, [_, _ | _] = many} -> {:usage, "header #{inspect(key)} matches questions #{Enum.map_join(many, ", ", &get(&1, :question_id))}; use the question id"}
+      {nil, [_, _ | _] = many} -> {:usage, "ambiguous header #{inspect(key)}: it matches questions #{Enum.map_join(many, ", ", &get(&1, :question_id))}; use the question id"}
       {nil, []} -> {:usage, "unknown question #{inspect(key)}; use one of #{Enum.map_join(questions, ", ", &label/1)}"}
       {question, _headers} -> {:ok, question}
     end

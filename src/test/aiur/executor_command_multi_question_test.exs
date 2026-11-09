@@ -95,7 +95,7 @@ defmodule Aiur.ExecutorCommandMultiQuestionTest do
 
   test "a header shared by two questions is refused as ambiguous, naming both ids" do
     questions = [%{question_id: "a", header: "Pick", options: [%{id: "x", label: "X"}]}, %{question_id: "b", header: "Pick", options: [%{id: "x", label: "X"}]}]
-    assert CLIAnswers.resolve([answers: ["pick=x"]], questions) == {:usage, ~s(header "pick" matches questions a, b; use the question id)}
+    assert CLIAnswers.resolve([answers: ["pick=x"]], questions) == {:usage, ~s(ambiguous header "pick": it matches questions a, b; use the question id)}
     assert {:ok, %{"a" => ["X"], "b" => ["X"]}} = CLIAnswers.resolve([answers: ["a=x", "b=x"]], questions)
   end
 
