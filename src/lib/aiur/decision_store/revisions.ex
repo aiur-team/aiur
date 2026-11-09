@@ -301,11 +301,12 @@ defmodule Aiur.DecisionStore.Revisions do
   end
 
   defp notify_premise_change(state, decision, revision) do
-    Map.get(state, :premise_notifier, &Aiur.DecisionPremises.notify_async/1).(%{
+    # The orchestrator wires the notifier at boot; the store stays free of tracker IO.
+    Map.get(state, :premise_notifier, fn _change -> :ok end).(%{
       decision_id: decision.decision_id,
       kind: :revised,
-      old_answer: Aiur.DecisionPremises.answer_text(Decision.active_answer(decision)),
-      new_answer: Aiur.DecisionPremises.answer_text(revision.answer)
+      old_answer: Decision.active_answer(decision),
+      new_answer: revision.answer
     })
   end
 

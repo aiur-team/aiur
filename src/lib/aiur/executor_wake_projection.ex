@@ -120,23 +120,50 @@ defmodule Aiur.ExecutorWakeProjection do
       answer ->
         ticket = Aiur.Commands.override_target_ticket(decision).identifier
         {feature, epic} = owner(ticket, feature_lookup)
-        question_answers = question_answers(answer.custom_response)
 
-        Map.merge(record, %{
-          "ticket" => ticket,
-          "feature" => feature,
-          "epic" => epic,
-          "option_id" => answer.selected_option_id,
-          "question_answers" => strip(question_answers),
-          "custom_response" => if(question_answers, do: nil, else: strip(answer.custom_response)),
-          "feedback" => strip(answer.feedback),
-          "rejected" => answer.rejected,
-          "actor" => %{"kind" => to_string(answer.actor.kind), "id" => answer.actor.id},
-          "actor_source" => answer.actor |> Map.get(:source) |> then(&(&1 && to_string(&1))),
-          "untrusted_fields" => ~w(custom_response question_answers feedback)
-        })
+        record
+        |> Map.merge(%{"ticket" => ticket, "feature" => feature, "epic" => epic})
+        |> Map.merge(answer_fields(answer))
+        |> Map.put("untrusted_fields", ~w(custom_response question_answers feedback))
     end
   end
+
+  @doc """
+  Adds a changed premise's answers to a `premise-changed` attention wake: the
+  new answer under the answered-wake keys (`nil` fields when mooted) and the old
+  answer, in the same shape, under `previous`.
+  """
+  @spec with_premise_answers(map(), Aiur.DecisionAnswer.t() | nil, Aiur.DecisionAnswer.t() | nil) :: map()
+  def with_premise_answers(record, answer, previous) do
+    record
+    |> Map.merge(answer_fields(answer))
+    |> Map.merge(%{
+      "previous" => if(previous, do: answer_fields(previous)),
+      "untrusted_fields" => ~w(custom_response question_answers feedback previous moot_reason)
+    })
+  end
+
+  defp answer_fields(nil), do: Map.new(~w(option_id question_answers custom_response feedback rejected actor actor_source), &{&1, nil})
+
+  defp answer_fields(answer) do
+    question_answers = question_answers(answer.custom_response)
+
+    %{
+      "option_id" => answer.selected_option_id,
+      "question_answers" => strip(question_answers),
+      "custom_response" => if(question_answers, do: nil, else: strip(answer.custom_response)),
+      "feedback" => strip(answer.feedback),
+      "rejected" => answer.rejected,
+      "actor" => actor(answer.actor),
+      "actor_source" => answer.actor |> source() |> then(&(&1 && to_string(&1)))
+    }
+  end
+
+  defp actor(%{kind: kind} = actor), do: %{"kind" => to_string(kind), "id" => Map.get(actor, :id)}
+  defp actor(_actor), do: nil
+
+  defp source(actor) when is_map(actor), do: Map.get(actor, :source)
+  defp source(_actor), do: nil
 
   # Multi-question answers are stored JSON-encoded in custom_response (Commands.Answering.QuestionAnswers).
   defp question_answers(response) when is_binary(response) do

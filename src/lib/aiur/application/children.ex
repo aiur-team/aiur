@@ -11,7 +11,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
-  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Orchestrator.{InstanceHeartbeatMetadata, PremiseChanges}
   alias Aiur.Ownership
   alias Aiur.Ownership.{Fence, FenceCommand}
   alias Aiur.Project.Supervisors, as: ProjectSupervisors
@@ -234,7 +234,8 @@ defmodule Aiur.Application.Children do
       # over it.
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
-      {Aiur.DecisionStore, name: Aiur.DecisionStore},
+      # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: fn change -> PremiseChanges.notify_async(change, wake: &Aiur.ExecutorWakeInbox.enqueue_attention/1) end},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
