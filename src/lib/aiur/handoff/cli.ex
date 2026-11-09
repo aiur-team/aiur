@@ -1,7 +1,9 @@
 defmodule Aiur.Handoff.CLI do
   @moduledoc "CLI boundary for handoff preflight, outcomes and provider identity."
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Handoff.Report
+  alias Aiur.Project.Supervisors
 
   @agents_contract "aiur.agents"
   @contract_version 1
@@ -132,8 +134,8 @@ defmodule Aiur.Handoff.CLI do
   # A peer caches these to delegate here (`Aiur.Ownership.PeerState`); the ownership ref needs the daemon key.
   defp gateway_facts do
     key = with {:ok, key} <- Aiur.Identity.instance_key(), do: key
-    served = if Process.whereis(Aiur.Project.Supervisors), do: for(%{repo: r, state: :running} <- Aiur.Project.Supervisors.which_projects(), do: r), else: []
-    repos = List.wrap(Aiur.GitHub.Config.repo()) ++ served
+    served = if Process.whereis(Supervisors), do: for(%{repo: r, state: :running} <- Supervisors.which_projects(), do: r), else: []
+    repos = List.wrap(GitHubConfig.repo()) ++ served
     %{daemon_key: if(is_binary(key), do: key), projects: repos |> Enum.filter(&is_binary/1) |> Enum.map(&String.downcase/1) |> Enum.uniq()}
   rescue
     # Unreadable facts are omitted, so the peer reads them as unknown; the agents list still answers.
