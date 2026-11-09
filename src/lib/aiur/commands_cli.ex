@@ -2,8 +2,8 @@ defmodule Aiur.CommandsCLI do
   alias Aiur.Commands
   @moduledoc false
 
-  alias Aiur.Commands.Deferred
   alias Aiur.CommandsCLI.{Observation, Printer}
+  alias Aiur.ControlCLI.PendingCommands
   alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.DecisionProvider
 
@@ -151,7 +151,7 @@ defmodule Aiur.CommandsCLI do
   # nil, not [], when the store cannot be read: "none pending" would be a claim we cannot make.
   defp pending(opts) do
     opts
-    |> Keyword.get(:pending_fun, &Deferred.list/0)
+    |> Keyword.get(:pending_fun, &PendingCommands.list/0)
     |> then(& &1.())
     |> Enum.map(fn entry -> %{id: entry["id"], after: entry["after"], question: entry["params"]["question"], short_summary: entry["params"]["short_summary"], created_at: entry["created_at"]} end)
   catch

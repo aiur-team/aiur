@@ -2,8 +2,8 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   @moduledoc "Creates human-directed Commands attributed to the requesting Executor."
 
   alias Aiur.Commands
-  alias Aiur.Commands.Deferred
   alias Aiur.ControlCLI.MediaSpec
+  alias Aiur.ControlCLI.PendingCommands
 
   @spec request(keyword(), keyword()) :: 0 | 1 | 64
   def request(params, deps \\ []) do
@@ -29,11 +29,11 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   defp validate_identity(_id), do: {:error, "requester identity is required"}
 
   defp blockers(nil), do: {:ok, []}
-  defp blockers(raw), do: Deferred.parse_after(raw)
+  defp blockers(raw), do: PendingCommands.parse_after(raw)
 
   # Media is re-validated at publication, when the request runs again without --after.
   defp defer(params, blockers, deps) do
-    case Deferred.defer(params, blockers, Keyword.get(deps, :deferred_server, Deferred)) do
+    case PendingCommands.defer(params, blockers, Keyword.get(deps, :pending_server, PendingCommands)) do
       {:ok, entry} ->
         print_pending(entry, params[:json])
         0

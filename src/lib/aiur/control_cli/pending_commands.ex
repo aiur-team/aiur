@@ -1,4 +1,4 @@
-defmodule Aiur.Commands.Deferred do
+defmodule Aiur.ControlCLI.PendingCommands do
   @moduledoc """
   Executor Commands held until their blocker tickets merge (`aiur command request --after`).
 

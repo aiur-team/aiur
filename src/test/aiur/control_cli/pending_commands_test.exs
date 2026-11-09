@@ -1,15 +1,15 @@
 Code.require_file("../../support/decision_store_case.ex", __DIR__)
 
-defmodule Aiur.Commands.DeferredTest do
+defmodule Aiur.ControlCLI.PendingCommandsTest do
   use Aiur.DecisionStoreCase, async: false
   import ExUnit.CaptureIO
-  alias Aiur.Commands.Deferred
   alias Aiur.CommandsCLI
   alias Aiur.ControlCLI.ExecutorRequest
+  alias Aiur.ControlCLI.PendingCommands
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
 
-  @server __MODULE__.Deferred
+  @server __MODULE__.PendingCommands
   @inbox __MODULE__.Inbox
 
   setup %{dir: dir} do
@@ -35,12 +35,12 @@ defmodule Aiur.Commands.DeferredTest do
       end
     end
 
-    start_supervised!({Deferred, name: @server, path: path, poll_ms: :infinity, closure_fun: closure, request_deps: [decision_store: store]}, id: id)
+    start_supervised!({PendingCommands, name: @server, path: path, poll_ms: :infinity, closure_fun: closure, request_deps: [decision_store: store]}, id: id)
   end
 
   defp cli_request(store, extra \\ []) do
     params = Keyword.merge([question: "Which build feels better?", options: ["a=First", "b=Second"], executor_id: "requester", after: "5,#6", json: true], extra)
-    output = capture_io(fn -> send(self(), {:code, ExecutorRequest.request(params, decision_store: store, deferred_server: @server)}) end)
+    output = capture_io(fn -> send(self(), {:code, ExecutorRequest.request(params, decision_store: store, pending_server: @server)}) end)
     assert_received {:code, 0}
     Jason.decode!(output)
   end
@@ -51,21 +51,21 @@ defmodule Aiur.Commands.DeferredTest do
     assert result["status"] == "pending"
     assert result["after"] == ["5", "6"]
 
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
     assert DecisionStore.list(store) == []
 
     close(tracker, "5", "completed")
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
     assert DecisionStore.list(store) == []
 
     close(tracker, "6", "completed")
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
     assert [decision] = DecisionStore.list(store)
     assert decision.question == "Which build feels better?"
     assert decision.source.event_id == result["source_id"]
-    assert Deferred.list(@server) == []
+    assert PendingCommands.list(@server) == []
 
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
     assert length(DecisionStore.list(store)) == 1
   end
 
@@ -77,9 +77,9 @@ defmodule Aiur.Commands.DeferredTest do
 
     close(tracker, "5", "completed")
     close(tracker, "6", "not_planned")
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
 
-    assert Deferred.list(@server) == []
+    assert PendingCommands.list(@server) == []
     assert DecisionStore.list(store) == []
     assert {:ok, [wake]} = ExecutorWakeInbox.wait(5_000, @inbox)
     assert %{"topic" => "executor.command.dropped", "action" => "dropped", "pending_id" => ^pending_id, "blocker" => "6", "reason" => "not_planned"} = wake
@@ -91,11 +91,11 @@ defmodule Aiur.Commands.DeferredTest do
     stop_supervised!(@server)
 
     start_deferred(ctx, :restarted)
-    assert [%{"id" => ^pending_id, "after" => ["5", "6"]}] = Deferred.list(@server)
+    assert [%{"id" => ^pending_id, "after" => ["5", "6"]}] = PendingCommands.list(@server)
 
     close(tracker, "5", "completed")
     close(tracker, "6", "completed")
-    Deferred.poll(@server)
+    PendingCommands.poll(@server)
     assert [%{question: "Which build feels better?"}] = DecisionStore.list(store)
   end
 
@@ -103,7 +103,7 @@ defmodule Aiur.Commands.DeferredTest do
     start_deferred(ctx)
     cli_request(store, short_summary: "Build comparison")
 
-    listing = capture_io(fn -> CommandsCLI.run(decision_store: store, pending_fun: fn -> Deferred.list(@server) end) end)
+    listing = capture_io(fn -> CommandsCLI.run(decision_store: store, pending_fun: fn -> PendingCommands.list(@server) end) end)
     assert listing =~ ~r/pend_\w+  after #5, #6  Build comparison/
 
     down = capture_io(fn -> CommandsCLI.run(decision_store: store, pending_fun: fn -> exit(:noproc) end) end)
@@ -113,8 +113,8 @@ defmodule Aiur.Commands.DeferredTest do
   test "--after refuses malformed ticket lists before storing anything", %{store: store} = ctx do
     start_deferred(ctx)
     params = [question: "Q?", executor_id: "requester", after: "5,,x y"]
-    assert capture_io(:stderr, fn -> send(self(), {:code, ExecutorRequest.request(params, decision_store: store, deferred_server: @server)}) end) =~ "--after expects"
+    assert capture_io(:stderr, fn -> send(self(), {:code, ExecutorRequest.request(params, decision_store: store, pending_server: @server)}) end) =~ "--after expects"
     assert_received {:code, 64}
-    assert Deferred.list(@server) == []
+    assert PendingCommands.list(@server) == []
   end
 end
