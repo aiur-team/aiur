@@ -1,12 +1,13 @@
 defmodule Aiur.OperatorRelayCLI do
   @moduledoc "Records an operator's already-given answer with explicit relay attribution."
 
-  alias Aiur.Commands
+  alias Aiur.{Commands, ExecutorCommandCLI}
+  alias Aiur.Commands.CLIAnswers
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ []) do
     with {:ok, payload, actor} <- normalize(params, deps),
-         {:ok, result} <- record(params, payload, actor, deps) do
+         {:ok, result} <- record(params, payload, actor, deps) |> CLIAnswers.name_unanswered(params[:decision_id], deps) do
       IO.puts("aiur: answered by operator, relayed by #{actor.id}: Command #{params[:decision_id]} (#{result.status})")
       0
     else
@@ -17,14 +18,15 @@ defmodule Aiur.OperatorRelayCLI do
 
   defp normalize(params, deps) do
     with :ok <- required_fields(params),
+         {:ok, answer} <- ExecutorCommandCLI.answer_payload(params, params[:decision_id], deps),
          {:ok, expected_version} <- expected_version(params, deps),
          idempotency_key <- idempotency_key(params) do
       {:ok,
        %{
          expected_version: expected_version,
          idempotency_key: idempotency_key,
-         option_id: params[:option_id],
-         custom_response: params[:custom_response],
+         option_id: answer["option_id"],
+         custom_response: answer["custom_response"],
          operator_quote: params[:quote],
          relayed_by: params[:relayed_by],
          rationale: "Operator answer relayed by #{params[:relayed_by]}"
