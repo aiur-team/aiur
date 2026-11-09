@@ -69,6 +69,7 @@ exactly like a missing one, so a guessed identifier reveals nothing.
 | `GET /api/v1/commands` | `{"commands": [...], "count": n, "pagination": {...}, "scope": {...}, "health": {...}}` |
 | `GET /api/v1/commands/:decision_id` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/answer` | `{"command": {...}, "scope": {...}}` |
+| `POST /api/v1/commands/:decision_id/escalate` | `{"command": {...}, "scope": {...}}` |
 | `POST /api/v1/commands/:decision_id/reject` | `{"command": {...}, "scope": {...}}` |
 | `GET /api/v1/commands/:decision_id/media/:attachment_id` | the media file, or a redirect to its public URL |
 
@@ -159,6 +160,7 @@ dashboard card and the embeddable renderer both derive from
 | `pending` | waiting for an answer; options and free response are available |
 | `answered` | an answer is recorded |
 | `revised` | an answer was replaced and recorded as a revision |
+| `escalated` | handed to the Executor; the host user can no longer answer it unless the Executor sends it back |
 | `rejected` | rejected with a reason; `reason` and `answer.custom_response` carry it verbatim, `answer.rejected` is `true` |
 | `expired` | expired, moot, or dismissed; nothing can be answered |
 | `unavailable` | the retained store is partial, so the state is unknown |
@@ -169,8 +171,18 @@ A collection carries its own status: `loading`, `empty`, `ready`,
 `unavailable`, or `error`.
 
 The component map also carries `options[]`, `recommendation`, `free_response`,
-`answer`, `conflict`, `media[]`, `tags[]`, and `actions`, which says whether the
-caller may answer, reject or revise.
+`answer`, `conflict`, `media[]`, `tags[]`, and `actions`, which says whether the caller may
+answer, reject, revise or escalate.
+
+### Escalate to the Executor
+
+`POST /api/v1/commands/:decision_id/escalate` (`idempotency_key`, `expected_version`, optional `note`) hands a `pending` Command to the Executor as `escalated`, and `actions.escalate` says when to offer it:
+
+| Status | Cause |
+|--------|-------|
+| `404` | The id is out of scope. |
+| `409` `command_conflict` | The version is stale, or policy will not defer the Command. |
+| `422` | The key or version is missing, or the note is over 2,000 characters or has control characters. |
 
 ## Command media
 

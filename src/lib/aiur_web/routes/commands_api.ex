@@ -27,6 +27,7 @@ defmodule AiurWeb.Routes.CommandsApi do
         pipe_through([:commands_scope_auth, :require_writable])
 
         post("/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :answer)
+        post("/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :escalate)
         post("/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :reject)
       end
 
@@ -68,6 +69,10 @@ defmodule AiurWeb.Routes.CommandsApi do
         match(:patch, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:delete, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed)
 
+        match(:get, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:put, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:patch, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
+        match(:delete, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:get, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:put, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
         match(:patch, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed)
