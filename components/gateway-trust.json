@@ -9,6 +9,8 @@
     "src/lib/aiur/gateway/cli.ex",
     "src/lib/aiur/gateway/grant_confirmation.ex",
     "src/lib/aiur/gateway/grant_request.ex",
+    "src/lib/aiur/gateway/state_migration.ex",
+    "src/lib/aiur/gateway/state_migration_cli.ex",
     "src/lib/aiur/gateway/status.ex",
     "src/lib/aiur/gateway/status_cache.ex",
     "src/lib/aiur/gateway/workload.ex"
@@ -16,7 +18,8 @@
   "facades": [
     "Aiur.Gateway.Cli",
     "Aiur.Gateway.GrantConfirmation",
-    "Aiur.Gateway.GrantRequest"
+    "Aiur.Gateway.GrantRequest",
+    "Aiur.Gateway.StateMigrationCli"
   ],
   "facade_pending": null,
   "requires": [

@@ -273,6 +273,8 @@ defmodule ScriptsAiurdevRestartTest do
     assert out =~ "mix aiur.test.reset"
     assert out =~ "--single"
     assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99"
+    # --test must stay on a cwd key, never the live gateway daemon (MPG-309).
+    assert out =~ "AIUR_GATEWAY_MODE: 0\n"
     # --test is consumed by the shim, never handed to the engine/release.
     refute out =~ "ENGINE_ARGS: --test"
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
