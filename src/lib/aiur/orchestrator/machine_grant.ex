@@ -6,10 +6,9 @@ defmodule Aiur.Orchestrator.MachineGrant do
   single-project daemon behaves exactly as before.
   """
 
-  alias Aiur.BuildOrder.Features.LabelRules
   alias Aiur.Config
   alias Aiur.Gateway.Capacity
-  alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, Slots, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, DispatchPolicy, Slots, State, TelemetryCohort}
   alias Aiur.Project.Context
 
   @spec headroom() :: :infinity | non_neg_integer()
@@ -61,17 +60,7 @@ defmodule Aiur.Orchestrator.MachineGrant do
 
   @doc "The ticket's feature: its first `feature:<slug>` label in sorted order, else `:none`."
   @spec feature(Aiur.Issue.t()) :: String.t() | :none
-  def feature(%Aiur.Issue{} = issue) do
-    issue
-    |> Aiur.Issue.label_names()
-    |> Enum.sort()
-    |> Enum.find_value(:none, fn label ->
-      case LabelRules.parse(label) do
-        {:ok, slug} -> slug
-        :ignore -> nil
-      end
-    end)
-  end
+  def feature(%Aiur.Issue{} = issue), do: TelemetryCohort.feature_slug(issue)
 
   # The project's local free slots bound its total demand; trim features from the lowest-ranked end.
   defp cap(ready, free) do
