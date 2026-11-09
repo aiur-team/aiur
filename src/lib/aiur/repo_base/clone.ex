@@ -8,6 +8,7 @@ defmodule Aiur.RepoBase.Clone do
   alias Aiur.AgentPubSub
   alias Aiur.Config
   alias Aiur.RepoBase.StateTree
+  alias Aiur.Workspace.DeletedEmptyFiles
 
   @base_record "base-record.json"
 
@@ -67,14 +68,12 @@ defmodule Aiur.RepoBase.Clone do
   end
 
   # `reset --hard` keeps untracked files, and every workspace is copied from this
-  # tree, so a stray file here reaches every PR (#7920). Ignored build output stays.
+  # tree, so a stray file here reaches every PR (#7920). Only empty files main
+  # deleted go; build output and migrated content stay.
   defp clean_untracked(base_path, on_process) do
-    case git(["ls-files", "-z", "--others", "--exclude-standard"], base_path, on_process) do
-      {out, 0} ->
-        out |> String.split(<<0>>, trim: true) |> Enum.each(&File.rm_rf!(Path.join(base_path, &1)))
-
-      {out, status} ->
-        {:error, {:repo_base_clean_failed, status, out}}
+    case DeletedEmptyFiles.remove(base_path, "origin/#{Config.base_branch()}", &git(&1, base_path, on_process)) do
+      {:ok, _removed} -> :ok
+      {:error, reason} -> {:error, {:repo_base_clean_failed, reason}}
     end
   end
 
