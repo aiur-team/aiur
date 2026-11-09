@@ -109,4 +109,38 @@ defmodule Aiur.Config.ProvenanceTest do
     machine = %Settings{projects: [%{repo: "o/a", config: @project, max_agents: nil}]}
     assert {:error, {:unknown_project, "o/zzz", ["o/a"]}} = Provenance.explain("max_vertical_panes", opts(project: "o/zzz", machine_fun: fn -> {:ok, machine} end))
   end
+
+  test "a parent key redacts secret-named keys at any depth" do
+    sentinel = "sentinel-parent-secret"
+    file = %{"tracker" => %{"linear" => %{"api_key" => sentinel, "team" => "ENG"}}}
+
+    {:ok, r} = Provenance.explain("tracker.linear", opts(load_fun: files(%{@project => file})))
+
+    assert %{"api_key" => "<redacted>", "team" => "ENG"} = r.value
+    refute inspect(r) =~ sentinel
+    {:ok, whole} = Provenance.explain("tracker", opts(load_fun: files(%{@project => file})))
+    refute inspect(whole) =~ sentinel
+  end
+
+  test "projects mode requires --project instead of reading the daemon cwd file" do
+    machine = %Settings{projects: [%{repo: "o/a", config: "/a/config", max_agents: nil}, %{repo: "o/b", config: "/b/config", max_agents: nil}]}
+    cwd_file = files(%{@project => %{"max_vertical_panes" => 9}})
+
+    assert {:error, {:project_required, ["o/a", "o/b"]}} =
+             Provenance.explain("max_vertical_panes", opts(machine_fun: fn -> {:ok, machine} end, load_fun: cwd_file))
+  end
+
+  test "--project selects that project's file and cap among several" do
+    machine = %Settings{projects: [%{repo: "o/a", config: "/a/config", max_agents: 2}, %{repo: "o/b", config: "/b/config", max_agents: 3}]}
+
+    loaded =
+      files(%{
+        "/a/config" => %{"agent" => %{"max_concurrent_agents" => 8}},
+        "/b/config" => %{"agent" => %{"max_concurrent_agents" => 6}}
+      })
+
+    {:ok, r} = Provenance.explain("agent.max_concurrent_agents", opts(project: "o/b", machine_fun: fn -> {:ok, machine} end, load_fun: loaded))
+
+    assert %{project: "o/b", value: 3, layer: "L1", overridden: [%{layer: "L3", value: 6, source: "/b/config"}]} = r
+  end
 end

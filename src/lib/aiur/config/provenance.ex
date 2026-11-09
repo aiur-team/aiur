@@ -103,7 +103,9 @@ defmodule Aiur.Config.Provenance do
     end
   end
 
-  defp project(_machine, nil), do: {:ok, nil}
+  # Projects mode has no implicit project: the daemon's cwd file is not any project's config.
+  defp project(%{projects: []}, nil), do: {:ok, nil}
+  defp project(machine, nil), do: {:error, {:project_required, Enum.map(machine.projects, & &1.repo)}}
 
   defp project(machine, repo) do
     case Enum.find(machine.projects, &(String.downcase(&1.repo) == String.downcase(repo))) do
@@ -228,5 +230,17 @@ defmodule Aiur.Config.Provenance do
 
   defp show(nil, _secret?), do: nil
   defp show(_value, true), do: @redacted
-  defp show(value, false), do: value
+  defp show(value, false), do: scrub(value)
+
+  # A parent key (`tracker.linear`) prints its whole subtree; redact secret-named keys at any depth.
+  defp scrub(%{__struct__: _} = struct), do: struct |> Map.from_struct() |> scrub()
+
+  defp scrub(%{} = map) do
+    Map.new(map, fn {k, v} ->
+      if v != nil and Regex.match?(@secret_segment, to_string(k)), do: {k, @redacted}, else: {k, scrub(v)}
+    end)
+  end
+
+  defp scrub(list) when is_list(list), do: Enum.map(list, &scrub/1)
+  defp scrub(value), do: value
 end

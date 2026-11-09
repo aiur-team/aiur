@@ -7,9 +7,15 @@ defmodule Aiur.ControlCLI.ConfigExplain do
   alias Aiur.Orchestrator.Client
 
   @spec explain(String.t(), keyword()) :: :ok
-  def explain(key, opts \\ []) when is_binary(key) and is_list(opts) do
+  def explain(key, opts \\ []), do: explain(key, opts, [])
+
+  # `provenance_opts` injects layer readers; it is not reachable through the allowlisted /2 call.
+  @spec explain(String.t(), keyword(), keyword()) :: :ok
+  def explain(key, opts, provenance_opts) when is_binary(key) and is_list(opts) do
     guarded("config explain #{key}", fn ->
-      case Provenance.explain(key, Keyword.merge(Keyword.take(opts, [:project]), session_cap_fun: &session_cap/0)) do
+      base = Keyword.merge([session_cap_fun: &session_cap/0], provenance_opts)
+
+      case Provenance.explain(key, Keyword.merge(base, Keyword.take(opts, [:project]))) do
         {:ok, report} -> print(report, Keyword.get(opts, :json, false))
         {:error, reason} -> fail(reason)
       end
@@ -52,6 +58,11 @@ defmodule Aiur.ControlCLI.ConfigExplain do
 
   defp fail({:unknown_project, repo, known}) do
     control_error("aiur: unknown project #{repo}; configured: #{Enum.join(known, ", ")}")
+    exit_marker(64)
+  end
+
+  defp fail({:project_required, known}) do
+    control_error("aiur: this gateway serves several projects; pass --project (configured: #{Enum.join(known, ", ")})")
     exit_marker(64)
   end
 
