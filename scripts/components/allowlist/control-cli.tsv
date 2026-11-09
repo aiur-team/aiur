@@ -25,6 +25,7 @@ R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472
 R-optional	Aiur.ProviderMeters.CLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Dashboard	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.RunTelemetry.Summaries	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.TicketReopen	#7876 guarded CLI entry invokes the optional build-order ticket reopen command, matching ticket estimate
 R-optional	Aiur.Usage.GroupedScopes	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.GroupedScopes.Scope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.PriceTable.Data	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

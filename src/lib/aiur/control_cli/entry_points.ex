@@ -96,6 +96,9 @@ defmodule Aiur.ControlCLI.EntryPoints do
   @spec ticket_estimate(keyword()) :: :ok
   def ticket_estimate(opts \\ []), do: guarded("ticket estimate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> EstimateCLI.run() |> exit_marker() end)
 
+  @spec ticket_reopen(keyword()) :: :ok
+  def ticket_reopen(opts), do: guarded("ticket reopen", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.TicketReopen.run() |> exit_marker() end)
+
   @spec ticket_owner(keyword()) :: :ok
   def ticket_owner(opts), do: guarded("ticket owner", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> OwnershipCLI.owner() |> exit_marker() end)
 

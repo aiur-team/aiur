@@ -74,6 +74,7 @@ defmodule Aiur.ExecutorListener do
       health: current_health,
       inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
       decision_store: Keyword.get(opts, :decision_store, Aiur.Commands.default_store()),
+      feature_lookup: Keyword.get(opts, :feature_lookup),
       escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
       escalation_opts: escalation_opts(Keyword.get(opts, :escalation, []), Keyword.get(opts, :inbox, ExecutorWakeInbox)),
       escalations: %{}
@@ -189,7 +190,7 @@ defmodule Aiur.ExecutorListener do
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        :ok = deliver(event, state.inbox, state.decision_store)
+        :ok = deliver(event, state)
 
         if journaled_topic?(event) do
           :ok = advance_watermark(event_id(event))
@@ -222,13 +223,13 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver(event, inbox, store) do
+  defp deliver(event, %{inbox: inbox} = state) do
     cond do
       journaled_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
         :ok
 
       journaled_topic?(event) ->
-        deliver_executor_event(event, inbox, store)
+        deliver_executor_event(event, inbox, state)
 
       true ->
         case ExecutorWakeProjection.project(event) do
@@ -238,25 +239,25 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver_executor_event(%{topic: "executor.decision.answered"} = event, inbox, store),
-    do: deliver_answer(event, inbox, store)
+  defp deliver_executor_event(%{topic: "executor.decision.answered"} = event, inbox, state),
+    do: deliver_answer(event, inbox, state)
 
-  defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, store),
-    do: deliver_answer(event, inbox, store)
+  defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, state),
+    do: deliver_answer(event, inbox, state)
 
-  defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _store),
+  defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _state),
     do: deliver_projection(event, inbox)
 
-  defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _store),
+  defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _state),
     do: deliver_projection(event, inbox)
 
-  defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
-  defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _store), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _state), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _state), do: deliver_projection(event, inbox)
 
-  defp deliver_executor_event(%{topic: "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
-  defp deliver_executor_event(%{"topic" => "executor.newsletter.failed"} = event, inbox, _store), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{topic: "executor.newsletter.failed"} = event, inbox, _state), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "executor.newsletter.failed"} = event, inbox, _state), do: deliver_projection(event, inbox)
 
-  defp deliver_executor_event(event, inbox, _store) do
+  defp deliver_executor_event(event, inbox, _state) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
     if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
     wake_blocking_decision(event, inbox)
@@ -267,11 +268,11 @@ defmodule Aiur.ExecutorListener do
     enqueue_wake(record, inbox)
   end
 
-  defp deliver_answer(event, inbox, store) do
+  defp deliver_answer(event, inbox, %{decision_store: store} = state) do
     result =
       with {:ok, record} <- ExecutorWakeProjection.project(event),
            {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
-        deliver_current_answer(record, decision, inbox, store)
+        deliver_current_answer(record, decision, inbox, state)
       end
 
     case result do
@@ -282,7 +283,7 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver_current_answer(record, decision, inbox, store) do
+  defp deliver_current_answer(record, decision, inbox, state) do
     cond do
       not match?(%{kind: :executor}, decision.requester) ->
         skip_answer(record, :requester_notification_mismatch)
@@ -291,7 +292,9 @@ defmodule Aiur.ExecutorListener do
         :ok
 
       true ->
-        enqueue_answer(record, decision.active_action_id, inbox, store)
+        record
+        |> ExecutorWakeProjection.with_answer(decision, state.feature_lookup)
+        |> enqueue_answer(decision.active_action_id, inbox, state.decision_store)
     end
   end
 
@@ -300,8 +303,10 @@ defmodule Aiur.ExecutorListener do
     :ok
   end
 
+  # The answer goes to the Executor that asked, on this instance, even when its
+  # ticket belongs to another instance: skipping would mark it notified unseen.
   defp enqueue_answer(record, action_id, inbox, store) do
-    with :ok <- enqueue_wake(record, inbox),
+    with :ok <- ExecutorWakeInbox.enqueue(stamp_gateway(record), inbox),
          {:ok, _result} <- Aiur.Commands.requester_notified(record["decision_id"], action_id, server: store) do
       :ok
     end
