@@ -5,7 +5,7 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type StatusContract = AgentsStatus | FleetStatus | TicketStatus | TicketCancel | TicketUsage | TicketProgress;
+export type StatusContract = FleetStatus | TicketStatus | TicketCancel | TicketUsage | TicketProgress;
 export type FleetStatus = {
   contract: "aiur.status";
   contract_version: 1;
@@ -98,52 +98,6 @@ export type TicketProgressValue = (
   [k: string]: unknown;
 };
 
-export interface AgentsStatus {
-  contract: "aiur.agents";
-  contract_version: 1;
-  running: AgentsStatusEntry[];
-  [k: string]: unknown;
-}
-export interface AgentsStatusEntry {
-  identifier: string;
-  issue_id: string;
-  session_id: string | null;
-  provider_pid: string | null;
-  codex_app_server_pid?: number | null;
-  adopted_from: string | null;
-  /**
-   * Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).
-   */
-  skill_preload?: null | AgentsSkillPreload;
-  [k: string]: unknown;
-}
-export interface AgentsSkillPreload {
-  /**
-   * Mapped skills inlined into the prompt, with the reason each was mapped.
-   */
-  mapped: {
-    name: string;
-    reason: string;
-    [k: string]: unknown;
-  }[];
-  /**
-   * Mapped skills left out of the prompt because the inline budget was spent.
-   */
-  truncated: string[];
-  /**
-   * Mapped skills that are not installed in the workspace.
-   */
-  missing: string[];
-  /**
-   * Bytes of skill text inlined into the prompt.
-   */
-  bytes: number;
-  /**
-   * The agent.skills.preload_max_bytes budget in bytes.
-   */
-  max_bytes: number | null;
-  [k: string]: unknown;
-}
 export interface FleetStatusCounts {
   running: number;
   retrying: number;
