@@ -99,7 +99,7 @@ defmodule Aiur.Config.ProvenanceTest do
       )
 
     assert %{value: "<redacted>", overridden: [%{value: "<redacted>"}]} = r
-    refute inspect(r) =~ sentinel
+    Aiur.TestSupport.refute_leak(r, sentinel)
   end
 
   test "unknown key suggests the near miss; unknown project lists configured ones" do
@@ -117,9 +117,9 @@ defmodule Aiur.Config.ProvenanceTest do
     {:ok, r} = Provenance.explain("tracker.linear", opts(load_fun: files(%{@project => file})))
 
     assert %{"api_key" => "<redacted>", "team" => "ENG"} = r.value
-    refute inspect(r) =~ sentinel
+    Aiur.TestSupport.refute_leak(r, sentinel)
     {:ok, whole} = Provenance.explain("tracker", opts(load_fun: files(%{@project => file})))
-    refute inspect(whole) =~ sentinel
+    Aiur.TestSupport.refute_leak(whole, sentinel)
   end
 
   test "projects mode requires --project instead of reading the daemon cwd file" do
