@@ -81,6 +81,13 @@ cmd_pause_resume() {
   local command="$1"
   shift
 
+  if [ "${1:-}" = "--project" ]; then
+    [ "$command" != park ] || { echo "aiur: park does not accept --project" >&2; exit 64; }
+    [[ "${2:-}" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "aiur: --project expects owner/name (e.g. aiur $command --project acme/app)" >&2; exit 64; }
+    [ "$#" -eq 2 ] || { echo "aiur: --project cannot be combined with issue ids yet" >&2; exit 64; }
+    run_control_rpc "Aiur.AgentControlCLI.${command}_project(\"$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')\")"
+    return
+  fi
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
   local fleet_arg
   for fleet_arg in "$@"; do

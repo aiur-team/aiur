@@ -7,6 +7,7 @@ defmodule Aiur.Handoff do
   alias Aiur.Handoff.{Protection, Record}
   alias Aiur.Orchestrator.State
   alias Aiur.ProcessReaper
+  alias Aiur.Project.Context
   alias Aiur.RunTelemetry.RunContext
 
   @prepare_timeout_ms 100_000
@@ -376,6 +377,7 @@ defmodule Aiur.Handoff do
       "from_version" => build_version(),
       "generation" => System.unique_integer([:positive]),
       "config_fingerprint" => Keyword.get_lazy(opts, :config_fingerprint, &config_fingerprint/0),
+      "project_id" => Context.current_id(),
       "agents" => agents
     }
   end

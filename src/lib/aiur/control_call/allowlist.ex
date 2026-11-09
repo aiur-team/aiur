@@ -206,6 +206,8 @@ defmodule Aiur.ControlCall.Allowlist do
     {:redispatch, 2, :agents, [:string_list, {:nullable, :string}], %{}},
     {:reset_budget, 1, :config, [:string_list], %{}},
     {:pause_global, 0, :agents, [], %{}},
+    {:pause_project, 1, :agents, [:string], %{}},
+    {:resume_project, 1, :agents, [:string], %{}},
     {:pause_fleet, 0, :agents, [], %{}},
     {:pause_fleet, 1, :agents, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
     {:resume_fleet, 0, :agents, [], %{}},

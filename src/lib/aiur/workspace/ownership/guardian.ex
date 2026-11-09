@@ -188,7 +188,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:DOWN, owner_ref, :process, _owner, _reason} when owner_ref == state.owner_ref ->
         Registry.unregister(state.registry, holder_key(state.lease.ticket))
-        if Protection.protected?(state.lease.ticket), do: :ok, else: maybe_release_or_reap(%{state | owner_dead?: true})
+        if Protection.protected_anywhere?(state.lease.ticket), do: :ok, else: maybe_release_or_reap(%{state | owner_dead?: true})
 
       {:workspace_guardian_reaped, kind, identifier} ->
         continue_after_reap(state, kind, identifier)

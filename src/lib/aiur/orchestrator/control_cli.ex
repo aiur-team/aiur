@@ -2,6 +2,8 @@ defmodule Aiur.Orchestrator.ControlCLI do
   @moduledoc false
   alias Aiur.{AgentChat, Orchestrator, PauseContainment}
   alias Aiur.ControlCLI.Reasons
+  alias Aiur.Gateway
+  alias Aiur.Project.Registry
   import Aiur.Orchestrator.ControlCLI.Resume, only: [resolve_queued_resumes: 1]
   import Aiur.ControlCLI.Protocol
   import Aiur.Orchestrator.ControlCLI.Output
@@ -144,7 +146,8 @@ defmodule Aiur.Orchestrator.ControlCLI do
   end
 
   defp set_global_pause_call(on?, source) do
-    Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, &Orchestrator.set_global_pause/2).(on?, source)
+    default = if Registry.project_ids() == [], do: &Orchestrator.set_global_pause/2, else: &Gateway.Pause.set/2
+    Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, default).(on?, source)
   end
 
   defp control(action, targets) when action in [:pause, :resume] do

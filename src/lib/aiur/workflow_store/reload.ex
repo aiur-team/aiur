@@ -9,6 +9,7 @@ defmodule Aiur.WorkflowStore.Reload do
   require Logger
 
   alias Aiur.Config.Overrides
+  alias Aiur.Project.Context
   alias Aiur.Signal
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache
@@ -18,11 +19,21 @@ defmodule Aiur.WorkflowStore.Reload do
   @reload_attempts 3
   @reload_retry_delay_ms 50
   @configuration_topic "workflow_store:configuration"
+  @any_configuration_topic "workflow_store:configuration:any"
   @base_branch_changed_topic "system.config.base_branch.changed"
+
+  @doc "Every project's reload (and the single-project one) is also announced here, for machine-level subscribers."
+  @spec any_configuration_topic() :: String.t()
+  def any_configuration_topic, do: @any_configuration_topic
 
   @doc false
   @spec configuration_topic() :: String.t()
-  def configuration_topic, do: @configuration_topic
+  def configuration_topic do
+    case Context.current_id() do
+      nil -> @configuration_topic
+      id -> @configuration_topic <> ":" <> id
+    end
+  end
 
   # Mirrors `load_state/1`'s retry rather than reading once. A caller reaching
   # this path has usually just written the config, and `File.write!/2` is not
@@ -311,7 +322,8 @@ defmodule Aiur.WorkflowStore.Reload do
 
   defp broadcast_configuration(%State{generation: generation}) do
     if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, @configuration_topic, {:workflow_config_updated, generation})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, configuration_topic(), {:workflow_config_updated, generation})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @any_configuration_topic, {:workflow_config_updated, generation})
     end
   end
 

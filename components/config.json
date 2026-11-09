@@ -9,6 +9,7 @@
     "src/lib/aiur/config/**",
     "src/lib/aiur/env.ex",
     "src/lib/aiur/env/**",
+    "src/lib/aiur/handoff/protection.ex",
     "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/instance.ex",
     "src/lib/aiur/instance/**",
