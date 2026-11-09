@@ -289,6 +289,7 @@ defmodule Aiur.DecisionStore.Revisions do
       {:ok, next_state, updated} ->
         send(self(), :reconcile_corrective_overrides)
         Answers.notify_operator_relay(revision.answer, updated, next_state)
+        notify_premise_change(next_state, decision, revision)
         next_state = Settlement.ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)
         next_state = Dispatch.maybe_schedule_after_answer(next_state, current, false)
@@ -297,6 +298,15 @@ defmodule Aiur.DecisionStore.Revisions do
       {:error, reason} ->
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
+  end
+
+  defp notify_premise_change(state, decision, revision) do
+    Map.get(state, :premise_notifier, &Aiur.DecisionPremises.notify_async/1).(%{
+      decision_id: decision.decision_id,
+      kind: :revised,
+      old_answer: Aiur.DecisionPremises.answer_text(Decision.active_answer(decision)),
+      new_answer: Aiur.DecisionPremises.answer_text(revision.answer)
+    })
   end
 
   defp revision_result(status, decision, revision) do

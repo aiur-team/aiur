@@ -261,28 +261,8 @@ defmodule Aiur.AgentSkills.Preload do
     end) || []
   end
 
-  defp body_lines(%{description: description}) when is_binary(description) do
-    description
-    |> String.split(~r/\r?\n/)
-    |> outside_code_fences()
-  end
-
+  defp body_lines(%{description: description}), do: Aiur.IssueBody.lines(description)
   defp body_lines(_issue), do: []
-
-  defp outside_code_fences(lines) do
-    lines
-    |> Enum.reduce({false, []}, fn line, {fenced?, kept} ->
-      trimmed = String.trim(line)
-
-      cond do
-        String.starts_with?(trimmed, "```") -> {not fenced?, kept}
-        fenced? -> {true, kept}
-        true -> {false, [line | kept]}
-      end
-    end)
-    |> elem(1)
-    |> Enum.reverse()
-  end
 
   # `Skills only:` replaces the configured set; per-ticket additions still apply.
   defp base_requests(mapping, issue, lanes, feature, epic) do
