@@ -359,7 +359,8 @@ cmd_cleanup_stale() {
 set_caller_opts() {
   local opts="caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\")"
   [ -n "${AIUR_REMOTE_INSTANCE:-}" ] || opts="caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), $opts"
-  aiur_project_join "$opts"
+  aiur_project_join opts
+  SET_CALLER_OPTS="$opts"
 }
 
 # `aiur set <key> <value>` — runtime config overrides without editing
@@ -415,7 +416,8 @@ EOF
       fi
       local unset_key
       unset_key="$(printf '%s' "$1" | base64 | tr -d '\n')"
-      run_control_rpc "Aiur.AgentControlCLI.unset_setting(Base.decode64!(\"$unset_key\"), $(set_caller_opts))"
+      set_caller_opts
+      run_control_rpc "Aiur.AgentControlCLI.unset_setting(Base.decode64!(\"$unset_key\"), $SET_CALLER_OPTS)"
       ;;
     "")
       echo "aiur: usage: aiur set <key> <json> | --list [--json] | --unset <key>" >&2
@@ -429,7 +431,8 @@ EOF
       local encoded_key encoded_value
       encoded_key="$(printf '%s' "$key" | base64 | tr -d '\n')"
       encoded_value="$(printf '%s' "$1" | base64 | tr -d '\n')"
-      run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), $(set_caller_opts))"
+      set_caller_opts
+      run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), $SET_CALLER_OPTS)"
       ;;
   esac
 }

@@ -102,6 +102,6 @@ cmd_epic_record() {
   opts="$opts$flags"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="epic $action $slug"
-  opts="$(aiur_project_join "$opts")"
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.epic([$opts])"
 }

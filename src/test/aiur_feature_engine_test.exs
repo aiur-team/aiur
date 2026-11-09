@@ -12,7 +12,8 @@ defmodule Aiur.FeatureEngineTest do
         "feature-test",
         @engine | args
       ],
-      env: [{"USER", "tester"}, {"GIT_DIR", "/nonexistent"} | env],
+      cd: "/",
+      env: [{"USER", "tester"} | env],
       stderr_to_stdout: true
     )
   end

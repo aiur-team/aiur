@@ -21,30 +21,35 @@ aiur_cwd_repo() {
   return 0
 }
 
-# Prints `opts` joined with the project keywords: explicit `project:` only; without --project the wire form is unchanged.
+# Appends the project keywords to the variable named $1: explicit `project:`, else (local only) the cwd
+# `project_hint:`. Not run in a subshell: it sets AIUR_PROJECT_WRAP, which is what makes a local call wrap.
 aiur_project_join() {
-  local opts="$1" kw=""
+  local -n _opts="$1"
+  local kw="" hint
   if [ -n "${AIUR_PROJECT:-}" ]; then
     kw="project: Base.decode64!(\"$(aiur_b64 "$AIUR_PROJECT")\")"
+  elif [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && hint="$(aiur_cwd_repo)" && [ -n "$hint" ]; then
+    kw="project_hint: Base.decode64!(\"$(aiur_b64 "$hint")\")"
   fi
-  printf '%s' "${opts}${opts:+${kw:+, }}${kw}"
+  [ -n "$kw" ] || return 0
+  AIUR_PROJECT_WRAP=1
+  _opts="${_opts}${_opts:+, }${kw}"
 }
 
-# A local call carrying project keywords goes through ControlCall so it resolves like a remote one.
+# A local call that carries project keywords (AIUR_PROJECT_WRAP, set by aiur_project_join) goes through
+# ControlCall so it resolves like a remote one. Anything else is sent unchanged.
 aiur_project_local_expr() {
-  case "$1" in
-    # config explain names a project as data, not as a command target.
-    Aiur.ControlCLI.ConfigExplain.*) printf '%s' "$1" ;;
-    *"project: Base.decode64!("* | *"project_hint: Base.decode64!("*)
-      printf 'Aiur.ControlCall.Project.run_local(Base.decode64!("%s"))' "$(aiur_b64 "$1")" ;;
-    *) printf '%s' "$1" ;;
-  esac
+  if [ "${AIUR_PROJECT_WRAP:-}" = 1 ]; then
+    printf 'Aiur.ControlCall.Project.run_local(Base.decode64!("%s"))' "$(aiur_b64 "$1")"
+  else
+    printf '%s' "$1"
+  fi
 }
 
 # Consumes the flags counted in AIUR_FLAGS_CONSUMED plus any --project (leading, or anywhere after a
 # project-scoped command). Leaves the remaining words in AIUR_ARGS and the project in AIUR_PROJECT.
 aiur_project_args() {
-  unset AIUR_PROJECT
+  unset AIUR_PROJECT AIUR_PROJECT_WRAP
   AIUR_ARGS=()
   shift "$AIUR_FLAGS_CONSUMED"
   local seen=0 value="" rest=() cmd="" word

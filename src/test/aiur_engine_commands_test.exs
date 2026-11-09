@@ -27,8 +27,8 @@ defmodule AiurEngineCommandsTest do
   test "units routes page-visible filters through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
-        [{"GIT_DIR", "/nonexistent"}]
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        []
       )
 
     assert out =~
@@ -38,8 +38,8 @@ defmodule AiurEngineCommandsTest do
   test "units forwards the human layout format" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
-        [{"GIT_DIR", "/nonexistent"}]
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        []
       )
 
     assert out =~
@@ -52,8 +52,8 @@ defmodule AiurEngineCommandsTest do
   test "bare units invocation routes an empty condition list" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
-        [{"GIT_DIR", "/nonexistent"}]
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        []
       )
 
     assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
@@ -293,8 +293,8 @@ defmodule AiurEngineCommandsTest do
   test "build-orders routes its selector and JSON mode through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
-        [{"GIT_DIR", "/nonexistent"}]
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        []
       )
 
     assert out =~

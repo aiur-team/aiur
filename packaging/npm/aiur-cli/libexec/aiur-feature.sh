@@ -121,6 +121,6 @@ cmd_feature() {
   [ -n "$epic_icons" ] && opts="$opts, epic_icons: [$epic_icons]"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="feature $op $slug for $count tickets"
-  opts="$(aiur_project_join "$opts")"
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.feature([$opts])"
 }
