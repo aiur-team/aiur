@@ -83,7 +83,11 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
   end
 
   defp features(dir, members) do
-    pid = start_supervised!({Aiur.BuildOrder.Features, name: nil, state_dir: Path.join(dir, "features"), filesystem_sync_fun: fn -> :ok end, general_epics: fn -> {:ok, []} end, alert_fun: fn _, _, _ -> :ok end})
+    pid =
+      start_supervised!(
+        {Aiur.BuildOrder.Features, name: nil, state_dir: Path.join(dir, "features"), filesystem_sync_fun: fn -> :ok end, general_epics: fn -> {:ok, []} end, alert_fun: fn _, _, _ -> :ok end}
+      )
+
     meta = [server: pid, source: "cli:executor", actor: "executor"]
     {:ok, _} = Aiur.BuildOrder.Features.create("fluid-orders", %{label: "Fluid orders"}, meta)
     {:ok, _} = Aiur.BuildOrder.Features.add("fluid-orders", members, meta)
@@ -93,7 +97,9 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
   end
 
   defp executor_answer(store, key, response) do
-    {:ok, %{decision: d}} = request(store, %{"question" => "Ship #{key}?", "blocking" => false, "source_id" => key}, requester: %{kind: :executor, executor_id: "test", ticket: "979"}, origin: :executor_cli)
+    {:ok, %{decision: d}} =
+      request(store, %{"question" => "Ship #{key}?", "blocking" => false, "source_id" => key}, requester: %{kind: :executor, executor_id: "test", ticket: "979"}, origin: :executor_cli)
+
     {:ok, %{decision: d}} = answer(store, d.decision_id, %{"expected_version" => d.version, "idempotency_key" => key, "custom_response" => response})
     d
   end
