@@ -20,12 +20,12 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   end
 
   test "dynamic tracker dispatch cannot bypass the transition owner" do
-    violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_tracker_apply?(File.read!(path)), do: path
+    violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_tracker_apply?(read_source!(path)), do: path
     assert violations == [], "Dynamic tracker apply bypasses TicketTransition: #{inspect(violations)}"
   end
 
   test "an injected tracker module cannot write labels outside the transition owner" do
-    violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_receiver_write?(File.read!(path)), do: path
+    violations = for path <- Path.wildcard("lib/**/*.ex"), path not in @allowed_paths, not adapter_path?(path), dynamic_receiver_write?(read_source!(path)), do: path
     assert violations == [], "Injected tracker write bypasses TicketTransition: #{inspect(violations)}"
   end
 
@@ -118,4 +118,11 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
   end
 
   defp tracker_alias?(parts, aliases), do: Module.concat(parts) in @writers or MapSet.member?(aliases, List.last(parts))
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
+  end
 end
