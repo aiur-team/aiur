@@ -111,6 +111,37 @@ export interface AgentsStatusEntry {
   provider_pid: string | null;
   codex_app_server_pid?: number | null;
   adopted_from: string | null;
+  /**
+   * Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).
+   */
+  skill_preload?: null | AgentsSkillPreload;
+  [k: string]: unknown;
+}
+export interface AgentsSkillPreload {
+  /**
+   * Mapped skills inlined into the prompt, with the reason each was mapped.
+   */
+  mapped: {
+    name: string;
+    reason: string;
+    [k: string]: unknown;
+  }[];
+  /**
+   * Mapped skills left out of the prompt because the inline budget was spent.
+   */
+  truncated: string[];
+  /**
+   * Mapped skills that are not installed in the workspace.
+   */
+  missing: string[];
+  /**
+   * Bytes of skill text inlined into the prompt.
+   */
+  bytes: number;
+  /**
+   * The agent.skills.preload_max_bytes budget in bytes.
+   */
+  max_bytes: number | null;
   [k: string]: unknown;
 }
 export interface FleetStatusCounts {

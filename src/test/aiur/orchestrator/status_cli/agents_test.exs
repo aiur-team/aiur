@@ -47,6 +47,42 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "skills: pixel-art (lane:art), palette (lane:art)"
     end
 
+    test "agents --json reports the reported skill preload per running row", %{orchestrator: pid} do
+      agent = running_entry("issue-skjson", "repo#skjson", :working)
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-skjson" => agent}} end)
+
+      preload = %{
+        mapped: [%{name: "pixel-art", reason: "lane:art"}],
+        truncated: ["palette"],
+        missing: ["ghost-skill"],
+        bytes: 812,
+        max_bytes: 4_096
+      }
+
+      send(pid, {:session_execution_info, "issue-skjson", %{backend: "claude", skills: "skills: pixel-art (lane:art)", skill_preload: preload}})
+      :sys.get_state(pid)
+
+      [row] = agents_json_rows()
+
+      assert row["skill_preload"] == %{
+               "mapped" => [%{"name" => "pixel-art", "reason" => "lane:art"}],
+               "truncated" => ["palette"],
+               "missing" => ["ghost-skill"],
+               "bytes" => 812,
+               "max_bytes" => 4_096
+             }
+    end
+
+    test "agents --json reports null, not an empty preload, when the preload is unknown", %{orchestrator: pid} do
+      agent = running_entry("issue-adopted", "repo#adopted", :working)
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-adopted" => agent}} end)
+
+      [row] = agents_json_rows()
+
+      assert Map.has_key?(row, "skill_preload")
+      assert row["skill_preload"] == nil
+    end
+
     test "prints no skills suffix for a worker that reported none", %{orchestrator: pid} do
       agent = "issue-noskills" |> running_entry("repo#ns", :working) |> Map.put(:session_execution, %{backend: "claude"})
 
@@ -475,5 +511,12 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
         :sys.resume(pid)
       end
     end
+  end
+
+  defp agents_json_rows do
+    output = capture_io(fn -> Aiur.Handoff.CLI.agents() end)
+    [json | _markers] = String.split(output, "\n", trim: true)
+    %{"contract" => "aiur.agents", "running" => rows} = Jason.decode!(json)
+    rows
   end
 end
