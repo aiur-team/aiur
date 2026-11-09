@@ -23,7 +23,7 @@ export const COMMAND_STATES = [
 export const LIST_STATES = ['loading', 'empty', 'ready', 'unavailable', 'error'];
 
 /** Every typed Command media kind a component can carry. */
-export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
+export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio', 'embed'];
 
 /**
  * @typedef {'pending' | 'answered' | 'revised' | 'rejected' | 'escalated' | 'expired' | 'unavailable' | 'conflict' | 'error'} CommandState
@@ -61,7 +61,9 @@ export const MEDIA_KINDS = ['image', 'animated_image', 'video', 'audio'];
  */
 
 /**
- * @typedef {'image' | 'animated_image' | 'video' | 'audio'} CommandMediaKind
+ * `embed` is an interactive https page (a playable build) shown in a sandboxed iframe.
+ *
+ * @typedef {'image' | 'animated_image' | 'video' | 'audio' | 'embed'} CommandMediaKind
  */
 
 /**

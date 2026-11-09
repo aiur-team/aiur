@@ -440,7 +440,7 @@ answerable.
 ## Media on a Command
 
 A Command's prompt, each of its options, and a submitted answer can carry typed
-media: `image`, `animated_image`, `video` or `audio`. Text-only Commands are
+media: `image`, `animated_image`, `video`, `audio` or `embed`. Text-only Commands are
 unchanged, and a Command with no media decodes, persists and renders exactly as
 before.
 
@@ -448,11 +448,11 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 
 | Field | Meaning |
 | --- | --- |
-| Kind | `image`, `animated_image`, `video`, or `audio`. |
+| Kind | `image`, `animated_image`, `video`, `audio`, or `embed` (an interactive page such as a playable build). |
 | MIME type | Allowlisted for the kind, for example `image/png` or `video/mp4`. |
-| Locator | An allowlisted HTTPS URL, or a local file under a configured root. |
-| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images. |
-| Size, dimensions, duration | Optional bounds checked against the kind's limit. |
+| Locator | An allowlisted HTTPS URL, or a local file under a configured root. An `embed` takes only an HTTPS URL on the [`decisions.embed_hosts`](../reference/configuration-daemon.md#decisions) list, empty by default, plus optional `params` appended to its query. |
+| Alt text and caption | Accessible name and visible description. Alt text is required for still and animated images and for embeds. |
+| Size, dimensions, duration | Optional bounds checked against the kind's limit; an embed's `duration_hint` is in seconds. |
 | Poster | A still frame for video or audio. |
 
 A worker sends media in the `decision.requested` payload that already carries

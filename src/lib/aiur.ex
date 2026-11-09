@@ -30,6 +30,8 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    # Before any child starts, so a runaway process is killed and named, not the whole BEAM (#7882).
+    :ok = Aiur.MemoryWatchdog.cap_process_heap()
     # The gateway summary (identity layer) reads this; it cannot name Children, which sits above it.
     Application.put_env(:aiur, :gateway_summary_metadata, &Children.heartbeat_metadata/0)
     # Absolute times render in the viewer's timezone via `DateTime.shift_zone!`,
