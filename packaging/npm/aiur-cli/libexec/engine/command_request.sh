@@ -42,6 +42,7 @@ cmd_command() {
       --quote=*) quote="${arg#--quote=}" ;;
       --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: command --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --answer|--answer=*|--answer-text|--answer-text=*|--answers-file|--answers-file=*) question_answer_flag "$@"; shift "$QA_EXTRA" ;;
       *) echo "aiur: command received an unexpected argument: $arg" >&2; exit 64 ;;
     esac
     shift
@@ -52,7 +53,10 @@ cmd_command() {
     local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
     local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
     [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
-    if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
+    if question_answers_given; then
+      [ -z "$option_id$custom_response" ] || { echo "aiur: command takes --answer/--answer-text/--answers-file or --option/--custom-response, not both" >&2; exit 64; }
+      opts="$opts$(question_answer_argument)"
+    elif [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
     elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then
       opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
@@ -64,6 +68,8 @@ cmd_command() {
   else
     [ -z "$idempotency_key" ] || { echo "aiur: command --idempotency-key requires --relayed" >&2; exit 64; }
     [ -z "$quote" ] || { echo "aiur: command --quote requires --relayed" >&2; exit 64; }
+    # ponytail: the interactive operator path previews one answer; per-question answers need --relayed or the dashboard.
+    ! question_answers_given || { echo "aiur: command --answer/--answer-text/--answers-file require --relayed; answer interactively in the dashboard" >&2; exit 64; }
     if [ -n "$option_id" ] && [ -z "$custom_response" ]; then
       cmd_operator_answer "$decision_id" --option "$option_id" --operator
     elif [ -z "$option_id" ] && [ -n "$custom_response" ]; then

@@ -113,7 +113,8 @@ Three cases never floor a route:
 - **A credit-based key without a known limit.** OpenRouter and other API keys
   use remaining credit against the key's limit when a reading exists (with the
   management key where one is needed); a key whose limit is unknown is never
-  floored.
+  floored. A fresh reading that shows the balance spent ($0) is the exception:
+  it holds the route even with no known limit and with the floor at `0`.
 - **A pinned route.** A `model:` label and a backend the rate-limit fallback
   already chose are intent, and keep their route exactly as they ignore
   exhaustion today.

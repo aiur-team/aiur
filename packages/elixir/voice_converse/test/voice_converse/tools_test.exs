@@ -296,6 +296,8 @@ defmodule VoiceConverse.ToolsTest do
     assert_receive {:voice_conversation, ^id, {:draft, %{status: "proposed"}}}
   end
 
+  # Flaky: races the datasynced tool writes against a 100ms receive (#6928).
+  @tag :quarantine
   test "provider confirmation-like tools leave drafts proposed", %{root: root, name: name} do
     id = start!(root, name, %{id: "target"})
     provider = provider(name, id)

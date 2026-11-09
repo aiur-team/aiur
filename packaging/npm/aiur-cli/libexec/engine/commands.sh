@@ -427,6 +427,25 @@ EOF
   esac
 }
 
+cmd_config() {
+  local sub="${1:-}" key="" project="" json=false
+  [ "$sub" = "explain" ] || { echo "aiur: usage: aiur config explain <key> [--project owner/repo] [--json]" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=true ;;
+      --project) shift; project="${1:-}"; [ -n "$project" ] || { echo "aiur: --project needs owner/repo" >&2; exit 64; } ;;
+      -*) echo "aiur: unknown option $1" >&2; exit 64 ;;
+      *) [ -z "$key" ] || { echo "aiur: config explain takes one key" >&2; exit 64; }; key="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$key" ] || { echo "aiur: usage: aiur config explain <key> [--project owner/repo] [--json]" >&2; exit 64; }
+  local opts="json: $json"
+  [ -z "$project" ] || opts+=", project: Base.decode64!(\"$(encode_control_value "$project")\")"
+  run_control_rpc "Aiur.ControlCLI.ConfigExplain.explain(Base.decode64!(\"$(encode_control_value "$key")\"), $opts)"
+}
+
 cmd_listen_mode() {
   local ticket="${1:-}" encoded_args="" arg
   [ -n "$ticket" ] || { echo 'aiur: listen-mode requires a ticket' >&2; exit 64; }
