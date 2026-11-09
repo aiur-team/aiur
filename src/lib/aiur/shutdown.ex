@@ -185,13 +185,10 @@ defmodule Aiur.Shutdown do
   end
 
   defp protected_transports do
-    case Protection.prepared() do
-      %{result: %{agents: agents}, tickets: tickets} ->
-        for agent <- agents, MapSet.member?(tickets, to_string(agent["identifier"])), do: agent["transport"] || %{}
-
-      _ ->
-        []
-    end
+    for %{result: %{agents: agents}, tickets: tickets} <- Protection.prepared_all(),
+        agent <- agents,
+        MapSet.member?(tickets, to_string(agent["identifier"])),
+        do: agent["transport"] || %{}
   end
 
   defp protected_panes do

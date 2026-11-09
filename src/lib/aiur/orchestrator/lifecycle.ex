@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   """
 
   alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
+  alias Aiur.Gateway.Pause, as: GatewayPause
   alias Aiur.GitHub.Listeners
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
@@ -142,6 +143,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
       fleet_paused: GlobalPause.boot_fleet_paused(),
+      gateway_paused: GatewayPause.initial(),
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
       load_envelope_state: EnvelopeResume.boot(config.agent),
@@ -185,6 +187,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
+    GatewayPause.subscribe()
     _ = Phoenix.PubSub.subscribe(Aiur.PubSub, "intent:registers")
     _ = LiveConversation.subscribe_restarts()
 
