@@ -235,7 +235,7 @@ defmodule Aiur.Application.Children do
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
       # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
-      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: fn change -> PremiseChanges.notify_async(change, wake: &Aiur.ExecutorWakeInbox.enqueue_attention/1) end},
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &__MODULE__.premise_notifier/1},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
@@ -460,6 +460,11 @@ defmodule Aiur.Application.Children do
     %{executors: executors} = Roster.build(record?: false)
     Enum.any?(executors, &(&1.state in [:active, :idle]))
   end
+
+  @doc false
+  # A named capture (not a closure) keeps the DecisionStore child spec comparable.
+  @spec premise_notifier(map()) :: :ok
+  def premise_notifier(change), do: PremiseChanges.notify_async(change, wake: &Aiur.ExecutorWakeInbox.enqueue_attention/1)
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
