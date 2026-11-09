@@ -3,11 +3,12 @@ defmodule Aiur.Commands.Routing do
   use GenServer
   require Logger
 
+  alias Aiur.{Alerts, Config, DecisionPubSub, DecisionStore}
   alias Aiur.Commands.Routing.{Policy, Sweep}
-  alias Aiur.{Config, DecisionPubSub, DecisionStore}
   alias Aiur.Executor.Roster
 
   @ceiling_ms 30_000
+  @waiting_topic "system.commands.executor_only_waiting"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -21,6 +22,8 @@ defmodule Aiur.Commands.Routing do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       roster_fun: Keyword.get(opts, :roster_fun, &Roster.build/1),
       config: Keyword.get(opts, :config, &Config.decision_escalation/0),
+      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
+      waiting_alerted: MapSet.new(),
       timer_ref: nil,
       next_due_at: nil
     }
@@ -50,17 +53,17 @@ defmodule Aiur.Commands.Routing do
   defp sweep(state, id \\ nil) do
     now = state.clock.()
 
-    due =
+    {due, state} =
       case read_config(state.config) do
         {:ok, %{enabled: true} = config} ->
           run_sweep(state, id, now, config)
 
         {:ok, %{enabled: false}} ->
-          nil
+          {nil, state}
 
         {:error, reason} ->
           Logger.warning("aiur_command_routing config_unavailable reason=#{inspect(reason)}")
-          nil
+          {nil, state}
       end
 
     # A change can introduce an earlier deadline; preserve the earlier full-sweep timer.
@@ -99,17 +102,34 @@ defmodule Aiur.Commands.Routing do
         DecisionStore.list(state.store)
       end
 
-    {due, errors} = Sweep.run(decisions, roster(state, now), now, config, state.store)
+    liveness = roster(state, now)
+    {due, errors} = Sweep.run(decisions, liveness, now, config, state.store)
     if errors != [], do: Logger.warning("aiur_command_routing write_failed errors=#{inspect(errors)}")
-    due
+    {due, alert_waiting(state, decisions, liveness, id)}
   rescue
     error ->
       Logger.warning("aiur_command_routing sweep_failed reason=#{Exception.message(error)}")
-      nil
+      {nil, state}
   catch
     :exit, reason ->
       Logger.warning("aiur_command_routing store_unavailable reason=#{inspect(reason)}")
-      nil
+      {nil, state}
+  end
+
+  # An Executor-only Command never falls back to the creator, so the operator is
+  # told once per outage that it waits; a full sweep with a live Executor re-arms.
+  defp alert_waiting(state, _decisions, :live, nil), do: %{state | waiting_alerted: MapSet.new()}
+  defp alert_waiting(state, _decisions, :live, _id), do: state
+
+  defp alert_waiting(state, decisions, liveness, _id) do
+    decisions
+    |> Enum.filter(&(Policy.executor_audience?(&1) and &1.decision_status in [:open, :deferred] and is_nil(&1.answer)))
+    |> Enum.reject(&MapSet.member?(state.waiting_alerted, &1.decision_id))
+    |> Enum.reduce(state, fn decision, acc ->
+      message = "Executor-only Command #{decision.decision_id} on ##{decision.ticket.identifier} is waiting: no live Executor (#{liveness})."
+      acc.alert_fun.(@waiting_topic, message: message, needs_attention: true, severity: "warning")
+      %{acc | waiting_alerted: MapSet.put(acc.waiting_alerted, decision.decision_id)}
+    end)
   end
 
   defp roster(state, now) do
