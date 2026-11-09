@@ -11,6 +11,9 @@ defmodule Aiur.Handoff.ProjectPrepareTest do
     on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) end)
     assert GenServer.whereis(Aiur.Orchestrator) == nil
 
+    # prepare stores a per-project Protection entry; leaving it behind leaks into later tests.
+    on_exit(fn -> Enum.each([a, b], &in_project(&1, fn -> Aiur.Handoff.Protection.reset() end)) end)
+
     output = capture_io(fn -> CLI.prepare() end)
 
     assert output =~ "__AIUR_CONTROL_EXIT__:0"

@@ -22,22 +22,23 @@ defmodule Aiur.WorkflowStore.ProjectReloadTest do
     refute 7 == in_project(b, fn -> Aiur.Config.settings!().agent.max_concurrent_agents end)
   end
 
-  test "the telemetry writer records a project's real reload, whatever the start order", %{a: a} do
-    root = Path.join(System.tmp_dir!(), "telemetry-reload-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(root)
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+  test "the telemetry writer records the reload of a project that starts after it", %{root: root} do
     path = Path.join(root, "telemetry.ndjson")
     {:ok, settings} = Agent.start_link(fn -> %{agent: %{max_concurrent_agents: 1}} end)
     builder = fn -> Aiur.RunTelemetry.RunContext.build(Agent.get(settings, & &1)) end
-    # Started after both projects, like no production order: the writer must still hear them.
+    # The production order: the writer is up before any project registers.
     {:ok, writer} = Aiur.RunTelemetry.Writer.start_link(name: nil, path: path, boot_id: "reload", context_builder: builder)
     Aiur.RunTelemetry.Writer.flush(writer)
     count = fn -> path |> File.read!() |> String.split("\n", trim: true) |> Enum.count(&(&1 =~ "run_context")) end
     before = count.()
 
+    c = project("o/c", root)
+    on_exit(fn -> Aiur.Project.Table.drop("o/c") end)
+    assert {:ok, _} = Aiur.Project.Supervisors.start_project(c)
+
     Agent.update(settings, &put_in(&1, [:agent, :max_concurrent_agents], 9))
-    WorkflowFiles.write_workflow_file!(a.config_path, tracker_kind: "memory", max_concurrent_agents: 7)
-    assert :ok = in_project(a, fn -> Aiur.WorkflowStore.force_reload(15_000) end)
+    WorkflowFiles.write_workflow_file!(c.config_path, tracker_kind: "memory", max_concurrent_agents: 7)
+    assert :ok = in_project(c, fn -> Aiur.WorkflowStore.force_reload(15_000) end)
     Aiur.RunTelemetry.Writer.flush(writer)
 
     assert count.() == before + 1
