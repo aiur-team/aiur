@@ -20,6 +20,7 @@
   "requires": [
     "config",
     "event-bus",
+    "gateway-registry",
     "identity",
     "kernel",
     "listener-modes",

@@ -38,6 +38,30 @@ The hello answer is `{gateway_id, gateway_label, build, tls_fingerprint_sha256, 
 
 The permission commands edit the local file only. Over `--gateway` or `--instance` they are refused: `aiur --gateway nook gateway grant …` exits 64 with `grant changes are local to the receiving gateway`.
 
+## Enrolling a peer with an invite
+
+| Syntax | Default or important interaction | Runnable example |
+| --- | --- | --- |
+| `aiur gateway invite [--grant <categories>] [--ttl <n>[smhd]] [--url <u>] [--tls-pin <hex>]` | Run on the gateway being joined (B). Prints one `aiur-invite:` code holding B's URL, gateway id, TLS pin and a single-use secret. `--ttl` defaults to 10 minutes (maximum 24 hours); `--url` defaults to `server.public_url`; the pin defaults to `server.tls_pin_sha256`, and with none the command warns `no TLS pin`. `read` is always included; `trust` is rejected. The grants stay in B's invite record, not in the code. | `aiur gateway invite --grant read,message --ttl 10m` |
+| `aiur gateway join <code> --name <n>` | Run on the joining gateway (A); needs no running daemon. Checks B's hello against the code and sends the secret only if the gateway id matches and enrolment is `open`; with a pin in the code, both calls are pinned. Then writes the registry entry for B (`url`, `gateway_id`, `label`, `tls_pin_sha256` when pinned) and a mode 0600 token file at `~/.aiur/peers/<n>.token`. A used, expired, mismatched or refused code writes nothing. | `aiur gateway join aiur-invite:… --name nook` |
+| `aiur gateway register <name> --url <u> --token-file <f> [--tls-pin <hex>]` | Adds an entry by hand, with no invite and no Tailscale. The token file must exist (mode 0600 is checked when it is used). | `aiur gateway register pc --url https://pc.example.com --token-file ~/pc.token` |
+| `aiur gateway remove <peer>` | Deletes the registry entry and revokes every client token bound to the peer. An unknown peer exits 66. | `aiur gateway remove nook` |
+| `aiur gateway rotate <peer>` | Run on the side that issued the token. Mints a new token and prints it once; the old one works for 10 minutes, then is revoked and dropped from `allows.credentials`. Move the new token with `gateway register`. | `aiur gateway rotate nook` |
+
+On B, a valid enrolment burns the invite, creates a token bound to A's gateway id and adds A to the registry with `read`.
+
+Any invited write category becomes a Decision you must confirm signed in (see below), and `join` prints `pending on <n>: …`. Mutual trust needs an invite in each direction.
+
+The enrol route allows 5 attempts a minute per remote IP, then answers 429 even for a correct secret. Behind a proxy or tunnel not listed in `server.trusted_proxies`, every caller shares one address, so five bad attempts pause all enrolment for a minute.
+
+Unknown id and wrong secret return the same 401. A peer's token never exceeds its registry entry: an invited write category works only after you confirm it.
+
+With no pin, `join` trusts whatever certificate answers at the URL; the secret is single-use and the new peer starts read-only. If B enrolled A but the answer was lost, run `aiur gateway remove <peer>` on B and issue a new invite.
+
+All five are local: over `--gateway` or `--instance` they exit 64 with `<command> is local to the gateway it changes`.
+
+Hello reports `enrollment: open` while an unused, unexpired invite exists, and `tls_fingerprint_sha256` is `server.tls_pin_sha256` or `null`. Audit events add `enrolled`, `enroll_refused`, `invite_created`, `peer_removed` and `token_rotated`.
+
 ## Categories
 
 `read`, `message`, `executor`, `agents`, `tickets` and `config`; `trust` is rejected anywhere in the file.

@@ -7,7 +7,7 @@ defmodule AiurWeb.DashboardAuthRateLimit.Store do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: @name)
-  @spec allow(:inet.ip_address(), integer(), pos_integer(), pos_integer()) :: boolean()
+  @spec allow(term(), integer(), pos_integer(), pos_integer()) :: boolean()
   def allow(client, now, window, limit), do: GenServer.call(@name, {:allow, client, now, window, limit})
 
   @impl GenServer

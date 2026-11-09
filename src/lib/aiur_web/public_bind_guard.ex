@@ -35,6 +35,8 @@ defmodule AiurWeb.PublicBindGuard do
   def public_path?(%Plug.Conn{method: method, path_info: ["readyz"]}) when method in ["GET", "HEAD"], do: true
   def public_path?(%Plug.Conn{method: "POST", path_info: ["api", "v1", "github", "webhook"]}), do: true
   def public_path?(%Plug.Conn{method: "GET", path_info: ["api", "v1", "gateway", "hello"]}), do: true
+  # The invite secret in the body is the credential.
+  def public_path?(%Plug.Conn{method: "POST", path_info: ["api", "v1", "gateway", "enroll"]}), do: true
   def public_path?(%Plug.Conn{method: method, path_info: path}), do: MapSet.member?(@public_auth_paths, {method, path})
 
   defp supervisor_auth_path?(%Plug.Conn{path_info: ["api", "v1", "decisions" | _]}), do: true
