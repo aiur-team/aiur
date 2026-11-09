@@ -21,11 +21,14 @@ Calls run under a deadline. Their parameters and
 results use the configured redactor and normal transcript recording.
 `allowed_tools` filters host tools like every other advertised tool.
 
-Assistant text broadcasts redact across provider chunk boundaries. The stream
-holds at most seven graphemes (the longest configured redaction prefix) and
-releases that tail on the next text chunk, the complete final event, an
-interruption, or session finish. This bounds added delay to one provider text
-chunk while keeping the withheld text to seven graphemes.
+Assistant text broadcasts redact across provider chunk boundaries. Each text
+chunk re-redacts the turn so far and sends only new masked text, withholding a
+tail that could still grow into a match (`Bearer ` plus up to seven token
+characters, a key prefix such as `sk-`, or a URL's `user:password` before its
+`@`). The tail is released on the next text chunk, the final text event, an
+interruption, a user turn, or session finish. Added delay is at most one
+provider text chunk, and at most 64 graphemes are withheld; a longer URL
+credential is released before its `@` arrives.
 
 ## Hosted agents
 

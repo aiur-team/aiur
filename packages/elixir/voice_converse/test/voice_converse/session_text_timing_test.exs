@@ -67,7 +67,8 @@ defmodule VoiceConverse.SessionTextTimingTest do
     end
   end
 
-  test "provider truncation errors preserve full interrupted text and keep the session running", ctx do
+  test "provider truncation errors preserve full interrupted text and keep the session running",
+       ctx do
     {id, session, ref} =
       start_session(ctx, FakeProvider, truncate_error: "Bearer abcdefgh12345")
 
@@ -104,7 +105,9 @@ defmodule VoiceConverse.SessionTextTimingTest do
                    1_000
 
     :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "t", text: secret, final?: true})
-    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "[redacted]", final?: true}}, 1_000
+
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "[redacted]", final?: true}},
+                   1_000
 
     interrupt(id, ref)
     report(ctx, id, 100)
@@ -113,34 +116,95 @@ defmodule VoiceConverse.SessionTextTimingTest do
     refute Enum.any?(records(ctx, id), &String.contains?(Jason.encode!(&1), "abcdefgh12345"))
   end
 
-  test "split bearer tokens stay masked through two and three streamed chunks", ctx do
-    for chunks <- [["hello Bear", "er abcdefgh12345"], ["hello Be", "arer abc", "defgh12345"]] do
-      {id, _, ref} = start_session(ctx)
+  test "secrets split across two and three streamed chunks never reach subscribers unmasked",
+       ctx do
+    for {chunks, secret, expected} <- [
+          {["hello Bear", "er abcdefgh12345"], "abcdefgh12345", "hello [redacted]"},
+          {["hello Be", "arer abc", "defgh12345"], "abcdefgh12345", "hello [redacted]"},
+          {["hello Bearer abcd", "efgh12345"], "abcdefgh12345", "hello [redacted]"},
+          {["hello Bearer  ab", "cdefg", "h12345 ok"], "cdefgh12345", "hello [redacted] ok"},
+          # A complete match that keeps streaming must not leak its continuation.
+          {["hello Bearer abcdefghij", "klmnop", " ok"], "klmnop", "hello [redacted] ok"},
+          {["key sk", "-abcd", "efgh1234"], "efgh1234", "key [redacted]"},
+          {["see https://user:pa", "ss@host"], "user:pa", "see https://[redacted]@host"}
+        ] do
+      {id, session, ref} = start_session(ctx)
 
       Enum.each(chunks, fn chunk ->
-        :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: chunk, final?: false})
+        :ok =
+          FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: chunk, final?: false})
       end)
 
-      complete = Enum.join(chunks)
-      :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "split", text: complete, final?: true})
-      messages = collect_text_messages(id, [])
-      refute Enum.any?(messages, &String.contains?(&1, "abcdefgh12345"))
-      stored = List.last(messages)
-      assert List.last(messages) == stored
-      assert stored == "hello [redacted]"
+      :sys.get_state(session)
+      partials = collect_text_messages(id, [])
+
+      :ok =
+        FakeProvider.emit(ref, %Events.AgentText{
+          turn_id: "split",
+          text: Enum.join(chunks),
+          final?: true
+        })
+
+      :sys.get_state(session)
+      messages = partials ++ collect_text_messages(id, [])
+      refute Enum.any?(messages, &String.contains?(&1, secret)), inspect({chunks, messages})
+      assert List.last(messages) == expected
+      assert Enum.join(Enum.drop(messages, -1)) == expected, inspect({chunks, messages})
       :ok = FakeProvider.emit(ref, %Events.Interruption{turn_id: "split"})
       assert_receive {:voice_conversation, ^id, %Events.Interruption{turn_id: "split"}}, 1_000
-      :ok = VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "split"})
-      assert [%{"text" => ^stored}] = turns(records(ctx, id))
+
+      :ok =
+        VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "split"})
+
+      assert [%{"text" => ^expected}] = turns(records(ctx, id))
       :ok = VoiceConverse.end_session(ctx.name, id)
     end
   end
 
-  test "streaming redaction holdback has a measured seven-grapheme upper bound" do
-    assert VoiceConverse.Redact.broadcast_holdback_graphemes() == 7
-    assert VoiceConverse.Redact.holdback("hello Bear") == 4
+  test "streaming holdback covers only text that could still become a match" do
     assert VoiceConverse.Redact.holdback("") == 0
-    assert VoiceConverse.Redact.holdback("hello Bearer ") == 7
+    assert VoiceConverse.Redact.holdback("hello world.") == 0
+    assert VoiceConverse.Redact.holdback("hello Bear") == 4
+    assert VoiceConverse.Redact.holdback("hello Bearer abcdefg") == 14
+    # Eight token characters already match, so nothing is held.
+    assert VoiceConverse.Redact.holdback("hello Bearer abcdefgh") == 0
+    assert VoiceConverse.Redact.holdback("a ghp_x") == 5
+    assert VoiceConverse.Redact.holdback("https://user:pa") == 10
+    long = "https://" <> String.duplicate("u", 100)
+    assert VoiceConverse.Redact.holdback(long) == VoiceConverse.Redact.max_holdback_graphemes()
+  end
+
+  test "held text is released on interruption and matches the stored turn", ctx do
+    {id, session, ref} = start_session(ctx)
+
+    :ok =
+      FakeProvider.emit(ref, %Events.AgentText{
+        turn_id: "partial",
+        text: "hello Bearer abc",
+        final?: false
+      })
+
+    :sys.get_state(session)
+    assert collect_text_messages(id, []) == ["hello "]
+
+    :ok = FakeProvider.emit(ref, %Events.Interruption{turn_id: "partial"})
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "Bearer abc", final?: false}}
+    assert_receive {:voice_conversation, ^id, %Events.Interruption{turn_id: "partial"}}
+
+    :ok =
+      VoiceConverse.playback_state(ctx.name, id, %{"state" => "stopped", "turn_id" => "partial"})
+
+    assert [%{"text" => "hello Bearer abc", "interrupted?" => true}] = turns(records(ctx, id))
+  end
+
+  @tag text_only: true
+  test "a user turn releases held assistant text before the user transcript", ctx do
+    {id, _, ref} = start_session(ctx)
+    :ok = FakeProvider.emit(ref, %Events.AgentText{turn_id: "p", text: "use sk", final?: false})
+    :ok = FakeProvider.emit(ref, %Events.UserTranscript{text: "stop", final?: true})
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "use "}}, 1_000
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{text: "sk"}}, 1_000
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}, 1_000
   end
 
   test "unexpected provider truncation results are recorded without ending the session", ctx do
@@ -341,9 +405,10 @@ defmodule VoiceConverse.SessionTextTimingTest do
 
   defp collect_text_messages(id, acc) do
     receive do
-      {:voice_conversation, ^id, %Events.AgentText{text: text}} -> collect_text_messages(id, acc ++ [text])
+      {:voice_conversation, ^id, %Events.AgentText{text: text}} ->
+        collect_text_messages(id, acc ++ [text])
     after
-      50 -> acc
+      0 -> acc
     end
   end
 end
