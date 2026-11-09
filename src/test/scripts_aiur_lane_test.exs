@@ -10,6 +10,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
+      cd: "/",
       env: env,
       stderr_to_stdout: true
     )
@@ -26,6 +27,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
+      cd: "/",
       env: env,
       stderr_to_stdout: true
     )
@@ -40,6 +42,7 @@ defmodule Aiur.ScriptsLaneTest do
         "lane-test",
         @engine
       ],
+      cd: "/",
       env: env,
       stderr_to_stdout: true
     )

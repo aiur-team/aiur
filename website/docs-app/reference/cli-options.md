@@ -32,6 +32,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
 | `aiur --peer ID` | Binds a new client token to a gateway id; categories default to `read`. | `aiur token create hub --peer gw-hub` |
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
+| `aiur --project OWNER/REPO` | Targets one project on a multi-project gateway; see [Choosing a project](#choosing-a-project). | `aiur --gateway nook queue show --project o/b` |
 | `aiur --purge` | Removes persisted credentials for a supported account command. | `aiur accounts logout codex default --purge` |
 | `aiur --record PATH` | Writes a recording to the selected path. | `aiur --record run.jsonl` |
 | `aiur --repo OWNER/REPO` | Selects the repository for a supported tracker command. | `aiur --repo aiur-team/aiur` |
@@ -138,3 +139,22 @@ Every remote write carries a UUIDv7 `request_id`, and the daemon runs each `(tok
 The client generates the id (control contract version 2); `--request-id <id>` or `AIUR_REQUEST_ID` supplies your own. It cannot be combined with `--instance all`.
 
 A contract version 1 daemon ignores `request_id`. Audit lines carry `request_id`, `origin_gateway` and `actor`; a repeat is audited as `replayed`.
+
+### Choosing a project
+
+`--project <owner/repo>` names the project a command works on, right after the selector or after the command name (`aiur --gateway nook queue show --project o/b`).
+
+| Command | Takes `--project` |
+| --- | --- |
+| `queue`, `lane`, `epic`, `feature`, `units`, `build-orders`, `analytics`, `set` (not `set --list` or `set max-agents`) | Yes |
+| `status`, `agents`, `alerts` and every other command | No: exit 64 `--project does not apply` |
+
+When `--project` is omitted:
+
+- **Local**: the project is the repository of the current directory when this gateway runs it; otherwise the gateway's only project.
+- **Remote**: the gateway's only project.
+- **Several projects and no match**: exit 64 `pick a project: o/a, o/b`; nothing runs.
+
+A single-project gateway ignores a matching `--project` and refuses another one (exit 64 `unknown project 'o/z'; this gateway has: o/a`). `--project` cannot be combined with `--instance all` or `--gateway all`, and must look like `owner/repo`.
+
+`aiur set` and `aiur set --unset` over a gateway send `project` instead of the caller's working directory. Ticket-id commands (`take`, `message`, `--todo`, ...) do not take `--project` yet.

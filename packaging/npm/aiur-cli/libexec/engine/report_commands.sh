@@ -42,6 +42,7 @@ cmd_units() {
   fi
 
   [ "$json" -eq 1 ] && opts="$opts, json: true"
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.units([$opts])"
 }
 
@@ -89,6 +90,7 @@ cmd_build_orders() {
     opts="${opts}root: Base.decode64!(\"$encoded\")"
   fi
 
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.build_orders([$opts])"
 }
 
@@ -128,6 +130,7 @@ cmd_analytics() {
     opts="$opts, $key: Base.decode64!(\"$encoded\")"
   done
 
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.analytics([$opts])"
 }
 

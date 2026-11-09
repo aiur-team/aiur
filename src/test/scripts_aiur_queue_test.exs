@@ -126,7 +126,7 @@ defmodule Aiur.ScriptsQueueTest do
 
   defp command(args, overrides \\ []) do
     script =
-      "source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; return ${TEST_QUEUE_RPC_STATUS:-0}; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
+      "source \"$(dirname \"$1\")/engine/project.sh\"; source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; return ${TEST_QUEUE_RPC_STATUS:-0}; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
 
     env =
       [{"AIUR_AGENT_WORKSPACE", ""}, {"AIUR_PROJECT_ROOT", ""}, {"AIUR_REPO_ROOT", ""}, {"TEST_QUEUE_RPC_STATUS", nil}, {"PWD", "/tmp"}, {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", nil}]

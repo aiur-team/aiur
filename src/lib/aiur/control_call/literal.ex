@@ -45,7 +45,7 @@ defmodule Aiur.ControlCall.Literal do
   defp literal({:%{}, _, pairs}, depth) when depth < @max_depth and is_list(pairs) do
     with {:ok, entries} <- convert_map_pairs(pairs, depth + 1),
          map <- Map.new(entries),
-         true <- valid_epic(map) or valid_literal_epic_hue_map?(map) do
+         true <- valid_epic(map) or valid_epic_icon(map) or valid_literal_epic_hue_map?(map) do
       {:ok, map}
     else
       _ -> {:error, :non_literal_argument}
@@ -152,6 +152,7 @@ defmodule Aiur.ControlCall.Literal do
   defp valid?(value, :feature_ids), do: is_list(value) and length(value) in 1..200 and Enum.all?(value, &(is_integer(&1) and &1 in 1..2_147_483_647))
   defp valid?(value, :ticket_id_strings), do: is_list(value) and length(value) in 1..200 and Enum.all?(value, &ticket_id_string?/1)
   defp valid?(value, :executor_env), do: is_list(value) and Enum.all?(value, &valid_executor_env_entry?/1)
+  defp valid?(value, :epic_icon_list), do: is_list(value) and value != [] and Enum.all?(value, &valid_epic_icon/1)
   defp valid?(value, :epic_list), do: is_list(value) and value != [] and Enum.all?(value, &valid_epic/1)
   defp valid?(value, :epic_hue_map) when is_map(value), do: Enum.all?(value, fn {key, hue} -> is_binary(key) and key != "" and (valid?(hue, {:range, 0, 359}) or valid?(hue, :gruvbox_name)) end)
   defp valid?(_value, :epic_hue_map), do: false
@@ -171,6 +172,9 @@ defmodule Aiur.ControlCall.Literal do
     do: map_size(epic) == 2 and is_binary(key) and key != "" and is_binary(label) and label != ""
 
   defp valid_epic(_epic), do: false
+
+  defp valid_epic_icon(%{key: key, icon: icon} = entry), do: map_size(entry) == 2 and is_binary(key) and key != "" and is_binary(icon) and icon != ""
+  defp valid_epic_icon(_entry), do: false
 
   defp valid_literal_epic_hue_map?(map) when map_size(map) in 1..200 do
     Enum.all?(map, fn {key, hue} ->
