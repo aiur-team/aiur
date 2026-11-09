@@ -139,14 +139,10 @@ failing its dispatch.
 
 ## Machine capacity across projects
 
-With `projects:` set in `~/.aiur/machine`, one broker shares the machine's slots
-between the projects. A project starts an agent only if the machine is under
-`capacity.max_agents` (or `--max-agents`), the project is under its
-`projects[].max_agents`, and its own `agent.max_concurrent_agents` and load
-envelope allow it: the lowest of these wins. Grants are first-come. A project
-returns a slot on its next poll tick after the agent ends, and a crashed project
-returns all of its slots at once. With `capacity.max_agents` unset there is no
-machine cap. Without `projects:` nothing changes.
+With `projects:` set, one broker shares slots first-come. A project starts an
+agent only under `capacity.max_agents` (or `--max-agents`), its
+`projects[].max_agents`, and its own limits: the lowest wins. Slots return on
+the next poll tick, or at once if a project crashes. Unset means no machine cap.
 
 See also [`agent.account_selection`](/reference/configuration) and
 [Accounts by backend](/guide/claude-accounts).
