@@ -2,7 +2,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
   @moduledoc """
   A worker's cold prompt should start with the skills that fit its ticket. This
   covers resolution (lane, feature, label, complexity, per-ticket override),
-  ordering, the inline byte budget, the index of everything else, and the
+  ordering, the index of everything else, and the
   never-silent warning for a name that is not installed.
   """
   use ExUnit.Case, async: true
@@ -368,26 +368,6 @@ defmodule Aiur.AgentSkills.PreloadTest do
 
   defp position(text, needle), do: text |> :binary.match(needle) |> elem(0)
 
-  describe "inline byte budget" do
-    test "keeps the first skills inside the budget and lists the rest to load on demand", %{workspace: workspace} do
-      skill!(workspace, "first", "First.", String.duplicate("a", 200))
-      skill!(workspace, "second", "Second.", String.duplicate("b", 200))
-      skill!(workspace, "third", "Third.", String.duplicate("c", 200))
-
-      preload =
-        resolve(issue(["area:art"]), workspace, %{
-          "by_lane" => %{"art" => ["first", "second", "third"]},
-          "preload_max_bytes" => 500
-        })
-
-      assert Enum.map(preload.mapped, & &1.name) == ["first", "second"]
-      assert Enum.map(preload.truncated, & &1.name) == ["third"]
-      assert preload.bytes <= 500
-      assert Preload.prompt_block(preload) =~ "### Mapped skills over the inline budget"
-      assert Preload.summary(preload) =~ "truncated: third"
-    end
-  end
-
   describe "recommended skills" do
     test "list name, description and load path in their own section without inlining", %{workspace: workspace} do
       skill!(workspace, "pixel-art", "Draw sprites.", "PIXEL ART BODY")
@@ -425,7 +405,7 @@ defmodule Aiur.AgentSkills.PreloadTest do
         })
 
       assert Enum.map(preload.recommended, & &1.name) == ["big"]
-      assert preload.truncated == []
+      refute Preload.over_budget?(preload)
       assert preload.bytes == 0
     end
 

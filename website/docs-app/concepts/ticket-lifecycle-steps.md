@@ -345,6 +345,7 @@ Grouped by channel:
 | `ticket.*.agent.error.tokens_exhausted` | `attention:auto` |
 | `ticket.*.agent.retry_exhausted` | `attention:auto` |
 | `ticket.*.pr.parked_ready` | `attention:auto` |
+| `ticket.*.skills.blocked` | `attention:auto` |
 
 **ci** — terminal results:
 

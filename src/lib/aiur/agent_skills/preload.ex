@@ -24,6 +24,11 @@ defmodule Aiur.AgentSkills.Preload do
   own skills and aiur's vendored ones both count. A name that resolves but is not
   installed is never dropped silently: it lands in `missing`, logs a warning and
   appears in the prompt block and the dispatch record.
+
+  Mapped skills are mandatory, so none is ever moved to "load on demand": a
+  mapped set past `agent.skills.preload_max_bytes` is inlined whole and recorded
+  as over budget. `Aiur.AgentRunner.SkillGate` decides whether a missing or
+  over-budget set warns or blocks the dispatch.
   """
 
   require Logger
@@ -55,18 +60,18 @@ defmodule Aiur.AgentSkills.Preload do
           }
   end
 
-  defstruct mapped: [], truncated: [], recommended: [], missing: [], index: [], lanes: [], bytes: 0, max_bytes: nil, configured?: false
+  defstruct mapped: [], recommended: [], missing: [], index: [], lanes: [], bytes: 0, max_bytes: nil, configured?: false, strict?: false
 
   @type t :: %__MODULE__{
           mapped: [Skill.t()],
-          truncated: [Skill.t()],
           recommended: [Skill.t()],
           missing: [Skill.t()],
           index: [%{name: String.t(), description: String.t() | nil}],
           lanes: [String.t()],
           bytes: non_neg_integer(),
           max_bytes: pos_integer() | nil,
-          configured?: boolean()
+          configured?: boolean(),
+          strict?: boolean()
         }
 
   @doc """
@@ -97,21 +102,21 @@ defmodule Aiur.AgentSkills.Preload do
     epic = Keyword.get_lazy(opts, :epic, fn -> epic_slug(feature, mapping, opts) end)
     requests = requests(mapping, issue, lanes, feature, epic)
     max_bytes = SkillsMapping.max_bytes(mapping)
-    {mapped, truncated, bytes} = split_by_cap(requests, installed, max_bytes)
+    mapped = installed_requests(requests, installed)
     recommended_requests = recommended_requests(mapping, issue, lanes, feature, epic, requests)
     missing = missing(requests, installed) ++ missing(recommended_requests, installed, "recommended, ")
     warn_missing(issue, missing)
 
     %__MODULE__{
       mapped: mapped,
-      truncated: truncated,
       recommended: recommended(recommended_requests, installed, workspace),
       missing: missing,
       index: index_entries(installed, requests ++ recommended_requests),
       lanes: lanes,
-      bytes: bytes,
+      bytes: Enum.sum_by(mapped, & &1.bytes),
       max_bytes: max_bytes,
-      configured?: SkillsMapping.configured?(mapping)
+      configured?: SkillsMapping.configured?(mapping),
+      strict?: SkillsMapping.strict?(mapping)
     }
   end
 
@@ -135,15 +140,19 @@ defmodule Aiur.AgentSkills.Preload do
     base
     |> append_when(preload.recommended, "recommended: ")
     |> append_when(preload.missing, "missing: ")
-    |> append_when(preload.truncated, "truncated: ")
+    |> append_over_budget(preload)
   end
+
+  @doc "Whether the inlined mapped skills exceed `agent.skills.preload_max_bytes`."
+  @spec over_budget?(t()) :: boolean()
+  def over_budget?(%__MODULE__{bytes: bytes, max_bytes: max_bytes}), do: is_integer(max_bytes) and bytes > max_bytes
 
   @doc "The machine-readable preload facts `aiur agents --json` reports per running worker."
   @spec report(t()) :: map()
   def report(%__MODULE__{} = preload) do
     %{
       mapped: Enum.map(preload.mapped, &%{name: &1.name, reason: &1.reason}),
-      truncated: names(preload.truncated),
+      over_budget: over_budget?(preload),
       missing: names(preload.missing),
       bytes: preload.bytes,
       max_bytes: preload.max_bytes
@@ -161,9 +170,10 @@ defmodule Aiur.AgentSkills.Preload do
       skill_reasons: Map.new(preload.mapped, &{&1.name, &1.reason}),
       skills_missing: names(preload.missing),
       skill_reasons_missing: Map.new(preload.missing, &{&1.name, &1.reason}),
-      skills_truncated: names(preload.truncated),
       skills_recommended: names(preload.recommended),
       skills_bytes: preload.bytes,
+      skills_max_bytes: preload.max_bytes,
+      skills_over_budget: over_budget?(preload),
       skills_index_count: length(preload.index),
       skill_lanes: preload.lanes
     }
@@ -279,22 +289,9 @@ defmodule Aiur.AgentSkills.Preload do
     |> Enum.reverse()
   end
 
-  defp split_by_cap(requests, installed, max_bytes) do
-    requests
-    |> Enum.reduce({[], [], 0}, fn {name, reason}, acc ->
-      case Map.get(installed, name) do
-        nil -> acc
-        skill -> place_skill(acc, %Skill{name: name, reason: reason, description: skill.description, text: skill.text, path: skill.path, bytes: skill.bytes}, max_bytes)
-      end
-    end)
-    |> then(fn {mapped, truncated, bytes} -> {Enum.reverse(mapped), Enum.reverse(truncated), bytes} end)
-  end
-
-  defp place_skill({mapped, truncated, bytes}, entry, max_bytes) do
-    if bytes + entry.bytes <= max_bytes do
-      {[entry | mapped], truncated, bytes + entry.bytes}
-    else
-      {mapped, [entry | truncated], bytes}
+  defp installed_requests(requests, installed) do
+    for {name, reason} <- requests, skill = Map.get(installed, name), skill != nil do
+      %Skill{name: name, reason: reason, description: skill.description, text: skill.text, path: skill.path, bytes: skill.bytes}
     end
   end
 
@@ -367,6 +364,10 @@ defmodule Aiur.AgentSkills.Preload do
   defdelegate description(text), to: Registry
 
   defp names(skills), do: Enum.map(skills, & &1.name)
+
+  defp append_over_budget(text, preload) do
+    if over_budget?(preload), do: text <> "; over budget: #{preload.bytes}/#{preload.max_bytes} bytes", else: text
+  end
 
   defp append_when(text, [] = _entries, _label), do: text
 

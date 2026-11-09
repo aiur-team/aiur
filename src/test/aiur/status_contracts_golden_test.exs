@@ -76,7 +76,7 @@ defmodule Aiur.StatusContractsGoldenTest do
           adopted_from: "handoff-7",
           skill_preload: %{
             mapped: [%{name: "pixel-art", reason: "lane:art"}],
-            truncated: ["palette"],
+            over_budget: false,
             missing: ["ghost-skill"],
             bytes: 812,
             max_bytes: 4_096

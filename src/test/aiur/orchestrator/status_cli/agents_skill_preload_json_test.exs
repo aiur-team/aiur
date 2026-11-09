@@ -21,7 +21,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsSkillPreloadJsonTest do
 
       preload = %{
         mapped: [%{name: "pixel-art", reason: "lane:art"}],
-        truncated: ["palette"],
+        over_budget: false,
         missing: ["ghost-skill"],
         bytes: 812,
         max_bytes: 4_096
@@ -34,7 +34,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsSkillPreloadJsonTest do
 
       assert row["skill_preload"] == %{
                "mapped" => [%{"name" => "pixel-art", "reason" => "lane:art"}],
-               "truncated" => ["palette"],
+               "over_budget" => false,
                "missing" => ["ghost-skill"],
                "bytes" => 812,
                "max_bytes" => 4_096
