@@ -77,9 +77,7 @@ defmodule Aiur.ControlCall.ProjectTest do
     setup do
       for repo <- ["t311/a", "t311/b"] do
         hold({:project, repo}, fn ->
-          Aiur.Project.Registry.register_root(
-            Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
-          )
+          Aiur.Project.Registry.register_root(Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state"))
         end)
       end
 
@@ -148,9 +146,7 @@ defmodule Aiur.ControlCall.ProjectTest do
     setup do
       for repo <- ["t311/a", "t311/b"] do
         hold({:queue, repo}, fn ->
-          Aiur.Project.Registry.register_root(
-            Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state")
-          )
+          Aiur.Project.Registry.register_root(Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/config"}, "/x/state"))
 
           {:ok, _} = QueueStub.start_link({Aiur.Project.Registry.via(repo, Aiur.BuildQueue.Server), "DATA-" <> repo})
         end)
