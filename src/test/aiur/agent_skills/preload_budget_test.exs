@@ -51,6 +51,7 @@ defmodule Aiur.AgentSkills.PreloadBudgetTest do
       refute block =~ "over the inline budget"
       assert Preload.summary(preload) =~ "over budget: #{preload.bytes}/500 bytes"
       assert %{skills_over_budget: true, skills_max_bytes: 500} = Preload.dispatch_record(preload)
+      assert %{over_budget: true, max_bytes: 500} = Preload.report(preload)
     end
 
     test "a mapped set inside the budget is not over budget", %{workspace: workspace} do

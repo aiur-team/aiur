@@ -152,8 +152,7 @@ defmodule Aiur.AgentSkills.Preload do
   def report(%__MODULE__{} = preload) do
     %{
       mapped: Enum.map(preload.mapped, &%{name: &1.name, reason: &1.reason}),
-      # Mapped skills are never truncated; the key stays for the aiur.agents v1 schema.
-      truncated: [],
+      over_budget: over_budget?(preload),
       missing: names(preload.missing),
       bytes: preload.bytes,
       max_bytes: preload.max_bytes

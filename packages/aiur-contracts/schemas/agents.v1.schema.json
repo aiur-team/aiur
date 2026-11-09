@@ -104,12 +104,9 @@
             ]
           }
         },
-        "truncated": {
-          "description": "Mapped skills left out of the prompt because the inline budget was spent.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "over_budget": {
+          "description": "Whether the inlined mapped skills exceed max_bytes. Mapped skills are never truncated, so an over-budget set is still inlined whole.",
+          "type": "boolean"
         },
         "missing": {
           "description": "Mapped skills that are not installed in the workspace.",
@@ -133,7 +130,7 @@
       },
       "required": [
         "mapped",
-        "truncated",
+        "over_budget",
         "missing",
         "bytes",
         "max_bytes"

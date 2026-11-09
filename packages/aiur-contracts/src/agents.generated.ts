@@ -36,9 +36,9 @@ export interface AgentsSkillPreload {
     [k: string]: unknown;
   }[];
   /**
-   * Mapped skills left out of the prompt because the inline budget was spent.
+   * Whether the inlined mapped skills exceed max_bytes. Mapped skills are never truncated, so an over-budget set is still inlined whole.
    */
-  truncated: string[];
+  over_budget: boolean;
   /**
    * Mapped skills that are not installed in the workspace.
    */
