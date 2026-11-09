@@ -208,7 +208,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
           :measured => term(),
           :threshold => term(),
           optional(:reclaimable_cpu_percent) => number(),
-          optional(:reclaimable_cpu_threshold) => number()
+          optional(:reclaimable_cpu_threshold) => number(),
+          optional(:detail) => String.t()
         }
 
   @doc """
