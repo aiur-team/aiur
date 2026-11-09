@@ -74,7 +74,7 @@ defmodule Aiur.Handoff.ReportTest do
     [json, "__AIUR_CONTROL_EXIT__:0"] = String.split(output, "\n", trim: true)
 
     assert Jason.decode!(json)["running"] == [
-             %{"identifier" => "1", "issue_id" => "1", "session_id" => "thread-turn", "provider_pid" => "42", "codex_app_server_pid" => 42, "adopted_from" => "restart"}
+             %{"identifier" => "1", "issue_id" => "1", "session_id" => "thread-turn", "provider_pid" => "42", "codex_app_server_pid" => 42, "adopted_from" => "restart", "skill_preload" => nil}
            ]
   end
 end
