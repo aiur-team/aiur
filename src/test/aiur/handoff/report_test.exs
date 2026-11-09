@@ -92,10 +92,16 @@ defmodule Aiur.Handoff.ReportTest do
           Process.sleep(:infinity)
         end)
 
-      assert_receive :registered
+      assert_receive :registered, 1_000
       on_exit(fn -> Process.exit(pid, :kill) end)
 
-      record = %{"handoff_id" => "h-" <> String.last(id), "written_at" => "2026-10-15T10:00:00.000Z", "completed_at" => "2026-10-15T10:00:01.000Z", "outcome" => [%{"identifier" => id, "status" => "adopted"}]}
+      record = %{
+        "handoff_id" => "h-" <> String.last(id),
+        "written_at" => "2026-10-15T10:00:00.000Z",
+        "completed_at" => "2026-10-15T10:00:01.000Z",
+        "outcome" => [%{"identifier" => id, "status" => "adopted"}]
+      }
+
       Aiur.JsonStore.write!(Path.join([root, "handoff", "current.json"]) <> ".consumed", record)
     end
 

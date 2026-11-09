@@ -23,7 +23,11 @@ defmodule Aiur.Handoff.ProjectPrepareTest do
 
     for project <- [a, b] do
       assert File.exists?(in_project(project, fn -> Record.path() end)), "no record in #{project.state_root}"
-      assert in_project(project, fn -> {:ok, r} = Record.read(); r["handoff_id"] end) in ids
+
+      assert in_project(project, fn ->
+               {:ok, r} = Record.read()
+               r["handoff_id"]
+             end) in ids
     end
   end
 end
