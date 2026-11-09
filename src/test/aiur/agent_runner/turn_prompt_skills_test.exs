@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.TurnPromptSkillsTest do
   @moduledoc """
   A first turn that starts a new session carries the ticket's skill preload
-  block; a resumed session already has the original prompt in its thread and is
-  left alone.
+  block; a resumed session gets only a pointer to its mapped skills, and later
+  turns get neither.
   """
 
   use ExUnit.Case, async: true
@@ -33,9 +33,27 @@ defmodule Aiur.AgentRunner.TurnPromptSkillsTest do
     assert prompt =~ "`pixel-art`"
   end
 
-  test "a resumed first turn does not repeat the block", %{workspace: workspace} do
+  test "a resumed first turn points at its mapped skills without repeating the block", %{workspace: workspace} do
+    issue = %Issue{id: "1", identifier: "1", title: "t", state: "in-progress", labels: ["skills:pixel-art"]}
+    prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace, resumed: true], 1, nil)
+
+    assert prompt =~ "## Skills for this ticket (pointer)"
+    assert prompt =~ "- `pixel-art` (override:skills:pixel-art) — `#{Path.join([workspace, ".claude", "skills", "pixel-art", "SKILL.md"])}`"
+    refute prompt =~ "PIXEL ART BODY"
+  end
+
+  test "a resumed first turn with no mapped skills gets no skills text", %{workspace: workspace} do
     prompt = TurnPrompt.build_turn_prompt(%Issue{id: "1", identifier: "1", title: "t", state: "in-progress"}, [workspace: workspace, resumed: true], 1, nil)
 
-    refute prompt =~ "## Skills for this ticket"
+    refute prompt =~ "Skills for this ticket"
+    refute prompt =~ "pixel-art"
+  end
+
+  test "continuation turns 2..N carry no skills text", %{workspace: workspace} do
+    issue = %Issue{id: "1", identifier: "1", title: "t", state: "in-progress", labels: ["skills:pixel-art"]}
+    prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 2, 5)
+
+    refute prompt =~ "Skills for this ticket"
+    refute prompt =~ "pixel-art"
   end
 end

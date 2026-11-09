@@ -126,4 +126,38 @@ defmodule AiurWeb.Components.CommandMediaTest do
 
     assert render([item]) =~ "Media unavailable"
   end
+
+  describe "embed" do
+    defp embed(locator) do
+      %{"kind" => "embed", "mime_type" => "text/html", "attachment_id" => "med_bbbbbbbbbbbbbbbbbbbbbbbb", "alt_text" => "Level 3 build", "locator" => locator}
+    end
+
+    test "renders a sandboxed iframe that loads nothing until the operator clicks" do
+      url = "https://play.example.com/builds/42"
+      doc = Floki.parse_fragment!(render([embed(%{"kind" => "url", "value" => url})]))
+
+      [iframe] = Floki.find(doc, "iframe")
+      assert Floki.attribute(iframe, "src") == []
+      assert Floki.attribute(iframe, "sandbox") == ["allow-scripts"]
+      assert Floki.attribute(iframe, "referrerpolicy") == ["no-referrer"]
+      assert Floki.attribute(iframe, "title") == ["Level 3 build"]
+
+      [wrapper] = Floki.find(doc, ".command-media__embed")
+      [click] = Floki.attribute(wrapper, "phx-click")
+      assert ["set_attr", %{"attr" => ["src", ^url], "to" => %{"inner" => "iframe"}}] = hd(Jason.decode!(click))
+      assert Floki.text(Floki.find(doc, "button")) =~ "Load Level 3 build"
+
+      [link] = Floki.find(doc, ".command-media__embed-fallback a")
+      assert Floki.attribute(link, "href") == [url]
+      # Opening the link must not also load the frame, so it sits outside the click binding.
+      assert Floki.find(wrapper, "a") == []
+    end
+
+    test "is unavailable without a URL locator rather than framing the attachment route" do
+      doc = Floki.parse_fragment!(render([embed(nil)]))
+
+      assert Floki.find(doc, "iframe") == []
+      assert Floki.text(doc) =~ "Media unavailable"
+    end
+  end
 end

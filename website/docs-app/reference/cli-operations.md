@@ -213,7 +213,7 @@ Use `--short-summary <text>` for a concise title and `--context-file <path>` for
 
 `--media <file|https-url>[,kind=…,alt=…,caption=…,mime=…,option=<id>]` attaches media; repeat it for more items, and add `option=<id>` to attach an item to that option instead of the prompt. A relative file is resolved on the caller's machine.
 
-Items pass the same validation as worker payload media (see [Media on a Command](../concepts/commands.md#media-on-a-command)), so a file outside a configured root, an unapproved host or an expiring URL fails with exit 64. Images need `alt=`.
+Items pass the same validation as worker payload media (see [Media on a Command](../concepts/commands.md#media-on-a-command)), so a file outside a configured root, an unapproved host or an expiring URL fails with exit 64. Images need `alt=`. `kind=embed` attaches a playable page: it needs `alt=` and an HTTPS URL on `decisions.embed_hosts`.
 
 `--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
 

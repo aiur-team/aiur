@@ -28,3 +28,5 @@
 .aiur-command-response textarea { width: 100%; font: inherit; border: 1px solid var(--_border); border-radius: var(--_radius); }
 .aiur-command-actions button { font: inherit; color: #fff; background: var(--_accent); border: 0; border-radius: var(--_radius); padding: 0.4rem 0.9rem; }
 .aiur-command-media-item img, .aiur-command-media-item video { max-width: 100%; border-radius: var(--_radius); }
+.aiur-command-embed iframe { width: 100%; aspect-ratio: 16 / 9; height: auto; border: 0; border-radius: var(--_radius); }
+.aiur-command-embed-fallback { color: var(--_muted); font-size: 0.85em; margin: 0; }
