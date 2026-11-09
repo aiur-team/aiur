@@ -16,8 +16,9 @@ defmodule Aiur.ControlCLI.PendingCommands do
   require Logger
 
   alias Aiur.ControlCLI.ExecutorRequest
+  alias Aiur.Events
   alias Aiur.Executor.StatePaths
-  alias Aiur.{Events, JsonStore, Signal, Tracker}
+  alias Aiur.{JsonStore, Signal, Tracker}
 
   # One cached minute keeps a burst of events for one ticket to one GitHub read.
   @closure_max_age_ms 60_000
