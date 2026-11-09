@@ -54,5 +54,6 @@ cmd_lane() {
   fi
   [ "$unconfirmed" -eq 1 ] && opts="$opts, unconfirmed: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
+  opts="$(aiur_project_join "$opts")"
   run_control_rpc "Aiur.AgentControlCLI.lane([$opts])"
 }

@@ -101,7 +101,10 @@ defmodule Aiur.ControlCLI.Settings do
   end
 
   defp allow_mutation(opts) do
-    with {:ok, caller_cwd} <- caller_evidence(opts, :caller_cwd),
+    # A remote caller names its project instead of a directory (its cwd is a path on another machine).
+    cwd = if Keyword.has_key?(opts, :caller_cwd), do: caller_evidence(opts, :caller_cwd), else: {:ok, ""}
+
+    with {:ok, caller_cwd} <- cwd,
          {:ok, caller_agent_workspace} <- caller_evidence(opts, :caller_agent_workspace_env) do
       workspace_paths = daemon_workspace_paths()
 

@@ -121,6 +121,7 @@ cmd_queue() {
   if [ "$verb" = add ] || [ "$verb" = remove ]; then
     AIUR_CONTROL_RPC_TIMEOUT_SECONDS="$(todo_rpc_seconds "${#ids[@]}" 0)"
   fi
+  opts="$(aiur_project_join "$opts")"
   AIUR_CONTROL_COMMAND="queue $verb" run_control_rpc "Aiur.AgentControlCLI.queue([$opts])" || status=$?
   if [ "$status" -eq 124 ]; then echo 'aiur: queue outcome unknown; run aiur queue show before retrying' >&2; fi
   return "$status"
