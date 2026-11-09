@@ -108,6 +108,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :prepare_handoff, [0, 1]},
     {:agent, :main_watch_state, [0]},
     {:agent, :main_watch_inherited?, [2]},
+    {:agent, :status_projects_json, [0]},
     {:handoff, :report, [0, 1]},
     {:handoff, :prepare, [0]},
     {:pr_merge, :print_watcher_state, [0]},
