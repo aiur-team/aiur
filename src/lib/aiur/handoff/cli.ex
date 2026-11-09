@@ -13,7 +13,7 @@ defmodule Aiur.Handoff.CLI do
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
-    case Report.latest(opts) do
+    case Report.latest_all(opts) do
       {:ok, report} -> print(report)
       :none -> print(nil)
       {:error, reason} -> IO.puts("HANDOFF unavailable: #{inspect(reason)}")
@@ -80,7 +80,7 @@ defmodule Aiur.Handoff.CLI do
   end
 
   defp prepare_running(opts) do
-    prepare_handoff = Keyword.get(opts, :handoff, fn -> Aiur.AgentControlCLI.prepare_handoff() end)
+    prepare_handoff = Keyword.get(opts, :handoff, &default_prepare/0)
 
     case prepare_handoff.() do
       {:ok, result} ->
@@ -97,6 +97,23 @@ defmodule Aiur.Handoff.CLI do
 
       {:error, reason} ->
         failure("handoff preflight failed: #{inspect(reason)}")
+    end
+  end
+
+  # Projects mode prepares every project in its own context; the marker carries all handoff ids.
+  defp default_prepare do
+    case Aiur.Project.Registry.project_ids() do
+      [] ->
+        Aiur.AgentControlCLI.prepare_handoff()
+
+      _projects ->
+        with {:ok, %{projects: results, handoff_ids: ids}} <- Aiur.Handoff.All.prepare_all(), true <- ids != [] do
+          oks = for {_id, {:ok, r}} <- results, do: r
+          {:ok, %{handoff_id: Enum.join(ids, ","), skipped: Enum.flat_map(oks, & &1.skipped), agents: Enum.flat_map(oks, & &1.agents)}}
+        else
+          false -> {:error, :no_project_prepared}
+          {:error, _} = error -> error
+        end
     end
   end
 
@@ -158,10 +175,10 @@ defmodule Aiur.Handoff.CLI do
   end
 
   defp await_report(opts, deadline) do
-    result = Report.latest(opts)
-    expected = Keyword.get(opts, :expected_id)
+    result = Report.latest_all(opts)
+    expected = opts |> Keyword.get(:expected_id) |> then(&(&1 && String.split(&1, ",")))
 
-    if is_nil(expected) or match?({:ok, %{handoff_id: ^expected}}, result) do
+    if is_nil(expected) or match?({:ok, %{handoff_id: id}} when is_binary(id), result) and covers?(result, expected) do
       result
     else
       if System.monotonic_time(:millisecond) < deadline do
@@ -172,6 +189,8 @@ defmodule Aiur.Handoff.CLI do
       end
     end
   end
+
+  defp covers?({:ok, %{handoff_id: ids}}, expected), do: Enum.all?(expected, &(&1 in String.split(ids, ",")))
 
   defp failure(message) do
     IO.puts(error_marker() <> message)

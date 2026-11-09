@@ -16,6 +16,41 @@ defmodule Aiur.Handoff.Report do
     end
   end
 
+  @doc "Per-project latest reports (each read in its project's context); one report when there are no projects."
+  @spec latest_all(keyword()) :: {:ok, map()} | :none | {:error, term()}
+  def latest_all(opts \\ []) do
+    case Aiur.Project.Registry.project_ids() do
+      [] ->
+        latest(opts)
+
+      projects ->
+        reports =
+          for id <- projects do
+            Task.async(fn ->
+              Aiur.Project.Context.put(Aiur.Project.Registry.project(id))
+              latest(opts)
+            end)
+          end
+          |> Task.await_many(10_000)
+
+        case for({:ok, r} <- reports, do: r) do
+          [] -> Enum.find(reports, :none, &match?({:error, _}, &1))
+          oks -> {:ok, merge(oks)}
+        end
+    end
+  end
+
+  defp merge(reports) do
+    %{
+      handoff_id: Enum.map_join(reports, ",", & &1.handoff_id),
+      written_at: reports |> Enum.map(& &1.written_at) |> Enum.min(),
+      completed_at: reports |> Enum.map(& &1.completed_at) |> Enum.max(),
+      gap_ms: reports |> Enum.map(& &1.gap_ms) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+      adopted: Enum.flat_map(reports, & &1.adopted),
+      fallback: Enum.flat_map(reports, & &1.fallback)
+    }
+  end
+
   @spec from_record(map()) :: map()
   def from_record(record) do
     outcomes = record["outcome"] || []

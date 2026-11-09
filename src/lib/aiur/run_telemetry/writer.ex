@@ -94,6 +94,8 @@ defmodule Aiur.RunTelemetry.Writer do
   def init(opts) do
     subscribe_external_events()
     Phoenix.PubSub.subscribe(Aiur.PubSub, "workflow_store:configuration")
+    # ponytail: projects started after boot are not subscribed until the writer restarts.
+    for id <- Aiur.Project.Registry.project_ids(), do: Phoenix.PubSub.subscribe(Aiur.PubSub, "workflow_store:configuration:" <> id)
 
     path = Keyword.get(opts, :path, RunTelemetry.telemetry_file())
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
