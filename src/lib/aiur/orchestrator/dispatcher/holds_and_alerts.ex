@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.DispatchOutcome
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Signal
@@ -61,6 +62,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # An answer may arrive during the tracker fetch; admission must read the current local hold.
     state = Candidates.refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, Commands.default_store()))
+    state = MachineGrant.report_demand(state, issues)
 
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
