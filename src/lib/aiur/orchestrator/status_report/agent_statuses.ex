@@ -8,7 +8,6 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
 
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -16,6 +15,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.StatusReport.UsagePauseBackends
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.RepoBase
   alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
@@ -61,28 +61,12 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   end
 
   defp running_statuses(%State{} = state, %DateTime{} = now, decision_counts) do
-    backends = usage_pause_backends(state.running)
+    backends = UsagePauseBackends.for_running(state.running)
 
     Enum.map(state.running, fn {issue_id, entry} ->
       running_status(state, issue_id, entry, now, decision_counts, backends)
     end)
   end
-
-  # Each `agent.priority` backend's availability, read once per status build and
-  # only while a claim is paused on a provider limit (#7879).
-  defp usage_pause_backends(running) do
-    if Enum.any?(running, fn {_id, entry} -> Map.get(entry, :paused_reason) == :usage_limit_exhausted end) do
-      ledger = ModelAvailability.load()
-      Enum.map(Config.agent_priority_backends(), &{&1, if(ModelAvailability.available?(&1, state: ledger), do: :available, else: :limited)})
-    else
-      []
-    end
-  rescue
-    _error -> []
-  end
-
-  defp pause_reason(:usage_limit_exhausted, [_ | _] = backends), do: {:paused, :usage_limit_exhausted, {:backends, backends}}
-  defp pause_reason(reason, _backends), do: StatusReason.for_pause(reason)
 
   defp running_status(%State{} = state, issue_id, entry, now, decision_counts, backends) do
     identifier = Map.get(entry, :identifier) || issue_id
@@ -133,7 +117,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       last_codex_event: Map.get(entry, :last_codex_event),
       # The skills this worker loaded first, from the session's preload report.
       skills: get_in(entry, [:session_execution, :skills]),
-      reason: if(work_state == :paused, do: pause_reason(pause_reason, backends)),
+      reason: if(work_state == :paused, do: UsagePauseBackends.pause_reason(pause_reason, backends)),
       waiting_reason: waiting_reason,
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
