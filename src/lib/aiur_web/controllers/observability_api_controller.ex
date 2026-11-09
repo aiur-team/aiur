@@ -14,8 +14,16 @@ defmodule AiurWeb.ObservabilityApiController do
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
-    conn
-    |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
+    if AiurWeb.ProjectScope.unselected?() do
+      conn
+      |> put_status(409)
+      |> json(%{
+        error: %{code: "project_required", message: "Several projects are running; pick one with ?project=<owner/repo>"},
+        projects: AiurWeb.ProjectScope.project_ids()
+      })
+    else
+      json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
+    end
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
