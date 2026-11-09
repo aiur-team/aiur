@@ -64,9 +64,9 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     # aiur/agent_runner/decision_lifecycle_failure_alert.ex
     {"system.decision_lifecycle.recording_failed", "agent-runner"},
     # aiur/disk_watchdog.ex
-    {"system.disk.pressure", "telemetry"},
+    {"system.disk.pressure", "orchestration"},
     # aiur/disk_watchdog.ex
-    {"system.disk.pressure.resolved", "telemetry"},
+    {"system.disk.pressure.resolved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.capacity_starved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
