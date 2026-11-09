@@ -173,6 +173,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
     Aiur.MemoryWatchdog,
+    Aiur.DiskWatchdog,
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
