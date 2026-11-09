@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.DeletedEmptyFilesTest do
   use Aiur.TestSupport
 
   alias Aiur.Workflow
-  alias Aiur.Workspace.Refresh
+  alias Aiur.Workspace.{DeletedEmptyFiles, Refresh}
 
   setup do
     test_root = Aiur.TestSupport.tmp_root!("deleted_empty_files_test")
@@ -44,7 +44,7 @@ defmodule Aiur.Workspace.DeletedEmptyFilesTest do
   test "keeps a non-empty file at a path main deleted", %{workspace: workspace} do
     File.write!(Path.join(workspace, "gone.ex"), "restored work\n")
 
-    assert {:ok, []} = Aiur.Workspace.DeletedEmptyFiles.remove(workspace, "origin/main")
+    assert {:ok, []} = DeletedEmptyFiles.remove(workspace, "origin/main")
     assert File.read!(Path.join(workspace, "gone.ex")) == "restored work\n"
   end
 
