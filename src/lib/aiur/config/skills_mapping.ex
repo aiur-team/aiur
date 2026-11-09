@@ -76,6 +76,43 @@ defmodule Aiur.Config.SkillsMapping do
   def normalize(%{} = raw), do: Enum.reduce(raw, empty(), &put_normalized/2)
   def normalize(other), do: other
 
+  @doc """
+  Merge a global raw `agent.skills` map under a project raw map.
+
+  Maps merge by key: the project adds to the global mapping per dimension, and
+  a project entry replaces the global entry with the same key (keys compared as
+  `normalize/1` compares them). A project entry of `[]` removes that key. Scalars
+  take the project value. Raw values stay raw, so `validate/1` still names a bad
+  value.
+  """
+  @spec merge(term(), term()) :: term()
+  def merge(%{} = global, %{} = project) do
+    global
+    |> Map.merge(project, fn key, global_value, project_value ->
+      merge_dimension(normalize_key(key), global_value, project_value)
+    end)
+    |> Map.new(fn {key, value} -> {key, drop_removed(normalize_key(key), value)} end)
+  end
+
+  def merge(global, nil), do: global
+  def merge(_global, project), do: project
+
+  defp merge_dimension(dimension, %{} = global, %{} = project) when dimension in @dimensions do
+    shadowed = MapSet.new(Map.keys(project), &normalize_entry_key(dimension, &1))
+
+    global
+    |> Map.reject(fn {key, _skills} -> normalize_entry_key(dimension, key) in shadowed end)
+    |> Map.merge(project)
+  end
+
+  defp merge_dimension(_key, %{} = global, %{} = project), do: merge(global, project)
+  defp merge_dimension(_key, _global, project), do: project
+
+  defp drop_removed(dimension, %{} = entries) when dimension in @dimensions,
+    do: Map.reject(entries, fn {_key, skills} -> skills == [] end)
+
+  defp drop_removed(_key, value), do: value
+
   @doc "The empty mapping."
   @spec empty() :: normalized()
   def empty do
@@ -294,7 +331,7 @@ defmodule Aiur.Config.SkillsMapping do
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, epic, labels and complexity to the skills its worker loads first. See [skills](/skills#matching-skills-to-a-ticket). |
+  # @config-detail agent.skills | map | `%{}` | Maps a ticket's lane, owning feature, epic, labels and complexity to the skills its worker loads first. A project `.aiur/config` inherits `agent.skills` from `~/.aiur/config` and overrides it per entry; see [skills](/skills#matching-skills-to-a-ticket). |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
