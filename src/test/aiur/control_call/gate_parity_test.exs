@@ -29,6 +29,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :commands, [0, 1], ~w(commands)},
     {:agent, :commands_repair, [0, 1], ~w(commands)},
     {:agent, :command_request, [1], ~w(command)},
+    {:agent, :command_cancel, [1], ~w(command)},
     {:agent, :units, [0, 1], ~w(units)},
     {:agent, :feature, [0, 1], ~w(feature)},
     {:agent, :lane, [0, 1], ~w(lane)},
