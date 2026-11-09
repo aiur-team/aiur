@@ -74,7 +74,7 @@ defmodule Aiur.ExecutorListener do
       health: current_health,
       inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
       decision_store: Keyword.get(opts, :decision_store, Aiur.Commands.default_store()),
-      feature_server: Keyword.get(opts, :feature_server, Aiur.BuildOrder.Features),
+      feature_lookup: Keyword.get(opts, :feature_lookup),
       escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
       escalation_opts: escalation_opts(Keyword.get(opts, :escalation, []), Keyword.get(opts, :inbox, ExecutorWakeInbox)),
       escalations: %{}
@@ -293,7 +293,7 @@ defmodule Aiur.ExecutorListener do
 
       true ->
         record
-        |> ExecutorWakeProjection.with_answer(decision, feature_server: state.feature_server)
+        |> ExecutorWakeProjection.with_answer(decision, state.feature_lookup)
         |> enqueue_answer(decision.active_action_id, inbox, state.decision_store)
     end
   end

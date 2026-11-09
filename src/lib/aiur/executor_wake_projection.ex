@@ -105,23 +105,25 @@ defmodule Aiur.ExecutorWakeProjection do
   Adds the accepted answer, its ticket, and the ticket's Build Order feature and
   epic to an `executor.decision.answered` wake, so the Executor can act without
   extra reads (#7874). Answer text is sanitized and named in `untrusted_fields`.
-  `feature`/`epic` are `nil` when the registry has no owner or cannot be read.
+  `feature`/`epic` come from `feature_lookup` (ticket number ->
+  `{:ok, %{feature, epic}} | :unknown`) and are `nil` when it has no owner,
+  is absent, or exits.
   """
-  @spec with_answer(map(), Aiur.Decision.t(), keyword()) :: map()
-  def with_answer(record, decision, opts \\ []) do
+  @spec with_answer(map(), Aiur.Decision.t(), (pos_integer() -> {:ok, map()} | :unknown) | nil) :: map()
+  def with_answer(record, decision, feature_lookup \\ nil) do
     case Aiur.Decision.answer_for_action(decision, decision.active_action_id) do
       nil ->
         record
 
       answer ->
-        ticket = Map.get(Aiur.Commands.Overrides.target_ticket(decision) || %{}, :identifier)
-        feature = feature(ticket, opts)
+        ticket = Map.get(Aiur.Commands.override_target_ticket(decision) || %{}, :identifier)
+        {feature, epic} = owner(ticket, feature_lookup)
         question_answers = question_answers(answer.custom_response)
 
         Map.merge(record, %{
           "ticket" => ticket,
           "feature" => feature,
-          "epic" => epic(feature, opts),
+          "epic" => epic,
           "option_id" => answer.selected_option_id,
           "question_answers" => strip(question_answers),
           "custom_response" => if(question_answers, do: nil, else: strip(answer.custom_response)),
@@ -144,33 +146,20 @@ defmodule Aiur.ExecutorWakeProjection do
 
   defp question_answers(_response), do: nil
 
-  defp feature(ticket, opts) when is_binary(ticket) do
+  # The lookup is injected so this component does not depend on build-orders. A
+  # dead or slow registry must not crash the listener and lose the answer.
+  defp owner(ticket, lookup) when is_binary(ticket) and is_function(lookup, 1) do
     with {number, ""} <- Integer.parse(ticket),
-         {:ok, %{feature: slug}} when is_binary(slug) <- Aiur.BuildOrder.Features.owner(number, registry_opts(opts)) do
-      slug
+         {:ok, %{feature: feature, epic: epic}} when is_binary(feature) <- lookup.(number) do
+      {feature, epic}
     else
-      _none -> nil
+      _unknown -> {nil, nil}
     end
   catch
-    :exit, _reason -> nil
+    :exit, _reason -> {nil, nil}
   end
 
-  defp feature(_ticket, _opts), do: nil
-
-  defp epic(feature, opts) when is_binary(feature) do
-    with {:ok, %{epics: epics}} <- Aiur.BuildOrder.Features.epics(registry_opts(opts)),
-         %{slug: slug} <- Enum.find(epics, &(feature in Map.get(&1, :features, []))) do
-      slug
-    else
-      _none -> nil
-    end
-  catch
-    :exit, _reason -> nil
-  end
-
-  defp epic(_feature, _opts), do: nil
-
-  defp registry_opts(opts), do: [server: Keyword.get(opts, :feature_server, Aiur.BuildOrder.Features), timeout: 500]
+  defp owner(_ticket, _lookup), do: {nil, nil}
 
   defp strip(text) when is_binary(text), do: Aiur.Events.Sanitizer.strip_untrusted_text(text)
   defp strip(list) when is_list(list), do: Enum.map(list, &strip/1)

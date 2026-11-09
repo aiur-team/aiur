@@ -54,6 +54,24 @@ defmodule Aiur.BuildOrder.Features do
   def epic(slug, opts \\ []), do: read({:epic, slug}, opts)
   @spec owner(pos_integer(), keyword()) :: result() | :none
   def owner(number, opts \\ []), do: read({:owner, number}, opts)
+  @doc "The ticket's owning feature and that feature's epic (nil when none); `:unknown` when it has no owner or the registry cannot answer."
+  @spec feature_and_epic(pos_integer(), keyword()) :: {:ok, %{feature: String.t(), epic: String.t() | nil}} | :unknown
+  def feature_and_epic(number, opts \\ []) do
+    case owner(number, opts) do
+      {:ok, %{feature: feature}} when is_binary(feature) -> {:ok, %{feature: feature, epic: epic_of(feature, opts)}}
+      _none -> :unknown
+    end
+  end
+
+  defp epic_of(feature, opts) do
+    with {:ok, %{epics: epics}} <- epics(opts),
+         %{slug: slug} <- Enum.find(epics, &(feature in Map.get(&1, :features, []))) do
+      slug
+    else
+      _none -> nil
+    end
+  end
+
   @spec memberships(keyword()) :: {:ok, [map()]} | {:error, ProviderHealth.t()}
   def memberships(opts \\ []), do: read(:memberships, opts)
   @spec journal(String.t(), keyword()) :: {:ok, [map()]} | {:error, ProviderHealth.t()}
