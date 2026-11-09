@@ -81,78 +81,79 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 69 | `Aiur.Experiments.StatsRunner` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 70 | `Aiur.Experiments.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 71 | `Aiur.Gateway.Liveness` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 72 | `Aiur.GitHub.AgentBudgetSocket` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 73 | `Aiur.GitHub.AgentCacheBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 74 | `Aiur.GitHub.AppTokenRefresher` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 75 | `Aiur.GitHub.BrokerTimeout` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 76 | `Aiur.GitHub.BudgetBroker` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 77 | `Aiur.GitHub.CodeOwners` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 78 | `Aiur.GitHub.CredentialHeadroom` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 79 | `Aiur.GitHub.HoldPressure` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 80 | `Aiur.GitHub.LabelCatalogue` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 81 | `Aiur.GitHub.Quota` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 82 | `Aiur.GitHub.ReadCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 83 | `Aiur.GitHub.ResourceStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 84 | `Aiur.GitHub.ViewStateSweep` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 85 | `Aiur.Instance.Heartbeat` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 86 | `Aiur.Instance.RepositoryLeader` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 87 | `Aiur.Intent.Hlc` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 88 | `Aiur.Intent.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 89 | `Aiur.Intent.Sync` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 90 | `Aiur.LandingWatch` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 91 | `Aiur.LandingWatch.QuarantineLifter` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 92 | `Aiur.LauncherWatchdog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 93 | `Aiur.LiveConversation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 94 | `Aiur.MainWatch` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 95 | `Aiur.Netlify.Usage` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 96 | `Aiur.Opencode.AttachPool` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 97 | `Aiur.Opencode.SlotPolicy` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 98 | `Aiur.OpenTicketSource` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 99 | `Aiur.PauseContainment` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 100 | `Aiur.PeriodicWorker` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 101 | `Aiur.PostDeployChecklist` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 102 | `Aiur.PRLifecycle.HeadVerdictRouter` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 103 | `Aiur.PRLifecycle.HealthScanner` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 104 | `Aiur.PRLifecycle.ReworkRequeue` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 105 | `Aiur.ProcessReaper` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 106 | `Aiur.ProgressCheckin.Worker` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 107 | `Aiur.ProgressRetention` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 108 | `Aiur.ProviderMeterProjection` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 109 | `Aiur.ProviderMeterRefresh` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 110 | `Aiur.ProviderMeters.HostObservations` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 111 | `Aiur.ProviderMeters.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 112 | `Aiur.RecentMergeStore` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 113 | `Aiur.RunTelemetry.FactsCapture` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 114 | `Aiur.RunTelemetry.RepoTimeline` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 115 | `Aiur.RunTelemetry.Sampler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 116 | `Aiur.RunTelemetry.Supervisor` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 117 | `Aiur.RunTelemetry.UsageCapture` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 118 | `Aiur.RunTelemetry.Writer` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 119 | `Aiur.SaturationSentinel` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 120 | `Aiur.StartTrigger.ProgressStore` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 121 | `Aiur.SupervisionHealth` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 122 | `Aiur.TailscaleFunnel` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 123 | `Aiur.TicketActivity` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 124 | `Aiur.UsageAggregate.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 125 | `Aiur.Usage.Alerts` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 126 | `Aiur.UsageCompaction.Coordinator` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 127 | `Aiur.UsageLedger.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 128 | `AiurWeb.Build.Index` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 129 | `AiurWeb.ControlCenterCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 130 | `AiurWeb.DashboardAuth.ChallengeStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 131 | `AiurWeb.FinancialData` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 132 | `AiurWeb.FinancialDataAccess.Generation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 133 | `AiurWeb.FinancialData.ChangeBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 134 | `AiurWeb.FinancialData.SubscriptionAuthority` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 135 | `Aiur.Webhooks.DeliveryLog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 136 | `Aiur.Webhooks.ModeRegistry` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 137 | `Aiur.Webhooks.ModeTable` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 138 | `AiurWeb.OperatorControlCenter.Analytics.Prewarmer` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 139 | `AiurWeb.Streamdeck.Deck.SettingsSnapshot` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 140 | `AiurWeb.VoiceSessionLimiter` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 141 | `Aiur.Workspace.Ownership.Reconciler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 142 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
-| 143 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |
-| 144 | `Aiur.Ownership.Fence` | machine | Answers the git and gh guards for every agent the daemon runs; one fence per daemon. | MPG-105 |
-| 145 | `Aiur.Project.Supervisors` | machine | Holds every project tree; one per daemon (MPG-306). | — |
-| 146 | `Aiur.Project.Watcher` | machine | Watches every project root and raises `system.project.boot_failed` (MPG-306). | — |
+| 72 | `Aiur.Gateway.Capacity` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | MPG-307 |
+| 73 | `Aiur.GitHub.AgentBudgetSocket` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 74 | `Aiur.GitHub.AgentCacheBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 75 | `Aiur.GitHub.AppTokenRefresher` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 76 | `Aiur.GitHub.BrokerTimeout` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 77 | `Aiur.GitHub.BudgetBroker` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 78 | `Aiur.GitHub.CodeOwners` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 79 | `Aiur.GitHub.CredentialHeadroom` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 80 | `Aiur.GitHub.HoldPressure` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 81 | `Aiur.GitHub.LabelCatalogue` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 82 | `Aiur.GitHub.Quota` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 83 | `Aiur.GitHub.ReadCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 84 | `Aiur.GitHub.ResourceStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 85 | `Aiur.GitHub.ViewStateSweep` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 86 | `Aiur.Instance.Heartbeat` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 87 | `Aiur.Instance.RepositoryLeader` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 88 | `Aiur.Intent.Hlc` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 89 | `Aiur.Intent.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 90 | `Aiur.Intent.Sync` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 91 | `Aiur.LandingWatch` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 92 | `Aiur.LandingWatch.QuarantineLifter` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 93 | `Aiur.LauncherWatchdog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 94 | `Aiur.LiveConversation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 95 | `Aiur.MainWatch` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 96 | `Aiur.Netlify.Usage` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 97 | `Aiur.Opencode.AttachPool` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 98 | `Aiur.Opencode.SlotPolicy` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 99 | `Aiur.OpenTicketSource` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 100 | `Aiur.PauseContainment` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 101 | `Aiur.PeriodicWorker` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 102 | `Aiur.PostDeployChecklist` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 103 | `Aiur.PRLifecycle.HeadVerdictRouter` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 104 | `Aiur.PRLifecycle.HealthScanner` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 105 | `Aiur.PRLifecycle.ReworkRequeue` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 106 | `Aiur.ProcessReaper` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 107 | `Aiur.ProgressCheckin.Worker` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 108 | `Aiur.ProgressRetention` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 109 | `Aiur.ProviderMeterProjection` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 110 | `Aiur.ProviderMeterRefresh` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 111 | `Aiur.ProviderMeters.HostObservations` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 112 | `Aiur.ProviderMeters.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 113 | `Aiur.RecentMergeStore` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 114 | `Aiur.RunTelemetry.FactsCapture` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 115 | `Aiur.RunTelemetry.RepoTimeline` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 116 | `Aiur.RunTelemetry.Sampler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 117 | `Aiur.RunTelemetry.Supervisor` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 118 | `Aiur.RunTelemetry.UsageCapture` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 119 | `Aiur.RunTelemetry.Writer` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 120 | `Aiur.SaturationSentinel` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 121 | `Aiur.StartTrigger.ProgressStore` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 122 | `Aiur.SupervisionHealth` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 123 | `Aiur.TailscaleFunnel` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 124 | `Aiur.TicketActivity` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 125 | `Aiur.UsageAggregate.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 126 | `Aiur.Usage.Alerts` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 127 | `Aiur.UsageCompaction.Coordinator` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 128 | `Aiur.UsageLedger.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 129 | `AiurWeb.Build.Index` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 130 | `AiurWeb.ControlCenterCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 131 | `AiurWeb.DashboardAuth.ChallengeStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 132 | `AiurWeb.FinancialData` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 133 | `AiurWeb.FinancialDataAccess.Generation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 134 | `AiurWeb.FinancialData.ChangeBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 135 | `AiurWeb.FinancialData.SubscriptionAuthority` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 136 | `Aiur.Webhooks.DeliveryLog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 137 | `Aiur.Webhooks.ModeRegistry` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 138 | `Aiur.Webhooks.ModeTable` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 139 | `AiurWeb.OperatorControlCenter.Analytics.Prewarmer` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 140 | `AiurWeb.Streamdeck.Deck.SettingsSnapshot` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 141 | `AiurWeb.VoiceSessionLimiter` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 142 | `Aiur.Workspace.Ownership.Reconciler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 143 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 144 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |
+| 145 | `Aiur.Ownership.Fence` | machine | Answers the git and gh guards for every agent the daemon runs; one fence per daemon. | MPG-105 |
+| 146 | `Aiur.Project.Supervisors` | machine | Holds every project tree; one per daemon (MPG-306). | — |
+| 147 | `Aiur.Project.Watcher` | machine | Watches every project root and raises `system.project.boot_failed` (MPG-306). | — |
