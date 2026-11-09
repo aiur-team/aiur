@@ -47,9 +47,9 @@ defmodule Aiur.ControlCall do
          {:ok, project, hint, raw_args} <- split_project(segments, function, raw_args),
          scoped? = {segments, function} in Project.project_scoped(),
          :ok <- project_applies(scoped?, project),
-         :ok <- Literal.validate_raw_option_keys(entry, raw_args),
+         :ok <- validate_option_keys(entry, raw_args, opts),
          {:ok, args} <- Literal.convert(raw_args),
-         :ok <- Literal.validate_arguments(entry, args),
+         :ok <- validate_args(entry, args, opts),
          :ok <- remote_options(args, opts),
          category <- classify(entry.class, args),
          scope when scope in [:read, :write, :deny] <- Allowlist.scope_of(category),
@@ -124,6 +124,14 @@ defmodule Aiur.ControlCall do
   defp allowed_modules do
     Allowlist.entries() |> Map.keys() |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
   end
+
+  # The allowlist's option constraints guard the remote API. A local call (Project.run_local) is the operator's
+  # own launcher, which reached any of these functions directly before --project, so it is not narrowed.
+  # Only an explicit `remote: false` is local; an omitted option keeps the full validation.
+  defp local?(opts), do: Keyword.get(opts, :remote) == false
+
+  defp validate_option_keys(entry, raw_args, opts), do: if(local?(opts), do: :ok, else: Literal.validate_raw_option_keys(entry, raw_args))
+  defp validate_args(entry, args, opts), do: if(local?(opts), do: :ok, else: Literal.validate_arguments(entry, args))
 
   defp remote_options(args, opts) do
     if Keyword.get(opts, :remote, false) do
