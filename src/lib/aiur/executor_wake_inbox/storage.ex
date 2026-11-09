@@ -77,6 +77,8 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   def pending_key(%{"topic" => "executor.voice.session_ended", "event_id" => id} = record),
     do: {record["topic_class"], "event:#{id}"}
 
+  def pending_key(%{"topic" => "executor.command.dropped"} = record), do: {record["topic_class"], record["pending_id"]}
+
   def pending_key(record), do: {record["topic_class"], record["ticket"]}
 
   @doc false

@@ -2,6 +2,7 @@ defmodule Aiur.CommandsCLI do
   alias Aiur.Commands
   @moduledoc false
 
+  alias Aiur.Commands.Deferred
   alias Aiur.CommandsCLI.{Observation, Printer}
   alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.DecisionProvider
@@ -50,7 +51,8 @@ defmodule Aiur.CommandsCLI do
            page: page |> Map.drop([:health]) |> Map.update!(:decisions, &Enum.map(&1, fn row -> Observation.row(row, page, captured_at) end)),
            selected: Observation.row(selected.decision, %{health: selected.health}, captured_at),
            retained_counts: Map.drop(counts, [:health, :scope]),
-           history: history
+           history: history,
+           pending: pending(opts)
          },
          auxiliary: %{}
        }
@@ -144,6 +146,16 @@ defmodule Aiur.CommandsCLI do
     _error -> {[], unavailable_source(:history_unavailable)}
   catch
     :exit, _reason -> {[], unavailable_source(:history_unavailable)}
+  end
+
+  # nil, not [], when the store cannot be read: "none pending" would be a claim we cannot make.
+  defp pending(opts) do
+    opts
+    |> Keyword.get(:pending_fun, &Deferred.list/0)
+    |> then(& &1.())
+    |> Enum.map(fn entry -> %{id: entry["id"], after: entry["after"], question: entry["params"]["question"], short_summary: entry["params"]["short_summary"], created_at: entry["created_at"]} end)
+  catch
+    :exit, _reason -> nil
   end
 
   defp provider_opts(opts) do

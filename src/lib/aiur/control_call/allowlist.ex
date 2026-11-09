@@ -143,6 +143,7 @@ defmodule Aiur.ControlCall.Allowlist do
        short_summary: :string,
        executor_id: :non_empty_string,
        idempotency_key: :non_empty_string,
+       after: :non_empty_string,
        json: :boolean
      }},
     {:executor_ack, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},

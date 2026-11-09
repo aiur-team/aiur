@@ -51,6 +51,26 @@ defmodule Aiur.ExecutorWakeProjection do
      }}
   end
 
+  defp project("executor.command.dropped" = topic, event, _pr, _head_sha, _last_review_sha) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok,
+     %{
+       "wake_id" => typed_id(value(event, :id)),
+       "event_id" => typed_id(value(event, :id)),
+       "topic" => topic,
+       "topic_class" => "executor.command",
+       "pending_id" => value(event, :pending_id),
+       "blocker" => value(event, :blocker),
+       "reason" => value(event, :reason),
+       "ticket" => nil,
+       "action" => "dropped",
+       "count" => 1,
+       "first_seen_at" => now,
+       "last_seen_at" => now
+     }}
+  end
+
   defp project("executor.decision.answered" = topic, event, _pr, _head_sha, _last_review_sha) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 

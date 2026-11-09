@@ -2,6 +2,7 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   @moduledoc "Creates human-directed Commands attributed to the requesting Executor."
 
   alias Aiur.Commands
+  alias Aiur.Commands.Deferred
   alias Aiur.ControlCLI.MediaSpec
 
   @spec request(keyword(), keyword()) :: 0 | 1 | 64
@@ -10,8 +11,9 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
          {:ok, options} <- options(Keyword.get(params, :options, [])),
          {:ok, options, recommendation} <- recommend(options, params[:recommend]),
          {:ok, media, options} <- media(Keyword.get(params, :media, []), options),
-         :ok <- validate_identity(params[:executor_id]) do
-      submit(params, options, recommendation, media, deps)
+         :ok <- validate_identity(params[:executor_id]),
+         {:ok, blockers} <- blockers(params[:after]) do
+      if blockers == [], do: submit(params, options, recommendation, media, deps), else: defer(params, blockers, deps)
     else
       {:error, reason} -> error(deps, reason, 64)
     end
@@ -25,6 +27,29 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   # The launcher resolves identity on the caller's machine before RPC.
   defp validate_identity(id) when is_binary(id) and byte_size(id) > 0, do: :ok
   defp validate_identity(_id), do: {:error, "requester identity is required"}
+
+  defp blockers(nil), do: {:ok, []}
+  defp blockers(raw), do: Deferred.parse_after(raw)
+
+  # Media is re-validated at publication, when the request runs again without --after.
+  defp defer(params, blockers, deps) do
+    case Deferred.defer(params, blockers, Keyword.get(deps, :deferred_server, Deferred)) do
+      {:ok, entry} ->
+        print_pending(entry, params[:json])
+        0
+
+      {:error, reason} ->
+        error(deps, "cannot store pending Command (#{inspect(reason)})", 1)
+    end
+  end
+
+  defp print_pending(entry, true),
+    do: IO.puts(Jason.encode!(%{pending_id: entry["id"], after: entry["after"], status: :pending, source_id: entry["params"]["idempotency_key"]}))
+
+  defp print_pending(entry, _json) do
+    IO.puts("Pending Command #{entry["id"]}: publishes after #{Enum.map_join(entry["after"], ", ", &"##{&1}")} merge")
+    IO.puts("View: aiur command")
+  end
 
   defp submit(params, options, recommendation, media, deps) do
     executor_id = params[:executor_id]

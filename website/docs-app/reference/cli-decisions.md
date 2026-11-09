@@ -165,6 +165,20 @@ and `ticket: null`. These records contain identifiers rather than answer text.
 Read the answer with `aiur commands <decision_id> --json`. Journal replay delivers
 answers published while the listener was stopped.
 
+### Pending Commands (`--after`)
+
+`aiur command request <question> --after 5,6` stores the Command as pending
+instead of publishing it. It reaches no inbox until every listed ticket is
+closed as completed; the daemon checks each minute and then publishes it with
+the idempotency key printed at request time. Pending Commands survive a daemon
+restart, and `aiur command` lists them with their tickets. Options and
+recommendation are checked at request time; media is checked again at publication.
+
+If a listed ticket is closed as not planned or as a duplicate, the Command is
+dropped and the Executor gets an `executor.command.dropped` wake with
+`pending_id`, `blocker` and `reason`. A Command the daemon refuses at
+publication is dropped the same way with `reason: "refused"`.
+
 A quiet timeout is a **successful empty result**, not a failure: nothing was pending, so nothing was consumed and nothing was lost. Plain mode prints `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json` returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
 Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `superseded` when a newer deferred wait replaces this consumer's blocked wait, or `error` for a failure. Deferred batches also include `ack: "deferred"` and `max_wake_id`. Branch on `status` rather than on the presence of `records`.
