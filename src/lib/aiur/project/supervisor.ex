@@ -9,7 +9,8 @@ defmodule Aiur.Project.Supervisor do
   """
   use Supervisor
 
-  alias Aiur.Project.{Children, Context, Registry}
+  alias Aiur.Application.ProjectChildren
+  alias Aiur.Project.{Context, Registry}
 
   @spec start_link(Aiur.Project.t(), keyword()) :: Supervisor.on_start()
   def start_link(%Aiur.Project{} = project, opts \\ []), do: Supervisor.start_link(__MODULE__, {project, opts})
@@ -19,7 +20,7 @@ defmodule Aiur.Project.Supervisor do
     case register(project, 100) do
       {:ok, _owner} ->
         Context.put(project)
-        Supervisor.init(Children.specs(project, opts), strategy: :rest_for_one, max_restarts: 3, max_seconds: 5)
+        Supervisor.init(ProjectChildren.specs(project, opts), strategy: :rest_for_one, max_restarts: 3, max_seconds: 5)
 
       {:error, {:already_registered, _pid}} ->
         {:stop, :already_started}
@@ -31,7 +32,12 @@ defmodule Aiur.Project.Supervisor do
   defp register(project, tries) do
     case Registry.register_root(project) do
       {:error, {:already_registered, pid}} when tries > 0 ->
-        if Process.alive?(pid), do: {:error, {:already_registered, pid}}, else: Process.sleep(10) && register(project, tries - 1)
+        if Process.alive?(pid) do
+          {:error, {:already_registered, pid}}
+        else
+          Process.sleep(10)
+          register(project, tries - 1)
+        end
 
       result ->
         result

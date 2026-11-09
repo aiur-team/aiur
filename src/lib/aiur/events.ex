@@ -61,7 +61,7 @@ defmodule Aiur.Events do
   @spec subscription_store_supervisor() :: GenServer.server()
   def subscription_store_supervisor, do: Aiur.Project.via(Aiur.Events.SubscriptionStoreSupervisor)
 
-  @doc "The event bus's per-project children, for a project tree (`Aiur.Project.Children`)."
+  @doc "The event bus's per-project children, for a project tree (`Aiur.Application.ProjectChildren`)."
   @spec project_children() :: [{module(), keyword()}]
   def project_children, do: [{Exchange, name: exchange_server()}, {Aiur.Events.SubscriptionStoreSupervisor, name: subscription_store_supervisor()}]
 

@@ -2,12 +2,14 @@ defmodule Aiur.Project.ConfigTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application.Children
+  alias Aiur.Application.ProjectChildren
   alias Aiur.Project
-  alias Aiur.Project.Children, as: ProjectChildren
   alias Aiur.Project.Config
   alias Aiur.Project.Config.ConfigError
   alias Aiur.Project.{Registry, Supervisors, Table, Watcher}
   alias Aiur.TestSupport.WorkflowFiles
+
+  import Aiur.DispatcherTestSupport, only: [wait_until: 2]
 
   setup do
     dir = Path.join(System.tmp_dir!(), "project-config-#{System.unique_integer([:positive])}")
@@ -91,19 +93,9 @@ defmodule Aiur.Project.ConfigTest do
     assert wait_for_root("o/boot", first) != first
   end
 
-  defp wait_for_root(id, not_pid \\ nil, tries \\ 300) do
-    case Registry.root_pid(id) do
-      pid when is_pid(pid) and pid != not_pid ->
-        pid
-
-      _ when tries > 0 ->
-        Process.sleep(10) && wait_for_root(id, not_pid, tries - 1)
-
-      _ ->
-        flunk(
-          "no project root for #{id}; alerts: #{inspect(Process.info(self(), :messages))} trees: #{inspect(Process.whereis(Supervisors) && DynamicSupervisor.which_children(Supervisors))} log: #{inspect(Logger.metadata())}"
-        )
-    end
+  defp wait_for_root(id, not_pid \\ nil) do
+    wait_until(fn -> Registry.root_pid(id) not in [nil, not_pid] end, 300)
+    Registry.root_pid(id)
   end
 
   test "projects drop the machine pollers and start one tree per project last" do

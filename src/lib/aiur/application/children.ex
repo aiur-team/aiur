@@ -4,6 +4,7 @@ defmodule Aiur.Application.Children do
   """
 
   alias Aiur.Application.ExportChildren
+  alias Aiur.Application.ProjectChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Executor.Roster
@@ -13,7 +14,6 @@ defmodule Aiur.Application.Children do
   alias Aiur.Orchestrator.InstanceHeartbeatMetadata
   alias Aiur.Ownership
   alias Aiur.Ownership.{Fence, FenceCommand}
-  alias Aiur.Project.Children, as: ProjectChildren
   alias Aiur.Project.Supervisors, as: ProjectSupervisors
 
   @doc """
@@ -363,7 +363,7 @@ defmodule Aiur.Application.Children do
     pollers = ProjectChildren.pollers()
 
     Enum.reject(children, &(child_module(&1) in pollers)) ++
-      [ProjectSupervisors, Aiur.Project.Watcher, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+      [ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
   end
 
   defp child_module({module, _opts}), do: module

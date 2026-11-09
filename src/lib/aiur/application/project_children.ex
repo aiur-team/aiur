@@ -1,4 +1,4 @@
-defmodule Aiur.Project.Children do
+defmodule Aiur.Application.ProjectChildren do
   @moduledoc """
   The child list of one project tree, in the relative order of the machine list.
 

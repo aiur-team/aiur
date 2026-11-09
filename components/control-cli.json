@@ -37,7 +37,6 @@
     "src/lib/aiur/pr_merge/record.ex",
     "src/lib/aiur/pr_merge/reviews.ex",
     "src/lib/aiur/pr_merge/rules.ex",
-    "src/lib/aiur/project/children.ex",
     "src/lib/aiur/project/status_rows.ex",
     "src/lib/aiur/project/supervisor.ex",
     "src/lib/aiur/project/supervisors.ex",

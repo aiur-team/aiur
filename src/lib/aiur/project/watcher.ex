@@ -27,7 +27,7 @@ defmodule Aiur.Project.Watcher do
   def failures, do: GenServer.call(__MODULE__, :failures)
 
   @impl true
-  def init(opts), do: {:ok, %{refs: %{}, failed: %{}, alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2)}}
+  def init(opts), do: {:ok, %{refs: %{}, failed: %{}, alert_fun: Keyword.fetch!(opts, :alert_fun)}}
 
   @impl true
   def handle_call({:started, project, pid}, _from, state) do

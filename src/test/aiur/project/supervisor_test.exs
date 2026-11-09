@@ -6,6 +6,8 @@ defmodule Aiur.Project.SupervisorTest do
   alias Aiur.Project.{Context, StatusRows, Supervisors, Table, Watcher}
   alias Aiur.TestSupport.WorkflowFiles
 
+  import Aiur.DispatcherTestSupport, only: [wait_until: 1]
+
   setup do
     root = Path.join(System.tmp_dir!(), "project-supervisor-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
@@ -66,9 +68,10 @@ defmodule Aiur.Project.SupervisorTest do
     ref = Process.monitor(a_root)
 
     Enum.each(1..4, fn _ ->
-      pid = wait_for(fn -> orchestrator(a) end)
+      wait_until(fn -> orchestrator(a) end)
+      pid = orchestrator(a)
       Process.exit(pid, :kill)
-      wait_for(fn -> orchestrator(a) != pid or not Process.alive?(a_root) end)
+      wait_until(fn -> orchestrator(a) != pid or not Process.alive?(a_root) end)
     end)
 
     assert_receive {:DOWN, ^ref, :process, _, _}, 5_000
@@ -109,16 +112,5 @@ defmodule Aiur.Project.SupervisorTest do
 
     assert Agent.get(pid, fn _ -> Task.async(fn -> Context.current_id() end) |> Task.await() end) == "o/a"
     assert Task.async(fn -> Context.current_id() end) |> Task.await() == nil
-  end
-
-  defp wait_for(fun, tries \\ 200) do
-    case fun.() do
-      falsy when falsy in [nil, false] and tries > 0 ->
-        Process.sleep(10)
-        wait_for(fun, tries - 1)
-
-      value ->
-        value
-    end
   end
 end
