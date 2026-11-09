@@ -203,18 +203,15 @@ defmodule Aiur.ProcessReaperTest do
     assert [] = ProcessReaper.entries(reaper)
   end
 
-  describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do
+  describe "agent pidfile (launcher-side crash reaper feed)" do
+    # Each reaper gets its own :pidfile, never the global AIUR_AGENT_TMPFILE:
+    # any other reaper registering an agent would append to a shared path (#4312).
     setup do
-      path = Aiur.TestSupport.tmp_root!("aiur-agents")
-      File.write!(path, "")
-      System.put_env("AIUR_AGENT_TMPFILE", path)
+      path = pidfile!()
+      name = Module.concat(__MODULE__, :"Pidfile#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: name, pidfile: path}, id: name)
 
-      on_exit(fn ->
-        System.delete_env("AIUR_AGENT_TMPFILE")
-        File.rm(path)
-      end)
-
-      %{pidfile: path}
+      %{reaper: name, pidfile: path}
     end
 
     test "appends an agent os_pid with its comm guard", %{reaper: reaper, pidfile: path} do
@@ -244,14 +241,34 @@ defmodule Aiur.ProcessReaperTest do
       assert wait_for_lines(path) == ["pid 556 codex"]
     end
 
-    test "no-ops cleanly when the env var is unset", %{reaper: reaper, pidfile: path} do
-      System.delete_env("AIUR_AGENT_TMPFILE")
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, comm: "claude")
+    test "a second reaper's agents never land in this reaper's pidfile", %{reaper: reaper, pidfile: path} do
+      other_path = pidfile!()
+      other = Module.concat(__MODULE__, :"Other#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: other, pidfile: other_path}, id: other)
 
-      # Give the GenServer a beat; the file must stay empty.
-      :ok = ProcessReaper.reap(reaper, [], [])
+      :ok = ProcessReaper.register(other, :agent, {:os_pid, 2_147_480_001}, comm: "agent_relay.py")
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_002}, comm: "claude")
+
+      assert wait_for_lines(other_path) == ["pid 2147480001 agent_relay.py"]
+      assert wait_for_lines(path) == ["pid 2147480002 claude"]
+    end
+
+    test "no-ops cleanly when no pidfile is configured", %{pidfile: path} do
+      bare = Module.concat(__MODULE__, :"Bare#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: bare, pidfile: nil}, id: bare)
+      :ok = ProcessReaper.register(bare, :agent, {:os_pid, 2_147_480_000}, comm: "claude")
+
+      # The synchronous reap proves the register call was handled.
+      :ok = ProcessReaper.reap(bare, [], [])
       assert File.read!(path) == ""
     end
+  end
+
+  defp pidfile! do
+    path = Aiur.TestSupport.tmp_root!("aiur-agents")
+    File.write!(path, "")
+    on_exit(fn -> File.rm(path) end)
+    path
   end
 
   # The append happens inside the GenServer after the call returns, so poll.
