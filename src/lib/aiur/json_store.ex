@@ -40,8 +40,10 @@ defmodule Aiur.JsonStore do
   @doc "Like `write!/3`, but returns `{:error, reason}` instead of raising."
   @spec write(Path.t(), term(), keyword()) :: :ok | {:error, term()}
   def write(path, term, opts \\ []) when is_binary(path) do
-    with :ok <- Aiur.DiskFull.observe(path, File.mkdir_p(Path.dirname(path))) do
-      Fs.atomic_write(path, Jason.encode!(term), [fsync: true] ++ Keyword.take(opts, [:mode]))
+    # Only a failed mkdir is observed: its `:ok` would close the disk-full episode before the write itself runs.
+    case File.mkdir_p(Path.dirname(path)) do
+      :ok -> Fs.atomic_write(path, Jason.encode!(term), [fsync: true] ++ Keyword.take(opts, [:mode]))
+      error -> Aiur.DiskFull.observe(path, error)
     end
   end
 

@@ -20,6 +20,7 @@ defmodule Aiur.DiskFullTest do
     on_exit(fn ->
       Application.delete_env(:aiur, :disk_full_alert_fun)
       Application.delete_env(:aiur, :atomic_write_fault_fun)
+      Application.delete_env(:aiur, :disk_full_realert_ms)
       DiskFull.reset()
       Aiur.TestCleanup.rm_rf!(root)
     end)
@@ -89,7 +90,24 @@ defmodule Aiur.DiskFullTest do
     refute File.exists?(pending_path)
   end
 
-  test "a write that succeeds closes the episode; a new one alerts again after the quiet period", %{root: root} do
+  test "a write that succeeds closes the episode, so the next failure alerts again", %{root: root} do
+    path = Path.join(root, "state.json")
+    # No quiet period, so only the open episode can suppress an alert.
+    Application.put_env(:aiur, :disk_full_realert_ms, 0)
+    fill_disk(path)
+    :ok = JsonStore.write_or_drop(path, %{})
+    assert_receive {:alert, @topic, _}, 1_000
+    :ok = JsonStore.write_or_drop(path, %{})
+    refute_receive {:alert, _, _}, 100
+
+    free_disk()
+    :ok = JsonStore.write_or_drop(path, %{})
+    fill_disk(path)
+    :ok = JsonStore.write_or_drop(path, %{})
+    assert_receive {:alert, @topic, _}, 1_000
+  end
+
+  test "a new episode inside the quiet period stays silent", %{root: root} do
     path = Path.join(root, "state.json")
     fill_disk(path)
     :ok = JsonStore.write_or_drop(path, %{})
@@ -100,10 +118,6 @@ defmodule Aiur.DiskFullTest do
     fill_disk(path)
     :ok = JsonStore.write_or_drop(path, %{})
     refute_receive {:alert, _, _}, 100
-
-    DiskFull.reset()
-    :ok = JsonStore.write_or_drop(path, %{})
-    assert_receive {:alert, @topic, _}, 1_000
   end
 
   defp wake(id, ticket) do

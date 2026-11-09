@@ -44,7 +44,7 @@ defmodule Aiur.DiskFull do
     now = System.monotonic_time(:millisecond)
     last = :atomics.get(ref, 2)
 
-    if :atomics.compare_exchange(ref, 1, 0, 1) == :ok and (last == 0 or now - last >= @realert_ms) do
+    if :atomics.compare_exchange(ref, 1, 0, 1) == :ok and (last == 0 or now - last >= Application.get_env(:aiur, :disk_full_realert_ms, @realert_ms)) do
       :atomics.put(ref, 2, now)
       alert = Application.get_env(:aiur, :disk_full_alert_fun, &emit/2)
       {:ok, _pid} = Task.start(fn -> alert.(@topic, alert_opts(path)) end)
