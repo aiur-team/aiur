@@ -12,11 +12,17 @@ defmodule Aiur.Orchestrator.SlotsMachineTest do
   defp holder(project_id, ids) do
     parent = self()
 
-    spawn(fn ->
-      Enum.each(ids, &Capacity.acquire(project_id, &1))
-      send(parent, :held)
-      Process.sleep(:infinity)
-    end)
+    start_supervised!(
+      Supervisor.child_spec(
+        {Task,
+         fn ->
+           Enum.each(ids, &Capacity.acquire(project_id, &1))
+           send(parent, :held)
+           receive do: (:stop -> :ok)
+         end},
+        id: make_ref()
+      )
+    )
 
     assert_receive :held, 1_000
   end

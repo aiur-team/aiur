@@ -8,11 +8,17 @@ defmodule Aiur.Gateway.CapacityTest do
     parent = self()
 
     pid =
-      spawn(fn ->
-        results = Enum.map(issue_ids, &Capacity.acquire(project, &1))
-        send(parent, {:acquired, project, results})
-        Process.sleep(:infinity)
-      end)
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             results = Enum.map(issue_ids, &Capacity.acquire(project, &1))
+             send(parent, {:acquired, project, results})
+             receive do: (:stop -> :ok)
+           end},
+          id: make_ref()
+        )
+      )
 
     assert_receive {:acquired, ^project, results}, 1_000
     {pid, results}
@@ -56,9 +62,12 @@ defmodule Aiur.Gateway.CapacityTest do
       {a, _} = orchestrator("o/a", Enum.to_list(1..5))
       assert Capacity.headroom("o/b") == 7
 
+      ref = Process.monitor(a)
       Process.exit(a, :kill)
+      assert_receive {:DOWN, ^ref, _, _, _}, 1_000
+      _ = :sys.get_state(Capacity)
 
-      assert eventually(fn -> Capacity.headroom("o/b") == 8 end)
+      assert Capacity.headroom("o/b") == 8
       assert %{held: 0} = Capacity.snapshot()
     end
 
@@ -95,14 +104,6 @@ defmodule Aiur.Gateway.CapacityTest do
       on_exit(fn -> if Process.alive?(pid), do: :sys.resume(pid) end)
 
       assert Capacity.acquire("o/a", 1) == {:error, :broker_timeout}
-    end
-  end
-
-  defp eventually(fun, tries \\ 20) do
-    cond do
-      fun.() -> true
-      tries == 0 -> false
-      true -> Process.sleep(50) && eventually(fun, tries - 1)
     end
   end
 end
