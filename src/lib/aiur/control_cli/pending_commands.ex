@@ -16,9 +16,8 @@ defmodule Aiur.ControlCLI.PendingCommands do
   require Logger
 
   alias Aiur.ControlCLI.ExecutorRequest
-  alias Aiur.Events.Exchange
   alias Aiur.Executor.StatePaths
-  alias Aiur.{JsonStore, Signal, Tracker}
+  alias Aiur.{Events, JsonStore, Signal, Tracker}
 
   # One cached minute keeps a burst of events for one ticket to one GitHub read.
   @closure_max_age_ms 60_000
@@ -129,7 +128,7 @@ defmodule Aiur.ControlCLI.PendingCommands do
 
   def handle_info(:retry, state), do: {:noreply, settle(%{state | retry_ref: nil})}
 
-  defp subscribe, do: Enum.each(@triggers, &Exchange.subscribe/1)
+  defp subscribe, do: Enum.each(@triggers, &Events.subscribe/1)
 
   defp waiting_on(%{"dropped" => _}), do: []
   defp waiting_on(entry), do: entry["after"] -- Map.keys(entry["closed"] || %{})

@@ -16,7 +16,9 @@ Stacked-base checks use held dependency edges without the dispatch-age cutoff an
 
 Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
 
-Build queue closure uses `build_queue_observe`. Pending `--after` Commands use `pending_commands`: one read per blocker at request, one per trigger (that ticket's `pr.merged` or agent `done`/`cancelled`) within one cached minute, and one at boot. No timer reads. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event. `optimistic_guard_approval` checks approval on the current head and mergeability; parked dependent labels are confirmed before release.
+Pending `--after` Commands use `pending_commands`: one read per blocker at request, one per trigger (that ticket's `pr.merged` or agent `done`/`cancelled`) within one cached minute, and one at boot. No timer reads.
+
+Build queue closure uses `build_queue_observe`. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event. `optimistic_guard_approval` checks approval on the current head and mergeability; parked dependent labels are confirmed before release.
 
 Parking uses `optimistic_guard_draft` and `optimistic_guard_comment`. Failed writes retry from the journal. No saving is claimed.
 
