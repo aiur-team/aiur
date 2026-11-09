@@ -82,9 +82,13 @@
   worker workspaces parked instead of moving them to an unrunnable backend.
   An agent paused on a usage limit for ten minutes also moves to its
   `agent.routing` backend when that route differs from the backend that hit the
-  limit, such as a route added after the pause. This move writes no labels and
-  is never reverted. A paused agent ready to move or resume takes the next free
-  slot ahead of new dispatch.
+  limit, such as a route added after the pause. An agent paused on a backend
+  other than the primary moves instead to the first available `agent.priority`
+  backend. A credit refusal (HTTP 402) skips the ten-minute wait. These moves
+  write no labels and are never reverted. A paused agent ready to move or
+  resume takes the next free slot ahead of new dispatch. A usage-limit pause
+  holds no fleet slot, and `aiur agents` names each `agent.priority` backend's
+  state beside it (`provider limit; codex limited, claude limited`).
 - `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
   (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
   Set it to `null` to disable the hard ceiling.

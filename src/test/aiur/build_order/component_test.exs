@@ -151,7 +151,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Logs.Retention,
     Aiur.Executor.Claims,
     Aiur.ExecutorWakeInbox,
-    Aiur.ExecutorListener,
+    {Aiur.ExecutorListener, feature_lookup: &Component.feature_and_epic/1},
     AiurWeb.ControlCenterCache,
     AiurWeb.FinancialData.Supervisor,
     {Aiur.HttpServer, dashboard_pages?: true},

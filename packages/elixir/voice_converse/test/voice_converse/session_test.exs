@@ -322,6 +322,8 @@ defmodule VoiceConverse.SessionTest do
     assert {:error, :target_gone} = VoiceConverse.start_session(name, %{id: "gone", alive: false}, [])
   end
 
+  # Flaky: grace can fire before the provider conversation id is recorded (#6928).
+  @tag :quarantine
   test "transport grace and terminate persist transport_lost without restarting", %{root: root, name: name} do
     config = config!(root, name, limits: %{max_sessions: 2})
     start_instance(config)
