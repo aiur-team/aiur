@@ -1,5 +1,5 @@
 defmodule Aiur.Ownership.DelegationTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 

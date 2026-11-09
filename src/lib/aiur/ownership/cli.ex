@@ -198,9 +198,15 @@ defmodule Aiur.Ownership.CLI do
       new_owner = %{gateway_id: target.gateway_id, gateway_label: target.gateway_label, daemon_key: target.daemon_key, actor: actor(opts), note: note}
 
       case Keyword.get(opts, :transfer_fun, &GitHubRef.transfer/4).(repo(opts), ticket, observed, new_owner) do
-        {:won, new} -> delegated(ticket, new, target, opts) && finish(ticket, new, record.epoch, opts, false)
-        {:lost, current} -> refuse(opts, "ownership changed to #{current.gateway_label} at epoch #{current.epoch}; re-read with aiur ticket owner")
-        {:unknown, reason} -> unknown(opts, "transfer outcome unknown (#{inspect(reason)}); retry: aiur ticket assign #{ticket} --to #{opts[:to]} --reason <text>")
+        {:won, new} ->
+          delegated(ticket, new, target, opts)
+          finish(ticket, new, record.epoch, opts, false)
+
+        {:lost, current} ->
+          refuse(opts, "ownership changed to #{current.gateway_label} at epoch #{current.epoch}; re-read with aiur ticket owner")
+
+        {:unknown, reason} ->
+          unknown(opts, "transfer outcome unknown (#{inspect(reason)}); retry: aiur ticket assign #{ticket} --to #{opts[:to]} --reason <text>")
       end
     end
   end
@@ -208,10 +214,10 @@ defmodule Aiur.Ownership.CLI do
   # The delegator is not in the ref, so the transfer is remembered locally for the waiting-label pass.
   defp delegated(ticket, new, %{peer: true}, opts) do
     Keyword.get(opts, :delegation_fun, &PeerState.add_delegation/1).(%{repo: repo(opts), ticket: ticket, gateway_id: new.gateway_id, epoch: new.epoch, at: iso(now(opts))})
-    true
+    :ok
   end
 
-  defp delegated(_ticket, _new, _target, _opts), do: true
+  defp delegated(_ticket, _new, _target, _opts), do: :ok
 
   # Auto-merge is disabled only after the transfer is on record, so a failure here never leaves it
   # off on a ticket the old owner still holds; the transfer stands and the retry is safe.

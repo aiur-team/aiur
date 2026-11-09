@@ -54,6 +54,10 @@ defmodule Aiur.Ownership.WaitingLabel do
     write.(to_string(issue.identifier), :remove, label)
   end
 
-  defp drop(:ok, repo, ticket), do: PeerState.drop_delegation(repo, ticket) && :ok
+  defp drop(:ok, repo, ticket) do
+    _ = PeerState.drop_delegation(repo, ticket)
+    :ok
+  end
+
   defp drop(_error, _repo, _ticket), do: :ok
 end
