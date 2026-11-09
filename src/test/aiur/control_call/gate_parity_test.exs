@@ -14,7 +14,8 @@ defmodule Aiur.ControlCall.GateParityTest do
     ticket_usage: [:Aiur, :TicketUsageCLI],
     sweep: [:Aiur, :ExecutorSweep, :CLI],
     pr_merge: [:Aiur, :PrMerge, :Record],
-    listen: [:Aiur, :ListenModeCli]
+    listen: [:Aiur, :ListenModeCli],
+    provenance: [:Aiur, :ControlCLI, :ConfigExplain]
   }
 
   # {module, function, arities, client gate words that send it}. Keyed by {segments, function, arity}
@@ -91,7 +92,8 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:usage, :legacy_accounts, [2], ~w(accounts)},
     {:ticket_usage, :rpc, [2], ~w(ticket-usage)},
     {:sweep, :rpc, [1], ~w(executor-sweep)},
-    {:listen, :run, [2], ~w(listen-mode)}
+    {:listen, :run, [2], ~w(listen-mode)},
+    {:provenance, :explain, [2], ~w(config)}
   ]
 
   # Deny-class or deliberately unsent functions.

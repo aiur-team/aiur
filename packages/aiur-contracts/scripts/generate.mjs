@@ -20,10 +20,14 @@ const outputs = [
     refs: ['capabilities.v1.schema.json', 'capability-error.v1.schema.json'],
   },
   {
+    name: 'AgentsContract',
+    target: new URL('../src/agents.generated.ts', import.meta.url),
+    refs: ['agents.v1.schema.json'],
+  },
+  {
     name: 'StatusContract',
     target: new URL('../src/status.generated.ts', import.meta.url),
     refs: [
-      'agents.v1.schema.json',
       'status.v1.schema.json',
       'ticket.v1.schema.json',
       'ticket-cancel.v1.schema.json',
