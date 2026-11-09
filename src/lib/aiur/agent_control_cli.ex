@@ -47,6 +47,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_reopen(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_owner(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ticket_assign(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate ownership_migrate(opts), to: Aiur.ControlCLI.EntryPoints
