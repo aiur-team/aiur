@@ -29,12 +29,22 @@ defmodule AiurEngineProjectHintTest do
         {"queue clear", ~S|cmd_queue clear --remove-markers --yes|},
         {"queue add start_on", ~S|cmd_queue add 12 --start-on pr_merged|},
         {"units condition", ~S|cmd_units --condition queued,alert --json|},
-        {"build-orders", ~S|cmd_build_orders 1363 --json|}
+        {"build-orders", ~S|cmd_build_orders 1363 --json|},
+        {"analytics", ~S|cmd_analytics --range run --json|},
+        {"lane", ~S|cmd_lane show 12 --json|},
+        {"epic", ~S|cmd_epic list --json|},
+        {"feature", ~S|cmd_feature show 12 --json|}
       ] do
     test "#{name} in a git checkout carries the cwd hint and parses locally", %{dir: dir} do
       out = sh(dir, unquote(command))
-      assert String.ends_with?(out, ~s|project_hint: Base.decode64!("#{Base.encode64("o/hinted")}")])|)
+      hint = ~s|project_hint: Base.decode64!("#{Base.encode64("o/hinted")}")|
+      assert String.ends_with?(out, hint <> "])")
       assert {:ok, _call} = Aiur.ControlCall.parse(out, remote: false)
+
+      # Minus the hint, the inner call is exactly what a checkout with no repo sends.
+      {bare, 0} = System.cmd("bash", ["-c", ~S|source "$1"; run_control_rpc() { printf '%s' "$1"; }; | <> unquote(command), "t", @engine], cd: "/", env: @env)
+      inner = out |> String.replace(", " <> hint, "") |> String.replace(hint, "")
+      assert inner == bare
     end
   end
 
