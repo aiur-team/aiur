@@ -134,6 +134,22 @@ defmodule Aiur.AgentSkills.Preload do
     end
   end
 
+  @doc """
+  A short pointer to the mapped skills for a resumed session, or `""` when none
+  are mapped. The thread may have lost the inlined text to compaction, so this
+  names each skill, its reason and its `SKILL.md` path instead of repeating it.
+  """
+  @spec pointer_block(t()) :: String.t()
+  def pointer_block(%__MODULE__{mapped: [], truncated: []}), do: ""
+
+  def pointer_block(%__MODULE__{} = preload) do
+    entries = Enum.map_join(preload.mapped ++ preload.truncated, "\n", &"- `#{&1.name}` (#{&1.reason}) — `#{&1.path}`")
+
+    "## Skills for this ticket (pointer)\n\n" <>
+      "These skills are mapped to this ticket. If their instructions are no longer in your context, re-read each `SKILL.md` before continuing.\n\n" <>
+      entries <> "\n\n"
+  end
+
   @doc "One-line summary naming each mapped skill and its reason."
   @spec summary(t()) :: String.t()
   def summary(%__MODULE__{} = preload) do
