@@ -53,7 +53,7 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   @doc "Takes a slot for `issue_id`; idempotent. A missing broker grants it; a slow one refuses."
-  @spec acquire(project_id(), term()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
+  @spec acquire(project_id(), term(), String.t() | :none) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
   def acquire(project_id, issue_id, feature \\ :none),
     do: call({:acquire, project_id, issue_id, feature, self()}, :ok, {:error, :broker_timeout})
 
@@ -172,24 +172,31 @@ defmodule Aiur.Gateway.Capacity do
     now = System.monotonic_time(:millisecond)
     fresh = for {p, {by_feature, _order, at}} <- state.demands, now - at <= @demand_ttl_ms, do: {p, by_feature}
 
-    # ponytail: a holder adopted after a restart has no recorded feature and counts as :none.
-    running =
-      for {p, project} <- state.projects, holder <- project.holders, reduce: %{} do
-        acc -> Map.update(acc, {p, Map.get(project.features, holder, :none)}, 1, &(&1 + 1))
-      end
-
-    demands =
-      for {p, by_feature} <- fresh, {f, ready} <- by_feature, ready > 0, p != id or f != feature, into: %{} do
-        {{p, f}, %{ready: ready, promoted: 0}}
-      end
-
-    own = fresh |> Enum.find_value(0, fn {p, by_feature} -> p == id && Map.get(by_feature, feature) end) || 0
-    demands = Map.put(demands, {id, feature}, %{ready: max(own, 1), promoted: 0})
+    running = running_by_group(state)
+    demands = demand_groups(fresh, id, feature)
     limits = for {p, %{max: max}} <- state.projects, max, into: %{}, do: {p, max}
     capacity = state.ceiling || Enum.sum(Map.values(running)) + Enum.sum(for {_, d} <- demands, do: d.ready)
     order = [Map.keys(running), Map.keys(demands)] |> Enum.concat() |> Enum.uniq() |> Enum.sort_by(&rank(state, &1))
 
     if Allocation.allocate(capacity, demands, order, limits, running)[{id, feature}], do: :ok, else: {:error, :yielded}
+  end
+
+  # ponytail: a holder adopted after a restart has no recorded feature and counts as :none.
+  defp running_by_group(state) do
+    for {p, project} <- state.projects, holder <- project.holders, reduce: %{} do
+      acc -> Map.update(acc, {p, Map.get(project.features, holder, :none)}, 1, &(&1 + 1))
+    end
+  end
+
+  # This ticket's group always asks for at least one start.
+  defp demand_groups(fresh, id, feature) do
+    others =
+      for {p, by_feature} <- fresh, {f, ready} <- by_feature, ready > 0, p != id or f != feature, into: %{} do
+        {{p, f}, %{ready: ready, promoted: 0}}
+      end
+
+    own = Enum.find_value(fresh, 0, fn {p, by_feature} -> p == id && Map.get(by_feature, feature) end)
+    Map.put(others, {id, feature}, %{ready: max(own, 1), promoted: 0})
   end
 
   defp rank(state, {p, feature}) do
