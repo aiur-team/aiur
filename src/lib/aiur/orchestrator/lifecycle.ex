@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     EnvelopeResume,
     GlobalPause,
     GlobalPauseStore,
+    MachineGrant,
     OperatorMessages.PendingStore,
     OrphanedWorkers,
     PauseGuard,
@@ -258,6 +259,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
     state = refresh_runtime_config(state)
+    :ok = MachineGrant.sync(state)
     # A crashed control call can roll the state back past a runner it already
     # spawned; that runner holds its lease with no running entry (#2705).
     state = OrphanedWorkers.stop_untracked_runners(state)
