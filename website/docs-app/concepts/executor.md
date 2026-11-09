@@ -278,3 +278,23 @@ daemon is unavailable. User and Khala handlers remain in their original order.
 Compatibility of two `Stop` hooks that both return `decision: "block"` has not
 been verified in either harness. Treat that combination as unsupported until
 both continuations have been observed in the real session.
+
+## Delegating a ticket to another gateway
+
+`aiur ticket assign <n> --to <gateway> --reason <text>` transfers ownership to a peer gateway. Before
+writing, it reads the cached project list for that peer (`~/.aiur/ownership/delegation.json`).
+
+- The list is fresh (10 minutes) and lacks the repo: exit 64, `<gateway> does not run <owner/repo>`, nothing written.
+- The list is stale or unknown: a warning, and the transfer is written. A stale "missing" never refuses.
+- The peer's `daemon_key` is not cached: exit 64, nothing written.
+
+The delegating gateway labels the issue `gateway-waiting:project-missing` once, when the peer's fresh list
+shows the repo missing.
+
+- It clears when the owner is this gateway or the owner's list gains the repo.
+- It also clears when the ticket is re-transferred or released.
+- It stays while the peer is offline: the ticket remains owned by it, and no other gateway dispatches it.
+- Dispatch never reads the label.
+
+Nothing in the launcher fills the peer cache yet, so until a later change writes it, delegation to a peer needs
+its entry present in that file.

@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.StatusReport.UsagePauseBackends
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.RepoBase
   alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
@@ -60,12 +61,14 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   end
 
   defp running_statuses(%State{} = state, %DateTime{} = now, decision_counts) do
+    backends = UsagePauseBackends.for_running(state.running)
+
     Enum.map(state.running, fn {issue_id, entry} ->
-      running_status(state, issue_id, entry, now, decision_counts)
+      running_status(state, issue_id, entry, now, decision_counts, backends)
     end)
   end
 
-  defp running_status(%State{} = state, issue_id, entry, now, decision_counts) do
+  defp running_status(%State{} = state, issue_id, entry, now, decision_counts, backends) do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
     work_state = startup_work_state(entry)
@@ -114,7 +117,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       last_codex_event: Map.get(entry, :last_codex_event),
       # The skills this worker loaded first, from the session's preload report.
       skills: get_in(entry, [:session_execution, :skills]),
-      reason: if(work_state == :paused, do: StatusReason.for_pause(pause_reason)),
+      reason: if(work_state == :paused, do: UsagePauseBackends.pause_reason(pause_reason, backends)),
       waiting_reason: waiting_reason,
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),

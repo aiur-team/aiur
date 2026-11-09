@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
@@ -215,7 +216,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
      ), MapSet.member?(state.claimed, id), Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
+  # Out of machine or project grant: start nothing, the next poll retries.
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
+    MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end)
+  end
+
+  defp start_granted_worker(state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))

@@ -60,6 +60,57 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedRerouteTest do
     refute Map.has_key?(result.running["1"], :awaiting_fleet_slot)
   end
 
+  # #7879: priority [codex, openrouter, claude], codex limited, OpenRouter just
+  # refused with a 402. The claim moves to claude at once, not after 600 s.
+  test "a credit-limited claim on a non-primary backend moves to the next priority backend at once" do
+    now = ~U[2026-11-08 12:00:00Z]
+    state = %State{max_concurrent_agents: 2, running: %{"1" => openrouter_entry("1", now, true)}}
+    test_pid = self()
+
+    RateLimitFallback.reconcile(state, priority_opts(now, test_pid))
+
+    assert_received {:dispatch, "1", "claude"}
+  end
+
+  test "a non-credit pause on a non-primary backend falls to the next priority entry after the wait" do
+    now = ~U[2026-11-08 12:00:00Z]
+    test_pid = self()
+    waiting = %State{max_concurrent_agents: 2, running: %{"1" => openrouter_entry("1", now, false)}}
+
+    RateLimitFallback.reconcile(waiting, priority_opts(now, test_pid))
+    refute_received {:dispatch, "1", _backend}
+
+    RateLimitFallback.reconcile(waiting, priority_opts(DateTime.add(now, 600, :second), test_pid))
+    assert_received {:dispatch, "1", "claude"}
+  end
+
+  defp openrouter_entry(id, paused_at, credit_limited?) do
+    fallback_entry(%{
+      identifier: "repo##{id}",
+      issue: %Issue{id: id, identifier: "repo##{id}", labels: [], selected_backend: "openrouter"},
+      worker_host: nil,
+      paused_at: paused_at,
+      session_execution: %{backend: "openrouter"},
+      usage_limit_session: %{backend: "openrouter", credit_limited: credit_limited?}
+    })
+  end
+
+  defp priority_opts(now, test_pid) do
+    reset = DateTime.to_iso8601(DateTime.add(now, 7_200, :second))
+    limited = %{"limited" => true, "reset_at" => reset}
+
+    opts(
+      now: now,
+      routing_backend: nil,
+      priority_backends: ["codex", "openrouter", "claude"],
+      state: %{"backends" => %{"codex" => limited, "openrouter" => limited}},
+      dispatch_fun: fn current_state, issue, _attempt, _worker_host ->
+        send(test_pid, {:dispatch, issue.id, issue.selected_backend})
+        record_started_dispatch(current_state, issue)
+      end
+    )
+  end
+
   defp limited_entry(id) do
     fallback_entry(%{
       identifier: "repo##{id}",

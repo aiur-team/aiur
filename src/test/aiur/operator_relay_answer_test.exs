@@ -4,6 +4,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
   import ExUnit.CaptureIO
   alias Aiur.{CommandsCLI, Config, Decision, DecisionAnswer, DecisionDispatch, DecisionHistory, DecisionStore, OperatorRelayCLI, Workflow}
 
+  alias Aiur.Commands.Answering
   alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPresenter, History}
 
@@ -320,5 +321,33 @@ defmodule Aiur.OperatorRelayAnswerTest do
     [answered] = Enum.filter(DecisionHistory.list(server: store), &(&1.change == :answered))
     assert answered.actor.type == :operator_relayed
     assert answered.operator_quote == "  keep them\n"
+  end
+
+  test "relays a multi-question answer from per-question flags", %{dir: dir, config: config} do
+    enable(config)
+    store = store(dir)
+
+    questions = [
+      %{question_id: "palette", header: "Palette", question: "Which palettes?", options: [%{id: "warm", label: "Warm"}, %{id: "cool", label: "Cool"}], multi_select: true, allow_other: false},
+      %{question_id: "why", header: "Why", question: "Why?", options: [%{id: "taste", label: "Taste"}, %{id: "brand", label: "Brand"}], allow_other: true}
+    ]
+
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{question: "Palette plan", authority: "human_required", context: %{authority_basis: "product"}, reversibility: "reversible", blocking: true, source_id: "relay-multi"},
+        [ticket: %{identifier: "7871", title: "Relay multi", url: nil}, source: %{agent_id: "codex", session_id: "relay-multi"}, questions: questions],
+        store
+      )
+
+    flags = [answers: ["palette=cool,warm"], answer_texts: ["why=Matches the logo"]]
+
+    params =
+      [decision_id: decision.decision_id, expected_version: decision.version, quote: "warm and cool, matches the logo", relayed_by: "attended-executor", idempotency_key: "relay-multi-1"] ++ flags
+
+    capture_io(fn -> assert OperatorRelayCLI.answer(params, decision_store: store) == 0 end)
+
+    assert {:ok, %{answer: answer, questions: stored}} = DecisionStore.get(decision.decision_id, store)
+    assert answer.actor.kind == :operator_relayed
+    assert Answering.decode_question_answers(stored, answer) == {:ok, %{"palette" => ["Warm", "Cool"], "why" => ["Matches the logo"]}}
   end
 end

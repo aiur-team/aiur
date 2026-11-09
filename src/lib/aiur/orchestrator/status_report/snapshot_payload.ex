@@ -403,7 +403,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       effort: Map.get(execution, :effort),
       account: Map.get(execution, :account),
       account_selection_reason: Map.get(execution, :account_selection_reason),
-      skills: Map.get(execution, :skills)
+      skills: Map.get(execution, :skills),
+      skill_preload: Map.get(execution, :skill_preload)
     }
     |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
   end

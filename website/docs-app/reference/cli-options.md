@@ -25,7 +25,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --interactive` | Requests the terminal UI, including from a background launch. | `aiur --bg --interactive` |
 | `aiur --json` | Prints supported command output as JSON. | `aiur --json` |
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
-| `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
+| `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. With `projects:` set in `~/.aiur/machine` it also sets the machine-wide ceiling, overriding `capacity.max_agents`. | `aiur --max-agents 6` |
 | `aiur --no-dashboard` | Suppresses the dashboard listener in foreground or background mode. It is rejected for Remote Control because its lifecycle hooks need the listener. | `aiur --bg --no-dashboard` |
 | `aiur --note TEXT` | Attaches a note to a supported command. | `aiur --note 'Follow up tomorrow'` |
 | `aiur --open` | Opens the selected result in the configured browser. | `aiur --open` |
@@ -44,7 +44,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 | `aiur command` | Lists open Commands; use the same command with an ID for detail or an answer. `commands` remains a compatibility alias. | `aiur command` |
 | `aiur command --filter open` | Applies the existing Command filters through the canonical singular command. | `aiur command --filter open` |
-| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery. | `aiur command dec_123` |
+| `aiur command DECISION-ID` | Shows question, options, recommendation, context, status and delivery; a multi-question Command adds every question and a fill-in answer template. | `aiur command dec_123` |
 | `aiur command DECISION-ID --custom-response TEXT` | Records a local operator's bounded text answer after interactive confirmation. | `aiur command dec_123 --custom-response 'Wait for a fresh build'` |
 | `aiur command DECISION-ID --option ID` | Records a local operator answer after preview and exact-ID confirmation in an interactive terminal. | `aiur command dec_123 --option keep` |
 | `aiur command DECISION-ID --option ID --relayed --quote TEXT [--idempotency-key KEY]` | Relays an operator's already-given answer with the current version and a generated idempotency key unless one is supplied. Reuse a supplied key to safely retry after an unknown outcome; requires the relay config gate. | `aiur command dec_123 --option keep --relayed --quote 'Keep them' --idempotency-key relay-1` |
@@ -58,6 +58,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur executor-attach --harness claude --print-config` | Prints hooks instead of installing them; Codex always prints. | `aiur executor-attach --harness claude --print-config` |
 | `aiur executor-attach --harness claude --takeover` | Replaces a live binding; off by default. | `aiur executor-attach --harness claude --takeover` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
+| `aiur operator-relay-answer ID --answer Q=ID --answer-text Q=TEXT --answers-file PATH` | Per-question answers for a multi-question Command, with the same rules as `executor-answer`. | `aiur operator-relay-answer dec_123 --expected-version 1 --answer scope=core --answer order=last --quote "core, last" --relayed-by exec-1 --idempotency-key relay-1` |
 | `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 | `aiur redispatch 142 --backend codex` | Selects a backend for a ticket redispatch. | `aiur redispatch 142 --backend codex` |
 

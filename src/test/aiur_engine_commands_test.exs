@@ -101,6 +101,39 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
   end
 
+  test "per-question answer flags, the answers file and moot replay fields reach the control rpc" do
+    file = Path.join(System.tmp_dir!(), "answers-#{System.unique_integer([:positive])}.json")
+    File.write!(file, ~s({"scope":["core"]}))
+    on_exit(fn -> File.rm(file) end)
+    rpc = ~s|run_control_rpc() { echo "RPC:$1"; }\n|
+
+    answer = rpc_opts(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answer scope=core,cli --answer=order=last --answer-text 'note=a b' --rationale r --idempotency-key k|)
+    assert answer[:answers] == ["scope=core,cli", "order=last"]
+    assert answer[:answer_texts] == ["note=a b"]
+    refute Keyword.has_key?(answer, :option_id)
+
+    assert rpc_opts(rpc <> ~s|cmd_operator_relay_answer dec --expected-version 3 --answers-file #{file} --quote q --relayed-by e --idempotency-key k|)[:answers_json] == ~s({"scope":["core"]})
+    assert rpc_opts(rpc <> ~s|cmd_command dec --relayed --quote q --answer scope=core|)[:answers] == ["scope=core"]
+
+    File.write!(file, String.duplicate(" ", 65_537))
+    {out, 64} = run_sourced_engine(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answers-file #{file} --rationale r --idempotency-key k|, [])
+    assert out =~ "--answers-file #{file} is larger than 65536 bytes"
+    refute out =~ "RPC:"
+
+    moot = rpc_opts(rpc <> ~s|cmd_executor_moot dec --expected-version 3 --reason-class ticket_closed --idempotency-key mk --rationale shipped|)
+    assert {moot[:idempotency_key], moot[:rationale]} == {"mk", "shipped"}
+
+    {out, 64} = run_sourced_engine(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answer a=b --option x --rationale r --idempotency-key k|, [])
+    assert out =~ "not both"
+  end
+
+  defp rpc_opts(script) do
+    {out, 0} = run_sourced_engine(script, [])
+    [_, args] = Regex.run(~r/^RPC:Aiur\.AgentControlCLI\.\w+\((\[.*\])\)$/m, out)
+    {opts, _binding} = Code.eval_string(args)
+    opts
+  end
+
   test "operator answer refuses agent processes before contacting the daemon" do
     {out, 64} =
       run_sourced_engine(

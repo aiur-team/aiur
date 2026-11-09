@@ -216,6 +216,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       supervision: &Diagnostics.print_supervision_health/0,
       ci_readiness: &Diagnostics.print_ci_readiness/0,
       build_gate: &Diagnostics.print_build_gate_status/0,
+      disk: fn -> IO.puts(Aiur.DiskWatchdog.status_line()) end,
       hold_pressure: fn -> if Config.tracker_kind() == "github", do: HoldPressure.print_status() end,
       prewarm: &Diagnostics.print_prewarm_status/0,
       toolchain: &Aiur.Toolchain.print_status/0,
