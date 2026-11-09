@@ -25,7 +25,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --interactive` | Requests the terminal UI, including from a background launch. | `aiur --bg --interactive` |
 | `aiur --json` | Prints supported command output as JSON. | `aiur --json` |
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
-| `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
+| `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. With `projects:` set in `~/.aiur/machine` it also sets the machine-wide ceiling, overriding `capacity.max_agents`. | `aiur --max-agents 6` |
 | `aiur --no-dashboard` | Suppresses the dashboard listener in foreground or background mode. It is rejected for Remote Control because its lifecycle hooks need the listener. | `aiur --bg --no-dashboard` |
 | `aiur --note TEXT` | Attaches a note to a supported command. | `aiur --note 'Follow up tomorrow'` |
 | `aiur --open` | Opens the selected result in the configured browser. | `aiur --open` |
