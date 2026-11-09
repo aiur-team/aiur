@@ -89,7 +89,7 @@ defmodule Aiur.Handoff.ReportTest do
         spawn_link(fn ->
           {:ok, _} = Aiur.Project.Registry.register_root(project)
           send(parent, :registered)
-          Process.sleep(:infinity)
+          receive do: (:stop -> :ok)
         end)
 
       assert_receive :registered, 1_000
