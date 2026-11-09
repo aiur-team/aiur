@@ -106,7 +106,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur queue add <ids…> [--json]           add tickets; other mutations steer the queue
        aiur build-orders [<root>] [--json] [--contract build-order.v1]  show the Build Order catalog or one root
        aiur history export|label-writes ...  local history export or optional paced classification labels
-       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
+       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json] | reopen <id> --reason <text> [--state todo|rework] [--json]
        aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
        aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]  claim tickets from state labels
        aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
