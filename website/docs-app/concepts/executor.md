@@ -288,10 +288,13 @@ writing, it reads the cached project list for that peer (`~/.aiur/ownership/dele
 - The list is stale or unknown: a warning, and the transfer is written. A stale "missing" never refuses.
 - The peer's `daemon_key` is not cached: exit 64, nothing written.
 
-The gateway that delegated labels the issue `gateway-waiting:project-missing` once, when the peer's fresh list
-shows the repo missing. It clears when the owner is this gateway, the owner's list gains the repo, or the ticket
-is re-transferred or released. The label is a projection of the ownership ref; dispatch never reads it. While the
-peer is offline the ticket stays owned by it and no other gateway dispatches it.
+The delegating gateway labels the issue `gateway-waiting:project-missing` once, when the peer's fresh list
+shows the repo missing.
+
+- It clears when the owner is this gateway or the owner's list gains the repo.
+- It also clears when the ticket is re-transferred or released.
+- It stays while the peer is offline: the ticket remains owned by it, and no other gateway dispatches it.
+- Dispatch never reads the label.
 
 Nothing in the launcher fills the peer cache yet, so until a later change writes it, delegation to a peer needs
 its entry present in that file.
