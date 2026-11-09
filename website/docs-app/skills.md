@@ -76,7 +76,7 @@ Only the Executor overrides estimates, with `aiur ticket estimate … --reason`.
 
 ## Matching skills to a ticket
 
-Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, and every other installed skill after them as a name and description to load on demand.
+Every ticket workspace installs the full skill set. A worker's cold prompt lists the skills that fit its ticket first, inlined in full, then any recommended skills with a path to load, and every other installed skill after them as a name and description to load on demand.
 
 `agent.skills` decides which skills fit. It maps a ticket's lane, owning feature, epic, label and complexity to skill names, and the matching sets are combined.
 
@@ -131,6 +131,30 @@ agent:
   skills:
     strict: true
 ```
+
+### Recommended skills
+
+`agent.skills.recommended` takes the same five `by_*` maps for skills that fit the ticket but should not be inlined. They appear under `### Recommended skills (load on demand)` with the skill's name, the reason that matched, its `description:` and the workspace-relative path of its `SKILL.md`.
+
+Their text is never inlined, so they never count against `preload_max_bytes`. A skill that is also mapped stays in the mapped tier, and `Skills only:` replaces the recommended set as well. A recommended skill that is not installed is listed in the prompt but never raises the mandatory-skills alert or blocks dispatch.
+
+```yaml
+agent:
+  skills:
+    by_lane:
+      art: [pixel-art]
+    recommended:
+      by_lane:
+        art: [sprite-sheets, palette-discipline]
+```
+
+### Nested skills
+
+Skills are found up to three directories below an install path: `<skill>`, `<group>/<skill>` and `<group>/<pack>/<skill>`, each holding a `SKILL.md`. A nested skill such as `vendor/<pack>/<skill>/SKILL.md` is named by its own directory, so map it as `<skill>`.
+
+When two skills share a name, the shallower one wins. Aiur stops searching inside a directory once it finds a `SKILL.md` there, and skips directories whose names start with a dot.
+
+It descends only into real directories, never through a symlink, and lists at most 256 directories per install path.
 
 ### Visibility
 

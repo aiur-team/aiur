@@ -19,6 +19,9 @@ defmodule Aiur.Config.SkillsMapping do
             design: [design-import]
           by_complexity:
             1: [ce-work]
+          recommended:
+            by_lane:
+              art: [sprite-sheets]
 
   A value is a list of skill names or a single skill name. Skill names are never
   validated against installed skills at load time: the workspace the worker runs
@@ -29,6 +32,10 @@ defmodule Aiur.Config.SkillsMapping do
   Mapped skills are mandatory: they are always inlined, even past the byte
   budget. `strict: true` turns a mapped skill with no `SKILL.md`, or a mapped
   set over the budget, into a blocked dispatch instead of a warning.
+
+  `recommended` takes the same five dimensions. A recommended skill is listed to
+  the worker with its description and path rather than inlined, so it never
+  spends the `preload_max_bytes` budget.
   """
 
   @dimensions ["by_lane", "by_feature", "by_epic", "by_label", "by_complexity"]
@@ -39,7 +46,7 @@ defmodule Aiur.Config.SkillsMapping do
     "by_label" => :by_label,
     "by_complexity" => :by_complexity
   }
-  @keys ["preload_max_bytes", "strict" | @dimensions]
+  @keys ["preload_max_bytes", "strict", "recommended" | @dimensions]
   @default_max_bytes 32_768
   # A skill name has to address a directory under a workspace skill path.
   @skill_name_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z/
@@ -52,7 +59,8 @@ defmodule Aiur.Config.SkillsMapping do
           by_feature: %{String.t() => [String.t()]},
           by_epic: %{String.t() => [String.t()]},
           by_label: %{String.t() => [String.t()]},
-          by_complexity: %{pos_integer() => [String.t()]}
+          by_complexity: %{pos_integer() => [String.t()]},
+          recommended: map()
         }
 
   @doc "The keys accepted under `agent.skills`."
@@ -77,16 +85,15 @@ defmodule Aiur.Config.SkillsMapping do
   @doc "The empty mapping."
   @spec empty() :: normalized()
   def empty do
-    %{
-      preload_max_bytes: @default_max_bytes,
-      strict: false,
-      by_lane: %{},
-      by_feature: %{},
-      by_epic: %{},
-      by_label: %{},
-      by_complexity: %{}
-    }
+    Map.merge(empty_dimensions(), %{preload_max_bytes: @default_max_bytes, strict: false, recommended: empty_dimensions()})
   end
+
+  defp empty_dimensions, do: Map.new(@dimension_atoms, fn {_name, atom} -> {atom, %{}} end)
+
+  @doc "The `recommended` dimensions, in the shape `skills_for/3` reads."
+  @spec recommended(normalized() | term()) :: map()
+  def recommended(%{recommended: %{} = recommended}), do: recommended
+  def recommended(_mapping), do: empty_dimensions()
 
   @doc "Skill names configured for `dimension` and `key`, in configured order."
   @spec skills_for(normalized(), dimension(), term()) :: [String.t()]
@@ -102,7 +109,7 @@ defmodule Aiur.Config.SkillsMapping do
   @doc "Whether the mapping configures any skill at all."
   @spec configured?(normalized() | term()) :: boolean()
   def configured?(%{} = mapping) do
-    Enum.any?(@dimensions, &dimension_configured?(mapping, &1))
+    Enum.any?(@dimensions, &(dimension_configured?(mapping, &1) or dimension_configured?(recommended(mapping), &1)))
   end
 
   def configured?(_mapping), do: false
@@ -132,10 +139,23 @@ defmodule Aiur.Config.SkillsMapping do
     case normalize_key(key) do
       "preload_max_bytes" -> Map.put(acc, :preload_max_bytes, normalize_bytes(value))
       "strict" -> Map.put(acc, :strict, value)
+      "recommended" -> Map.put(acc, :recommended, normalize_recommended(value))
       dimension when dimension in @dimensions -> Map.put(acc, Map.fetch!(@dimension_atoms, dimension), normalize_entries(dimension, value))
       other -> Map.put(acc, :unknown, Map.put(Map.get(acc, :unknown, %{}), other, value))
     end
   end
+
+  # Unknown keys under `recommended` are dropped here; `validate/1` names them.
+  defp normalize_recommended(%{} = raw) do
+    Enum.reduce(raw, empty_dimensions(), fn {key, value}, acc ->
+      case normalize_key(key) do
+        dimension when dimension in @dimensions -> Map.put(acc, Map.fetch!(@dimension_atoms, dimension), normalize_entries(dimension, value))
+        _unknown -> acc
+      end
+    end)
+  end
+
+  defp normalize_recommended(_other), do: empty_dimensions()
 
   defp normalize_bytes(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
@@ -194,20 +214,35 @@ defmodule Aiur.Config.SkillsMapping do
   defp validate_raw(raw) do
     with :ok <- validate_unknown_keys(raw),
          :ok <- validate_max_bytes(Map.get(raw, "preload_max_bytes") || Map.get(raw, :preload_max_bytes)),
-         :ok <- validate_strict(Map.get(raw, "strict", Map.get(raw, :strict))) do
-      validate_dimensions(raw)
+         :ok <- validate_strict(Map.get(raw, "strict", Map.get(raw, :strict))),
+         :ok <- validate_dimensions("agent.skills", raw) do
+      raw
+      |> Enum.find(fn {key, _value} -> normalize_key(key) == "recommended" end)
+      |> validate_recommended()
     end
   end
 
-  defp validate_unknown_keys(raw) do
+  defp validate_recommended(nil), do: :ok
+
+  defp validate_recommended({_key, %{} = raw}) do
+    with :ok <- validate_unknown_keys("agent.skills.recommended", raw, @dimensions) do
+      validate_dimensions("agent.skills.recommended", raw)
+    end
+  end
+
+  defp validate_recommended({_key, _other}), do: {:error, "agent.skills.recommended must be a map"}
+
+  defp validate_unknown_keys(raw), do: validate_unknown_keys("agent.skills", raw, @keys)
+
+  defp validate_unknown_keys(path, raw, allowed) do
     unknown =
       raw
       |> Enum.map(fn {key, _value} -> normalize_key(key) end)
-      |> Enum.reject(&(&1 in @keys))
+      |> Enum.reject(&(&1 in allowed))
 
     case unknown do
       [] -> :ok
-      keys -> {:error, "agent.skills has unknown keys #{Enum.join(Enum.sort(keys), ", ")}; allowed keys are #{Enum.join(@keys, ", ")}"}
+      keys -> {:error, "#{path} has unknown keys #{Enum.join(Enum.sort(keys), ", ")}; allowed keys are #{Enum.join(allowed, ", ")}"}
     end
   end
 
@@ -221,24 +256,24 @@ defmodule Aiur.Config.SkillsMapping do
   defp validate_strict(strict) when is_boolean(strict) or is_nil(strict), do: :ok
   defp validate_strict(_strict), do: {:error, "agent.skills.strict must be true or false"}
 
-  defp validate_dimensions(raw) do
+  defp validate_dimensions(prefix, raw) do
     raw
     |> Enum.map(fn {key, value} -> {normalize_key(key), value} end)
     |> Enum.reject(fn {key, _value} -> key not in @dimensions end)
     |> Enum.reduce_while(:ok, fn {dimension, value}, :ok ->
-      case validate_entries(dimension, value) do
+      case validate_entries("#{prefix}.#{dimension}", dimension, value) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)
   end
 
-  defp validate_entries(dimension, %{} = entries) do
+  defp validate_entries(path, dimension, %{} = entries) do
     entries
     |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
     |> Enum.reduce_while(:ok, fn {key, skills}, :ok ->
-      with :ok <- validate_key(dimension, key),
-           :ok <- validate_skills(dimension, key, skills) do
+      with :ok <- validate_key(path, dimension, key),
+           :ok <- validate_skills(path, key, skills) do
         {:cont, :ok}
       else
         error -> {:halt, error}
@@ -246,27 +281,27 @@ defmodule Aiur.Config.SkillsMapping do
     end)
   end
 
-  defp validate_entries(dimension, _value), do: {:error, "agent.skills.#{dimension} must be a map"}
+  defp validate_entries(path, _dimension, _value), do: {:error, "#{path} must be a map"}
 
-  defp validate_key("by_complexity", key) when is_integer(key) and key > 0, do: :ok
-  defp validate_key("by_complexity", _key), do: {:error, "agent.skills.by_complexity keys must be positive complexity levels"}
+  defp validate_key(_path, "by_complexity", key) when is_integer(key) and key > 0, do: :ok
+  defp validate_key(path, "by_complexity", _key), do: {:error, "#{path} keys must be positive complexity levels"}
 
-  defp validate_key(_dimension, key) when is_binary(key) and key != "", do: :ok
-  defp validate_key(dimension, _key), do: {:error, "agent.skills.#{dimension} keys must be non-empty names"}
+  defp validate_key(_path, _dimension, key) when is_binary(key) and key != "", do: :ok
+  defp validate_key(path, _dimension, _key), do: {:error, "#{path} keys must be non-empty names"}
 
-  defp validate_skills(_dimension, _key, skill) when is_binary(skill) do
+  defp validate_skills(_path, _key, skill) when is_binary(skill) do
     if valid_skill_name?(skill), do: :ok, else: {:error, "agent.skills names invalid skills #{skill}; use skill directory names"}
   end
 
-  defp validate_skills(dimension, key, skills) when is_list(skills) and skills != [] do
+  defp validate_skills(path, key, skills) when is_list(skills) and skills != [] do
     case Enum.reject(skills, &valid_skill_name?/1) do
       [] -> :ok
-      bad -> {:error, "agent.skills.#{dimension}.#{key} names invalid skills #{Enum.join(bad, ", ")}; use skill directory names"}
+      bad -> {:error, "#{path}.#{key} names invalid skills #{Enum.join(bad, ", ")}; use skill directory names"}
     end
   end
 
-  defp validate_skills(dimension, key, _skills),
-    do: {:error, "agent.skills.#{dimension}.#{key} must be a skill name or a non-empty list of skill names"}
+  defp validate_skills(path, key, _skills),
+    do: {:error, "#{path}.#{key} must be a skill name or a non-empty list of skill names"}
 
   defp valid_skill_name?(skill), do: is_binary(skill) and Regex.match?(@skill_name_pattern, skill)
 
@@ -304,4 +339,8 @@ defmodule Aiur.Config.SkillsMapping do
   # @config-reference config-configuration-agent-00 agent.skills.by_complexity
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-detail agent.skills.by_complexity | map | `%{}` | Complexity level to skill names. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.recommended
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.recommended | map | `%{}` | The same five `by_*` maps, for skills that fit the ticket but are not inlined: the worker sees each one's name, description and path, and loads it on demand. Never counts against `preload_max_bytes`. See [recommended skills](/skills#recommended-skills). |
 end

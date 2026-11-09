@@ -51,8 +51,9 @@ defmodule Aiur.AgentRunner.SkillGate do
   end
 
   defp problems(%Preload{} = preload) do
+    # A recommended skill is never mandatory, so its absence neither warns nor blocks here.
     missing =
-      case preload.missing do
+      case Enum.reject(preload.missing, &String.starts_with?(&1.reason, "recommended, ")) do
         [] -> []
         skills -> ["not installed: " <> Enum.map_join(skills, ", ", &"#{&1.name} (#{&1.reason})")]
       end

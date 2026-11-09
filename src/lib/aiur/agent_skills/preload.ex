@@ -33,6 +33,7 @@ defmodule Aiur.AgentSkills.Preload do
 
   require Logger
 
+  alias Aiur.AgentSkills.Preload.Prompt
   alias Aiur.AgentSkills.Registry
   alias Aiur.BuildOrder.Features
   alias Aiur.Config.SkillsMapping
@@ -59,10 +60,11 @@ defmodule Aiur.AgentSkills.Preload do
           }
   end
 
-  defstruct mapped: [], missing: [], index: [], lanes: [], bytes: 0, max_bytes: nil, configured?: false, strict?: false
+  defstruct mapped: [], recommended: [], missing: [], index: [], lanes: [], bytes: 0, max_bytes: nil, configured?: false, strict?: false
 
   @type t :: %__MODULE__{
           mapped: [Skill.t()],
+          recommended: [Skill.t()],
           missing: [Skill.t()],
           index: [%{name: String.t(), description: String.t() | nil}],
           lanes: [String.t()],
@@ -101,13 +103,15 @@ defmodule Aiur.AgentSkills.Preload do
     requests = requests(mapping, issue, lanes, feature, epic)
     max_bytes = SkillsMapping.max_bytes(mapping)
     mapped = installed_requests(requests, installed)
-    missing = missing(requests, installed)
+    recommended_requests = recommended_requests(mapping, issue, lanes, feature, epic, requests)
+    missing = missing(requests, installed) ++ missing(recommended_requests, installed, "recommended, ")
     warn_missing(issue, missing)
 
     %__MODULE__{
       mapped: mapped,
+      recommended: recommended(recommended_requests, installed, workspace),
       missing: missing,
-      index: index_entries(installed, requests),
+      index: index_entries(installed, requests ++ recommended_requests),
       lanes: lanes,
       bytes: Enum.sum_by(mapped, & &1.bytes),
       max_bytes: max_bytes,
@@ -116,39 +120,13 @@ defmodule Aiur.AgentSkills.Preload do
     }
   end
 
-  @doc """
-  The prompt block, or `""` when the workspace has no readable skills.
-
-  Mapped skills come first with their full `SKILL.md` text, then every other
-  installed skill as a one-line index, then anything mapped but not installed.
-  """
+  @doc "The prompt block, or `\"\"` when the workspace has no readable skills. See `Preload.Prompt`."
   @spec prompt_block(t()) :: String.t()
-  def prompt_block(%__MODULE__{} = preload) do
-    if preload.mapped == [] and preload.index == [] and preload.missing == [] do
-      ""
-    else
-      [heading(), mapped_section(preload), index_section(preload), missing_section(preload)]
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
-      |> Kernel.<>("\n")
-    end
-  end
+  defdelegate prompt_block(preload), to: Prompt
 
-  @doc """
-  A short pointer to the mapped skills for a resumed session, or `""` when none
-  are mapped. The thread may have lost the inlined text to compaction, so this
-  names each skill, its reason and its `SKILL.md` path instead of repeating it.
-  """
+  @doc "A short pointer to the mapped skills for a resumed session, or `\"\"` when none are mapped."
   @spec pointer_block(t()) :: String.t()
-  def pointer_block(%__MODULE__{mapped: []}), do: ""
-
-  def pointer_block(%__MODULE__{} = preload) do
-    entries = Enum.map_join(preload.mapped, "\n", &"- `#{&1.name}` (#{&1.reason}) — `#{&1.path}`")
-
-    "## Skills for this ticket (pointer)\n\n" <>
-      "These skills are mapped to this ticket. If their instructions are no longer in your context, re-read each `SKILL.md` before continuing.\n\n" <>
-      entries <> "\n\n"
-  end
+  defdelegate pointer_block(preload), to: Prompt
 
   @doc "One-line summary naming each mapped skill and its reason."
   @spec summary(t()) :: String.t()
@@ -160,6 +138,7 @@ defmodule Aiur.AgentSkills.Preload do
       end
 
     base
+    |> append_when(preload.recommended, "recommended: ")
     |> append_when(preload.missing, "missing: ")
     |> append_over_budget(preload)
   end
@@ -179,6 +158,7 @@ defmodule Aiur.AgentSkills.Preload do
       skill_reasons: Map.new(preload.mapped, &{&1.name, &1.reason}),
       skills_missing: names(preload.missing),
       skill_reasons_missing: Map.new(preload.missing, &{&1.name, &1.reason}),
+      skills_recommended: names(preload.recommended),
       skills_bytes: preload.bytes,
       skills_max_bytes: preload.max_bytes,
       skills_over_budget: over_budget?(preload),
@@ -190,47 +170,6 @@ defmodule Aiur.AgentSkills.Preload do
   @doc "Whether any skill resolved for the ticket, from config or an override."
   @spec mapped?(t()) :: boolean()
   def mapped?(%__MODULE__{mapped: mapped}), do: mapped != []
-
-  defp heading do
-    """
-    ## Skills for this ticket
-
-    Load the mapped skills first: they fit this ticket's work, and their instructions are
-    inlined below so you can start without opening a file. Every other installed skill is
-    listed after them as a name and description you can load on demand.\
-    """
-  end
-
-  defp mapped_section(%__MODULE__{mapped: []}), do: ""
-
-  defp mapped_section(%__MODULE__{mapped: mapped}) do
-    entries = Enum.map_join(mapped, "\n\n", &mapped_entry/1)
-    "### Mapped skills (load first)\n\n" <> entries
-  end
-
-  defp mapped_entry(%Skill{} = skill) do
-    ["#### `", skill.name, "` — mapped by ", skill.reason, "\n\n", String.trim(skill.text || "")]
-    |> IO.iodata_to_binary()
-  end
-
-  defp index_section(%__MODULE__{index: []}), do: ""
-
-  defp index_section(%__MODULE__{index: index}) do
-    entries = Enum.map_join(index, "\n", &"- `#{&1.name}` — #{index_description(&1.description)}")
-
-    "### Other installed skills (load on demand)\n\n" <> entries
-  end
-
-  defp missing_section(%__MODULE__{missing: []}), do: ""
-
-  defp missing_section(%__MODULE__{missing: missing}) do
-    entries = Enum.map_join(missing, "\n", &"- `#{&1.name}` (#{&1.reason})")
-
-    "### Mapped skills not installed here\n\n" <>
-      "These names are mapped to this ticket but have no `SKILL.md` in this workspace, so they\n" <>
-      "are not inlined. Do not stall on them: record the gap in your workpad and carry on with\n" <>
-      "the skills above.\n\n" <> entries
-  end
 
   # --- resolution -----------------------------------------------------------
 
@@ -364,9 +303,39 @@ defmodule Aiur.AgentSkills.Preload do
     end
   end
 
-  defp missing(requests, installed) do
-    for {name, reason} <- requests, not Map.has_key?(installed, name), do: %Skill{name: name, reason: reason}
+  defp missing(requests, installed, reason_prefix \\ "") do
+    for {name, reason} <- requests, not Map.has_key?(installed, name), do: %Skill{name: name, reason: reason_prefix <> reason}
   end
+
+  # The recommended tier resolves through the same configured dimensions, minus
+  # any skill already mapped (mandatory wins). `Skills only:` replaces it too.
+  defp recommended_requests(mapping, issue, lanes, feature, epic, requests) do
+    mapped = MapSet.new(requests, &elem(&1, 0))
+
+    case body_skills(issue, "Skills only:") do
+      [] ->
+        mapping
+        |> SkillsMapping.recommended()
+        |> configured_requests(issue, lanes, feature, epic)
+        |> dedupe()
+        |> Enum.reject(fn {name, _reason} -> MapSet.member?(mapped, name) end)
+
+      _only ->
+        []
+    end
+  end
+
+  # Never inlined, so no text and no bytes: a recommended skill cannot spend
+  # the `preload_max_bytes` budget.
+  defp recommended(requests, installed, workspace) do
+    for {name, reason} <- requests, Map.has_key?(installed, name) do
+      skill = Map.fetch!(installed, name)
+      %Skill{name: name, reason: reason, description: skill.description, path: relative_path(skill.path, workspace)}
+    end
+  end
+
+  defp relative_path(path, workspace) when is_binary(path) and is_binary(workspace), do: Path.relative_to(path, workspace)
+  defp relative_path(path, _workspace), do: path
 
   defp index_entries(installed, requests) do
     requested = MapSet.new(requests, &elem(&1, 0))
@@ -401,8 +370,6 @@ defmodule Aiur.AgentSkills.Preload do
   @doc false
   @spec description(String.t()) :: String.t() | nil
   defdelegate description(text), to: Registry
-
-  defp index_description(description), do: Registry.index_description(description)
 
   defp names(skills), do: Enum.map(skills, & &1.name)
 
@@ -452,7 +419,9 @@ defmodule Aiur.AgentSkills.Preload do
   # registry timeout or an unreadable epic file means "no epic reason", never a
   # failed dispatch.
   defp epic_slug(feature, mapping, opts) when is_binary(feature) and feature != "" do
-    if SkillsMapping.dimension_configured?(mapping, "by_epic"), do: epic_from_registry(feature, opts)
+    if SkillsMapping.dimension_configured?(mapping, "by_epic") or
+         SkillsMapping.dimension_configured?(SkillsMapping.recommended(mapping), "by_epic"),
+       do: epic_from_registry(feature, opts)
   end
 
   defp epic_slug(_feature, _mapping, _opts), do: nil

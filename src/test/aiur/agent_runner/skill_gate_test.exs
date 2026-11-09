@@ -56,6 +56,11 @@ defmodule Aiur.AgentRunner.SkillGateTest do
     end
   end
 
+  test "a recommended skill with no SKILL.md neither blocks nor alerts under strict mode", %{workspace: workspace} do
+    assert :ok = check(workspace, %{"strict" => true, "recommended" => %{"by_lane" => %{"art" => ["ghost-skill"]}}})
+    refute_received {:alert, _, _}
+  end
+
   test "a remote worker host is not gated, since skills are read from the local filesystem", %{workspace: workspace} do
     parent = self()
     mapping = SkillsMapping.normalize(%{"strict" => true, "by_lane" => %{"art" => ["ghost-skill"]}})
