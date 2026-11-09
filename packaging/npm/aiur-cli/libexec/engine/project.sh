@@ -21,13 +21,11 @@ aiur_cwd_repo() {
   return 0
 }
 
-# Prints `opts` joined with the project keywords: explicit `project:`, else (local only) the cwd `project_hint:`.
+# Prints `opts` joined with the project keywords: explicit `project:` only; without --project the wire form is unchanged.
 aiur_project_join() {
-  local opts="$1" kw="" hint
+  local opts="$1" kw=""
   if [ -n "${AIUR_PROJECT:-}" ]; then
     kw="project: Base.decode64!(\"$(aiur_b64 "$AIUR_PROJECT")\")"
-  elif [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && hint="$(aiur_cwd_repo)" && [ -n "$hint" ]; then
-    kw="project_hint: Base.decode64!(\"$(aiur_b64 "$hint")\")"
   fi
   printf '%s' "${opts}${opts:+${kw:+, }}${kw}"
 }
@@ -35,6 +33,8 @@ aiur_project_join() {
 # A local call carrying project keywords goes through ControlCall so it resolves like a remote one.
 aiur_project_local_expr() {
   case "$1" in
+    # config explain names a project as data, not as a command target.
+    Aiur.ControlCLI.ConfigExplain.*) printf '%s' "$1" ;;
     *"project: Base.decode64!("* | *"project_hint: Base.decode64!("*)
       printf 'Aiur.ControlCall.Project.run_local(Base.decode64!("%s"))' "$(aiur_b64 "$1")" ;;
     *) printf '%s' "$1" ;;

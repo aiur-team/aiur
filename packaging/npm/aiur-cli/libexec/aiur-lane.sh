@@ -1,4 +1,5 @@
 # Shared launcher lane command parser. Sourced by aiur-engine.sh.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 # `aiur lane` is the canonical spelling; `aiur epic set|clear|confirm` parses
 # through the same function and prints a deprecation line naming `aiur lane`.
 cmd_lane() {

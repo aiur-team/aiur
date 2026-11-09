@@ -149,8 +149,7 @@ A contract version 1 daemon ignores `request_id`. Audit lines carry `request_id`
 
 When `--project` is omitted:
 
-- **Local**: the project is the repository of the current directory when this gateway runs it; otherwise the gateway's only project.
-- **Remote**: the gateway's only project.
+- **Local and remote**: the gateway's only project; the command is sent exactly as it was before `--project` existed.
 - **Several projects and no match**: exit 64 `pick a project: o/a, o/b`; nothing runs.
 
 A single-project gateway ignores a matching `--project` and refuses another one (exit 64 `unknown project 'o/z'; this gateway has: o/a`). `--project` cannot be combined with `--instance all` or `--gateway all`, and must look like `owner/repo`.

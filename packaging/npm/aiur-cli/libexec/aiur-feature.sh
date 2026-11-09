@@ -1,4 +1,5 @@
 # Shared launcher feature parser. Text enters the RPC only through base64.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 feature_usage_error() { echo "aiur: $*" >&2; exit 64; }
 feature_rpc_string() { printf 'Base.decode64!("%s")' "$(encode_control_value "$1")"; }
 

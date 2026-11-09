@@ -1,4 +1,5 @@
 # Queue commands shared by the installed CLI and aiurdev.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 queue_usage_error() { echo "aiur: queue $*" >&2; exit 64; }
 queue_string() { printf 'Base.decode64!("%s")' "$(printf '%s' "$1" | base64 | tr -d '\n')"; }
 queue_workspace_guard() {
