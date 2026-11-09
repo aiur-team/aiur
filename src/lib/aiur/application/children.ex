@@ -345,7 +345,7 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_backfill, opts) ++
         List.wrap(
           if(recording?,
-            do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest]
+            do: [Aiur.Executor.Session, Aiur.Executor.SessionIngest, {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one}, Aiur.Executor.TranscriptIngest, Aiur.Commands.Deferred]
           )
         )
     )
@@ -424,7 +424,7 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   defp recording_children(true),
-    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener, Aiur.Commands.Deferred]
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
 
   defp recording_children(false), do: []
 
