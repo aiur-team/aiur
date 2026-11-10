@@ -118,9 +118,8 @@ The ladder is computed from the Command's age, so a restart continues it. `aiur
 status` prints `DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket,
 gates M)`; the sorted IDs identify the exact Commands included in the count.
 
-That line counts the same Commands as `aiur command --filter open`, including
-unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
-is older than 15 minutes.
+That line counts the same Commands as `aiur command --filter open`, including unanswered
+expired blocking Commands. It is marked `ATTENTION` when the oldest is older than 15 minutes.
 
 Deferred Commands stay on the dashboard and in its Blocking count until they are answered or retired. Their cards show the age of the outstanding Command; **Details** shows the deferred lifecycle.
 
@@ -128,30 +127,35 @@ Deferred Commands stay on the dashboard and in its Blocking count until they are
 
 ## Who is asked
 
-With `decisions.escalation.enabled` (default `true`), Commands use the live
-Executor roster to choose the first responder (a live Executor is active or idle).
+With `decisions.escalation.enabled` (default `true`), Commands use the live Executor roster to choose the first responder (a live Executor is active or idle).
 
 | Command and roster | First responder | Dashboard routing label (card **Details**) |
 | --- | --- | --- |
 | Worker question the live Executor may answer | Executor | With Executor |
+| Worker question with `audience: executor`, any roster | Executor only; never a creator inbox | With Executor |
+| Worker question with `audience: creator`, live Executor | You and the Executor | Needs you and Executor |
 | Human-required worker question, live Executor | You and the Executor; only you may answer | Needs you and Executor |
 | Worker question, Executor offline or stalled | You | Needs you |
 | Worker question outside the live Executor's answer authority | You | Needs you |
 | Executor's own question | You | From Executor |
 
-**Needs you** filters outstanding Commands routed to you, including those shared
-with the Executor. Cards retain the time they first needed you. **With Executor**
-and **From Executor** distinguish delegated questions from the Executor's own asks.
+**Needs you** filters outstanding Commands routed to you, including those shared with the
+Executor. Cards retain the time they first needed you. **With Executor** and **From
+Executor** distinguish delegated questions from the Executor's own asks. Workers set
+`audience` on `decision.requested`; omitted, routing follows authority.
 
 ## When a Command becomes yours
 
-An Executor-only Command moves to you when the Executor explicitly escalates it,
-goes offline, stalls, or misses a deadline.
+A worker's `audience: executor` Command never moves: it stays out of creator inboxes (host app,
+phone, watch), and with no live Executor it waits and raises one `system.commands.executor_only_waiting` alert.
+
+An Executor-only Command moves to you when the Executor explicitly escalates it, goes offline, stalls, or misses a deadline.
 
 | Recorded cause | Meaning |
 | --- | --- |
 | `executor_originated` | The Executor asked you. |
 | `authority_human_required` | Only a human may answer. |
+| `audience_creator` | The worker addressed the creator. |
 | `executor_not_answerable` | The Executor's authority does not cover this question. |
 | `executor_offline` | No live or stalled Executor remains in the roster. |
 | `executor_stalled` | The roster has no active or idle Executor, or its lookup failed. |
@@ -159,17 +163,14 @@ goes offline, stalls, or misses a deadline.
 | `executor_ack_timeout` | The Executor did not acknowledge in time. |
 | `executor_answer_timeout` | The Executor did not answer in time. |
 
-By default, acknowledgement is due five minutes after routing and an answer is
-due fifteen minutes after routing. Acknowledging stops only the first deadline;
-it does not restart the answer clock. High- or critical-urgency blocking Commands
-halve both deadlines (2½ and 7½ minutes).
+By default, acknowledgement is due five minutes after routing and an answer fifteen minutes
+after routing. Acknowledging stops only the first deadline; it does not restart the answer
+clock. High- or critical-urgency blocking Commands halve both deadlines (2½ and 7½ minutes).
 
-Offline or stalled Executors trigger
-escalation at the next sweep, within 30 seconds.
+Offline or stalled Executors trigger escalation at the next sweep, within 30 seconds.
 
-Configure `decisions.escalation.executor_ack_ms`,
-`decisions.escalation.executor_answer_ms` and `decisions.escalation.urgent_factor`
-in the [decisions configuration](/reference/configuration-daemon#decisions).
+Configure `decisions.escalation.executor_ack_ms`, `decisions.escalation.executor_answer_ms` and
+`decisions.escalation.urgent_factor` in the [decisions configuration](/reference/configuration-daemon#decisions).
 Disabling `decisions.escalation.enabled` stops routing writes.
 
 Deadlines and first human visibility survive restarts. Routing never re-asks:

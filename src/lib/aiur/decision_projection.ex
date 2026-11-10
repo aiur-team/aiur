@@ -247,6 +247,7 @@ defmodule Aiur.DecisionProjection do
       :urgency,
       :blocking,
       :reversibility,
+      :audience,
       :question,
       :created_at,
       :source_created_at,
@@ -328,6 +329,7 @@ defmodule Aiur.DecisionProjection do
     |> then(fn raw -> if decision.overrides == [], do: raw, else: Map.put(raw, "overrides", Overrides.public(decision)) end)
     |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
     |> Media.put_snapshot_media(decision.media)
+    |> then(fn raw -> if decision.audience, do: Map.put(raw, "audience", Atom.to_string(decision.audience)), else: raw end)
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)
   end
@@ -345,6 +347,7 @@ defmodule Aiur.DecisionProjection do
       "urgency",
       "blocking",
       "reversibility",
+      "audience",
       "question",
       "context",
       "options",

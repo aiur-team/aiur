@@ -111,6 +111,19 @@ rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
 about the specific boundary; the category alone is not a rationale. Legacy
 attention projections remain human-required without this worker-supplied field.
 
+**Name the audience when you know it.** The app's creator answers product
+questions; engineering and operations questions belong to the Executor.
+
+- `audience: "executor"`: an engineering or operations question the creator
+  cannot answer (an index choice, a flaky check, a rebase target). It never
+  appears in a creator inbox (app, phone, watch) and never escalates to the
+  creator on a deadline. With no live Executor it waits and alerts the operator;
+  the Executor dashboard and CLI still show it. It cannot be combined with
+  `authority: human_required`.
+- `audience: "creator"`: a question only the creator can answer. It appears in
+  creator inboxes at once, even when the Executor could also answer it.
+- Omit it to keep routing by `authority`.
+
 An Executor may reclassify an open historical Command only when it has no
 human-only basis. Product, spend, publication, or security decisions and legacy
 attentions remain human-only. Reclassification increments the version; answer

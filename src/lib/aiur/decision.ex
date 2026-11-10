@@ -24,6 +24,8 @@ defmodule Aiur.Decision do
     * `urgency` — `:low | :normal | :high | :critical`.
     * `blocking` — boolean.
     * `reversibility` — `:reversible | :irreversible | :partially_reversible`.
+    * `audience` — `:creator | :executor`, or `nil` to derive routing from
+      `authority`. `:executor` never reaches a creator inbox; `:creator` does at once.
     * `question` — the exact question text.
     * `context` — `%{short_summary, long_context_markdown}`.
     * `options` — list of `%{id, label, description, benefits, drawbacks, risk}`.
@@ -59,6 +61,7 @@ defmodule Aiur.Decision do
   @type authority :: :human_required | :supervisor_allowed | :supervisor_preferred
   @type urgency :: :low | :normal | :high | :critical
   @type reversibility :: :reversible | :irreversible | :partially_reversible
+  @type audience :: :creator | :executor
 
   @type option :: %{
           id: String.t(),
@@ -128,6 +131,7 @@ defmodule Aiur.Decision do
           urgency: urgency(),
           blocking: boolean(),
           reversibility: reversibility(),
+          audience: audience() | nil,
           question: String.t(),
           context: %{short_summary: String.t() | nil, long_context_markdown: String.t() | nil},
           options: [option()],
@@ -196,6 +200,7 @@ defmodule Aiur.Decision do
               [
                 schema_version: @schema_version,
                 source_id: nil,
+                audience: nil,
                 media: [],
                 kind: nil,
                 recommendation: nil,
@@ -240,6 +245,7 @@ defmodule Aiur.Decision do
   @authorities [:human_required, :supervisor_allowed, :supervisor_preferred]
   @urgencies [:low, :normal, :high, :critical]
   @reversibilities [:reversible, :irreversible, :partially_reversible]
+  @audiences [:creator, :executor]
 
   @doc "Current schema version new Decisions are stamped with."
   @spec schema_version() :: pos_integer()
@@ -253,6 +259,9 @@ defmodule Aiur.Decision do
 
   @spec reversibilities() :: [reversibility()]
   def reversibilities, do: @reversibilities
+
+  @spec audiences() :: [audience()]
+  def audiences, do: @audiences
 
   @doc "Returns the immutable answer for the currently active action."
   @spec active_answer(t()) :: Aiur.DecisionAnswer.t() | nil
