@@ -120,6 +120,7 @@ Unknown values stay explicit, and degraded section headings show their source st
 Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
 dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
 otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
+
 Build home intentionally renders two surfaces: Build order is a static review of the published plan,
 while Timeline, Gantt and List stay on the interactive board (scrolling, the Now band, dependency
 chains and time range), which the package does not provide.
