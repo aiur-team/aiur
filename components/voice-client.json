@@ -1,0 +1,34 @@
+{
+  "id": "voice-client",
+  "name": "Voice TypeScript client",
+  "layer": 5,
+  "kind": "client",
+  "paths": [
+    "packages/voice-client/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "aiur-contracts"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Connects browser and Node applications to a VoiceConverse session through the public wire contract.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}
