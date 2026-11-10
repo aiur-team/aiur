@@ -18,6 +18,7 @@ defmodule Aiur.Config.Schema do
     Attrs,
     BuildOrder,
     BuildQueue,
+    Capacity,
     Codex,
     Compaction,
     Dashboard,
@@ -125,6 +126,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:toolchain, Toolchain, on_replace: :update, defaults_to_struct: true)
     embeds_one(:usage, Usage, on_replace: :update, defaults_to_struct: true)
     embeds_one(:netlify, Netlify, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:capacity, Capacity, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
   end
@@ -269,6 +271,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:toolchain, with: &Toolchain.changeset/2)
     |> cast_embed(:usage, with: &Usage.changeset/2)
     |> cast_embed(:netlify, with: &Netlify.changeset/2)
+    |> cast_embed(:capacity, with: &Capacity.changeset/2)
   end
 
   # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric
