@@ -140,7 +140,8 @@ with spent retry latches have no live agent and are left out of Now.
 
 In List view, a Now row's agent cell ends with the capacity policy's reason for
 its source, the same text `aiur agents` prints, for example
-`codex/default (preferred; 62% left, 40s old)`.
+`codex/default (preferred; 62% left at dispatch, reading 40s old)`. The
+reading is the one taken when the ticket was dispatched.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 

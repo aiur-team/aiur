@@ -19,7 +19,7 @@ defmodule Aiur.CodingAgent.CapacityReasonTextTest do
       "candidates" => [%{"route" => "codex", "account" => "default", "verdict" => "allow", "reading" => %{"remaining_percent" => 62, "age_s" => 40}}]
     }
 
-    assert CapacityReasonText.chosen(record) == "codex/default (preferred; 62% left, 40s old)"
+    assert CapacityReasonText.chosen(record) == "codex/default (preferred; 62% left at dispatch, reading 40s old)"
     assert CapacityReasonText.waiting(record) == nil
   end
 
@@ -30,7 +30,7 @@ defmodule Aiur.CodingAgent.CapacityReasonTextTest do
     }
 
     text = CapacityReasonText.chosen(record)
-    assert text == "claude/max (only allowed source; usage unknown, 15m old)"
+    assert text == "claude/max (only allowed source; usage unknown at dispatch, reading 15m old)"
     refute text =~ ~r/\d+%/
   end
 
@@ -62,7 +62,7 @@ defmodule Aiur.CodingAgent.CapacityReasonTextTest do
 
     assert CapacityReasonText.waiting(record) ==
              "waiting: no authorized source: claude/default Executor reserve (projected 27% <= reserve 30%); " <>
-               "codex/default usage unknown (usage unknown, never read); openrouter daily spend limit reached"
+               "codex/default usage unknown (age unknown); openrouter daily spend limit reached"
   end
 
   test "a headroom row's flat reading renders, and unknown stays unknown" do
@@ -74,8 +74,8 @@ defmodule Aiur.CodingAgent.CapacityReasonTextTest do
       ]
     }
 
-    assert CapacityReasonText.chosen(record) == "codex (preferred; 62% left, 40s old)"
-    assert CapacityReasonText.chosen(%{record | chosen: %{route: "claude", account: "max", reason: :preferred}}) == "claude/max (preferred; usage unknown, 60m old)"
+    assert CapacityReasonText.chosen(record) == "codex (preferred; 62% left at dispatch, reading 40s old)"
+    assert CapacityReasonText.chosen(%{record | chosen: %{route: "claude", account: "max", reason: :preferred}}) == "claude/max (preferred; usage unknown at dispatch, reading 60m old)"
   end
 
   test "a limited candidate counts as held although its verdict is allow" do
@@ -87,6 +87,23 @@ defmodule Aiur.CodingAgent.CapacityReasonTextTest do
     }
 
     assert CapacityReasonText.waiting(record) == "waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve"
+  end
+
+  test "a limited source renders exhausted, not unknown" do
+    record = %{candidates: [%{route: "codex", account: nil, verdict: :allow, reason: :limited, status: :exhausted, remaining_percent: nil, age_seconds: nil}]}
+
+    assert CapacityReasonText.waiting(record) == "waiting: no authorized source: codex limited (exhausted, age unknown)"
+  end
+
+  test "a reading with no observation time is stale with an unknown age, not never read" do
+    record = %{
+      chosen: %{route: "claude", account: nil, reason: :preferred},
+      candidates: [%{route: "claude", account: nil, verdict: :allow, status: :unknown, remaining_percent: nil, age_seconds: nil, stale: true}]
+    }
+
+    text = CapacityReasonText.chosen(record)
+    assert text == "claude (preferred; usage unknown at dispatch, stale, age unknown)"
+    refute text =~ "never read"
   end
 
   test "no record renders nothing" do

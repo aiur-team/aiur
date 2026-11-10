@@ -87,9 +87,9 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 The bracketed suffix in `aiur agents` and `aiur status` also gives the capacity policy's reason, and `aiur units` adds it to each Unit line:
 
-- A running row names its source, why it was chosen and its reading: `codex/default (preferred; 62% left, 40s old)`. Reasons are `preferred`, `only allowed source`, `last resort` and `pinned`; a `last resort` choice also lists why each other source was passed over.
+- A running row names its source, why it was chosen and the reading taken at dispatch: `codex/default (preferred; 62% left at dispatch, reading 40s old)`. The age is the reading's age at dispatch, not now. Reasons are `preferred`, `only allowed source`, `last resort` and `pinned`; a `last resort` choice also lists why each other source was passed over.
 - When the policy allows no source, a queued row reads `waiting: no authorized source:` with one clause per source, such as `codex limited; claude/default Executor reserve (reading 25% left, reserve 30%)`.
-- A reading with no value reads `usage unknown` with its age, or `never read`. It never shows a percentage.
+- A reading with no value reads `usage unknown`, and a limited source reads `exhausted`; neither shows a percentage. A stale reading adds `stale`, and one with no observation time reads `age unknown`.
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 

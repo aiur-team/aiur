@@ -8,8 +8,10 @@ defmodule Aiur.CodingAgent.CapacityReasonText do
   Accepts atom or string keys, so a record read back from the agent event
   stream renders the same as the live one. A candidate's reading is either a
   `reading` map (`remaining_percent`, `age_s`) or the flat `remaining_percent`
-  and `age_seconds` of a headroom row. An unknown reading always renders as
-  `unknown` with its age, never as a number. A `limited` candidate keeps
+  and `age_seconds` of a headroom row. An unknown reading renders as `usage
+  unknown`, never as a number; an exhausted one (a limited source) as
+  `exhausted`; one with no observation time as `age unknown`. A chosen
+  source's reading is the one taken at dispatch, and says so. A `limited` candidate keeps
   verdict `allow` in the record but cannot take work, so it counts as held.
   """
 
@@ -38,15 +40,15 @@ defmodule Aiur.CodingAgent.CapacityReasonText do
   def reason(code), do: Map.get(@reasons, to_string(code), to_string(code))
 
   @doc """
-  `codex/default (preferred; 62% left, 40s old)` for the chosen candidate, with
+  `codex/default (preferred; 62% left at dispatch, reading 40s old)` for the chosen candidate, with
   the held sources after a `last_resort_used` choice, or `nil` without a choice.
   """
   @spec chosen(map() | nil) :: String.t() | nil
   def chosen(%{} = record) do
     case get(record, :chosen) do
       %{} = chosen ->
-        reading = record |> candidates() |> Enum.find(&same_source?(&1, chosen)) |> reading()
-        held = if to_string(get(chosen, :reason)) == "last_resort_used", do: held_clauses(record), else: []
+        reading = record |> candidates() |> Enum.find(&same_source?(&1, chosen)) |> reading(true)
+        held = if to_string(get(chosen, :reason)) == "last_resort_used", do: held_clauses(record, true), else: []
         details = Enum.reject([reason(get(chosen, :reason)), reading | held], &is_nil/1)
         "#{source(chosen)} (#{Enum.join(details, "; ")})"
 
@@ -71,36 +73,50 @@ defmodule Aiur.CodingAgent.CapacityReasonText do
 
   def waiting(_record), do: nil
 
-  defp held_clauses(record) do
+  defp held_clauses(record, at_dispatch? \\ false) do
     record
     |> candidates()
     |> Enum.filter(&held?/1)
-    |> Enum.map(&clause/1)
+    |> Enum.map(&clause(&1, at_dispatch?))
   end
 
   defp held?(candidate), do: to_string(get(candidate, :verdict)) != "allow" or to_string(get(candidate, :reason)) == "limited"
 
-  defp clause(candidate) do
+  defp clause(candidate, at_dispatch?) do
     detail = get(candidate, :detail)
-    details = Enum.reject([present(detail), reading(candidate)], &is_nil/1)
+    details = Enum.reject([present(detail), reading(candidate, at_dispatch?, get(candidate, :reason))], &(&1 in [nil, ""]))
     base = "#{source(candidate)} #{reason(get(candidate, :reason) || get(candidate, :verdict))}"
     if details == [], do: base, else: base <> " (" <> Enum.join(details, ", ") <> ")"
   end
 
-  defp reading(nil), do: nil
+  defp reading(candidate, at_dispatch?, reason \\ nil)
+  defp reading(nil, _at_dispatch?, _reason), do: nil
 
-  defp reading(candidate) do
-    case get(candidate, :reading) do
-      %{} = reading -> reading_text(get(reading, :remaining_percent), get(reading, :age_s))
-      _flat -> if has?(candidate, :remaining_percent), do: reading_text(get(candidate, :remaining_percent), get(candidate, :age_seconds))
+  defp reading(candidate, at_dispatch?, reason) do
+    {percent, age, stale?} =
+      case get(candidate, :reading) do
+        %{} = reading -> {get(reading, :remaining_percent), get(reading, :age_s), get(reading, :stale) == true}
+        _flat -> {get(candidate, :remaining_percent), get(candidate, :age_seconds), get(candidate, :stale) == true}
+      end
+
+    if is_map(get(candidate, :reading)) or has?(candidate, :remaining_percent) do
+      value = value_text(to_string(get(candidate, :status)), percent, to_string(reason))
+      value = value && if(at_dispatch?, do: value <> " at dispatch", else: value)
+      age = age_text(age, if(at_dispatch?, do: "reading ", else: ""))
+      Enum.join(Enum.reject([value, stale? && "stale", age], &(&1 in [nil, false])), ", ")
     end
   end
 
-  defp reading_text(percent, age) when is_number(percent), do: "#{round(percent)}% left" <> age_text(age)
-  defp reading_text(_unknown, age), do: "usage unknown" <> age_text(age)
+  # A limited source scores exhausted with no percent; that is a known cause, not an unknown reading.
+  defp value_text("exhausted", percent, _reason) when not is_number(percent), do: "exhausted"
+  defp value_text(_status, percent, _reason) when is_number(percent), do: "#{round(percent)}% left"
+  # The clause already says `usage unknown`.
+  defp value_text(_status, _unknown, "reading_unknown"), do: nil
+  defp value_text(_status, _unknown, _reason), do: "usage unknown"
 
-  defp age_text(seconds) when is_integer(seconds) and seconds >= 0, do: ", " <> elapsed(seconds) <> " old"
-  defp age_text(_none), do: ", never read"
+  # No age means the reading has no observation time, not that it was never read.
+  defp age_text(seconds, prefix) when is_integer(seconds) and seconds >= 0, do: prefix <> elapsed(seconds) <> " old"
+  defp age_text(_none, _prefix), do: "age unknown"
 
   defp elapsed(seconds) when seconds < 120, do: "#{seconds}s"
   defp elapsed(seconds) when seconds < 7200, do: "#{div(seconds, 60)}m"

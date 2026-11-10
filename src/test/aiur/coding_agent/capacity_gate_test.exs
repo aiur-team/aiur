@@ -214,7 +214,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
       assert text =~ ~r/^openrouter \(last resort; /
       assert text =~ "claude/default Executor reserve (reading 25% left, reserve 30%)"
-      assert text =~ "codex limited (usage unknown, never read)"
+      assert text =~ "codex limited (exhausted at dispatch, age unknown)"
     end
 
     test "the fleet hold record lists one clause per held source" do
