@@ -28,10 +28,12 @@ defmodule Aiur.CodingAgent.CapacityGate do
   require Logger
 
   alias Aiur.Accounts.{Headroom, UsageFloor}
-  alias Aiur.Capacity.{LedgerStore, Policy}
+  alias Aiur.Capacity.{Ledger, LedgerStore, PeriodSpend, Policy}
   alias Aiur.CodingAgent.{HeadroomDispatch, UsageFloorGate}
   alias Aiur.Config.CapacityPolicy
   alias Aiur.Machine.Settings
+  alias Aiur.Orchestrator.SpendCap.Runtime, as: SpendCapRuntime
+  alias Aiur.TrackerIdentity
 
   @typedoc "One candidate's verdict. `reason` is `nil` for an ordinary allowed candidate."
   @type entry :: %{candidate: map(), verdict: :allow | :hold | :defer, reason: atom() | nil, detail: String.t() | nil}
@@ -47,8 +49,8 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   Options: `:pinned`, `:capacity_policy` (the effective policy map),
   `:capacity_holds` (default: the open holds in the `:ledger_store`, see
-  `store/1`) and `:capacity_spend` (passed to the policy as `:holds` and
-  `:spend`), plus the floor options `UsageFloorGate.split_candidates/3` reads.
+  `store/1`) and `:capacity_spend` (default: `Aiur.Capacity.PeriodSpend.spend/2`
+  over `:usage_source`), passed to the policy as `:holds` and `:spend`, plus the floor options `UsageFloorGate.split_candidates/3` reads.
   """
   @spec evaluate([map()], map(), keyword()) :: result()
   def evaluate(candidates, readings, opts \\ []) when is_list(candidates) and is_map(readings) do
@@ -75,7 +77,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
       decidable
       |> Enum.reverse()
       |> Enum.map(fn {candidate, index} -> policy_candidate(candidate, index, readings) end)
-      |> Policy.decide(policy, holds: Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings, store(opts)) end), spend: Keyword.get(opts, :capacity_spend, %{}))
+      |> Policy.decide(policy, holds: Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings, store(opts)) end), spend: spend(policy, opts))
       |> Map.new(fn {input, verdict} -> {input.index, policy_entry(input, verdict, policy)} end)
 
     entries = Enum.map(indexed, fn {_candidate, index} -> Map.get(settled, index) || Map.fetch!(decided, index) end)
@@ -105,7 +107,51 @@ defmodule Aiur.CodingAgent.CapacityGate do
   Returns `:ok` or `{:hold, reason}`.
   """
   @spec claim(map(), keyword()) :: :ok | {:hold, atom()}
-  def claim(issue, opts \\ []), do: LedgerStore.claim(issue, server: store(opts), capacity_policy: Keyword.get_lazy(opts, :capacity_policy, &policy/0))
+  def claim(issue, opts \\ []) do
+    policy = Keyword.get_lazy(opts, :capacity_policy, &policy/0)
+    # A metered or prepaid hold reconciles each turn against the ticket's spend since the claim.
+    baseline = if PeriodSpend.billed?(policy, Map.get(issue, :selected_backend)), do: ticket_usd(issue, opts)
+    LedgerStore.claim(issue, server: store(opts), capacity_policy: policy, baseline_usd: baseline)
+  end
+
+  @doc """
+  A turn of `issue`'s agent on `backend` ended: its `:usd` hold's estimate
+  becomes the ticket's recorded spend since the previous turn end (#7958).
+  Subscription sources hold no USD and read nothing.
+  """
+  @spec turn_ended(map(), String.t(), keyword()) :: :ok
+  def turn_ended(issue, backend, opts \\ []) do
+    if PeriodSpend.billed?(Keyword.get_lazy(opts, :capacity_policy, &policy/0), backend),
+      do: LedgerStore.turn_ended(issue.id, ticket_usd(issue, opts), server: store(opts)),
+      else: :ok
+  end
+
+  @doc """
+  Whether a running agent on `backend` must start no new turn: the source is
+  past a hard USD limit (#7958). The ticket returns to the queue, where the
+  policy holds this source and dispatch picks the next allowed one.
+  """
+  @spec stop_new_turns?(String.t(), keyword()) :: boolean()
+  def stop_new_turns?(backend, opts \\ []) do
+    policy = Keyword.get_lazy(opts, :capacity_policy, &policy/0)
+    PeriodSpend.stop_new_turns?(backend, policy, spend(policy, opts))
+  end
+
+  defp spend(policy, opts), do: Keyword.get_lazy(opts, :capacity_spend, fn -> PeriodSpend.spend(policy, opts) end)
+
+  # The ticket's API-equivalent USD so far, or `:unknown`.
+  defp ticket_usd(issue, opts) do
+    usage =
+      case Keyword.get(opts, :usage_source) do
+        nil -> &SpendCapRuntime.usage/1
+        source -> &SpendCapRuntime.usage_from_snapshot(source, &1)
+      end
+
+    case Aiur.Issue.tracker_identity(issue) do
+      %TrackerIdentity{} = identity -> identity |> usage.() |> Ledger.period_spend()
+      _none -> :unknown
+    end
+  end
 
   @doc "Hands the claimed hold to the agent the dispatch started, or releases it when none started."
   @spec started(term(), map() | nil, keyword()) :: :ok

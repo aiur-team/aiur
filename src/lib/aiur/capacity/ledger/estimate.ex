@@ -35,9 +35,11 @@ defmodule Aiur.Capacity.Ledger.Estimate do
   @doc """
   Period spend in USD from a usage aggregate's API-equivalent estimate (the
   figure the spend cap uses). Partial or unknown pricing coverage is unknown;
-  no records at all is zero.
+  no records at all is zero, unless the aggregate itself is unavailable.
   """
   @spec period_spend(map()) :: float() | :unknown
+  def period_spend(%{state: :unavailable}), do: :unknown
+
   def period_spend(%{api_equivalent_estimate: %{rollup: rollup, coverage: coverage}}) do
     case {Map.get(coverage, :status), Map.get(rollup, "USD")} do
       {:none, _usd} -> 0.0

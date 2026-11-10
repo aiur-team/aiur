@@ -131,6 +131,29 @@ defmodule Aiur.Capacity.LedgerStoreTest do
     assert holds(server) == []
   end
 
+  test "a metered source holds USD and every turn end reconciles estimate and actual USD", %{server: server} do
+    metered = %{sources: %{"openrouter" => %{billing: "metered"}}}
+    claim = fn id, baseline -> LedgerStore.claim(%Issue{id: id, selected_backend: "openrouter"}, server: server, now: @t0, capacity_policy: metered, baseline_usd: baseline) end
+
+    assert claim.("1", 2.0) == :ok
+    assert %{kind: :usd, estimate: :unknown} = LedgerStore.ledger(server).holds["1"]
+
+    LedgerStore.turn_ended("1", 2.5, server: server, now: DateTime.add(@t0, 60))
+    LedgerStore.turn_ended("1", :unknown, server: server, now: DateTime.add(@t0, 120))
+    LedgerStore.turn_ended("1", 4.0, server: server, now: DateTime.add(@t0, 180))
+
+    # Newest first: an unknown total makes that turn and the next one unknown, then it recovers.
+    assert [%{estimate: :unknown, actual: :unknown}, %{estimate: 0.5, actual: :unknown}, %{kind: :usd, estimate: :unknown, actual: 0.5}] =
+             LedgerStore.ledger(server).reconciles
+
+    LedgerStore.turn_ended("1", 5.5, server: server, now: DateTime.add(@t0, 240))
+    assert [%{estimate: :unknown, actual: 1.5} | _older] = LedgerStore.ledger(server).reconciles
+
+    # The next claim on the backend estimates the median of its recorded turns.
+    assert claim.("2", 0.0) == :ok
+    assert LedgerStore.ledger(server).holds["2"].estimate == 1.0
+  end
+
   test "every call is a no-op when the store is not running or not configured" do
     assert LedgerStore.policy_holds([@claude], %{}, :no_such_store) == []
     assert LedgerStore.release("1", :no_such_store) == :ok
