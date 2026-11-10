@@ -2,13 +2,15 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
   @moduledoc """
   Explicit typed scope authority for a grouped usage query.
 
-  A request declares exactly one of three shapes:
+  A request declares exactly one of four shapes:
 
     * `this_run/1` — a single opaque run identity.
     * `explicit_ticket_set/1` — repository-qualified typed ticket identities.
     * `intersection/2` — a run identity *and* a ticket set, matched
       conjunctively (a cell counts only when it belongs to the run **and** to a
       member ticket).
+    * `period/2` — provider families since a UTC date, for capacity spend
+      limits (#7958). It reads no ticket or run identity.
 
   Bare issue numbers, visible rows, and labels are never scope authority: only
   non-empty opaque run-id strings and `Aiur.TrackerIdentity` structs that
@@ -26,14 +28,16 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
   alias Aiur.UsageAggregate.Key
 
   @enforce_keys [:kind]
-  defstruct kind: nil, run_id: nil, ticket_keys: MapSet.new(), rejected_tickets: 0
+  defstruct kind: nil, run_id: nil, ticket_keys: MapSet.new(), rejected_tickets: 0, providers: [], since: nil
 
-  @type kind :: :this_run | :explicit_ticket_set | :intersection
+  @type kind :: :this_run | :explicit_ticket_set | :intersection | :period
   @type t :: %__MODULE__{
           kind: kind(),
           run_id: String.t() | nil,
           ticket_keys: MapSet.t(Key.ticket()),
-          rejected_tickets: non_neg_integer()
+          rejected_tickets: non_neg_integer(),
+          providers: [String.t()],
+          since: Date.t() | nil
         }
 
   @doc "Scopes to a single opaque run identity."
@@ -72,6 +76,15 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
   def intersection(_run_id, _tickets), do: {:error, :invalid_ticket_set}
 
   @doc """
+  Scopes to the cells of `providers` (provider family names) whose pricing date
+  is on or after `since`. A cell with no pricing date has no known period and
+  is left out.
+  """
+  @spec period([String.t()], Date.t()) :: {:ok, t()}
+  def period(providers, %Date{} = since) when is_list(providers),
+    do: {:ok, %__MODULE__{kind: :period, providers: Enum.map(providers, &to_string/1), since: since}}
+
+  @doc """
   Returns whether a cell's identity dimensions fall inside this scope.
 
   Uses the same `Aiur.UsageAggregate.Key` ticket key the projection stored, so a
@@ -90,6 +103,9 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
       }),
       do: cell_run == run_id and MapSet.member?(keys, ticket)
 
+  def matches?(%__MODULE__{kind: :period, providers: providers, since: since}, %{provider: provider, pricing_date: date}),
+    do: to_string(provider) in providers and match?(%Date{}, date) and Date.compare(date, since) != :lt
+
   @doc "Returns whether the scope can select any cell at all."
   @spec selectable?(t()) :: boolean()
   def selectable?(%__MODULE__{kind: :this_run}), do: true
@@ -97,6 +113,8 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
 
   def selectable?(%__MODULE__{kind: :intersection, ticket_keys: keys}),
     do: MapSet.size(keys) > 0
+
+  def selectable?(%__MODULE__{kind: :period, providers: providers}), do: providers != []
 
   @doc "A content-free, canonically ordered description of the scope for a snapshot."
   @spec public(t()) :: map()

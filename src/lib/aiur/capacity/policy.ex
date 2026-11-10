@@ -14,11 +14,12 @@ defmodule Aiur.Capacity.Policy do
 
   ## Rules, in order
 
-    1. **Hard limits.** A source with a `limits.<period>_usd` set is held when
-       its spend for that period has reached the limit (`limit_daily`,
-       `limit_weekly`, `limit_monthly`) or is unknown (`spend_unknown`). The
-       machine-wide `limits` apply to metered and prepaid sources
-       (`limit_global`). Without a limit, unknown spend allows.
+    1. **Hard limits.** A metered or prepaid source with a
+       `limits.<period>_usd` set is held when its spend for that period has
+       reached the limit (`limit_daily`, `limit_weekly`, `limit_monthly`) or is
+       unknown (`spend_unknown`). The machine-wide `limits` apply to the same
+       sources (`limit_global`). A subscription has no USD cost: no limit
+       applies to it. Without a limit, unknown spend allows.
     2. **Reserve.** A reserved account whose projected remaining (the reading's
        tightest window minus its open holds) is at or below the reserve is held
        (`reserve`). An unknown or stale reading, or a hold with an unknown
@@ -98,11 +99,13 @@ defmodule Aiur.Capacity.Policy do
     Map.get(Map.get(policy, :sources) || %{}, route) || %{}
   end
 
+  # A subscription has no USD cost, so no USD limit applies to it (#7958).
   defp limits(source, policy, route, spend) do
-    with :ok <- period_limits(Map.get(source, :limits), Map.get(spend, route), nil) do
-      if to_string(Map.get(source, :billing)) in @billed,
-        do: period_limits(Map.get(policy, :limits), Map.get(spend, :global), :limit_global),
-        else: :ok
+    if to_string(Map.get(source, :billing)) in @billed do
+      with :ok <- period_limits(Map.get(source, :limits), Map.get(spend, route), nil),
+           do: period_limits(Map.get(policy, :limits), Map.get(spend, :global), :limit_global)
+    else
+      :ok
     end
   end
 

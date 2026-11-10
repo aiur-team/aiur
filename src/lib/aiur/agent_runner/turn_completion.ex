@@ -5,7 +5,8 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.{Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -24,11 +25,13 @@ defmodule Aiur.AgentRunner.TurnCompletion do
       "Completed agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}"
     )
 
+    # #7958: reconcile the turn's USD hold; a source past a hard USD limit starts no new turn.
+    backend = SessionIdentity.session_backend_label(app_session)
+    CapacityGate.turn_ended(issue, backend, turn_context.opts)
+
     case TurnLoop.continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
-          continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
-        end)
+        continue_within_limits(turn_context, app_session, refreshed_issue, message_handler, backend)
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
@@ -45,6 +48,17 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp continue_within_limits(turn_context, app_session, refreshed_issue, message_handler, backend) do
+    if CapacityGate.stop_new_turns?(backend, turn_context.opts) do
+      Logger.info("aiur_autonomous_loop phase=capacity_limit_reached identifier=#{refreshed_issue.identifier} backend=#{backend}; returning control to orchestrator")
+      TurnLoop.return_completed(turn_context, refreshed_issue)
+    else
+      ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
+        continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
+      end)
     end
   end
 

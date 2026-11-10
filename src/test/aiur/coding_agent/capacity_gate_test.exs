@@ -22,6 +22,8 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   @codex_limited %{"backends" => %{"codex" => %{"limited" => true, "reset_at" => @future}}}
 
   # The operator's stated policy: keep 30% of Claude for Executors, OpenRouter last.
+  # OpenRouter's recorded spend has reached a $5 daily limit.
+  @spent %{"openrouter" => %{daily_usd: 5.0}}
   @policy %{
     sources: %{
       "claude" => %{billing: "subscription", reserve: %{percent: 30, accounts: ["default"]}},
@@ -114,7 +116,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
     test "every source held: the claim waits instead of dispatching" do
       policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
 
-      assert {:all_limited, routes} = CodingAgent.select_for_dispatch(ticket(), opts(capacity_policy: policy))
+      assert {:all_limited, routes} = CodingAgent.select_for_dispatch(ticket(), opts(capacity_policy: policy, capacity_spend: @spent))
       assert "openrouter" in routes
     end
 
@@ -137,11 +139,11 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   describe "provider gate" do
     test "holds fleet admission when the policy allows no source, naming the cause" do
       policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
-      opts = opts(capacity_policy: policy)
+      opts = opts(capacity_policy: policy, capacity_spend: @spent)
 
       assert DispatchPolicy.provider_gate(@backends, opts) == :hold
       assert DispatchPolicy.Gates.provider_hold_threshold(@backends, opts) == :no_authorized_source
-      assert DispatchPolicy.provider_gate(@backends, opts(usage_snapshot: claude_meter(10), capacity_policy: policy)) == :dispatch
+      assert DispatchPolicy.provider_gate(@backends, opts(usage_snapshot: claude_meter(10), capacity_policy: policy, capacity_spend: @spent)) == :dispatch
     end
 
     test "dispatches when the last-resort source is the only one allowed" do
@@ -219,7 +221,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
     test "the fleet hold record lists one clause per held source" do
       policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
-      text = @backends |> CapacityGate.record(opts(capacity_policy: policy)) |> CapacityReasonText.waiting()
+      text = @backends |> CapacityGate.record(opts(capacity_policy: policy, capacity_spend: @spent)) |> CapacityReasonText.waiting()
 
       assert text =~ "waiting: no authorized source: "
       clauses = text |> String.replace_prefix("waiting: no authorized source: ", "") |> String.split("; ")
@@ -253,7 +255,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
     end
 
     test "a no-authorized-source hold reaches queued rows, and a dispatch choice reaches running rows" do
-      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}))
+      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}), capacity_spend: @spent)
       queued = %Issue{id: "id-2", identifier: "T-2", state: "todo", title: "Queued"}
 
       state =
@@ -276,7 +278,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
       waiting =
         "[waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve (reading 20% left, reserve 30%); " <>
-          "openrouter spend unknown under a limit (spend unknown while a limit is set)]"
+          "openrouter daily spend limit reached (limit daily reached)]"
 
       for text <- [agents, status] do
         assert [running_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-1"))

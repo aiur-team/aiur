@@ -15,8 +15,12 @@ defmodule Aiur.Capacity.LedgerStore do
   Handoff adoption rebuilds holds from the adopted workers, so nothing is
   written to disk.
 
-  Only `:window` holds on subscription accounts are recorded: they are what
-  the reserve reads. Every call is a no-op when the store is not running.
+  Subscription accounts get `:window` holds, which the reserve reads. Metered
+  and prepaid sources get `:usd` holds (#7958): estimated as the median USD of
+  the backend's recent turns, reconciled by `turn_ended/3` against the
+  ticket's recorded spend since the previous turn end (the claim's
+  `:baseline_usd` for the first turn). Every call is a no-op when the store is
+  not running.
   """
 
   use GenServer
@@ -47,7 +51,17 @@ defmodule Aiur.Capacity.LedgerStore do
   def claim(issue, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     owner = Keyword.get(opts, :owner, self())
-    call(Keyword.get(opts, :server, __MODULE__), {:claim, issue, now, Keyword.get(opts, :capacity_policy, %{}), owner}, :ok)
+    message = {:claim, issue, now, Keyword.get(opts, :capacity_policy, %{}), owner, Keyword.get(opts, :baseline_usd)}
+    call(Keyword.get(opts, :server, __MODULE__), message, :ok)
+  end
+
+  @doc """
+  A turn ended with the ticket's recorded spend at `ticket_usd` (USD or
+  `:unknown`): reconciles its `:usd` hold with the spend since the last turn end.
+  """
+  @spec turn_ended(term(), number() | :unknown, keyword()) :: :ok
+  def turn_ended(ticket, ticket_usd, opts \\ []) do
+    call(Keyword.get(opts, :server, __MODULE__), {:turn_ended, ticket, ticket_usd, Keyword.get(opts, :now, DateTime.utc_now())}, :ok)
   end
 
   @doc "Hands a ticket's hold to the agent worker that now runs it."
@@ -70,7 +84,7 @@ defmodule Aiur.Capacity.LedgerStore do
   def ledger(server \\ __MODULE__), do: call(server, :ledger, nil)
 
   @impl true
-  def init(:ok), do: {:ok, %{ledger: Ledger.new(), monitors: %{}}}
+  def init(:ok), do: {:ok, %{ledger: Ledger.new(), monitors: %{}, baselines: %{}}}
 
   @impl true
   def handle_call({:policy_holds, candidates, readings}, _from, state) do
@@ -79,7 +93,7 @@ defmodule Aiur.Capacity.LedgerStore do
     {:reply, holds, %{state | ledger: ledger}}
   end
 
-  def handle_call({:claim, issue, now, policy, owner}, _from, state) do
+  def handle_call({:claim, issue, now, policy, owner, baseline}, _from, state) do
     case hold_attrs(state.ledger, issue, now, policy) do
       nil ->
         {:reply, :ok, state}
@@ -88,10 +102,22 @@ defmodule Aiur.Capacity.LedgerStore do
         state = drop(state, attrs.ticket)
 
         case Ledger.claim(state.ledger, attrs, reading(state.ledger, {attrs.backend, attrs.account}), threshold: reserve || 0, fail_closed: reserve != nil) do
-          {:allow, ledger} -> {:reply, :ok, watch(%{state | ledger: ledger}, attrs.ticket, owner)}
+          {:allow, ledger} -> {:reply, :ok, watch(%{state | ledger: ledger, baselines: baseline(state.baselines, attrs, baseline)}, attrs.ticket, owner)}
           {{:hold, reason}, _ledger} -> {:reply, {:hold, reason}, state}
         end
     end
+  end
+
+  def handle_call({:turn_ended, ticket, total, at}, _from, state) do
+    actual =
+      case Map.get(state.baselines, ticket) do
+        base when is_number(base) and is_number(total) -> max(total - base, 0.0)
+        _unknown -> :unknown
+      end
+
+    # A hold rebuilt after a handoff has no baseline: its first turn end is unknown and sets one.
+    baselines = if match?(%{kind: :usd}, state.ledger.holds[ticket]), do: Map.put(state.baselines, ticket, total), else: state.baselines
+    {:reply, :ok, %{state | ledger: Ledger.turn_ended(state.ledger, ticket, actual, at), baselines: baselines}}
   end
 
   def handle_call({:attach, ticket, pid}, _from, state) do
@@ -133,13 +159,26 @@ defmodule Aiur.Capacity.LedgerStore do
     account = Map.get(issue, :selected_account) || "default"
     source = get_in(policy, [:sources, backend]) || %{}
 
-    if Map.get(source, :billing) == "subscription" do
-      {estimate, rate} = Ledger.window_estimate(Ledger.learned_burn(ledger, backend, account), Map.get(policy, :default_burn_percent_per_hour), @expected_hours)
-      {%{ticket: id, backend: backend, account: account, kind: :window, estimate: estimate, rate: rate, created_at: at}, reserve(source, account)}
+    case to_string(Map.get(source, :billing)) do
+      "subscription" ->
+        {estimate, rate} = Ledger.window_estimate(Ledger.learned_burn(ledger, backend, account), Map.get(policy, :default_burn_percent_per_hour), @expected_hours)
+        {%{ticket: id, backend: backend, account: account, kind: :window, estimate: estimate, rate: rate, created_at: at}, reserve(source, account)}
+
+      billing when billing in ["metered", "prepaid"] ->
+        # ponytail: median over every recent turn of the backend, not per complexity, and no max_output_tokens cost bound yet.
+        costs = for %{kind: :usd, backend: ^backend, actual: usd} <- ledger.reconciles, is_number(usd), do: usd
+        {%{ticket: id, backend: backend, account: nil, kind: :usd, estimate: Ledger.usd_estimate(costs, nil), created_at: at}, nil}
+
+      _other ->
+        nil
     end
   end
 
   defp hold_attrs(_ledger, _issue, _at, _policy), do: nil
+
+  # The ticket's spend at the claim, which its first turn end reconciles against.
+  defp baseline(baselines, %{kind: :usd, ticket: ticket}, usd), do: Map.put(baselines, ticket, usd || :unknown)
+  defp baseline(baselines, _attrs, _usd), do: baselines
 
   # Mirrors `Aiur.Capacity.Policy`'s reserve rule: a positive percent on a listed (or every) account.
   defp reserve(source, account) do
@@ -160,7 +199,7 @@ defmodule Aiur.Capacity.LedgerStore do
     %{state | monitors: Map.put(state.monitors, ticket, Process.monitor(pid))}
   end
 
-  defp drop(state, ticket), do: %{demonitor(state, ticket) | ledger: Ledger.release(state.ledger, ticket)}
+  defp drop(state, ticket), do: %{demonitor(state, ticket) | ledger: Ledger.release(state.ledger, ticket), baselines: Map.delete(state.baselines, ticket)}
 
   defp demonitor(state, ticket) do
     {ref, monitors} = Map.pop(state.monitors, ticket)
