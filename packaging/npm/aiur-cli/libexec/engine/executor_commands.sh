@@ -228,7 +228,7 @@ cmd_operator_relay_answer() {
     opts="$opts, supersede: true"
   fi
   local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
-  run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
+  run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts$(relay_caller_opts)])"
 }
 
 cmd_executor_escalate() {
