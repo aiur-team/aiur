@@ -234,7 +234,7 @@ record was quarantined is no longer listed; its line stays in the quarantine fil
 
 ## Operator answers relayed in conversation
 
-When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli). This is on by default; set `executor.relay_operator_answers: false` to opt out. It accepts human-only Commands without granting the Executor decision authority. Fleet workers cannot relay; only the attended Executor can.
+When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli). This is on by default; set `executor.relay_operator_answers: false` to opt out. It accepts human-only Commands without granting the Executor decision authority. Fleet workers cannot relay.
 
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
