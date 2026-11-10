@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   """
 
   alias Aiur.{CodingAgent, Config, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.GitHub.Access
   alias Aiur.Orchestrator.PressureAdmission
   @reclaimable_cpu_threshold 60.0
@@ -169,30 +170,39 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   end
 
   @doc false
-  # Configured-provider-limit gate: holds new dispatch only when every
-  # dispatchable backend reports usage-limited (the fleet-wide provider signal),
-  # failing open when no limits are observed or there is nothing dispatchable.
-  # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
-  # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
-  # As a side effect, when we would hold due to all backends being limited,
-  # trigger probes for any stale limits to refresh the cached readings.
+  # Configured-provider gate: holds new dispatch when every dispatchable backend
+  # reports usage-limited (the fleet-wide provider signal), or when the capacity
+  # policy allows no candidate on any of them (#7889), so a queued ticket takes
+  # no slot. Fails open when there is nothing dispatchable. Per-issue selection
+  # (`CodingAgent.select_for_dispatch/1`) still owns the mixed case. When every
+  # backend is limited, probes for stale limits refresh the cached readings.
   @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
   def provider_gate(backends, opts \\ [])
 
   def provider_gate(backends, opts) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends, opts) do
-      nil ->
-        # All backends are limited; trigger probes for any stale limits
-        # This is a non-blocking side effect that happens in the background
+    cond do
+      ModelAvailability.first_available(backends, opts) == nil ->
+        # Non-blocking: the probes run in the background.
         ModelAvailability.probe_stale_limits(backends, opts)
         :hold
 
-      _backend ->
+      CapacityGate.allowed_routes(backends, opts) == [] ->
+        :hold
+
+      true ->
         :dispatch
     end
   end
 
   def provider_gate(_backends, _opts), do: :dispatch
+
+  @doc false
+  # The cause `provider_gate/2` held on, for the capacity-hold record: every
+  # backend usage-limited, or no source the capacity policy allows.
+  @spec provider_hold_threshold([String.t()], keyword()) :: :all_usage_limited | :no_authorized_source
+  def provider_hold_threshold(backends, opts) do
+    if ModelAvailability.first_available(backends, opts) == nil, do: :all_usage_limited, else: :no_authorized_source
+  end
 
   @doc false
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
@@ -271,7 +281,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
            signal: :provider,
            measured: provider_backends,
            detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
-           threshold: :all_usage_limited
+           threshold: provider_hold_threshold(provider_backends, provider_opts)
          }}
 
       true ->
