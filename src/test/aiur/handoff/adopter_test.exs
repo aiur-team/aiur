@@ -2,6 +2,7 @@ defmodule Aiur.Handoff.AdopterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.Handoff, as: Runner
+  alias Aiur.Capacity.LedgerStore
   alias Aiur.Handoff.{Adopter, Compatibility, Record, Report}
   alias Aiur.Orchestrator.{OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
 
@@ -30,10 +31,14 @@ defmodule Aiur.Handoff.AdopterTest do
       end
     end
 
-    state = Adopter.adopt(%State{max_concurrent_agents: 0}, options(dir, runner: runner))
+    ledger = start_supervised!({LedgerStore, name: :adopter_test_ledger})
+    policy = %{sources: %{"codex" => %{billing: "subscription"}}}
+    state = Adopter.adopt(%State{max_concurrent_agents: 0}, options(dir, runner: runner, ledger_store: ledger, capacity_policy: policy))
     assert_receive {:continued, pid}, 1000
     on_exit(fn -> send(pid, :stop) end)
     assert state.running["one"].pid == pid
+    # Adoption rebuilds the reservation hold of the adopted agent (#7890).
+    assert Map.keys(LedgerStore.ledger(ledger).holds) == ["one"]
     assert state.running["one"].adopted_from == "restart"
     assert {:ok, %{adopted: [outcome], fallback: []}} = Report.latest(dir: dir)
     assert outcome["provider_pid_before"] == "123"
@@ -334,7 +339,7 @@ defmodule Aiur.Handoff.AdopterTest do
   defp hello, do: %{"protocol" => 1, "spawn_nonce" => "nonce", "provider_pid" => 123, "relay_id" => "relay", "lossy" => false}
 
   defp agent(dir, id) do
-    issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress"}
+    issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress", selected_backend: "codex"}
     entry = %{identifier: id, session_id: "session-#{id}", issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
 
     %{

@@ -4,6 +4,7 @@ defmodule Aiur.Handoff.Adopter do
 
   alias Aiur.AgentRunner.Handoff, as: Runner
   alias Aiur.AppServer.RelayPort
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Config.Paths
   alias Aiur.Handoff.{Compatibility, Record, Report}
   alias Aiur.Handoff.Fallback
@@ -46,6 +47,7 @@ defmodule Aiur.Handoff.Adopter do
         failed_ids = outcomes |> Enum.filter(&(Map.get(&1, :status) == "fallback")) |> Enum.map(& &1.issue_id)
         next = fallback_agents(next, Enum.filter(agents, &(&1["issue_id"] in failed_ids)), opts)
         next = AdoptedBoot.restore(next)
+        CapacityGate.rebuild_holds(Map.values(next.running), opts)
         for {_id, entry} <- next.running, entry[:adopted_from] == record["handoff_id"], do: send(entry.pid, :handoff_continue)
         Report.notify(opts)
         next

@@ -374,7 +374,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp with_age(reading, %DateTime{} = observed_at, now, opts) do
     age = max(DateTime.diff(now, observed_at, :second), 0)
-    reading = Map.put(reading, :age_seconds, age)
+    reading = Map.merge(reading, %{age_seconds: age, observed_at: observed_at})
     if age > max_reading_age_seconds(opts), do: Map.put(reading, :stale, true), else: reading
   end
 
