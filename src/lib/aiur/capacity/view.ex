@@ -64,7 +64,7 @@ defmodule Aiur.Capacity.View do
     level = if is_number(energy.level), do: " #{round(energy.level * 100)}%", else: ""
     binding = if energy.binding_source, do: " via #{energy.binding_source}", else: ""
     unknown = if energy.unknown_sources != [], do: "; unknown: " <> Enum.join(energy.unknown_sources, ", "), else: ""
-    head = "Energy: #{energy.state}#{level}#{binding} (#{energy.freshness})#{unknown}"
+    head = "Energy: #{energy.state}#{level}#{binding} (#{energy.freshness}#{ago(energy.age_ms)})#{unknown}"
 
     Enum.join([head | Enum.flat_map(sources, &source_lines/1)], "\n")
   end
@@ -78,8 +78,14 @@ defmodule Aiur.Capacity.View do
   defp account_line(account) do
     figures = if account.remaining_percent, do: "#{round(account.remaining_percent)}% left, projected #{round(account.projected_percent || 0)}%", else: "no reading"
     reserve = if account.reserved, do: ", reserve #{account.reserve_percent}%", else: ""
-    "  #{account.account}  #{figures}#{reserve}, #{account.open_holds} holds, #{account.freshness}"
+    "  #{account.account}  #{figures}#{reserve}, #{account.open_holds} holds, #{account.freshness}#{ago(account.age_ms)}"
   end
+
+  # Unknown figures carry no age, so they render as just "unknown".
+  defp ago(nil), do: ""
+  defp ago(ms) when ms < 60_000, do: ", #{div(ms, 1000)}s ago"
+  defp ago(ms) when ms < 3_600_000, do: ", #{div(ms, 60_000)}m ago"
+  defp ago(ms), do: ", #{div(ms, 3_600_000)}h ago"
 
   defp row(%{candidate: candidate} = entry, reading, holds, policy, now) do
     account = account_row(candidate, reading, holds, policy, now)

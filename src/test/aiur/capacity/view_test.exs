@@ -101,6 +101,14 @@ defmodule Aiur.Capacity.ViewTest do
   test "claude below its reserve shows reserved, as dispatch holds it" do
     view = opts(usage_snapshot: claude_meter(75)) |> View.build() |> valid!()
     assert %{state: "reserved", reason: "reserve"} = source(view, "claude")
+    # codex is allowed but has no reading, so energy is unknown, not exhausted at 0.
+    assert %{state: "unknown", level: nil} = view.energy
+  end
+
+  test "the text view shows each known figure's age" do
+    text = opts([]) |> View.build() |> View.render()
+    assert text =~ "Energy: available 60% via claude (fresh, 40s ago)"
+    assert text =~ ~r/default .*holds, fresh, 40s ago/
   end
 
   test "with no known figure the level is null, not empty or full" do
