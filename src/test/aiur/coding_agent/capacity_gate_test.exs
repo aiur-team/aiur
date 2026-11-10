@@ -221,7 +221,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
     test "the fleet hold record lists one clause per held source" do
       policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
-      text = @backends |> CapacityGate.record(opts(capacity_policy: policy)) |> CapacityReasonText.waiting()
+      text = @backends |> CapacityGate.record(opts(capacity_policy: policy, capacity_spend: @spent)) |> CapacityReasonText.waiting()
 
       assert text =~ "waiting: no authorized source: "
       clauses = text |> String.replace_prefix("waiting: no authorized source: ", "") |> String.split("; ")
@@ -255,7 +255,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
     end
 
     test "a no-authorized-source hold reaches queued rows, and a dispatch choice reaches running rows" do
-      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}))
+      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}), capacity_spend: @spent)
       queued = %Issue{id: "id-2", identifier: "T-2", state: "todo", title: "Queued"}
 
       state =
@@ -278,7 +278,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
       waiting =
         "[waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve (reading 20% left, reserve 30%); " <>
-          "openrouter spend unknown under a limit (spend unknown while a limit is set)]"
+          "openrouter daily spend limit reached (limit daily reached)]"
 
       for text <- [agents, status] do
         assert [running_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-1"))

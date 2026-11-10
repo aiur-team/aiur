@@ -82,7 +82,7 @@ defmodule Aiur.Usage.GroupedScopes.Scope do
   """
   @spec period([String.t()], Date.t()) :: {:ok, t()}
   def period(providers, %Date{} = since) when is_list(providers),
-    do: {:ok, %__MODULE__{kind: :period, providers: providers, since: since}}
+    do: {:ok, %__MODULE__{kind: :period, providers: Enum.map(providers, &to_string/1), since: since}}
 
   @doc """
   Returns whether a cell's identity dimensions fall inside this scope.
