@@ -84,6 +84,7 @@ defmodule Aiur.Capacity.PeriodSpend do
         {:ok, table} -> [price_table: table]
         _error -> []
       end
+
     starts = [daily_usd: today, weekly_usd: Date.beginning_of_week(today), monthly_usd: Date.beginning_of_month(today)]
 
     fn providers ->

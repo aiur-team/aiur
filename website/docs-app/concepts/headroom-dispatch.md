@@ -161,9 +161,11 @@ order, a candidate is held by:
 Spend is the API-equivalent USD estimate from the usage aggregate, per source
 and over all `metered` and `prepaid` sources together, for the current UTC day,
 week (from Monday) and calendar month. Partial pricing coverage counts as
-unknown. A running agent on a source past a hard limit starts no new turn: at
-the next turn boundary its ticket returns to the queue, where dispatch picks the
-next allowed source.
+unknown.
+
+A running agent on a source past a hard limit starts no new turn: at the next
+turn boundary its ticket returns to the queue, where dispatch picks the next
+allowed source.
 
 Each dispatch to a `metered` or `prepaid` source also holds an estimate: the
 median USD of that backend's recent turns. Every turn end replaces it with the
