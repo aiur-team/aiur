@@ -1,12 +1,12 @@
 defmodule Aiur.Config.Schema.Capacity do
   @moduledoc """
   Project (L3) tightening of the machine capacity policy. Only `limits`,
-  `reserve.percent` and `last_resort` are accepted; `Aiur.Capacity.TightenCheck`
+  `reserve.percent` and `last_resort` are accepted; `Aiur.Config.CapacityPolicy.TightenCheck`
   refuses a value that loosens `~/.aiur/machine`.
   """
   use Ecto.Schema
   import Ecto.Changeset
-  alias Aiur.Capacity.PolicyConfig
+  alias Aiur.Config.CapacityPolicy
 
   @type t :: %__MODULE__{}
 
@@ -20,7 +20,7 @@ defmodule Aiur.Config.Schema.Capacity do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:sources, :limits])
-    |> validate_change(:sources, &PolicyConfig.source_errors(&1, &2, :project))
-    |> validate_change(:limits, &PolicyConfig.limit_errors/2)
+    |> validate_change(:sources, &CapacityPolicy.source_errors(&1, &2, :project))
+    |> validate_change(:limits, &CapacityPolicy.limit_errors/2)
   end
 end

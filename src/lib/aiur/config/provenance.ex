@@ -9,7 +9,7 @@ defmodule Aiur.Config.Provenance do
   L4 and L6 have no reader yet and are reported `unavailable`, never `unset`.
   """
 
-  alias Aiur.Capacity.PolicyConfig
+  alias Aiur.Config.CapacityPolicy
   alias Aiur.Config.{Overrides, Schema}
   alias Aiur.Machine.Settings
   alias Aiur.Workflow
@@ -62,7 +62,7 @@ defmodule Aiur.Config.Provenance do
 
   # Capacity policy is machine-owned (L1); higher layers may only tighten it.
   defp default(["capacity" | rest], key) do
-    case PolicyConfig.default_at(rest) do
+    case CapacityPolicy.default_at(rest) do
       {:ok, value} -> {:ok, value}
       :error -> {:error, {:unknown_key, key, []}}
     end
@@ -177,7 +177,7 @@ defmodule Aiur.Config.Provenance do
   defp layer(id, source, {:value, value}), do: [%{layer: id, source: source, value: value}]
 
   defp machine_layer(["capacity" | rest], machine) do
-    case PolicyConfig.machine_value(machine.capacity, rest) do
+    case CapacityPolicy.machine_value(machine.capacity, rest) do
       nil -> []
       value -> [%{layer: "L1", source: "machine capacity", value: value}]
     end
@@ -234,7 +234,7 @@ defmodule Aiur.Config.Provenance do
   end
 
   defp pick(_path, [], default), do: {%{layer: "L0", source: "built-in default", value: default}, []}
-  defp pick(["capacity" | _] = path, layers, _default), do: PolicyConfig.pick(path, layers)
+  defp pick(["capacity" | _] = path, layers, _default), do: CapacityPolicy.pick(path, layers)
   defp pick(_path, [winner | rest], _default), do: {winner, rest}
 
   defp apply_cap(winner, rest, cap) when is_integer(cap) and is_integer(winner.value) and cap < winner.value do

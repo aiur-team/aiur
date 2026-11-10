@@ -10,7 +10,7 @@ defmodule Aiur.Config.Overrides do
   require Logger
 
   alias Aiur.{Alerts, BuildStamp, Config, Fs, Workflow}
-  alias Aiur.Capacity.PolicyConfig
+  alias Aiur.Config.CapacityPolicy
   alias Aiur.Config.{InstanceKey, Paths}
   alias Aiur.WorkflowStore.ReloadRejection
 
@@ -243,7 +243,7 @@ defmodule Aiur.Config.Overrides do
   defp validate_entry(_entry), do: {:error, :invalid_override_entry}
 
   defp setting(key) do
-    case {Map.fetch(@settings, key), PolicyConfig.runtime_path(key)} do
+    case {Map.fetch(@settings, key), CapacityPolicy.runtime_path(key)} do
       {{:ok, setting}, _} -> {:ok, setting}
       {:error, {:ok, path}} -> {:ok, %{path: path, applies: "live"}}
       {:error, :error} -> {:error, {:unknown_setting, build_version()}}
@@ -251,7 +251,7 @@ defmodule Aiur.Config.Overrides do
   end
 
   # L5 may only raise a capacity reserve; `workflow` holds the value it would replace.
-  defp check_capacity(key, value, %{config: config}), do: PolicyConfig.check_runtime(key, value, config)
+  defp check_capacity(key, value, %{config: config}), do: CapacityPolicy.check_runtime(key, value, config)
 
   defp put_setting(%{config: config} = workflow, path, value) do
     %{workflow | config: deep_put(config, path, value)}

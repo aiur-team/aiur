@@ -113,7 +113,7 @@ config :aiur, :config_semantic_checks,
     Aiur.Orchestrator.HostedModeCheck,
     Aiur.Config.Schema.TurnSandboxPolicyCheck,
     Aiur.Opencode.Config.SemanticCheck,
-    Aiur.Capacity.TightenCheck
+    Aiur.Config.CapacityPolicy.TightenCheck
   ]
 
 config :phoenix, :json_library, Jason

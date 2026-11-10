@@ -1,7 +1,8 @@
-defmodule Aiur.Capacity.PolicyConfigTest do
+defmodule Aiur.Config.CapacityPolicyTest do
   use Aiur.TestSupport
 
-  alias Aiur.Capacity.{PolicyConfig, TightenCheck}
+  alias Aiur.Config.CapacityPolicy
+  alias Aiur.Config.CapacityPolicy.TightenCheck
   alias Aiur.Config.{Overrides, Provenance, Schema}
   alias Aiur.Machine.Settings
 
@@ -50,13 +51,13 @@ defmodule Aiur.Capacity.PolicyConfigTest do
     {:ok, settings} = Settings.load()
     refute File.exists?(machine)
 
-    assert {:ok, policy} = PolicyConfig.effective(settings.capacity, %Schema{}.capacity)
+    assert {:ok, policy} = CapacityPolicy.effective(settings.capacity, %Schema{}.capacity)
     assert policy.sources == %{}
     assert policy.limits == %{daily_usd: nil, weekly_usd: nil, monthly_usd: nil}
     assert policy.default_burn_percent_per_hour == nil
 
     for backend <- ~w(claude codex openrouter) do
-      source = PolicyConfig.source(policy, backend)
+      source = CapacityPolicy.source(policy, backend)
       assert source.reserve == %{percent: 0, accounts: :all}
       refute source.last_resort
       assert source.limits == %{daily_usd: nil, weekly_usd: nil, monthly_usd: nil}
@@ -78,7 +79,7 @@ defmodule Aiur.Capacity.PolicyConfigTest do
       })
 
     assert :ok = TightenCheck.check(project)
-    assert {:ok, policy} = PolicyConfig.effective(settings.capacity, project.capacity)
+    assert {:ok, policy} = CapacityPolicy.effective(settings.capacity, project.capacity)
 
     assert %{billing: "subscription", reserve: %{percent: 40, accounts: ["default"]}, last_resort: false} = policy.sources["claude"]
     assert %{billing: "prepaid", last_resort: true, limits: %{daily_usd: 2, monthly_usd: 40, weekly_usd: nil}} = policy.sources["openrouter"]
@@ -125,7 +126,7 @@ defmodule Aiur.Capacity.PolicyConfigTest do
              Overrides.set("capacity.sources.claude.reserve.percent", 50, "local:test")
 
     assert {:ok, settings} = Aiur.Config.settings_uncached()
-    assert {:ok, policy} = PolicyConfig.effective(Settings.get() |> elem(1) |> Map.fetch!(:capacity), settings.capacity)
+    assert {:ok, policy} = CapacityPolicy.effective(Settings.get() |> elem(1) |> Map.fetch!(:capacity), settings.capacity)
     assert policy.sources["claude"].reserve.percent == 50
   end
 
@@ -133,9 +134,9 @@ defmodule Aiur.Capacity.PolicyConfigTest do
     config = %{"capacity" => %{"sources" => %{"codex" => %{"reserve" => %{"percent" => 15}}}}}
     machine_fun = fn -> {:ok, %Settings{}} end
 
-    assert {:error, {:invalid_workflow_config, message}} = PolicyConfig.check_runtime("capacity.sources.codex.reserve.percent", 10, config, machine_fun)
+    assert {:error, {:invalid_workflow_config, message}} = CapacityPolicy.check_runtime("capacity.sources.codex.reserve.percent", 10, config, machine_fun)
     assert message =~ "loosens the project (L3) value 15"
-    assert :ok = PolicyConfig.check_runtime("capacity.sources.codex.reserve.percent", 15, config, machine_fun)
+    assert :ok = CapacityPolicy.check_runtime("capacity.sources.codex.reserve.percent", 15, config, machine_fun)
   end
 
   test "config explain names the layer of the tightest value", %{machine: machine} do

@@ -1,8 +1,8 @@
-defmodule Aiur.Capacity.TightenCheck do
+defmodule Aiur.Config.CapacityPolicy.TightenCheck do
   @moduledoc "Refuses a project `capacity` value that loosens the machine policy in `~/.aiur/machine`."
   @behaviour Aiur.Config.SemanticCheck
 
-  alias Aiur.Capacity.PolicyConfig
+  alias Aiur.Config.CapacityPolicy
   alias Aiur.Machine.Settings
 
   @impl true
@@ -13,7 +13,7 @@ defmodule Aiur.Capacity.TightenCheck do
 
   def check(%{capacity: capacity}) do
     case Settings.get() do
-      {:ok, machine} -> PolicyConfig.tightens(machine.capacity, capacity, "L3")
+      {:ok, machine} -> CapacityPolicy.tightens(machine.capacity, capacity, "L3")
       {:error, reason} -> {:error, {:invalid_workflow_config, "capacity: machine settings are unreadable (#{inspect(reason)})"}}
     end
   end

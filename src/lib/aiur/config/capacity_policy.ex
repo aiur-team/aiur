@@ -1,4 +1,4 @@
-defmodule Aiur.Capacity.PolicyConfig do
+defmodule Aiur.Config.CapacityPolicy do
   @moduledoc """
   The capacity policy's configuration: shape validation for each layer, the
   tighten-only rule between layers, and the merged effective policy.
