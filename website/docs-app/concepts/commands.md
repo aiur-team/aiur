@@ -236,6 +236,8 @@ record was quarantined is no longer listed; its line stays in the quarantine fil
 
 When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.
 
+The daemon refuses a relay whose caller runs inside an agent workspace, judged by the caller's working directory as well as `AIUR_AGENT_WORKSPACE`, and records each refusal in `control-audit.ndjson`.
+
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; withdrawal delivery guards still apply.

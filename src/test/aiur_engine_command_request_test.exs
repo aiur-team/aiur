@@ -85,6 +85,7 @@ cmd_command dec_0123456789abcdef --option yes --relayed --quote 'Operator chose 
 
     assert out =~ "Aiur.AgentControlCLI.operator_relay_answer(["
     assert out =~ ~s|idempotency_key: Base.decode64!("#{Base.encode64("retry-1")}")|
+    assert out =~ "caller_cwd: Base.decode64!("
   end
 
   test "idempotency key is accepted only for relayed answers" do

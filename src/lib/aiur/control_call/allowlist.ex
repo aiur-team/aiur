@@ -145,7 +145,9 @@ defmodule Aiur.ControlCall.Allowlist do
        relayed_by: :non_empty_string,
        idempotency_key: :non_empty_string,
        auto_current: :boolean,
-       supersede: :boolean
+       supersede: :boolean,
+       caller_cwd: :string,
+       caller_agent_workspace_env: :string
      }},
     {:command_request, 1, :message, [:keyword],
      %{

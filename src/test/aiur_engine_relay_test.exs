@@ -15,6 +15,8 @@ defmodule AiurEngineRelayTest do
     assert out =~ "expected_version: 3"
     assert out =~ ~s|option_id: Base.decode64!("a2VlcA==")|
     assert out =~ ~s|idempotency_key: Base.decode64!("cmVsYXk6NDI6djM=")|
+    assert out =~ ~s|caller_cwd: Base.decode64!("|
+    assert out =~ "caller_agent_workspace_env: Base.decode64!("
   end
 
   test "operator-relay-answer refuses missing relay evidence and ambiguous answers" do
