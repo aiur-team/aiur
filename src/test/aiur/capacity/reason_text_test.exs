@@ -65,6 +65,30 @@ defmodule Aiur.Capacity.ReasonTextTest do
                "codex/default usage unknown (usage unknown, never read); openrouter daily spend limit reached"
   end
 
+  test "a headroom row's flat reading renders, and unknown stays unknown" do
+    record = %{
+      chosen: %{route: "codex", account: nil, reason: :preferred},
+      candidates: [
+        %{route: "codex", account: nil, verdict: :allow, remaining_percent: 62, age_seconds: 40},
+        %{route: "claude", account: "max", verdict: :allow, remaining_percent: nil, age_seconds: 3600}
+      ]
+    }
+
+    assert ReasonText.chosen(record) == "codex (preferred; 62% left, 40s old)"
+    assert ReasonText.chosen(%{record | chosen: %{route: "claude", account: "max", reason: :preferred}}) == "claude/max (preferred; usage unknown, 60m old)"
+  end
+
+  test "a limited candidate counts as held although its verdict is allow" do
+    record = %{
+      candidates: [
+        %{route: "codex", account: nil, verdict: :allow, reason: :limited, detail: "usage-limited"},
+        %{route: "claude", account: "default", verdict: :hold, reason: :reserve}
+      ]
+    }
+
+    assert ReasonText.waiting(record) == "waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve"
+  end
+
   test "no record renders nothing" do
     assert ReasonText.chosen(nil) == nil
     assert ReasonText.waiting(%{candidates: []}) == nil

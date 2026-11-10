@@ -68,6 +68,7 @@ defmodule Aiur.Projections.UnitsRow.Projection do
       resolved_model: values.resolved_model,
       effort: values.effort,
       account: values.account,
+      capacity_reason: status_row && Map.get(status_row, :capacity_reason),
       complexity: values.complexity,
       priority: values.priority,
       build_lane: values.build_lane,

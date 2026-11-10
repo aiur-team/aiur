@@ -6,8 +6,11 @@ defmodule Aiur.Capacity.ReasonText do
   source is authorized.
 
   Accepts atom or string keys, so a record read back from the agent event
-  stream renders the same as the live one. An unknown reading always renders
-  as `unknown` with its age, never as a number.
+  stream renders the same as the live one. A candidate's reading is either a
+  `reading` map (`remaining_percent`, `age_s`) or the flat `remaining_percent`
+  and `age_seconds` of a headroom row. An unknown reading always renders as
+  `unknown` with its age, never as a number. A `limited` candidate keeps
+  verdict `allow` in the record but cannot take work, so it counts as held.
   """
 
   @reasons %{
@@ -62,7 +65,7 @@ defmodule Aiur.Capacity.ReasonText do
   def waiting(%{} = record) do
     candidates = candidates(record)
 
-    if candidates != [] and not Enum.any?(candidates, &(to_string(get(&1, :verdict)) == "allow")),
+    if candidates != [] and Enum.all?(candidates, &held?/1),
       do: "waiting: no authorized source: " <> Enum.join(held_clauses(record), "; ")
   end
 
@@ -71,9 +74,11 @@ defmodule Aiur.Capacity.ReasonText do
   defp held_clauses(record) do
     record
     |> candidates()
-    |> Enum.reject(&(to_string(get(&1, :verdict)) == "allow"))
+    |> Enum.filter(&held?/1)
     |> Enum.map(&clause/1)
   end
+
+  defp held?(candidate), do: to_string(get(candidate, :verdict)) != "allow" or to_string(get(candidate, :reason)) == "limited"
 
   defp clause(candidate) do
     detail = get(candidate, :detail)
@@ -87,7 +92,7 @@ defmodule Aiur.Capacity.ReasonText do
   defp reading(candidate) do
     case get(candidate, :reading) do
       %{} = reading -> reading_text(get(reading, :remaining_percent), get(reading, :age_s))
-      _none -> nil
+      _flat -> if has?(candidate, :remaining_percent), do: reading_text(get(candidate, :remaining_percent), get(candidate, :age_seconds))
     end
   end
 
@@ -117,6 +122,7 @@ defmodule Aiur.Capacity.ReasonText do
     end
   end
 
+  defp has?(map, key), do: Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
   defp get(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   defp present(value) when is_binary(value) and value != "", do: value

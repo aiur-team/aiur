@@ -41,9 +41,10 @@ defmodule AiurWeb.Build.PayloadSchema do
               "native_hold" => nullable(object(%{"decision_id" => :string, "since" => nullable(:integer)})),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
-              "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
+              "effort" => nullable(enum(~w(none minimal low medium high xhigh max))),
+              "reason" => nullable({:short_string, 400})
             },
-            ~w(native_hold pause resume_at)
+            ~w(native_hold pause resume_at reason)
           )
         ),
       "est" => nullable(:number),

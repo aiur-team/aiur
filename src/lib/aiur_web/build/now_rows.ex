@@ -133,7 +133,9 @@ defmodule AiurWeb.Build.NowRows do
         native_hold: native_hold(row),
         pause: pause_state(row),
         resume_at: resume_at(row),
-        effort: effort(row[:effort])
+        effort: effort(row[:effort]),
+        # Why the capacity policy chose this source, or why none is authorized (#7892).
+        reason: if(is_binary(row[:capacity_reason]), do: String.slice(row[:capacity_reason], 0, 400))
       }
     }
   end

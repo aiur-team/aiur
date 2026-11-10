@@ -99,6 +99,18 @@ defmodule Aiur.CodingAgent.CapacityGate do
   end
 
   @doc """
+  The `capacity/v1` record of every candidate on `routes`, with no choice: what
+  the fleet provider hold keeps so a queued ticket can say why each source is held.
+  """
+  @spec record([String.t()], keyword()) :: map()
+  def record(routes, opts \\ []) when is_list(routes) do
+    candidates = UsageFloorGate.candidates(routes, opts)
+    %{entries: entries} = evaluate(candidates, HeadroomDispatch.readings(candidates, opts), opts)
+    {floor, other} = Enum.split_with(entries, &Map.has_key?(&1, :held))
+    %{policy: "capacity/v1", chosen: nil, candidates: views(floor, other)}
+  end
+
+  @doc """
   Why the chosen candidate was chosen: `:pinned`, `:last_resort_used`,
   `:only_allowed` (no other source was allowed) or `:preferred`.
   """

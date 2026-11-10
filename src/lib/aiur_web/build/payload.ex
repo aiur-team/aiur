@@ -39,6 +39,7 @@ defmodule AiurWeb.Build.Payload do
   | agent.pause | usage_limit_exhausted, ci_wait, or nil |
   | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
+  | agent.reason | capacity policy reason text (at most 400 characters) or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |
   | dep_states / deps_missing | state per deps id / missing blocker count or nil |

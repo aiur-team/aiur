@@ -96,7 +96,8 @@ function agentCell(t) {
   const a = t.agent;
   if (!a) return muted('—');
   const logo = LOGOS[a.model], name = modelLabel(a) ?? 'Model unknown';
-  return (logo ? '<img src="' + esc(logo.src) + '" alt="">' : '<span class="ax-mono" aria-hidden="true">' + esc(a.name?.[0]?.toUpperCase() || '?') + '</span>') + esc(name);
+  return (logo ? '<img src="' + esc(logo.src) + '" alt="">' : '<span class="ax-mono" aria-hidden="true">' + esc(a.name?.[0]?.toUpperCase() || '?') + '</span>') + esc(name) +
+    (a.reason ? ' <span class="lr-mu" title="' + esc(a.reason) + '">' + esc(a.reason) + '</span>' : '');
 }
 function rowHTML(t, D, state) {
   const key = colKey(t), e = (Object.hasOwn(D.lanes, key) ? D.lanes[key] : D.lanes.unsorted) ?? { label: 'Unsorted', unsorted: true };
