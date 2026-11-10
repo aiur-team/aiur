@@ -3,6 +3,7 @@ export type * from "./outbound-events.generated.js";
 export type * from "./command.generated.js";
 export type * from "./generated.js";
 export type * from "./agents.generated.js";
+export type * from "./capacity.generated.js";
 export type * from "./status.generated.js";
 export type * from "./spend-cap.generated.js";
 export type * from "./build-order.generated.js";

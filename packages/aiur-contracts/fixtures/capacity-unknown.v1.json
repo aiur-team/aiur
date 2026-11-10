@@ -1,0 +1,67 @@
+{
+  "contract": "aiur.capacity",
+  "contract_version": 1,
+  "observed_at": "2026-11-09T12:00:00Z",
+  "energy": {
+    "state": "unknown",
+    "level": null,
+    "binding_source": null,
+    "unknown_sources": ["claude", "codex"],
+    "observed_at": null,
+    "age_ms": null,
+    "freshness": "unknown"
+  },
+  "sources": [
+    {
+      "backend": "claude",
+      "billing": "unknown",
+      "serves": ["coding"],
+      "last_resort": false,
+      "state": "unknown",
+      "reason": "reading_unknown",
+      "detail": "no usage reading yet",
+      "accounts": [
+        {
+          "account": "default",
+          "reserved": false,
+          "remaining_percent": null,
+          "projected_percent": null,
+          "reserve_percent": 0,
+          "resets_at": null,
+          "open_holds": 0,
+          "observed_at": null,
+          "age_ms": null,
+          "freshness": "unknown"
+        }
+      ],
+      "balance": null,
+      "limits": []
+    },
+    {
+      "backend": "codex",
+      "billing": "unknown",
+      "serves": ["coding"],
+      "last_resort": false,
+      "state": "unknown",
+      "reason": "reading_unknown",
+      "detail": "no usage reading yet",
+      "accounts": [
+        {
+          "account": "default",
+          "reserved": false,
+          "remaining_percent": null,
+          "projected_percent": null,
+          "reserve_percent": 0,
+          "resets_at": null,
+          "open_holds": 0,
+          "observed_at": null,
+          "age_ms": null,
+          "freshness": "unknown"
+        }
+      ],
+      "balance": null,
+      "limits": []
+    }
+  ],
+  "limits": []
+}
