@@ -60,6 +60,17 @@ defmodule Aiur.Capacity.PeriodSpend do
     end)
   end
 
+  @doc """
+  The ticket's API-equivalent USD so far, or `:unknown`. Options as `spend/2`.
+  """
+  @spec ticket_usd(Aiur.TrackerIdentity.t() | nil, keyword()) :: float() | :unknown
+  def ticket_usd(%Aiur.TrackerIdentity{} = identity, opts) do
+    {:ok, scope} = Scope.explicit_ticket_set([identity])
+    opts |> Keyword.get_lazy(:usage_source, &usage_source/0) |> GroupedScopes.project(scope, currency: "USD") |> Ledger.period_spend()
+  end
+
+  def ticket_usd(_identity, _opts), do: :unknown
+
   @doc "Whether `backend` is a metered or prepaid source in `policy`."
   @spec billed?(map(), String.t()) :: boolean()
   def billed?(policy, backend), do: billed?(Map.get(Map.get(policy, :sources) || %{}, backend))

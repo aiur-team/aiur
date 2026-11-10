@@ -28,12 +28,10 @@ defmodule Aiur.CodingAgent.CapacityGate do
   require Logger
 
   alias Aiur.Accounts.{Headroom, UsageFloor}
-  alias Aiur.Capacity.{Ledger, LedgerStore, PeriodSpend, Policy}
+  alias Aiur.Capacity.{LedgerStore, PeriodSpend, Policy}
   alias Aiur.CodingAgent.{HeadroomDispatch, UsageFloorGate}
   alias Aiur.Config.CapacityPolicy
   alias Aiur.Machine.Settings
-  alias Aiur.Orchestrator.SpendCap.Runtime, as: SpendCapRuntime
-  alias Aiur.TrackerIdentity
 
   @typedoc "One candidate's verdict. `reason` is `nil` for an ordinary allowed candidate."
   @type entry :: %{candidate: map(), verdict: :allow | :hold | :defer, reason: atom() | nil, detail: String.t() | nil}
@@ -139,19 +137,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   defp spend(policy, opts), do: Keyword.get_lazy(opts, :capacity_spend, fn -> PeriodSpend.spend(policy, opts) end)
 
-  # The ticket's API-equivalent USD so far, or `:unknown`.
-  defp ticket_usd(issue, opts) do
-    usage =
-      case Keyword.get(opts, :usage_source) do
-        nil -> &SpendCapRuntime.usage/1
-        source -> &SpendCapRuntime.usage_from_snapshot(source, &1)
-      end
-
-    case Aiur.Issue.tracker_identity(issue) do
-      %TrackerIdentity{} = identity -> identity |> usage.() |> Ledger.period_spend()
-      _none -> :unknown
-    end
-  end
+  defp ticket_usd(issue, opts), do: PeriodSpend.ticket_usd(Aiur.Issue.tracker_identity(issue), opts)
 
   @doc "Hands the claimed hold to the agent the dispatch started, or releases it when none started."
   @spec started(term(), map() | nil, keyword()) :: :ok

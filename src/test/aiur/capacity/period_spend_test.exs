@@ -61,6 +61,19 @@ defmodule Aiur.Capacity.PeriodSpendTest do
     assert PeriodSpend.spend(%{sources: %{"deepseek" => %{billing: "metered"}}}, usage_source: nil) == %{}
   end
 
+  test "ticket_usd is the ticket's own spend, unknown without an identity" do
+    one = spend(policy(%{daily_usd: 1}), [record(1, @today)])["deepseek"].daily_usd
+
+    source =
+      Support.source([
+        Support.deepseek_record(1, ticket: 1, pricing_date: @today, tokens: %{input: 1_000_000}),
+        Support.deepseek_record(2, ticket: 2, pricing_date: @today, tokens: %{input: 1_000_000})
+      ])
+
+    assert_in_delta PeriodSpend.ticket_usd(Support.identity(1), usage_source: source), one, 1.0e-9
+    assert PeriodSpend.ticket_usd(nil, usage_source: source) == :unknown
+  end
+
   test "stop_new_turns? applies source and machine-wide limits; unknown spend under a limit stops" do
     metered = %{sources: %{"deepseek" => %{billing: "metered", limits: %{weekly_usd: 10}}}, limits: %{daily_usd: 3}}
 
