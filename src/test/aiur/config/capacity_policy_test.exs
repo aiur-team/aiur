@@ -104,11 +104,31 @@ defmodule Aiur.Config.CapacityPolicyTest do
     end
   end
 
+  test "the registered semantic checks refuse a loosening project config on the real load path", %{machine: machine} do
+    machine!(machine, @machine_yaml)
+    config = %{"tracker" => %{"kind" => "memory"}, "capacity" => %{"limits" => %{"weekly_usd" => 25}}}
+
+    assert {:ok, settings} = Aiur.Config.settings_from({:ok, %{config: config}})
+    assert {:error, {:invalid_workflow_config, message}} = Aiur.Config.SemanticChecks.validate(settings)
+    assert message =~ "capacity.limits.weekly_usd"
+    assert message =~ "project (L3)"
+    assert message =~ "machine (L1)"
+  end
+
   test "machine-owned keys are rejected in a project config and bad machine values are rejected", %{machine: machine} do
     assert {:error, {:invalid_workflow_config, message}} =
              Schema.parse(%{"tracker" => %{"kind" => "memory"}, "capacity" => %{"sources" => %{"claude" => %{"billing" => "metered"}}}})
 
     assert message =~ "claude.billing is machine-owned"
+
+    for {capacity, expected} <- [
+          {%{"limit" => %{"daily_usd" => 5}}, "limit is an unknown key"},
+          {%{"default_burn_percent_per_hour" => 3}, "default_burn_percent_per_hour is machine-owned; set it in ~/.aiur/machine"},
+          {%{"max_agents" => 2}, "max_agents is machine-owned; set it in ~/.aiur/machine"}
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"tracker" => %{"kind" => "memory"}, "capacity" => capacity})
+      assert message =~ expected
+    end
 
     File.write!(machine, "capacity:\n  sources:\n    claude: { billing: free, reserve: { percent: 120 } }\n")
     assert {:error, {:invalid, errors}} = Settings.load()

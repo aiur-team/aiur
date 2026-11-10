@@ -20,7 +20,26 @@ defmodule Aiur.Config.Schema.Capacity do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:sources, :limits])
+    |> top_level_errors(attrs)
     |> validate_change(:sources, &CapacityPolicy.source_errors(&1, &2, :project))
     |> validate_change(:limits, &CapacityPolicy.limit_errors/2)
   end
+
+  # `cast/3` silently drops unknown keys; a typo here would leave a money cap unapplied.
+  defp top_level_errors(changeset, attrs) when is_map(attrs) do
+    attrs
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in ~w(sources limits)))
+    |> Enum.sort()
+    |> Enum.reduce(changeset, fn
+      key, acc when key in ~w(default_burn_percent_per_hour max_agents) ->
+        add_error(acc, :capacity, "#{key} is machine-owned; set it in ~/.aiur/machine")
+
+      key, acc ->
+        add_error(acc, :capacity, "#{key} is an unknown key")
+    end)
+  end
+
+  defp top_level_errors(changeset, _attrs), do: changeset
 end
