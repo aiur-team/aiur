@@ -133,6 +133,7 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
         end,
         unresolved_threads_fetcher: fn _ -> {:ok, []} end,
         reviews_fetcher: fn _ -> {:ok, [approval]} end,
+        fetch_issue_states_fun: fn ["3710"] -> {:ok, [issue()]} end,
         pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "head"}} end,
         update_issue_state_fun: fn "3710", target, "in-progress" ->
           send(self(), {:write, target})
@@ -148,6 +149,50 @@ defmodule Aiur.Orchestrator.OrphanReleaseRetryTest do
     assert body =~ "to ci-wait"
     refute_received {:write, "human-review"}
   end
+
+  test "restart keeps rework written after the current-head approval" do
+    now = DateTime.utc_now()
+    latest_issue = %{issue() | state: "rework", updated_at: now}
+    approval = approval(DateTime.add(now, -3600, :second))
+    opts = approved_restart_opts(latest_issue, approval)
+
+    {_released, [%Issue{state: "rework"}]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+
+    assert_received {:write, "rework"}
+    assert_received {:comment, body}
+    assert body =~ "to rework"
+  end
+
+  test "restart routes to ci-wait when approval follows the rework label" do
+    now = DateTime.utc_now()
+    latest_issue = %{issue() | state: "rework", updated_at: DateTime.add(now, -3600, :second)}
+    approval = approval(now)
+    opts = approved_restart_opts(latest_issue, approval)
+
+    {_released, [%Issue{state: "ci-wait"}]} = StartupClaimReconciler.reconcile(%State{}, [issue()], opts)
+
+    assert_received {:write, "ci-wait"}
+    assert_received {:comment, body}
+    assert body =~ "to ci-wait"
+  end
+
+  defp approved_restart_opts(issue, approval) do
+    Keyword.merge(opts(),
+      ticket_identifier: issue.identifier,
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 42}} end,
+      pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "mergeable" => true, "head" => %{"sha" => "head"}}} end,
+      unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+      reviews_fetcher: fn 42 -> {:ok, [approval]} end,
+      pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "head"}} end,
+      fetch_issue_states_fun: fn ["3710"] -> {:ok, [issue]} end,
+      update_issue_state_fun: fn "3710", target, "in-progress" ->
+        send(self(), {:write, target})
+        :ok
+      end
+    )
+  end
+
+  defp approval(submitted_at), do: %{"state" => "APPROVED", "commit_id" => "head", "submitted_at" => DateTime.to_iso8601(submitted_at), "user" => %{"login" => "reviewer"}, authoritative: true}
 
   for reason <- [
         {:github, :local_hold, %{reason: {:aiur, :locally_held, %{reason: :shared_budget, reset_at: 100}}}},
