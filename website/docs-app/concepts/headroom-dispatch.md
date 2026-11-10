@@ -158,15 +158,17 @@ order, a candidate is held by:
   on a reserved account;
 - the usage floor.
 
-The reserve compares *projected* remaining, not the raw reading. Meters lag
-dispatch, so each dispatch to a `subscription` account records a hold of one
-agent-hour of burn: the burn learned from that account's readings, else
-`default_burn_percent_per_hour`. The next claim sees the reading minus the
-holds made after it, so several claims in one poll interval cannot all pass a
-reserve the reading alone would let them pass. A fresh reading folds the older
-holds into it, and a hold closes when its agent stops. With no burn learned and
-no default, a hold's size is unknown and a reserved account waits for the next
-reading. Holds live in memory; a handoff rebuilds them from the adopted agents.
+The reserve compares *projected* remaining: the reading minus the holds made
+after it. Meters lag dispatch, so several claims in one poll interval would
+otherwise all pass a reserve.
+
+- Each dispatch to a `subscription` account holds one agent-hour of burn: the
+  burn learned from that account's readings, else
+  `default_burn_percent_per_hour`.
+- With neither, the hold's size is unknown and a reserved account waits for
+  the next reading.
+- A fresh reading folds older holds into it; a hold closes when its agent stops.
+- Holds live in memory; a handoff rebuilds them from the adopted agents.
 
 A `last_resort` source is deferred while any other source is allowed, and used
 when none is. A usage-limited source does not count as allowed for that test.
