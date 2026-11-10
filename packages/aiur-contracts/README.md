@@ -31,7 +31,7 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `events.v1` | `GET /api/v1/events` | External event feed (no contract marker) |
 | `events-catalog.v1` | `GET /api/v1/events/catalog` | Export catalog (`v: 1`) |
 | `agents.v1` | `aiur agents --json` | `aiur.agents` |
-| `capacity.v1`, `capacity-unknown.v1` | `GET /api/v1/capacity` and `aiur capacity --json` (producer pending #7890) | `aiur.capacity` |
+| `capacity.v1`, `capacity-unknown.v1` | `GET /api/v1/capacity` and `aiur capacity --json` | `aiur.capacity` |
 | `status.v1` | `GET /api/v1/state` | `aiur.status` |
 | `ticket.v1` | `GET /api/v1/:id` | `aiur.ticket` |
 | `ticket-cancel.v1` | `POST /api/v1/:id/cancel` | `aiur.ticket_cancel` |
