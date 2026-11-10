@@ -236,6 +236,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),
         dispatch_selection: issue.dispatch_selection && issue.dispatch_selection.summary,
+        reason: get_in(issue.dispatch_selection || %{}, [:chosen, :reason]),
         worker_host: worker_host,
         remote: is_binary(worker_host),
         retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
