@@ -9,6 +9,7 @@ defmodule Aiur.Config.Provenance do
   L4 and L6 have no reader yet and are reported `unavailable`, never `unset`.
   """
 
+  alias Aiur.Capacity.PolicyConfig
   alias Aiur.Config.{Overrides, Schema}
   alias Aiur.Machine.Settings
   alias Aiur.Workflow
@@ -51,11 +52,19 @@ defmodule Aiur.Config.Provenance do
          {:ok, files} <- files(path, project, opts),
          {:ok, overrides} <- overrides(key, opts) do
       layers =
-        [file_layers(files), runtime(key, overrides, opts)]
+        [file_layers(files), runtime(key, overrides, opts), machine_layer(path, machine)]
         |> List.flatten()
         |> Enum.sort_by(& &1.layer, :desc)
 
       {:ok, build(key, default, layers, cap(key, project), project, opts)}
+    end
+  end
+
+  # Capacity policy is machine-owned (L1); higher layers may only tighten it.
+  defp default(["capacity" | rest], key) do
+    case PolicyConfig.default_at(rest) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:unknown_key, key, []}}
     end
   end
 
@@ -167,6 +176,15 @@ defmodule Aiur.Config.Provenance do
   defp layer(_id, _source, :unset), do: []
   defp layer(id, source, {:value, value}), do: [%{layer: id, source: source, value: value}]
 
+  defp machine_layer(["capacity" | rest], machine) do
+    case PolicyConfig.machine_value(machine.capacity, rest) do
+      nil -> []
+      value -> [%{layer: "L1", source: "machine capacity", value: value}]
+    end
+  end
+
+  defp machine_layer(_path, _machine), do: []
+
   defp overrides(key, opts) do
     case (opts[:overrides_fun] || (&Overrides.list/0)).() do
       {:ok, entries} -> {:ok, Enum.find(entries, &(&1.key == key))}
@@ -194,7 +212,7 @@ defmodule Aiur.Config.Provenance do
   defp cap(_key, _project), do: nil
 
   defp build(key, default, layers, cap, project, opts) do
-    {winner, rest} = pick(layers, default)
+    {winner, rest} = pick(String.split(key, "."), layers, default)
     {winner, rest, capped_by} = apply_cap(winner, rest, cap)
     secret? = secret?(key)
     now = opts[:now] || DateTime.utc_now()
@@ -215,8 +233,9 @@ defmodule Aiur.Config.Provenance do
     }
   end
 
-  defp pick([], default), do: {%{layer: "L0", source: "built-in default", value: default}, []}
-  defp pick([winner | rest], _default), do: {winner, rest}
+  defp pick(_path, [], default), do: {%{layer: "L0", source: "built-in default", value: default}, []}
+  defp pick(["capacity" | _] = path, layers, _default), do: PolicyConfig.pick(path, layers)
+  defp pick(_path, [winner | rest], _default), do: {winner, rest}
 
   defp apply_cap(winner, rest, cap) when is_integer(cap) and is_integer(winner.value) and cap < winner.value do
     {%{layer: "L1", source: "machine projects[].max_agents", value: cap}, [winner | rest], "L1"}

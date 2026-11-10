@@ -10,6 +10,7 @@ defmodule Aiur.Config.Overrides do
   require Logger
 
   alias Aiur.{Alerts, BuildStamp, Config, Fs, Workflow}
+  alias Aiur.Capacity.PolicyConfig
   alias Aiur.Config.{InstanceKey, Paths}
   alias Aiur.WorkflowStore.ReloadRejection
 
@@ -50,7 +51,8 @@ defmodule Aiur.Config.Overrides do
   def set(key, value, actor) when is_binary(key) and is_binary(actor) do
     with {:ok, setting} <- setting(key),
          {:ok, path} <- path(),
-         {:ok, workflow} <- Workflow.load_base() do
+         {:ok, workflow} <- Workflow.load_base(),
+         :ok <- check_capacity(key, value, workflow) do
       mutate(path, workflow, &set_state(&1, &2, path, key, value, actor, setting))
     end
   end
@@ -151,7 +153,7 @@ defmodule Aiur.Config.Overrides do
     entries =
       state["entries"]
       |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map(fn {key, entry} -> list_entry(key, entry, Map.fetch!(@settings, key)) end)
+      |> Enum.map(fn {key, entry} -> list_entry(key, entry, elem(setting(key), 1)) end)
 
     {:ok, entries}
   end
@@ -223,7 +225,8 @@ defmodule Aiur.Config.Overrides do
 
   defp apply_entry(workflow, key, entry) do
     with {:ok, setting} <- setting(key),
-         :ok <- validate_entry(entry) do
+         :ok <- validate_entry(entry),
+         :ok <- check_capacity(key, entry["value"], workflow) do
       candidate = put_setting(workflow, setting.path, entry["value"])
 
       case ReloadRejection.validate(candidate) do
@@ -240,11 +243,15 @@ defmodule Aiur.Config.Overrides do
   defp validate_entry(_entry), do: {:error, :invalid_override_entry}
 
   defp setting(key) do
-    case Map.fetch(@settings, key) do
-      {:ok, setting} -> {:ok, setting}
-      :error -> {:error, {:unknown_setting, build_version()}}
+    case {Map.fetch(@settings, key), PolicyConfig.runtime_path(key)} do
+      {{:ok, setting}, _} -> {:ok, setting}
+      {:error, {:ok, path}} -> {:ok, %{path: path, applies: "live"}}
+      {:error, :error} -> {:error, {:unknown_setting, build_version()}}
     end
   end
+
+  # L5 may only raise a capacity reserve; `workflow` holds the value it would replace.
+  defp check_capacity(key, value, %{config: config}), do: PolicyConfig.check_runtime(key, value, config)
 
   defp put_setting(%{config: config} = workflow, path, value) do
     %{workflow | config: deep_put(config, path, value)}
