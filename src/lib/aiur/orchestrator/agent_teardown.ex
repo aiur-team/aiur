@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   require Logger
 
   alias Aiur.AgentPubSub
-  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
   alias Aiur.Ownership.Fence
@@ -110,7 +109,6 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
         state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
         Fence.unregister(identifier)
-        CapacityGate.release(issue_id)
 
         %{
           state

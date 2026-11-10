@@ -25,16 +25,10 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
     case prepare_for_dispatch(state, issue, opts) do
       {:ready, prepared_state, selected_issue} ->
-        ready_dispatch(
-          state,
-          issue,
-          prepared_state,
-          selected_issue,
-          attempt,
-          worker_host,
-          opts,
-          dispatch_to_worker
-        )
+        next = ready_dispatch(state, issue, prepared_state, selected_issue, attempt, worker_host, opts, dispatch_to_worker)
+        # Every decline after the claim lands here without a running entry (#7890).
+        CapacityGate.started(selected_issue.id, Map.get(next.running, selected_issue.id), opts)
+        next
 
       {:hold, held_state} ->
         held_state
@@ -200,10 +194,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
          {:ok, selected_issue} <-
-           Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
-      # Hold at selection, before the next claim reads the reserve (#7890).
-      CapacityGate.hold(selected_issue)
-
+           Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))),
+         # Check and hold in one call, before the next claim reads the reserve (#7890).
+         :ok <- CapacityGate.claim(selected_issue, opts) do
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)
@@ -213,6 +206,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     else
       true ->
         {:hold, state}
+
+      {:hold, reason} ->
+        {:declined, Candidates.emit_dispatch_attempt_decline(state, issue, {:capacity_held, reason}, false)}
 
       {:error, reason} ->
         {:declined, Candidates.emit_dispatch_attempt_decline(state, issue, reason, false)}

@@ -186,6 +186,8 @@ if config_env() == :test do
   # process so its table exists, but no test may dial for it; cases drive `refresh/1`
   # with an injected request function.
   config :aiur, :label_catalogue_refresh?, false
+  # The capacity ledger is machine-wide state; tests that reach it start their own (`:ledger_store`).
+  config :aiur, :capacity_ledger_store, nil
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available

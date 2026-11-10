@@ -46,8 +46,9 @@ defmodule Aiur.CodingAgent.CapacityGate do
   and rendering floor holds as before.
 
   Options: `:pinned`, `:capacity_policy` (the effective policy map),
-  `:capacity_holds` (default: the open holds in `Aiur.Capacity.LedgerStore`)
-  and `:capacity_spend` (passed to the policy as `:holds` and `:spend`), plus the floor options `UsageFloorGate.split_candidates/3` reads.
+  `:capacity_holds` (default: the open holds in the `:ledger_store`, see
+  `store/1`) and `:capacity_spend` (passed to the policy as `:holds` and
+  `:spend`), plus the floor options `UsageFloorGate.split_candidates/3` reads.
   """
   @spec evaluate([map()], map(), keyword()) :: result()
   def evaluate(candidates, readings, opts \\ []) when is_list(candidates) and is_map(readings) do
@@ -74,7 +75,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
       decidable
       |> Enum.reverse()
       |> Enum.map(fn {candidate, index} -> policy_candidate(candidate, index, readings) end)
-      |> Policy.decide(policy, holds: Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings) end), spend: Keyword.get(opts, :capacity_spend, %{}))
+      |> Policy.decide(policy, holds: Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings, store(opts)) end), spend: Keyword.get(opts, :capacity_spend, %{}))
       |> Map.new(fn {input, verdict} -> {input.index, policy_entry(input, verdict, policy)} end)
 
     entries = Enum.map(indexed, fn {_candidate, index} -> Map.get(settled, index) || Map.fetch!(decided, index) end)
@@ -98,17 +99,25 @@ defmodule Aiur.CodingAgent.CapacityGate do
     Enum.filter(routes, &MapSet.member?(allowed_routes, &1))
   end
 
-  @doc "Records the reservation hold for an issue dispatch just selected a source for (#7890)."
-  @spec hold(map()) :: :ok
-  def hold(issue), do: LedgerStore.hold(issue, capacity_policy: policy())
+  @doc """
+  Claims the reservation hold for an issue dispatch just selected a source for
+  (#7890): re-checks the reserve and records the hold in one store call.
+  Returns `:ok` or `{:hold, reason}`.
+  """
+  @spec claim(map(), keyword()) :: :ok | {:hold, atom()}
+  def claim(issue, opts \\ []), do: LedgerStore.claim(issue, server: store(opts), capacity_policy: Keyword.get_lazy(opts, :capacity_policy, &policy/0))
 
-  @doc "Closes a stopped agent's reservation hold."
-  @spec release(term()) :: :ok
-  def release(ticket), do: LedgerStore.release(ticket)
+  @doc "Hands the claimed hold to the agent the dispatch started, or releases it when none started."
+  @spec started(term(), map() | nil, keyword()) :: :ok
+  def started(ticket, %{pid: pid}, opts) when is_pid(pid), do: LedgerStore.attach(ticket, pid, store(opts))
+  def started(ticket, _no_entry, opts), do: LedgerStore.release(ticket, store(opts))
 
-  @doc "Rebuilds reservation holds from running entries (`%{issue:, started_at:}`) after a handoff."
-  @spec rebuild_holds([map()]) :: :ok
-  def rebuild_holds(entries), do: LedgerStore.rebuild(entries, capacity_policy: policy())
+  @doc "Rebuilds reservation holds from running entries (`%{issue:, pid:, started_at:}`) after a handoff."
+  @spec rebuild_holds([map()], keyword()) :: :ok
+  def rebuild_holds(entries, opts \\ []), do: LedgerStore.rebuild(entries, server: store(opts), capacity_policy: Keyword.get_lazy(opts, :capacity_policy, &policy/0))
+
+  # Tests set `:capacity_ledger_store` to nil (no holds) and pass `:ledger_store` to use their own.
+  defp store(opts), do: Keyword.get_lazy(opts, :ledger_store, fn -> Application.get_env(:aiur, :capacity_ledger_store, LedgerStore) end)
 
   @doc """
   Why the chosen candidate was chosen: `:pinned`, `:last_resort_used`,

@@ -167,7 +167,8 @@ otherwise all pass a reserve.
   `default_burn_percent_per_hour`.
 - With neither, the hold's size is unknown and a reserved account waits for
   the next reading.
-- A fresh reading folds older holds into it; a hold closes when its agent stops.
+- A fresh reading folds older holds into it. A hold closes when its agent
+  exits for any reason, or when the dispatch stops before starting one.
 - Holds live in memory; a handoff rebuilds them from the adopted agents.
 
 A `last_resort` source is deferred while any other source is allowed, and used
