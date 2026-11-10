@@ -213,6 +213,9 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
     get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
     match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
+    # Capacity ("Energy") view (#7893).
+    get("/api/v1/capacity", AiurWeb.CapacityApiController, :show)
+    match(:*, "/api/v1/capacity", AiurWeb.CapacityApiController, :method_not_allowed)
   end
 
   scope "/", AiurWeb do

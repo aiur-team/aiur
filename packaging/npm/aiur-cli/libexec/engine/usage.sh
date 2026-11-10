@@ -20,6 +20,18 @@ cmd_usage() {
   run_control_rpc "$expression"
 }
 
+# @cli-reference aiur capacity [--json] | Show the capacity ("Energy") view: how much work Aiur can still start, per source and account, read from the same policy and ledger dispatch uses. JSON is the `aiur.capacity` v1 contract the authenticated API serves. | aiur capacity --json
+cmd_capacity() {
+  local json=false arg
+  for arg in "$@"; do
+    case "$arg" in
+      --json) [ "$json" = false ] || die "capacity accepts --json only once"; json=true ;;
+      *) die "capacity accepts only --json" ;;
+    esac
+  done
+  run_control_rpc "Aiur.Capacity.View.rpc($json)"
+}
+
 usage_alias() {
   local command="$1"
   local replacement provider arg json=false positional="" all=false

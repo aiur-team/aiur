@@ -129,7 +129,9 @@ defmodule Aiur.CodingAgent.CapacityGate do
   def rebuild_holds(entries, opts \\ []), do: LedgerStore.rebuild(entries, server: store(opts), capacity_policy: Keyword.get_lazy(opts, :capacity_policy, &policy/0))
 
   # Tests set `:capacity_ledger_store` to nil (no holds) and pass `:ledger_store` to use their own.
-  defp store(opts), do: Keyword.get_lazy(opts, :ledger_store, fn -> Application.get_env(:aiur, :capacity_ledger_store, LedgerStore) end)
+  @doc false
+  @spec store(keyword()) :: GenServer.server() | nil
+  def store(opts), do: Keyword.get_lazy(opts, :ledger_store, fn -> Application.get_env(:aiur, :capacity_ledger_store, LedgerStore) end)
 
   @doc """
   Why the chosen candidate was chosen: `:pinned`, `:last_resort_used`,
