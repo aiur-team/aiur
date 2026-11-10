@@ -1,7 +1,7 @@
 defmodule Aiur.Capacity.SampleLogTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Capacity.SampleLog
+  alias Aiur.Capacity.{Ledger, SampleLog}
   alias Aiur.ProviderMeterRefresh
 
   @now ~U[2026-11-09 12:00:00Z]
@@ -18,7 +18,14 @@ defmodule Aiur.Capacity.SampleLogTest do
         openrouter: %{freshness: :unknown, windows: %{"credits" => %{remaining_percent: 10}}}
       },
       running: %{{"claude", "default"} => 2},
-      policy: %{{"claude", "default"} => %{reserve_percent: 30, projected_percent: 27, open_holds: 2}}
+      capacity_policy: %{
+        sources: %{
+          "claude" => %{reserve: %{percent: 25, accounts: ["default"]}, limits: %{daily_usd: nil}},
+          "openrouter" => %{reserve: %{percent: 0, accounts: :all}, limits: %{daily_usd: 5, weekly_usd: nil}}
+        },
+        limits: %{monthly_usd: 100}
+      },
+      ledger: ledger()
     }
 
     sample = SampleLog.sample(inputs, @now)
@@ -26,14 +33,49 @@ defmodule Aiur.Capacity.SampleLogTest do
 
     assert Map.keys(rows) |> Enum.sort() == [{"claude", "default"}, {"claude", "work"}, {"codex", nil}, {"openrouter", nil}]
 
-    assert %{remaining_percent: 30, projected_percent: 27, reserve_percent: 30, open_holds: 2, running: 2, freshness: :fresh, age_ms: 60_000} =
+    # 30% read at 11:59, minus the 4% hold created after it; the hold folded before it no longer counts.
+    assert %{remaining_percent: 30, projected_percent: 26, reserve_percent: 25, open_holds: 1, running: 2, freshness: :fresh, age_ms: 60_000} =
              rows[{"claude", "default"}]
 
-    assert %{remaining_percent: nil, reserve_percent: nil, open_holds: nil, running: 0, freshness: :unavailable} = rows[{"claude", "work"}]
-    assert %{remaining_percent: 62, age_ms: 40_000} = rows[{"codex", nil}]
+    # Not on the reserve list: reserve 0, not unknown. No reading: no projection.
+    assert %{remaining_percent: nil, projected_percent: nil, reserve_percent: 0, open_holds: 0, running: 0, freshness: :unavailable} = rows[{"claude", "work"}]
+    assert %{remaining_percent: 62, age_ms: 40_000, reserve_percent: 0} = rows[{"codex", nil}]
     # An unknown provider never shows its stale window as a figure.
     assert %{remaining_percent: nil, freshness: :unknown} = rows[{"openrouter", nil}]
     assert sample.at == "2026-11-09T12:00:00Z"
+
+    # Every limited period, with spend unknown rather than zero.
+    assert sample.sources == [
+             %{backend: "openrouter", period: :daily_usd, period_start: "2026-11-09", limit_usd: 5, spend_usd: nil},
+             %{backend: "global", period: :monthly_usd, period_start: "2026-11-01", limit_usd: 100, spend_usd: nil}
+           ]
+  end
+
+  test "without a policy or ledger the reserve, holds and projection are unknown" do
+    inputs = %{accounts: %{{"claude", "default"} => %{reading: %{windows: [%{window: "five_hour", used_percent: 10}]}, observed_at: @now, freshness: :fresh}}}
+
+    assert %{accounts: [%{remaining_percent: 90, projected_percent: nil, reserve_percent: nil, open_holds: nil}], sources: []} = SampleLog.sample(inputs, @now)
+  end
+
+  test "an unknown hold estimate on a reserved account makes the projection unknown" do
+    ledger = Ledger.hold(Ledger.new(), %{ticket: "x", backend: "claude", account: "default", kind: :window, estimate: :unknown, rate: nil, created_at: @now})
+
+    inputs = %{
+      accounts: %{{"claude", "default"} => %{reading: %{windows: [%{window: "five_hour", used_percent: 10}]}, observed_at: ~U[2026-11-09 11:00:00Z], freshness: :fresh}},
+      capacity_policy: %{sources: %{"claude" => %{reserve: %{percent: 20, accounts: :all}}}},
+      ledger: ledger
+    }
+
+    assert %{accounts: [%{remaining_percent: 90, projected_percent: nil, open_holds: 1}]} = SampleLog.sample(inputs, @now)
+  end
+
+  defp ledger do
+    hold = %{backend: "claude", account: "default", kind: :window, rate: 4}
+
+    Ledger.new()
+    |> Ledger.hold(Map.merge(hold, %{ticket: "old", estimate: 9, created_at: ~U[2026-11-09 11:00:00Z]}))
+    |> Ledger.observe_reading("claude", "default", %{used_percent: 70, observed_at: ~U[2026-11-09 11:59:00Z]})
+    |> Ledger.hold(Map.merge(hold, %{ticket: "new", estimate: 4, created_at: ~U[2026-11-09 11:59:30Z]}))
   end
 
   @tag :tmp_dir

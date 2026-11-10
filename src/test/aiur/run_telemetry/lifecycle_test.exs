@@ -39,6 +39,21 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert_receive {:recorded, :lifecycle, %{event: "dispatch", reason: "last_resort_used"}, _opts}, 1000
   end
 
+  test "the dispatch point keeps each candidate's capacity verdict, nothing else" do
+    candidates = [
+      %{route: "openrouter:kimi", account: nil, verdict: :allow, reason: :last_resort_used, remaining_percent: 40},
+      %{route: "claude", account: "default", verdict: :hold, reason: :reserve}
+    ]
+
+    assert :ok = Lifecycle.record("930", "930:attempt", :dispatch, :point, %{candidates: candidates}, recorder: recorder(self()))
+    assert_receive {:recorded, :lifecycle, %{event: "dispatch", candidates: recorded}, _opts}, 1000
+
+    assert recorded == [
+             %{route: "openrouter:kimi", account: nil, verdict: "allow", reason: "last_resort_used"},
+             %{route: "claude", account: "default", verdict: "hold", reason: "reserve"}
+           ]
+  end
+
   test "records workspace ownership without leaking process details" do
     recorder = recorder(self())
 

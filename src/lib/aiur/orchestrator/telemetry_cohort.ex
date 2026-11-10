@@ -12,7 +12,8 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       Map.merge(attempt_fields(issue), %{
         account: issue.selected_account,
         priority: priority(),
-        reason: dispatch_reason(issue)
+        reason: dispatch_reason(issue),
+        candidates: get_in(issue.dispatch_selection || %{}, [:candidates])
       })
 
     Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(fields, metadata))

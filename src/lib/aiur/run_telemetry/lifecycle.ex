@@ -78,6 +78,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     account
     priority
     reason
+    candidates
     model
     effort
     feature
@@ -250,6 +251,12 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       pr_base: Cohort.normalize_metadata_value(:pr_base, base),
       started_at: Cohort.normalize_metadata_value(:started_at, started_at)
     }
+  end
+
+  # Each dispatch candidate's capacity verdict, so `aiur capacity report` can judge the choice.
+  defp normalize_field(:candidates, values) when is_list(values) do
+    for %{} = candidate <- Enum.take(values, 20),
+        do: Map.new(Map.take(candidate, [:route, :account, :verdict, :reason]), fn {key, value} -> {key, Cohort.normalize_metadata_value(key, value)} end)
   end
 
   defp normalize_field(:reviewer_classes, value) when is_list(value), do: Enum.filter(value, &(&1 in ["trusted", "bot", "other"]))

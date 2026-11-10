@@ -3,11 +3,14 @@ defmodule Aiur.Capacity.SampleLog do
   Appends one capacity sample per probe interval to `<run-log-root>/log/capacity.ndjson`.
 
   Each line holds one row per account: its reading, projected remaining, reserve,
-  open holds, freshness, age and running workers. `aiur capacity report` reads
-  these lines. A figure Aiur does not know is written as `null`, never as a number.
+  open holds, freshness, age and running workers, plus one entry per source
+  period that has a USD limit. `aiur capacity report` reads these lines. A figure
+  Aiur does not know is written as `null`, never as a number.
   """
 
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.Capacity.{Ledger, LedgerStore}
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.LogFile
   alias Aiur.ProviderMeterProjection
 
@@ -35,7 +38,8 @@ defmodule Aiur.Capacity.SampleLog do
       accounts: UsageReadings.snapshot(),
       providers: provider_views(),
       running: running_by_account(),
-      policy: policy_inputs()
+      capacity_policy: CapacityGate.policy(),
+      ledger: LedgerStore.ledger()
     }
 
     append(Keyword.get_lazy(opts, :path, &path/0), sample(inputs, now))
@@ -47,12 +51,15 @@ defmodule Aiur.Capacity.SampleLog do
 
   @doc """
   Builds one sample from per-account meter entries (`UsageReadings.snapshot/0`),
-  provider projection views, running workers per `{backend, account}` and the
-  policy's per-account figures.
+  provider projection views, running workers per `{backend, account}`, the
+  effective capacity policy (`:capacity_policy`) and the reservation ledger
+  (`:ledger`). Without a policy the reserve is unknown; without a ledger the
+  open holds and the projection are.
   """
   @spec sample(map(), DateTime.t()) :: map()
   def sample(inputs, now) do
-    policy = Map.get(inputs, :policy, %{})
+    policy = Map.get(inputs, :capacity_policy)
+    ledger = Map.get(inputs, :ledger)
     running = Map.get(inputs, :running, %{})
     metered = for {{backend, account}, entry} <- Map.get(inputs, :accounts, %{}), do: account_row(backend, account, entry, now)
     metered_backends = MapSet.new(metered, & &1.backend)
@@ -63,13 +70,13 @@ defmodule Aiur.Capacity.SampleLog do
           not MapSet.member?(metered_backends, backend),
           do: provider_row(backend, view)
 
-    rows = Enum.map(metered ++ providers, &finish_row(&1, running, Map.get(policy, {&1.backend, &1.account}, %{})))
+    rows = Enum.map(metered ++ providers, &finish_row(&1, running, policy, ledger))
 
     %{
       schema: @schema,
       at: DateTime.to_iso8601(now),
       accounts: Enum.sort_by(rows, &{&1.backend, &1.account || ""}),
-      sources: Map.get(policy, :sources, [])
+      sources: limited_sources(policy, now)
     }
   end
 
@@ -125,14 +132,61 @@ defmodule Aiur.Capacity.SampleLog do
     }
   end
 
-  defp finish_row(row, running, policy) do
+  defp finish_row(row, running, policy, ledger) do
+    account = row.account || "default"
+    reserve = reserve_percent(policy, row.backend, account)
+
     Map.merge(row, %{
-      projected_percent: Map.get(policy, :projected_percent),
-      reserve_percent: Map.get(policy, :reserve_percent),
-      open_holds: Map.get(policy, :open_holds),
-      running: Map.get(running, {row.backend, row.account || "default"}, 0)
+      projected_percent: projected(ledger, row, account, is_number(reserve) and reserve > 0),
+      reserve_percent: reserve,
+      open_holds: open_holds(ledger, row.backend, account),
+      running: Map.get(running, {row.backend, account}, 0)
     })
   end
+
+  # Mirrors `Aiur.Capacity.Policy`'s reserve rule: 0 when the account has none.
+  defp reserve_percent(%{} = policy, backend, account) do
+    reserve = get_in(policy, [:sources, backend, :reserve]) || %{}
+    accounts = Map.get(reserve, :accounts)
+    if is_list(accounts) and account not in accounts, do: 0, else: Map.get(reserve, :percent) || 0
+  end
+
+  defp reserve_percent(_no_policy, _backend, _account), do: nil
+
+  defp open_holds(%Ledger{holds: holds}, backend, account),
+    do: Enum.count(Map.values(holds), &(&1.backend == backend and &1.account == account and Map.get(&1, :folded_at) == nil))
+
+  defp open_holds(_no_ledger, _backend, _account), do: nil
+
+  # The reading minus the holds created after it; an unknown hold estimate on a reserved account is unknown.
+  defp projected(%Ledger{} = ledger, %{remaining_percent: remaining, observed_at: at} = row, account, fail_closed?)
+       when is_number(remaining) and is_binary(at) do
+    {:ok, observed_at, _offset} = DateTime.from_iso8601(at)
+
+    case Ledger.projected_remaining(ledger, {row.backend, account}, %{remaining: remaining, observed_at: observed_at}, fail_closed?) do
+      :unknown -> nil
+      value -> value
+    end
+  end
+
+  defp projected(_ledger, _row, _account, _fail_closed?), do: nil
+
+  # ponytail: no dispatch path records per-source spend yet, so `spend_usd` is null (unknown) for every limited period.
+  defp limited_sources(%{} = policy, now) do
+    per_source = for {backend, source} <- Map.get(policy, :sources) || %{}, do: {backend, Map.get(source, :limits)}
+
+    for {backend, limits} <- per_source ++ [{"global", Map.get(policy, :limits)}],
+        is_map(limits),
+        {period, limit} <- Enum.sort(limits),
+        is_number(limit),
+        do: %{backend: backend, period: period, period_start: period_start(period, DateTime.to_date(now)), limit_usd: limit, spend_usd: nil}
+  end
+
+  defp limited_sources(_no_policy, _now), do: []
+
+  defp period_start(:daily_usd, date), do: Date.to_iso8601(date)
+  defp period_start(:weekly_usd, date), do: date |> Date.beginning_of_week() |> Date.to_iso8601()
+  defp period_start(:monthly_usd, date), do: date |> Date.beginning_of_month() |> Date.to_iso8601()
 
   defp iso(%DateTime{} = at), do: DateTime.to_iso8601(at)
   defp iso(_at), do: nil
@@ -159,8 +213,4 @@ defmodule Aiur.Capacity.SampleLog do
   catch
     :exit, _reason -> %{}
   end
-
-  # ponytail: reserve, projected remaining, open holds and per-source spend come from
-  # the capacity policy (#7889) and its ledger (#7890); until they land every one is null.
-  defp policy_inputs, do: %{}
 end
