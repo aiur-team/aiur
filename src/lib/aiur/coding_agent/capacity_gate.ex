@@ -25,6 +25,8 @@ defmodule Aiur.CodingAgent.CapacityGate do
   dispatch is unchanged.
   """
 
+  require Logger
+
   alias Aiur.Accounts.{Headroom, UsageFloor}
   alias Aiur.Capacity.Policy
   alias Aiur.CodingAgent.{HeadroomDispatch, UsageFloorGate}
@@ -188,8 +190,16 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   defp limited?(readings, key), do: match?(%{limited: true}, Map.get(readings, key))
 
-  # ponytail: no capacity config accessor until #7886 (PCP-1) merges; an empty
-  # policy allows every route, which is today's behaviour. Replace with
-  # `Aiur.Config.CapacityPolicy.effective/0` when #7886 lands (declared blocker).
-  defp configured_policy, do: %{}
+  # An unreadable config keeps dispatch running on the allow-all policy (today's
+  # behaviour); config load already refuses a loosening value loudly.
+  defp configured_policy do
+    case Aiur.Config.CapacityPolicy.effective() do
+      {:ok, policy} ->
+        policy
+
+      {:error, reason} ->
+        Logger.warning("capacity policy unavailable, allowing every route: #{inspect(reason)}")
+        %{}
+    end
+  end
 end
