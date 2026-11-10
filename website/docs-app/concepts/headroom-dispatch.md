@@ -46,10 +46,11 @@ account with more than 10% remaining. This window also applies to stale
 readings, which may be near their limit. A fresh observation clears the window.
 Otherwise, another exploration is allowed when the window ends.
 
-When every candidate is exhausted, the ticket waits for a reset, as an
+When every candidate is exhausted or held, the ticket waits for a reset, as an
 exhausted `agent.priority` chain does. A `model:` label still pins the
-backend; headroom then picks only the account. A ticket that hits a usage
-limit pauses as before, and its next dispatch is scored again.
+backend; headroom then picks only the account, and the pin waits when the
+capacity policy's hard limits or reserve hold every account on it. A ticket that
+hits a usage limit pauses as before, and its next dispatch is scored again.
 
 Usage comes from the daemon's per-account meters for Claude, and from the
 usage ledger (`model-usage.json`) for Codex. Codex writes the ledger when a
@@ -76,7 +77,11 @@ per-account meter read as unknown. Unknown is never shown as a number.
 Each dispatch records the chosen backend and account and every alternative's
 score: in the daemon log (`headroom_dispatch`), in the ticket's agent event
 stream (`dispatch_selection`), in the `dispatch` telemetry point, and as the
-account reason in `aiur status` and `aiur agents`.
+account reason in `aiur status` and `aiur agents`. The record's `policy` is
+`capacity/v1`; `chosen.reason` says why the choice was made (`preferred`,
+`only_allowed`, `last_resort_used` or `pinned`), and each candidate carries its
+`verdict` (`allow`, `hold` or `defer`), `reason` and `detail`. The `dispatch`
+telemetry point carries the same `reason`.
 
 `aiur usage` shows the shared provider snapshot, including remaining
 percentages and freshness where the backend exposes them. The `aiur accounts`
@@ -117,7 +122,8 @@ Three cases never floor a route:
   it holds the route even with no known limit and with the floor at `0`.
 - **A pinned route.** A `model:` label and a backend the rate-limit fallback
   already chose are intent, and keep their route exactly as they ignore
-  exhaustion today.
+  exhaustion today. Pins still obey the capacity policy's hard limits and
+  reserve (below).
 
 Recovery needs no config edit: when the reading shows the window reset, the next
 dispatch uses the route again. `agent.backend_configs.<backend>.usage_floor_percent`
@@ -137,6 +143,22 @@ different backend.
 resets in 2h`), and an alert fires when a route starts being floored and when it
 recovers. If every route is floored, the ticket waits for a reset instead of
 failing its dispatch.
+
+## Capacity policy
+
+The usage floor is one rule of the capacity policy, which `priority`, `balance`
+and `headroom` selection all apply to every candidate route and account. In
+order, a candidate is held by a hard spend limit (reached, or spend unknown
+while a limit is set), by its source's reserve (remaining at or below the
+reserve, or no fresh reading on a reserved account), or by the usage floor. A
+`last_resort` source is deferred while any other source is allowed, and used
+when none is. A usage-limited source does not count as allowed for that test.
+Ordering among allowed candidates is unchanged: priority first, then headroom.
+
+With no `capacity` config the policy has no reserve, limit or last-resort
+source, so dispatch behaves exactly as described above. When the policy
+allows no candidate on any backend, the fleet provider gate holds dispatch, so
+a queued ticket takes no slot.
 
 ## Machine capacity across projects
 
