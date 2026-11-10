@@ -418,7 +418,9 @@ defmodule Aiur.OpenAICompat.CodingAgent do
           "request_id" => completion.id,
           "model" => completion.model,
           "provider" => completion.provider,
-          "upstream_provider" => Map.get(completion, :upstream_provider)
+          "upstream_provider" => Map.get(completion, :upstream_provider),
+          # The daemon made this request, so its completion time is a trusted occurrence time (#7958).
+          "completed_at" => DateTime.utc_now()
         }
       })
     end

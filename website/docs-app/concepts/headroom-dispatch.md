@@ -158,10 +158,16 @@ order, a candidate is held by:
   on a reserved account;
 - the usage floor.
 
+Spend limits apply to `metered` and `prepaid` sources only; a subscription has
+no USD cost, so a `limits` block on one is ignored.
+
 Spend is the API-equivalent USD estimate from the usage aggregate, per source
 and over all `metered` and `prepaid` sources together, for the current UTC day,
-week (from Monday) and calendar month. Partial pricing coverage counts as
-unknown.
+week (from Monday) and calendar month.
+
+Partial pricing coverage counts as unknown spend. So does any usage with no
+occurrence date, since it cannot be placed in a period. Requests the daemon
+makes itself (OpenAI-compatible backends) are dated when they complete.
 
 A running agent on a source past a hard limit starts no new turn: at the next
 turn boundary its ticket returns to the queue, where dispatch picks the next

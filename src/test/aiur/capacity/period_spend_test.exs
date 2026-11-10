@@ -5,7 +5,10 @@ defmodule Aiur.Capacity.PeriodSpendTest do
 
   alias Aiur.Capacity.PeriodSpend
   alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.ProviderAccountGeneration.Snapshot
   alias Aiur.TestSupport.GroupedScopes, as: Support
+  alias Aiur.TestSupport.UsageAggregate, as: Aggregate
+  alias Aiur.Usage.Headless.{Context, DeepSeek}
 
   @today ~D[2026-11-11]
   @candidate %{backend: "deepseek", account: nil, route: "deepseek"}
@@ -81,7 +84,57 @@ defmodule Aiur.Capacity.PeriodSpendTest do
     assert PeriodSpend.stop_new_turns?("deepseek", metered, %{"deepseek" => %{weekly_usd: 10.0}, global: %{daily_usd: 2.0}})
     assert PeriodSpend.stop_new_turns?("deepseek", metered, %{"deepseek" => %{weekly_usd: 9.0}, global: %{daily_usd: 3.0}})
     assert PeriodSpend.stop_new_turns?("deepseek", metered, %{"deepseek" => %{weekly_usd: :unknown}, global: %{daily_usd: 2.0}})
-    # A subscription source answers only to its own limits, and none here.
-    refute PeriodSpend.stop_new_turns?("claude", %{sources: %{"claude" => %{billing: "subscription"}}, limits: %{daily_usd: 3}}, %{})
+    # A subscription has no USD cost: neither its own limits nor the machine-wide ones stop it.
+    subscription = %{sources: %{"claude" => %{billing: "subscription", limits: %{daily_usd: 1}}}, limits: %{daily_usd: 3}}
+    refute PeriodSpend.stop_new_turns?("claude", subscription, %{"claude" => %{daily_usd: 5.0}, global: %{daily_usd: 5.0}})
+  end
+
+  test "a subscription source is not measured even with a limits block" do
+    assert PeriodSpend.spend(%{sources: %{"claude" => %{billing: "subscription", limits: %{daily_usd: 1}}}}, usage_source: nil) == %{}
+  end
+
+  test "undated usage of a measured provider makes every period unknown, and holds a limited source" do
+    undated = update_in(record(2, @today), [:envelope], &%{&1 | occurred_at: nil, pricing_effective_date: nil})
+    records = [record(1, @today), undated]
+
+    assert spend(policy(%{daily_usd: 1}), records)["deepseek"] == %{daily_usd: :unknown, weekly_usd: :unknown, monthly_usd: :unknown}
+    assert verdict(1_000, records) == {:hold, :spend_unknown}
+    # Another provider's undated usage does not touch this source.
+    other = update_in(Support.openrouter_record(3, pricing_date: @today), [:envelope], &%{&1 | occurred_at: nil, pricing_effective_date: nil})
+    assert verdict(1_000, [record(1, @today), other]) == {:allow, nil}
+  end
+
+  test "a completed OpenAI-compatible request becomes dated, priced spend for its source and ticket" do
+    completed_at = ~U[2026-11-11 09:30:00Z]
+
+    payload = %{
+      "request_id" => "req-1",
+      "model" => "deepseek-v4-flash",
+      "completed_at" => completed_at,
+      "usage" => %{"prompt_tokens" => 1_000_000, "completion_tokens" => 0, "total_tokens" => 1_000_000}
+    }
+
+    assert [{:ok, envelope}] = DeepSeek.RequestUsage.extract(payload, nil, context(Support.identity(5)), DateTime.add(completed_at, 1))
+    assert envelope.pricing_effective_date == @today
+    source = Support.source([Aggregate.record(1, envelope, %{tokens: %{input: 1_000_000}})])
+
+    daily = PeriodSpend.spend(policy(%{daily_usd: 1}), usage_source: source, today: @today)["deepseek"].daily_usd
+    assert is_float(daily) and daily > 0
+    assert_in_delta PeriodSpend.ticket_usd(Support.identity(5), usage_source: source), daily, 1.0e-9
+  end
+
+  defp context(identity) do
+    %Context{
+      run_id: "run-1",
+      tracker_identity: identity,
+      agent_family: :deepseek,
+      backend: :openai_compat,
+      transport: :openai_compat,
+      auth_mode: :api_key,
+      requested_model: "deepseek-v4-flash",
+      resolved_model: "deepseek-v4-flash",
+      account_generation: Context.project_generation(Snapshot.unavailable(:deepseek, :openai_compat), :deepseek, :openai_compat),
+      source_sequence: 1
+    }
   end
 end

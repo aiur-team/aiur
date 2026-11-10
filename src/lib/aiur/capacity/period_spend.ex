@@ -6,10 +6,13 @@ defmodule Aiur.Capacity.PeriodSpend do
   Read from the usage aggregate's API-equivalent estimate, by provider family
   and pricing date. Partial pricing coverage, or an unavailable aggregate, is
   `:unknown` (`Aiur.Capacity.Ledger.Estimate.period_spend/1`), which holds a
-  source with a limit. Weeks start on Monday.
+  source with a limit. So is any usage of a measured provider with no
+  occurrence date: it cannot be placed in a period. Weeks start on Monday.
 
-  Only sources with a `limits` block are measured, plus `:global` when the
-  machine-wide `limits` are set; with no limit anywhere `spend/2` reads nothing.
+  Limits apply to `metered` and `prepaid` sources only: a subscription has no
+  USD cost. Only such sources with a `limits` block are measured, plus
+  `:global` when the machine-wide `limits` are set; with no limit anywhere
+  `spend/2` reads nothing.
   """
 
   alias Aiur.Capacity.Ledger
@@ -30,7 +33,7 @@ defmodule Aiur.Capacity.PeriodSpend do
   @spec spend(map(), keyword()) :: map()
   def spend(policy, opts \\ []) do
     sources = Map.get(policy, :sources) || %{}
-    limited = for {backend, source} <- sources, limited?(Map.get(source || %{}, :limits)), do: backend
+    limited = for {backend, source} <- sources, billed?(source), limited?(Map.get(source, :limits)), do: backend
     global? = limited?(Map.get(policy, :limits))
 
     if limited == [] and not global? do
@@ -45,19 +48,19 @@ defmodule Aiur.Capacity.PeriodSpend do
   end
 
   @doc """
-  Whether `backend` is past a hard USD limit, its own or (for a metered or
-  prepaid source) the machine-wide one, so a running agent there starts no new
-  turn. Unknown spend under a limit stops too.
+  Whether `backend`, a metered or prepaid source, is past a hard USD limit
+  (its own or the machine-wide one), so a running agent there starts no new
+  turn. Unknown spend under a limit stops too. A subscription never stops.
   """
   @spec stop_new_turns?(String.t(), map(), map()) :: boolean()
   def stop_new_turns?(backend, policy, spend) do
     source = Map.get(Map.get(policy, :sources) || %{}, backend) || %{}
-    checks = [{Map.get(source, :limits), Map.get(spend, backend)}]
-    checks = if billed?(source), do: [{Map.get(policy, :limits), Map.get(spend, :global)} | checks], else: checks
+    checks = [{Map.get(source, :limits), Map.get(spend, backend)}, {Map.get(policy, :limits), Map.get(spend, :global)}]
 
-    Enum.any?(checks, fn {limits, spent} ->
-      Enum.any?(@periods, &Ledger.stop_new_turns?(figure(spent, &1), figure(limits, &1, nil)))
-    end)
+    billed?(source) and
+      Enum.any?(checks, fn {limits, spent} ->
+        Enum.any?(@periods, &Ledger.stop_new_turns?(figure(spent, &1), figure(limits, &1, nil)))
+      end)
   end
 
   @doc """
@@ -97,14 +100,24 @@ defmodule Aiur.Capacity.PeriodSpend do
       end
 
     starts = [daily_usd: today, weekly_usd: Date.beginning_of_week(today), monthly_usd: Date.beginning_of_month(today)]
+    undated = undated_providers(source)
 
     fn providers ->
-      Map.new(starts, fn {period, since} ->
-        {:ok, scope} = Scope.period(providers, since)
-        {period, source |> GroupedScopes.project(scope, [currency: "USD"] ++ price_opts) |> Ledger.period_spend()}
-      end)
+      undated? = Enum.any?(providers, &MapSet.member?(undated, &1))
+      Map.new(starts, fn {period, since} -> {period, if(undated?, do: :unknown, else: usd(source, providers, since, price_opts))} end)
     end
   end
+
+  defp usd(source, providers, since, price_opts) do
+    {:ok, scope} = Scope.period(providers, since)
+    source |> GroupedScopes.project(scope, [currency: "USD"] ++ price_opts) |> Ledger.period_spend()
+  end
+
+  # Usage with no occurrence date may fall in any period, so its provider's spend is unknown.
+  defp undated_providers(%{cells: cells}) when is_map(cells),
+    do: for({{%{provider: provider, pricing_date: nil}, _measure}, _value} <- cells, into: MapSet.new(), do: to_string(provider))
+
+  defp undated_providers(_source), do: MapSet.new()
 
   defp family(backend), do: CodingAgent.family_for(backend) || backend
 
