@@ -6,7 +6,7 @@ import { initTerminal } from "./terminal";
 const root = document.documentElement;
 setTheme(getTheme());
 initThemeToggle(document.querySelector<HTMLButtonElement>("#themeToggle")!);
-const banner = document.querySelector<HTMLElement>("#archonBanner")!;
+const banner = document.querySelector<HTMLElement>("#khalaBanner")!;
 const topbar = document.querySelector<HTMLElement>(".aiur-topbar")!;
 initBanner(banner);
 initBrandReveal(topbar, { after: ".hero" });
