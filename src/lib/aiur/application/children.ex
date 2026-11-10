@@ -253,6 +253,7 @@ defmodule Aiur.Application.Children do
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
+      Aiur.Capacity.LedgerStore,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,

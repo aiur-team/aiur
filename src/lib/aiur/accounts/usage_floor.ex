@@ -48,6 +48,7 @@ defmodule Aiur.Accounts.UsageFloor do
             optional(:stale) => boolean(),
             optional(:limited) => boolean(),
             optional(:age_seconds) => non_neg_integer(),
+            optional(:observed_at) => DateTime.t() | nil,
             optional(:source) => String.t()
           }
           | nil
