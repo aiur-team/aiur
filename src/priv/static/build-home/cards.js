@@ -68,6 +68,7 @@ function planContent(t, points) {
   }
   if (c.held) cues.push('<span class="bd-q held" title="' + esc(c.held) + '">' + I.lock + ' held</span>');
   if (c.wait != null && !c.blockedChain) cues.push('<span class="bd-q">' + I.hourglass + ' waits on #' + number(c.wait, 'wait', 'Prerequisite unknown') + '</span>');
+  if (c.capacity) cues.push('<span class="bd-q" title="' + esc(c.capacity) + '">' + I.hourglass + ' no authorized source</span>');
   if (c.blockedChain && !c.failed) cues.push('<span class="bd-q" style="color:var(--block-ink);border-color:var(--block-line)">' + I.warn + ' prereq chain failed</span>');
   if (t.override) cues.push('<span class="bd-q ovr" title="' + esc(t.override.reason) + '">' + I.pencil + ' estimate overridden</span>');
   const blocks = Array.isArray(c.failed?.blocks) ? c.failed.blocks : [];

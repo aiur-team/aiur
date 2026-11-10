@@ -85,6 +85,12 @@ collector never substitutes the current checkout's commit or file time.
 
 Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason, owner and elapsed age, for example `· backing_off · RetryEngine · 45s`. `aiur agents` summarizes ordinary idle tickets in one count; use `aiur agents --all` to print every idle row.
 
+The bracketed suffix in `aiur agents` and `aiur status` also gives the capacity policy's reason, and `aiur units` adds it to each Unit line:
+
+- A running row names its source, why it was chosen and the reading taken at dispatch: `codex/default (preferred; 62% left at dispatch, reading 40s old)`. The age is the reading's age at dispatch, not now. Reasons are `preferred`, `only allowed source`, `last resort` and `pinned`; a `last resort` choice also lists why each other source was passed over.
+- When the policy allows no source, a queued row reads `waiting: no authorized source:` with one clause per source, such as `codex limited; claude/default Executor reserve (reading 25% left, reserve 30%)`.
+- A reading with no value reads `usage unknown`, and a limited source reads `exhausted`; neither shows a percentage. A stale reading adds `stale`, and one with no observation time reads `age unknown`.
+
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 
 `status`, `agents` and `watch` always print the fleet snapshot age, including fresh snapshots, as in `FLEET SNAPSHOT 2s old` and `CAPACITY OBSERVATION 2s old`. Rows carry their own observation age. A missing observation renders `age unavailable`, never zero. Retry rows read `since daemon start <UTC time>`, because retry state resets on daemon restart.

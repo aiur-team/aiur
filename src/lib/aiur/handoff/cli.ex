@@ -164,6 +164,8 @@ defmodule Aiur.Handoff.CLI do
         |> Map.put(:provider_pid, Report.provider_pid(row[:provider_pid] || row[:codex_app_server_pid]))
         # null, never an empty report, when the preload is unknown (e.g. an adopted session).
         |> Map.put(:skill_preload, row[:skill_preload])
+        # Why the capacity policy chose this source (#7892); null without a dispatch record.
+        |> Map.put(:capacity_reason, row[:capacity_reason])
       end)
 
     %{contract: @agents_contract, contract_version: @contract_version, running: rows}

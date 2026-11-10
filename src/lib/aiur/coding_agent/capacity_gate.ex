@@ -100,6 +100,18 @@ defmodule Aiur.CodingAgent.CapacityGate do
   end
 
   @doc """
+  The `capacity/v1` record of every candidate on `routes`, with no choice: what
+  the fleet provider hold keeps so a queued ticket can say why each source is held.
+  """
+  @spec record([String.t()], keyword()) :: map()
+  def record(routes, opts \\ []) when is_list(routes) do
+    candidates = UsageFloorGate.candidates(routes, opts)
+    %{entries: entries} = evaluate(candidates, HeadroomDispatch.readings(candidates, opts), opts)
+    {floor, other} = Enum.split_with(entries, &Map.has_key?(&1, :held))
+    %{policy: "capacity/v1", chosen: nil, candidates: views(floor, other)}
+  end
+
+  @doc """
   Claims the reservation hold for an issue dispatch just selected a source for
   (#7890): re-checks the reserve and records the hold in one store call.
   Returns `:ok` or `{:hold, reason}`.
