@@ -14,10 +14,11 @@ defmodule Aiur.ControlCLI.OperatorRelayCallerTest do
     previous_audit = Application.get_env(:aiur, :control_audit_file)
     Application.put_env(:aiur, :control_audit_file, audit)
     File.write!(config, "tracker: {kind: memory}\nworkspace: {root: #{Path.join(dir, "workspaces")}}\nexecutor: {relay_operator_answers: true}\n")
+    previous_workflow = Workflow.workflow_file_path()
     Workflow.set_workflow_file_path(config)
 
     on_exit(fn ->
-      Workflow.clear_workflow_file_path()
+      Workflow.set_workflow_file_path(previous_workflow)
       if previous_audit, do: Application.put_env(:aiur, :control_audit_file, previous_audit), else: Application.delete_env(:aiur, :control_audit_file)
       Aiur.TestCleanup.rm_rf!(dir)
     end)
