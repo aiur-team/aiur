@@ -10,10 +10,12 @@ defmodule Aiur.CodingAgent.Routing.FloorChain do
 
   `Aiur.CodingAgent.Routing` owns the route list and the pin/routing reads; this
   module owns the decision over that list, so the floor logic lives in one place
-  and the routing module keeps its size.
+  and the routing module keeps its size. The floor is one rule of the capacity
+  policy (`Aiur.CodingAgent.CapacityGate`, #7889): limits, the reserve and last
+  resort hold or defer a route the same way.
   """
 
-  alias Aiur.CodingAgent.UsageFloorGate
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.ModelAvailability
@@ -38,7 +40,7 @@ defmodule Aiur.CodingAgent.Routing.FloorChain do
   def routed(issue, opts, backend, eligible_routes, select_route) do
     cond do
       not ModelAvailability.available?(backend, opts) -> {:all_limited, [backend]}
-      UsageFloorGate.filter_routes([backend], opts) != [] -> {:ok, issue}
+      backend in allowed(Enum.uniq([backend | eligible_routes.(opts)]), opts) -> {:ok, issue}
       true -> fallback(issue, opts, backend, eligible_routes, select_route)
     end
   end
@@ -50,7 +52,7 @@ defmodule Aiur.CodingAgent.Routing.FloorChain do
   @spec chain(Issue.t(), keyword(), routes_fun(), select_fun()) :: decision()
   def chain(issue, opts, eligible_routes, select_route) do
     candidates = eligible_routes.(opts)
-    allowed = UsageFloorGate.filter_routes(candidates, opts)
+    allowed = allowed(candidates, opts)
 
     cond do
       candidates == [] -> default_backend(issue, opts)
@@ -61,7 +63,7 @@ defmodule Aiur.CodingAgent.Routing.FloorChain do
 
   defp fallback(issue, opts, floored_backend, eligible_routes, select_route) do
     candidates = eligible_routes.(opts)
-    allowed = UsageFloorGate.filter_routes(candidates, opts)
+    allowed = allowed(candidates, opts)
     unavailable = {:all_limited, Enum.uniq([floored_backend | candidates])}
 
     case {candidates, allowed} do
@@ -85,8 +87,11 @@ defmodule Aiur.CodingAgent.Routing.FloorChain do
 
     cond do
       not ModelAvailability.available?(backend, opts) -> {:all_limited, [backend]}
-      UsageFloorGate.filter_routes([backend], opts) == [] -> {:all_limited, [backend]}
+      allowed([backend], opts) == [] -> {:all_limited, [backend]}
       true -> {:ok, issue}
     end
   end
+
+  # Claim-time evaluation records floor holds and recoveries, as the floor did.
+  defp allowed(routes, opts), do: CapacityGate.allowed_routes(routes, Keyword.put(opts, :record, true))
 end

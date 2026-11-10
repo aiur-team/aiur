@@ -3,8 +3,9 @@
   "to_module": "Aiur.Accounts.*",
   "kind": "reference",
   "only_paths": [
+    "src/lib/aiur/coding_agent/capacity_gate.ex",
     "src/lib/aiur/coding_agent/headroom_dispatch.ex",
     "src/lib/aiur/coding_agent/usage_floor_gate.ex"
   ],
-  "reason": "#3960: headroom dispatch ranks candidates with the pure Accounts.Headroom selector over polled UsageReadings; #7504 the usage floor gate applies the same selector to the same readings"
+  "reason": "#3960: headroom dispatch ranks candidates with the pure Accounts.Headroom selector over polled UsageReadings; #7504 the usage floor gate applies the same selector to the same readings; #7889 the capacity gate reads the same readings and floor"
 }

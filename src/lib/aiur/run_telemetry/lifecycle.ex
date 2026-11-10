@@ -77,6 +77,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     dispatch_selection
     account
     priority
+    reason
     model
     effort
     feature

@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.OwnershipDispatchTest do
   use Aiur.DispatcherTestSupport
 
   alias Aiur.AgentPubSub
+  alias Aiur.Capacity.LedgerStore
   alias Aiur.Orchestrator.{Dispatcher, State}
 
   @g String.duplicate("a", 26)
@@ -169,6 +170,49 @@ defmodule Aiur.Orchestrator.OwnershipDispatchTest do
       run(own_issue("47"), me(), no_read, no_claim, capacity_admit_fun: fn _ -> {:deny, :no_slot} end)
 
     refute MapSet.member?(state.claimed, "47")
+  end
+
+  describe "capacity reservation hold (#7890)" do
+    setup do
+      ledger = start_supervised!({LedgerStore, name: :"ledger_#{System.unique_integer([:positive])}"})
+      %{ledger: ledger, hold_opts: [ledger_store: ledger, capacity_policy: %{sources: %{"codex" => %{billing: "subscription"}}}]}
+    end
+
+    defp holds(ledger), do: Map.keys(LedgerStore.ledger(ledger).holds)
+
+    test "a started agent holds until it exits", %{ledger: ledger, hold_opts: hold_opts} do
+      parent = self()
+
+      runner = fn i, _, _ ->
+        send(parent, {:running, i.id, self()})
+        receive do: (:stop -> :ok)
+      end
+
+      {_store, read, claim} = stub()
+      state = run(own_issue("49"), me(), read, claim, [runner: runner] ++ hold_opts)
+      assert_receive {:running, "49", pid}, 1000
+      assert state.running["49"].pid == pid
+      assert holds(ledger) == ["49"]
+
+      ref = Process.monitor(pid)
+      send(pid, :stop)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1000
+      assert holds(ledger) == []
+    end
+
+    test "a dispatch declined after the claim leaves no hold", %{ledger: ledger, hold_opts: hold_opts} do
+      no_read = fn _, _, _ -> flunk("read called") end
+      no_claim = fn _, _, _, _ -> flunk("claim called") end
+      run(own_issue("50"), me(), no_read, no_claim, [capacity_admit_fun: fn _ -> {:deny, :no_slot} end] ++ hold_opts)
+      assert holds(ledger) == []
+    end
+
+    test "a dispatch the ownership claim loses leaves no hold", %{ledger: ledger, hold_opts: hold_opts} do
+      {store, read, claim} = stub()
+      Agent.update(store, &Map.put(&1, "51", record("51", @other, "x")))
+      refute MapSet.member?(run(own_issue("51"), me(), read, claim, hold_opts).claimed, "51")
+      assert holds(ledger) == []
+    end
   end
 
   test "Capacity admit runs before the ownership read" do

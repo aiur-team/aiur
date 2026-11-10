@@ -34,6 +34,11 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert opts[:timestamp] == ~U[2026-07-11 12:00:00Z]
   end
 
+  test "the dispatch point keeps the capacity policy's chosen reason (#7889)" do
+    assert :ok = Lifecycle.record("930", "930:attempt", :dispatch, :point, %{reason: :last_resort_used}, recorder: recorder(self()))
+    assert_receive {:recorded, :lifecycle, %{event: "dispatch", reason: "last_resort_used"}, _opts}, 1000
+  end
+
   test "records workspace ownership without leaking process details" do
     recorder = recorder(self())
 
