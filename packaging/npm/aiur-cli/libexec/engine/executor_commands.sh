@@ -168,6 +168,8 @@ cmd_operator_answer() {
   run_control_rpc "Aiur.AgentControlCLI.operator_answer([$opts])"
 }
 
+# Fleet workers cannot relay: a worker could otherwise record "the operator said yes" on its own Command.
+refuse_fleet_worker_relay() { [ -z "${AIUR_AGENT_WORKSPACE:-}" ] || { echo "aiur: $1: fleet workers cannot relay an operator answer; ask the attended Executor to relay it, or the operator to answer in the dashboard" >&2; exit 64; }; }
 cmd_operator_relay_answer() {
   local decision_id="${1:-}" expected_version="" option_id="" custom_response="" quote="" idempotency_key="" relayed_by="" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
@@ -209,6 +211,7 @@ cmd_operator_relay_answer() {
   [ -n "$quote" ] || { echo "aiur: operator-relay-answer --quote is required" >&2; exit 64; }
   [ -n "$idempotency_key" ] || { echo "aiur: operator-relay-answer --idempotency-key is required" >&2; exit 64; }
   [ -n "$relayed_by" ] || { echo "aiur: operator-relay-answer --relayed-by must not be empty" >&2; exit 64; }
+  refuse_fleet_worker_relay operator-relay-answer
 
   local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
   if question_answers_given; then

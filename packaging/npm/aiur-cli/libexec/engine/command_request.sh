@@ -64,6 +64,7 @@ cmd_command() {
 
   if [ "$relayed" -eq 1 ]; then
     [ -n "$quote" ] || { echo "aiur: command --relayed requires --quote" >&2; exit 64; }
+    refuse_fleet_worker_relay "command --relayed"
     local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
     local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
     [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
