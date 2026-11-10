@@ -1,0 +1,46 @@
+{
+  "schema": "aiur-build.collection-graph/v1",
+  "feature_slug": "multi-instance-control",
+  "display_label": "Multi-instance control plane",
+  "ticket_prefix": "MIC",
+  "plan_version": 1,
+  "repository": "aiur-team/aiur",
+  "researched_at_commit": "ab0c21424",
+  "phase_budget": 5,
+  "external_tickets": {
+    "#5945": {"title": "Per-client bearer tokens for machine clients", "lane": "PC", "amendment": "A1"},
+    "#5947": {"title": "Per-ticket claim lease", "lane": "PC", "amendment": "A3"},
+    "#5939": {"title": "Run the daemon in the foreground without tmux", "lane": "PC", "amendment": "A4"},
+    "#5940": {"title": "Daemon service image and Railway template", "lane": "PC", "amendment": "A4"}
+  },
+  "lanes": {
+    "transport": {"icon": "arrows-right-left", "tickets": ["MIC-001", "MIC-002", "MIC-003", "MIC-004"]},
+    "executor": {"icon": "bolt", "tickets": ["MIC-005", "MIC-006"]},
+    "config-ownership": {"icon": "adjustments-horizontal", "tickets": ["MIC-007", "MIC-008"]},
+    "safety-acceptance": {"icon": "shield-check", "tickets": ["MIC-009", "MIC-010"]}
+  },
+  "tickets": [
+    {"id": "MIC-001", "kind": "executable", "title": "Control call contract: allowlisted, literal-only calls with captured output", "document": "tickets/MIC-001-control-call-contract.md", "complexity": 3, "risk": "high", "lane": "PC", "extends": "new (server half of #5945 machine clients)", "requirements": ["R6", "R7", "R9", "R20"], "depends_on": [], "serializes_with": [], "suggested_after": [], "write_surfaces": ["src/lib/aiur/control_call*"], "contract_surfaces": ["aiur.control.call v1", "aiur.control.result v1", "control allowlist scopes"], "issue": "#5965"},
+    {"id": "MIC-002", "kind": "executable", "title": "POST /api/v1/control with scoped bearer tokens and audit log", "document": "tickets/MIC-002-control-endpoint.md", "complexity": 3, "risk": "high", "lane": "PC", "extends": "#5945", "requirements": ["R4", "R6", "R7", "R8", "R9"], "depends_on": ["MIC-001", "#5945"], "serializes_with": ["#5942"], "suggested_after": [], "write_surfaces": ["src/lib/aiur_web/router.ex", "src/lib/aiur_web/routes/control.ex", "src/lib/aiur_web/controllers/control_controller.ex", "src/lib/aiur/control_call/audit.ex"], "contract_surfaces": ["control-audit.ndjson"], "issue": "#5970"},
+    {"id": "MIC-003", "kind": "executable", "title": "CLI remote target: aiur --instance <name> <cmd> with registry", "document": "tickets/MIC-003-cli-remote-target.md", "complexity": 3, "risk": "medium", "lane": "NUC", "extends": "new", "requirements": ["R1", "R2", "R3", "R5", "R10"], "depends_on": [], "serializes_with": ["#5939"], "suggested_after": ["MIC-002"], "write_surfaces": ["packaging/npm/aiur-cli/libexec/engine/remote.sh", "packaging/npm/aiur-cli/libexec/engine/control.sh", "packaging/npm/aiur-cli/libexec/aiur-engine.sh", "packaging/npm/aiur-cli/bin/aiur.js"], "contract_surfaces": ["~/.aiur/remote-instances.yaml v1"], "issue": "#5968"},
+    {"id": "MIC-004", "kind": "executable", "title": "aiur --instance all for read commands", "document": "tickets/MIC-004-instance-all-reads.md", "complexity": 2, "risk": "low", "lane": "NUC", "extends": "new (complements #5950)", "requirements": ["R4"], "depends_on": ["MIC-001", "MIC-003"], "serializes_with": [], "suggested_after": [], "write_surfaces": ["packaging/npm/aiur-cli/libexec/engine/remote.sh", "packaging/npm/aiur-cli/test/fixtures/control-read-commands.json"], "contract_surfaces": [], "issue": "#5972"},
+    {"id": "MIC-005", "kind": "executable", "title": "Deferred acknowledgement for executor-wait", "document": "tickets/MIC-005-deferred-wake-ack.md", "complexity": 2, "risk": "medium", "lane": "PC", "extends": "new", "requirements": ["R18"], "depends_on": [], "serializes_with": [], "suggested_after": [], "write_surfaces": ["src/lib/aiur/executor_attention/cli.ex", "packaging/npm/aiur-cli/libexec/engine/executor_commands.sh", "src/lib/aiur/executor_wake_inbox.ex", "src/lib/aiur/control_call/allowlist.ex (if present)"], "contract_surfaces": ["executor_wait ack_through/defer_ack"], "issue": "#5966"},
+    {"id": "MIC-006", "kind": "executable", "title": "One Executor for every instance: merged executor-wait", "document": "tickets/MIC-006-one-executor-all-instances.md", "complexity": 3, "risk": "medium", "lane": "PC", "extends": "new (builds on #5803 disjoint streams)", "requirements": ["R17", "R18"], "depends_on": ["MIC-002", "MIC-004", "MIC-005"], "serializes_with": [], "suggested_after": [], "write_surfaces": ["packaging/npm/aiur-cli/libexec/engine/remote.sh", "packaging/npm/aiur-cli/libexec/engine/executor_commands.sh", ".claude/skills/aiur-run/SKILL.md"], "contract_surfaces": [], "issue": "#5973"},
+    {"id": "MIC-007", "kind": "executable", "title": "Runtime settings: aiur set <key> <value> validated by the running build", "document": "tickets/MIC-007-runtime-settings.md", "complexity": 3, "risk": "medium", "lane": "NUC", "extends": "existing aiur set max-agents (#5402)", "requirements": ["R9", "R11", "R12", "R13"], "depends_on": [], "serializes_with": [], "suggested_after": [], "write_surfaces": ["src/lib/aiur/config/overrides.ex", "src/lib/aiur/config.ex", "src/lib/aiur/workflow_store/reload.ex", "src/lib/aiur/workflow_store.ex", "packaging/npm/aiur-cli/libexec/engine/commands.sh", "src/lib/aiur/workflow.ex"], "contract_surfaces": ["config-overrides.json v1", "settable key allowlist"], "issue": "#5969"},
+    {"id": "MIC-008", "kind": "executable", "title": "Ticket ownership rules: instance.owns and instance.pool", "document": "tickets/MIC-008-ticket-ownership-rules.md", "complexity": 3, "risk": "medium", "lane": "PC", "extends": "#5947", "requirements": ["R14", "R15", "R16"], "depends_on": ["#5947", "MIC-007"], "serializes_with": ["#5948", "#5949"], "suggested_after": [], "write_surfaces": ["src/lib/aiur/config/schema/instance.ex", "src/lib/aiur/instance.ex"], "contract_surfaces": ["heartbeat owns/pool fields"], "issue": "#5971"},
+    {"id": "MIC-009", "kind": "executable", "title": "Refuse non-loopback Erlang distribution at boot", "document": "tickets/MIC-009-loopback-distribution-check.md", "complexity": 2, "risk": "high", "lane": "PC", "extends": "#5939, #5940", "requirements": ["R19"], "depends_on": [], "serializes_with": [], "suggested_after": ["#5939", "#5940"], "write_surfaces": ["src/lib/aiur/distribution.ex", "src/lib/aiur.ex"], "contract_surfaces": [], "issue": "#5967"},
+    {"id": "MIC-010", "kind": "capstone", "title": "Prove multi-instance control end to end on two live instances", "document": "tickets/MIC-010-feature-acceptance.md", "complexity": 2, "risk": "medium", "lane": "PC", "extends": "feeds #5954", "requirements": ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15", "R16", "R17", "R18", "R19", "R20"], "depends_on": ["MIC-002", "MIC-004", "MIC-006", "MIC-007", "MIC-008", "MIC-009"], "serializes_with": [], "suggested_after": [], "write_surfaces": ["acceptance evidence"], "contract_surfaces": [], "issue": "#5974"}
+  ],
+  "hot_file_exceptions": [
+    {"path": "website/docs-app/reference/cli.md", "tickets": ["MIC-002", "MIC-003", "MIC-004", "MIC-005", "MIC-006", "MIC-007", "MIC-009"], "reason": "Row edits in different sections; rebase resolves them. Each PR keeps the file at 500 lines or fewer. Not a scheduling edge."}
+  ],
+  "integration_ledger": [
+    {"coupling": "MIC-003 client speaks the MIC-002 wire contract", "dropped_edge": "MIC-003 -> MIC-002", "reconnected_by": "MIC-010 step 1"},
+    {"coupling": "MIC-007 remote set travels through MIC-002", "dropped_edge": "MIC-007 -> MIC-002", "reconnected_by": "MIC-010 step 2"},
+    {"coupling": "MIC-007 settings entry point listed in MIC-001 allowlist", "dropped_edge": "MIC-007 -> MIC-001", "reconnected_by": "whichever of MIC-001/MIC-007 merges second adds the entry (both tickets say so); MIC-010 step 2 verifies"},
+    {"coupling": "MIC-009 protects the container path of #5939/#5940", "dropped_edge": "MIC-009 -> #5939", "reconnected_by": "MIC-010 step 6"},
+    {"coupling": "MIC-005 executor_wait options ack_through/defer_ack listed in MIC-001 allowlist", "dropped_edge": "MIC-005 -> MIC-001", "reconnected_by": "whichever of MIC-001/MIC-005 merges second adds the keys (both tickets say so); MIC-006 acceptance 8 parses the engine-emitted expression"},
+    {"coupling": "MIC-004 sends max_scope read; MIC-002 enforces it", "dropped_edge": "MIC-004 -> MIC-002", "reconnected_by": "MIC-002 acceptance 8; MIC-010 step 1"}
+  ],
+  "epic": "#5964"
+}
