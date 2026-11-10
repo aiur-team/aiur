@@ -56,7 +56,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "deps_missing" => nullable(:nonnegative),
       "wave" => nullable(:integer),
       "qpos" => nullable(:nonnegative),
-      "cue" => nullable(object(cue(), ["unknown"])),
+      "cue" => nullable(object(cue(), ["unknown", "capacity"])),
       "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed)), "ci" => nullable(:string)}, ["ci"]))
     }
   end
@@ -278,7 +278,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "waitAny" => :boolean,
       "failed" => nullable(object(%{"by" => :positive, "blocks" => list(:positive)})),
       "blockedChain" => :boolean,
-      "unknown" => :boolean
+      "unknown" => :boolean,
+      "capacity" => nullable({:short_string, 400})
     }
 
   defp object(fields, optional \\ []), do: {:object, fields, optional}
