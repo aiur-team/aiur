@@ -35,7 +35,7 @@ defmodule Aiur.Capacity.LedgerStoreTest do
 
   defp holds(server), do: Map.keys(LedgerStore.ledger(server).holds)
 
-  defp agent, do: spawn(fn -> receive do: (reason -> exit(reason)) end)
+  defp agent, do: start_supervised!(Supervisor.child_spec({Task, fn -> receive do: (reason -> exit(reason)) end}, id: make_ref()))
 
   defp stop(server, pid, reason) do
     ref = Process.monitor(pid)
