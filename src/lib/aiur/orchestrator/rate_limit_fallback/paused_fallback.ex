@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
   @moduledoc false
 
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Orchestrator.{RateLimitFallback, State}
 
   @wait_seconds 600
@@ -14,39 +15,53 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
       get_in(entry, [:usage_limit_session, :backend]) || CodingAgent.backend_for(issue)
   end
 
-  # The complexity route, when it leads away from the limited backend, or else
-  # for a backend other than the primary the first available `agent.priority`
-  # backend (#7879). Moving there needs no fallback labels: a fresh dispatch
-  # already resolves to it.
+  # The complexity route, when it leads away from the limited backend and the
+  # capacity policy allows it, or else for a backend other than the primary the
+  # next policy-allowed `agent.priority` backend (#7879, #7891). Moving there
+  # needs no fallback labels: a fresh dispatch already resolves to it.
   @spec route_backend(Issue.t(), String.t(), keyword()) :: String.t() | nil
   def route_backend(issue, current_backend, opts) do
     route = Keyword.get_lazy(opts, :routing_backend, fn -> CodingAgent.routing_backend(issue) end)
+    route = if is_binary(route) and route != current_backend, do: next_allowed([route], current_backend, opts)
 
     cond do
-      is_binary(route) and route != current_backend -> route
-      current_backend != Keyword.get_lazy(opts, :primary_backend, &Config.rate_limit_primary_backend/0) -> priority_backend(current_backend, opts)
+      is_binary(route) -> route
+      current_backend != primary(opts) -> next_allowed(priority(opts), current_backend, opts)
       true -> nil
     end
   end
 
-  defp priority_backend(current_backend, opts) do
-    opts
-    |> Keyword.get_lazy(:priority_backends, &Config.agent_priority_backends/0)
-    |> Enum.reject(&(&1 == current_backend))
-    |> ModelAvailability.first_available(opts)
+  # A claim on the primary prefers the configured fallback, then the rest of
+  # `agent.priority`, whichever the policy allows; `""` still disables it.
+  @spec backend(Issue.t(), String.t(), String.t() | nil, keyword()) :: String.t() | nil
+  def backend(issue, current_backend, configured_fallback, opts) do
+    cond do
+      route = route_backend(issue, current_backend, opts) -> route
+      current_backend == primary(opts) and configured_fallback not in [nil, ""] -> next_allowed([configured_fallback | priority(opts)], current_backend, opts)
+      true -> nil
+    end
   end
 
-  @spec backend(Issue.t(), String.t(), String.t() | nil, keyword()) :: String.t() | nil
-  def backend(issue, current_backend, configured_fallback, opts),
-    do: route_backend(issue, current_backend, opts) || configured_fallback
+  # The first of `preferred` the capacity policy allows. The policy weighs every
+  # priority backend together, so a last-resort source stays deferred while
+  # another source is allowed.
+  @spec next_allowed([String.t()], String.t(), keyword()) :: String.t() | nil
+  def next_allowed(preferred, current_backend, opts) do
+    known = CodingAgent.known_backends()
+    allowed = (Enum.uniq(preferred ++ priority(opts)) -- [current_backend]) |> Enum.filter(&(&1 in known)) |> CapacityGate.allowed_routes(opts)
+    Enum.find(preferred, &(&1 != current_backend and &1 in allowed))
+  end
 
-  @spec eligible?(map(), Issue.t(), String.t(), String.t() | nil, String.t(), keyword()) :: boolean()
-  def eligible?(entry, issue, current_backend, fallback_backend, primary_backend, opts) do
+  defp priority(opts), do: Keyword.get_lazy(opts, :priority_backends, &Config.agent_priority_backends/0)
+  defp primary(opts), do: Keyword.get_lazy(opts, :primary_backend, &Config.rate_limit_primary_backend/0)
+
+  # The policy lookup runs last: it reads every account's meter.
+  @spec eligible?(map(), Issue.t(), String.t(), String.t() | nil, keyword()) :: boolean()
+  def eligible?(entry, issue, current_backend, configured_fallback, opts) do
     State.paused_running_entry?(entry) and
       Map.get(entry, :paused_reason) == :usage_limit_exhausted and
-      wait_elapsed?(entry, opts) and
-      fallback_target_usable?(fallback_backend, current_backend, issue, opts) and
-      (current_backend == primary_backend or is_binary(route_backend(issue, current_backend, opts)))
+      wait_elapsed?(entry, opts) and is_nil(CodingAgent.override_backend(issue)) and
+      fallback_target_usable?(backend(issue, current_backend, configured_fallback, opts), current_backend, opts)
   end
 
   # A paused entry that is ready to move but found the fleet full keeps this
@@ -63,9 +78,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
 
   defp put_entry(state, issue_id, entry), do: RateLimitFallback.put_running_entry(state, issue_id, entry)
 
-  defp fallback_target_usable?(backend, current_backend, issue, opts) do
+  defp fallback_target_usable?(backend, current_backend, opts) do
     is_binary(backend) and backend in CodingAgent.known_backends() and backend != current_backend and
-      ModelAvailability.available?(backend, opts) and is_nil(CodingAgent.override_backend(issue))
+      ModelAvailability.available?(backend, opts)
   end
 
   # A credit refusal does not reset on its own, so waiting gains nothing.
