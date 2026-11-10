@@ -281,7 +281,8 @@ defmodule Aiur.WorkflowStore.Reload do
   end
 
   defp maybe_announce_operator_relay_enablement(previous, current) do
-    if relay_enabled?(current) and not relay_enabled?(previous) do
+    # Boot (previous = nil) is not a change; announcing it would claim a transition that never happened.
+    if previous != nil and relay_enabled?(current) and not relay_enabled?(previous) do
       Signal.alert("system.config.operator_relay.enabled",
         message: "executor.relay_operator_answers enabled: Executors may record quoted operator answers",
         reason: "The operator-answer relay gate changed from disabled to enabled.",

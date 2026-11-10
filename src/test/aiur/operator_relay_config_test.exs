@@ -27,6 +27,15 @@ defmodule Aiur.OperatorRelayConfigTest do
     refute_receive {:event, _event}, 100
   end
 
+  test "boot commit with the relay on by default raises no enabled alert" do
+    ensure_workflow_store_running()
+    :ok = Exchange.subscribe("system.config.operator_relay.enabled")
+    state = :sys.get_state(WorkflowStore)
+    assert Config.relay_operator_answers?()
+    assert :ok = Aiur.WorkflowStore.Reload.commit(state)
+    refute_receive {:event, _event}, 100
+  end
+
   test "enabling reversible human-required delegation alerts and remains opt-in" do
     ensure_workflow_store_running()
     :ok = Exchange.subscribe("system.config.executor.human_required_delegation.enabled")

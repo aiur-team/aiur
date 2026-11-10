@@ -6,7 +6,7 @@ defmodule AiurEngineRelayTest do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_relay_answer 'decision:42' --expected-version 3 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key 'relay:42:v3'|,
-        []
+        [{"AIUR_AGENT_WORKSPACE", nil}]
       )
 
     assert out =~ "RPC:Aiur.AgentControlCLI.operator_relay_answer(["
@@ -31,7 +31,7 @@ defmodule AiurEngineRelayTest do
 
   test "operator-relay-answer dispatches through the live control path" do
     rel = fake_release()
-    env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
+    env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}, {"AIUR_AGENT_WORKSPACE", nil}]
 
     {relay, _code} =
       run_engine_real(
