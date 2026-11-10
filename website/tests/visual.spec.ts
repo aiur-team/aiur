@@ -39,7 +39,7 @@ for (const theme of themes) {
       })
 
       test('landing banner dismissed', async ({ page }) => {
-        await page.addInitScript(() => localStorage.setItem('aiur-archon-banner', 'dismissed'))
+        await page.addInitScript(() => localStorage.setItem('aiur-banner:khala-launch', 'dismissed'))
         await page.goto('/')
         await expect(page.locator('.announce')).toBeHidden()
         await settle(page)
