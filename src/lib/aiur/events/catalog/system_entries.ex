@@ -37,6 +37,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.ci_readiness.not_ready", "orchestration"},
     # aiur/orchestrator/ci_readiness_gate.ex
     {"system.ci_readiness.unavailable", "orchestration"},
+    # aiur/commands/routing.ex
+    {"system.commands.executor_only_waiting", "commands"},
     # aiur/workflow_store/reload.ex
     {"system.config.base_branch.changed", "config"},
     {"system.config.executor.human_required_delegation.enabled", "config"},

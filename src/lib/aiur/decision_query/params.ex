@@ -9,7 +9,7 @@ defmodule Aiur.DecisionQuery.Params do
   @maximum_limit 100
   @maximum_decision_id_bytes 256
   @maximum_search_bytes 200
-  @query_fields ~w(authority blocking cursor kind labels lifecycle limit route search tag ticket tickets)
+  @query_fields ~w(authority blocking creator_inbox cursor kind labels lifecycle limit route search tag ticket tickets)
   @maximum_labels 50
   @label_pattern ~r/^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9._-]{0,127}$/
   @lifecycle_by_name %{
@@ -51,7 +51,8 @@ defmodule Aiur.DecisionQuery.Params do
           ticket: String.t() | nil,
           tickets: MapSet.t(String.t()) | nil,
           labels: [String.t()] | nil,
-          tag: String.t() | nil
+          tag: String.t() | nil,
+          creator_inbox: boolean() | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, {:invalid_query, term()}}
@@ -69,6 +70,7 @@ defmodule Aiur.DecisionQuery.Params do
          {:ok, tickets} <- optional_tickets(normalized["tickets"]),
          {:ok, labels} <- optional_labels(normalized["labels"]),
          {:ok, tag} <- optional_tag(normalized["tag"]),
+         {:ok, creator_inbox} <- optional_creator_inbox(normalized["creator_inbox"]),
          :ok <- distinct_search_inputs(ticket, search) do
       {:ok,
        %{
@@ -83,7 +85,8 @@ defmodule Aiur.DecisionQuery.Params do
          tickets: tickets,
          labels: labels,
          tag: tag,
-         search: search
+         search: search,
+         creator_inbox: creator_inbox
        }}
     else
       {:error, reason} -> {:error, {:invalid_query, reason}}
@@ -190,6 +193,11 @@ defmodule Aiur.DecisionQuery.Params do
   defp optional_boolean("true"), do: {:ok, true}
   defp optional_boolean("false"), do: {:ok, false}
   defp optional_boolean(_value), do: {:error, {:blocking, :invalid}}
+
+  # Narrow-only: `true` hides Executor-only Commands; it can never widen a read.
+  defp optional_creator_inbox(value) when value in [nil, false, "false"], do: {:ok, nil}
+  defp optional_creator_inbox(value) when value in [true, "true"], do: {:ok, true}
+  defp optional_creator_inbox(_value), do: {:error, {:creator_inbox, :invalid}}
 
   defp optional_kind(nil), do: {:ok, nil}
 

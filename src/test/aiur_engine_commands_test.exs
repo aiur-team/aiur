@@ -128,10 +128,28 @@ defmodule AiurEngineCommandsTest do
   end
 
   defp rpc_opts(script) do
-    {out, 0} = run_sourced_engine(script, [])
+    # Unset so relay paths run as the attended Executor even when tests run inside a worker workspace.
+    {out, 0} = run_sourced_engine(script, [{"AIUR_AGENT_WORKSPACE", nil}])
     [_, args] = Regex.run(~r/^RPC:Aiur\.AgentControlCLI\.\w+\((\[.*\])\)$/m, out)
     {opts, _binding} = Code.eval_string(args)
     opts
+  end
+
+  test "fleet workers cannot relay an operator answer through either entry point" do
+    rpc = ~s|run_control_rpc() { echo "RPC:$1"; }\n|
+    worker = [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+
+    for script <- [
+          ~s|cmd_operator_relay_answer dec --expected-version 3 --option yes --quote yes --relayed-by attended-executor --idempotency-key k|,
+          ~s|cmd_command dec --relayed --quote yes --option yes|
+        ] do
+      {out, 64} = run_sourced_engine(rpc <> script, worker)
+      assert out =~ "fleet workers cannot relay"
+      refute out =~ "RPC:"
+
+      {executor, 0} = run_sourced_engine(rpc <> script, [{"AIUR_AGENT_WORKSPACE", nil}, {"CLAUDECODE", "1"}])
+      assert executor =~ "RPC:Aiur.AgentControlCLI.operator_relay_answer("
+    end
   end
 
   test "operator answer refuses agent processes before contacting the daemon" do

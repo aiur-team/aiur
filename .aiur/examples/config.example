@@ -222,10 +222,12 @@ alerts:
 # executor_takeover_first_alert_hours: 8     # first advisory after this many hours of convergence
 # executor_takeover_continuous_alert_hours: 1 # repeat cadence (hours) while unresolved; 0 = first alert only
 
-# === Executor sweep ===
-# Threshold for an open, non-draft PR in agent:human-review that has no review on its current head.
+# === Executor ===
+# relay_operator_answers lets an attended Executor record an answer you gave it in conversation,
+# with your verbatim quote, the relayer and an info alert. On by default; set false to opt out.
+# sweep: threshold for an open, non-draft PR in agent:human-review with no review on its current head.
 # executor:
-#   relay_operator_answers: false     # opt-in quoted operator answers recorded by an attended Executor
+#   relay_operator_answers: true
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}

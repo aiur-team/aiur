@@ -36,6 +36,10 @@ defmodule Aiur.AgentTools.EmitEvent do
   `context.authority_basis` as `product`, `spend`, `external_publication`, or
   `security`, with context explaining the specific boundary. Missing or
   unrecognized bases are rejected. Legacy attention projections are exempt.
+  Set `audience` to `executor` for an engineering or operations question the
+  app's creator cannot answer: it never reaches a creator inbox and waits for an
+  Executor. Set `creator` to put the question in creator inboxes at once. Omit
+  it to route by authority.
   """
   @emit_event_input_schema %{
     "type" => "object",

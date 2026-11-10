@@ -75,6 +75,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     optimistic_start
     complexity
     dispatch_selection
+    reason
     model
     effort
     feature
