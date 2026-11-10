@@ -8,6 +8,7 @@
     "src/lib/aiur/accounts.ex",
     "src/lib/aiur/accounts/**",
     "src/lib/aiur/agent/**",
+    "src/lib/aiur/capacity/**",
     "src/lib/aiur/netlify/**",
     "src/lib/aiur/provider_account_generation.ex",
     "src/lib/aiur/provider_account_generation/**",
