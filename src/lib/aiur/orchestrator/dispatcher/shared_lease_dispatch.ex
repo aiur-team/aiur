@@ -3,9 +3,8 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.Capacity.LedgerStore
   alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.UsageFloorGate
+  alias Aiur.CodingAgent.{CapacityGate, UsageFloorGate}
   alias Aiur.Handoff
   alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
@@ -203,7 +202,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
          {:ok, selected_issue} <-
            Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
       # Hold at selection, before the next claim reads the reserve (#7890).
-      LedgerStore.hold(selected_issue)
+      CapacityGate.hold(selected_issue)
 
       state = %{
         state

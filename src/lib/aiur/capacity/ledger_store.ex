@@ -16,7 +16,6 @@ defmodule Aiur.Capacity.LedgerStore do
 
   alias Aiur.Accounts.{Headroom, UsageFloor}
   alias Aiur.Capacity.Ledger
-  alias Aiur.CodingAgent.CapacityGate
 
   # ponytail: a hold is one agent-hour of burn, folded at the next fresh reading; size by run length if that undershoots.
   @expected_hours 1
@@ -43,7 +42,7 @@ defmodule Aiur.Capacity.LedgerStore do
   def hold(issue, opts \\ []) do
     server = Keyword.get(opts, :server, __MODULE__)
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    policy = Keyword.get_lazy(opts, :capacity_policy, &CapacityGate.policy/0)
+    policy = Keyword.get(opts, :capacity_policy, %{})
     call(server, :ok, &{:ok, record(&1, issue, now, policy)})
   end
 
@@ -55,7 +54,7 @@ defmodule Aiur.Capacity.LedgerStore do
   @spec rebuild([map()], keyword()) :: :ok
   def rebuild(entries, opts \\ []) do
     server = Keyword.get(opts, :server, __MODULE__)
-    policy = Keyword.get_lazy(opts, :capacity_policy, &CapacityGate.policy/0)
+    policy = Keyword.get(opts, :capacity_policy, %{})
     now = Keyword.get(opts, :now, DateTime.utc_now())
     # A restored start time that is not a DateTime counts from now, which only overstates the hold.
     started = &if(match?(%DateTime{}, &1[:started_at]), do: &1.started_at, else: now)

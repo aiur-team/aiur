@@ -98,6 +98,18 @@ defmodule Aiur.CodingAgent.CapacityGate do
     Enum.filter(routes, &MapSet.member?(allowed_routes, &1))
   end
 
+  @doc "Records the reservation hold for an issue dispatch just selected a source for (#7890)."
+  @spec hold(map()) :: :ok
+  def hold(issue), do: LedgerStore.hold(issue, capacity_policy: policy())
+
+  @doc "Closes a stopped agent's reservation hold."
+  @spec release(term()) :: :ok
+  def release(ticket), do: LedgerStore.release(ticket)
+
+  @doc "Rebuilds reservation holds from running entries (`%{issue:, started_at:}`) after a handoff."
+  @spec rebuild_holds([map()]) :: :ok
+  def rebuild_holds(entries), do: LedgerStore.rebuild(entries, capacity_policy: policy())
+
   @doc """
   Why the chosen candidate was chosen: `:pinned`, `:last_resort_used`,
   `:only_allowed` (no other source was allowed) or `:preferred`.
