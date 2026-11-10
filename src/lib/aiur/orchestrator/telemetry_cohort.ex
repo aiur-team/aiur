@@ -7,8 +7,14 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
 
   @spec record_dispatch(Aiur.Issue.t(), String.t(), map()) :: :ok
   def record_dispatch(issue, attempt_id, metadata) do
-    Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(attempt_fields(issue), metadata))
+    fields = issue |> attempt_fields() |> Map.put(:reason, dispatch_reason(issue))
+    Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(fields, metadata))
   end
+
+  @doc "Why the capacity policy chose this dispatch (`dispatch_selection.chosen.reason`), or `nil` (#7889)."
+  @spec dispatch_reason(Aiur.Issue.t()) :: atom() | nil
+  def dispatch_reason(%Aiur.Issue{dispatch_selection: %{chosen: %{reason: reason}}}), do: reason
+  def dispatch_reason(_issue), do: nil
 
   @spec attempt_fields(Aiur.Issue.t(), keyword()) :: map()
   def attempt_fields(issue, opts \\ []) do
