@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
+  alias Aiur.Capacity.LedgerStore
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Handoff
@@ -201,6 +202,9 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
          :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
          {:ok, selected_issue} <-
            Toolchain.select_for_dispatch(force_backend(prepared, Keyword.get(opts, :forced_backend))) do
+      # Hold at selection, before the next claim reads the reserve (#7890).
+      LedgerStore.hold(selected_issue)
+
       state = %{
         state
         | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)

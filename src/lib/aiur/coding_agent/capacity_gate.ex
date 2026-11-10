@@ -28,7 +28,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
   require Logger
 
   alias Aiur.Accounts.{Headroom, UsageFloor}
-  alias Aiur.Capacity.Policy
+  alias Aiur.Capacity.{LedgerStore, Policy}
   alias Aiur.CodingAgent.{HeadroomDispatch, UsageFloorGate}
   alias Aiur.Config.CapacityPolicy
   alias Aiur.Machine.Settings
@@ -46,13 +46,13 @@ defmodule Aiur.CodingAgent.CapacityGate do
   and rendering floor holds as before.
 
   Options: `:pinned`, `:capacity_policy` (the effective policy map),
-  `:capacity_holds` and `:capacity_spend` (passed to the policy as `:holds` and
-  `:spend`), plus the floor options `UsageFloorGate.split_candidates/3` reads.
+  `:capacity_holds` (default: the open holds in `Aiur.Capacity.LedgerStore`)
+  and `:capacity_spend` (passed to the policy as `:holds` and `:spend`), plus the floor options `UsageFloorGate.split_candidates/3` reads.
   """
   @spec evaluate([map()], map(), keyword()) :: result()
   def evaluate(candidates, readings, opts \\ []) when is_list(candidates) and is_map(readings) do
     pinned? = Keyword.get(opts, :pinned, false)
-    policy = Keyword.get_lazy(opts, :capacity_policy, &configured_policy/0)
+    policy = Keyword.get_lazy(opts, :capacity_policy, &policy/0)
 
     {_open, floor_held} = if pinned?, do: {candidates, []}, else: UsageFloorGate.split_candidates(candidates, readings, opts)
     # Two routes on one backend expand to the same account, so entries are keyed by position.
@@ -74,7 +74,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
       decidable
       |> Enum.reverse()
       |> Enum.map(fn {candidate, index} -> policy_candidate(candidate, index, readings) end)
-      |> Policy.decide(policy, holds: Keyword.get(opts, :capacity_holds, []), spend: Keyword.get(opts, :capacity_spend, %{}))
+      |> Policy.decide(policy, holds: Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings) end), spend: Keyword.get(opts, :capacity_spend, %{}))
       |> Map.new(fn {input, verdict} -> {input.index, policy_entry(input, verdict, policy)} end)
 
     entries = Enum.map(indexed, fn {_candidate, index} -> Map.get(settled, index) || Map.fetch!(decided, index) end)
@@ -192,10 +192,14 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   defp limited?(readings, key), do: match?(%{limited: true}, Map.get(readings, key))
 
-  # A project-layer error (say the machine reserve was raised above the project
-  # value) falls back to the machine layer alone, which is never looser, so
-  # reserves fail closed. Only an unreadable machine file allows every route.
-  defp configured_policy do
+  @doc """
+  The effective capacity policy. A project-layer error (say the machine reserve
+  was raised above the project value) falls back to the machine layer alone,
+  which is never looser, so reserves fail closed. Only an unreadable machine
+  file allows every route.
+  """
+  @spec policy() :: map()
+  def policy do
     case CapacityPolicy.effective() do
       {:ok, policy} ->
         :persistent_term.erase({__MODULE__, :last_error})
