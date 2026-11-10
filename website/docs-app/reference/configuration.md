@@ -117,10 +117,7 @@ Deploy a build that recognizes a new config key before adding that key to `.aiur
 
 ## capacity
 
-The machine file owns the capacity policy (`machine:capacity.*` below). A project
-config may only tighten it: lower a limit, raise a reserve, or add `last_resort`.
-A value that loosens the machine policy fails config load, naming both layers.
-Billing, `serves`, `reserve.accounts` and the default burn are machine-only.
+A project may only tighten the machine capacity policy (`machine:capacity.*` below).
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -134,6 +131,10 @@ Billing, `serves`, `reserve.accounts` and the default burn are machine-only.
 | `capacity.limits.daily_usd` | number | inherit | At most the machine limit. |
 | `capacity.limits.weekly_usd` | number | inherit | At most the machine limit. |
 | `capacity.limits.monthly_usd` | number | inherit | At most the machine limit. |
+
+It may lower a limit, raise a reserve, or add `last_resort`. A value that loosens
+the machine policy fails config load, naming both layers. Billing, `serves`,
+`reserve.accounts` and the default burn are machine-only.
 
 At runtime, `aiur set capacity.sources.<backend>.reserve.percent <n>` may raise a
 reserve; a value below the machine or project reserve is refused. The effective
