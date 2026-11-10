@@ -30,6 +30,8 @@ defmodule Aiur.CodingAgent.CapacityGate do
   alias Aiur.Accounts.{Headroom, UsageFloor}
   alias Aiur.Capacity.Policy
   alias Aiur.CodingAgent.{HeadroomDispatch, UsageFloorGate}
+  alias Aiur.Config.CapacityPolicy
+  alias Aiur.Machine.Settings
 
   @typedoc "One candidate's verdict. `reason` is `nil` for an ordinary allowed candidate."
   @type entry :: %{candidate: map(), verdict: :allow | :hold | :defer, reason: atom() | nil, detail: String.t() | nil}
@@ -190,16 +192,32 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   defp limited?(readings, key), do: match?(%{limited: true}, Map.get(readings, key))
 
-  # An unreadable config keeps dispatch running on the allow-all policy (today's
-  # behaviour); config load already refuses a loosening value loudly.
+  # A project-layer error (say the machine reserve was raised above the project
+  # value) falls back to the machine layer alone, which is never looser, so
+  # reserves fail closed. Only an unreadable machine file allows every route.
   defp configured_policy do
-    case Aiur.Config.CapacityPolicy.effective() do
+    case CapacityPolicy.effective() do
       {:ok, policy} ->
+        :persistent_term.erase({__MODULE__, :last_error})
         policy
 
       {:error, reason} ->
-        Logger.warning("capacity policy unavailable, allowing every route: #{inspect(reason)}")
-        %{}
+        warn_once(reason)
+
+        with {:ok, machine} <- Settings.get(),
+             {:ok, policy} <- CapacityPolicy.effective(machine.capacity, nil) do
+          policy
+        else
+          _unreadable -> %{}
+        end
+    end
+  end
+
+  # The gate runs several times per poll; log only when the error changes.
+  defp warn_once(reason) do
+    if :persistent_term.get({__MODULE__, :last_error}, nil) != reason do
+      :persistent_term.put({__MODULE__, :last_error}, reason)
+      Logger.warning("capacity policy unreadable, using the machine layer alone: #{inspect(reason)}")
     end
   end
 end

@@ -10,6 +10,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   alias Aiur.Accounts.UsageReadings
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.Config.{CapacityPolicy, Overrides}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, TelemetryCohort}
 
@@ -145,6 +146,64 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
     test "dispatches when the last-resort source is the only one allowed" do
       assert DispatchPolicy.provider_gate(@backends, opts([])) == :dispatch
+    end
+  end
+
+  describe "configured policy" do
+    setup do
+      home = Aiur.TestSupport.tmp_root!("capacity-gate-config")
+      File.mkdir_p!(home)
+      machine = Path.join(home, "machine")
+      previous_machine = Application.get_env(:aiur, :machine_settings_path)
+      previous_instance = System.get_env("AIUR_INSTANCE_KEY")
+      Application.put_env(:aiur, :machine_settings_path, machine)
+      System.put_env("AIUR_INSTANCE_KEY", "capacity-gate-#{System.unique_integer([:positive])}")
+      {:ok, override_path} = Overrides.path()
+
+      on_exit(fn ->
+        if previous_machine, do: Application.put_env(:aiur, :machine_settings_path, previous_machine), else: Application.delete_env(:aiur, :machine_settings_path)
+        if previous_instance, do: System.put_env("AIUR_INSTANCE_KEY", previous_instance), else: System.delete_env("AIUR_INSTANCE_KEY")
+        :persistent_term.erase({Aiur.Machine.Settings, machine})
+        :persistent_term.erase({CapacityGate, :last_error})
+        Aiur.TestCleanup.rm_rf!(home)
+        Aiur.TestCleanup.rm_rf!(Path.dirname(override_path))
+      end)
+
+      %{machine: machine}
+    end
+
+    defp machine_reserve!(path, percent) do
+      File.write!(path, """
+      capacity:
+        sources:
+          claude: { billing: subscription, reserve: { percent: #{percent}, accounts: [default] } }
+          openrouter: { billing: prepaid, last_resort: true }
+      """)
+    end
+
+    defp configured_opts, do: Keyword.delete(opts([]), :capacity_policy)
+
+    test "the machine reserve holds claude without a :capacity_policy option", %{machine: machine} do
+      machine_reserve!(machine, 30)
+
+      assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), configured_opts())
+      assert %{chosen: %{reason: :last_resort_used}} = issue.dispatch_selection
+      assert %{verdict: :hold, reason: :reserve} = verdict(issue, "claude/default")
+    end
+
+    test "a machine reserve raised above the project value still holds", %{machine: machine} do
+      machine_reserve!(machine, 5)
+      workflow = Aiur.Workflow.workflow_file_path()
+      write_workflow_file!(workflow)
+      write_workflow_file_atomic!(workflow, File.read!(workflow) <> "capacity:\n  sources:\n    claude: { reserve: { percent: 5 } }\n")
+      :ok = Aiur.WorkflowStore.force_reload(5_000)
+      # The operator tightens the machine file after the project value was accepted.
+      # A different file size defeats the settings cache within one mtime second.
+      machine_reserve!(machine, 45)
+      assert {:error, _loosens} = CapacityPolicy.effective()
+
+      assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), configured_opts())
+      assert %{verdict: :hold, reason: :reserve, detail: "reading 25% left, reserve 45%"} = verdict(issue, "claude/default")
     end
   end
 

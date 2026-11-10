@@ -167,6 +167,11 @@ source, so dispatch behaves exactly as described above. When the policy
 allows no candidate on any backend, the fleet provider gate holds dispatch, so
 a queued ticket takes no slot.
 
+If the project `capacity` block no longer fits the machine file (for example,
+you raised a reserve in `~/.aiur/machine` above the project value), dispatch
+applies the machine policy alone and logs a warning once, so a reserve never
+lapses. Only an unreadable machine file drops the policy.
+
 ## Machine capacity across projects
 
 With `projects:` set, one broker shares slots by priority. A project yields a slot to any
