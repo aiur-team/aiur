@@ -19,7 +19,7 @@ consumers lose the closed union and must handle unknown modes when switching on 
 `CapabilityState`, `CapabilityReason`, `CapabilityError`, `AgentsStatus`,
 `FleetStatus`, `TicketStatus`, `TicketCancel`, `TicketUsage`, `TicketProgress`,
 `TicketSpendCap`, `TicketSpendCapReached`, `EventsFeed`, `EventsCatalog`,
-`BuildOrder`, and `OutboundEvent` types,
+`BuildOrder`, `CapacityView`, and `OutboundEvent` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
 Harness patterns accept one lowercase `[a-z0-9_]+` segment.
 Run `npm run build` before importing runtime constants from this local package.
@@ -31,6 +31,7 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `events.v1` | `GET /api/v1/events` | External event feed (no contract marker) |
 | `events-catalog.v1` | `GET /api/v1/events/catalog` | Export catalog (`v: 1`) |
 | `agents.v1` | `aiur agents --json` | `aiur.agents` |
+| `capacity.v1`, `capacity-unknown.v1` | `GET /api/v1/capacity` and `aiur capacity --json` (producer pending #7890) | `aiur.capacity` |
 | `status.v1` | `GET /api/v1/state` | `aiur.status` |
 | `ticket.v1` | `GET /api/v1/:id` | `aiur.ticket` |
 | `ticket-cancel.v1` | `POST /api/v1/:id/cancel` | `aiur.ticket_cancel` |
@@ -45,6 +46,11 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 | `build-order.v1` | `GET /api/v1/build-order` and `aiur build-orders --json --contract build-order.v1` | `aiur.build_order` |
+
+`capacity.v1` is the consumable capacity ("Energy") view. `energy.level` is `null` with
+`state: "unknown"` when no source has a known figure; render `null` as unknown, never as full or empty.
+Every figure carries `observed_at`, `age_ms` and `freshness`, and a figure whose `freshness` is
+`unknown` has a `null` value.
 
 `build-order.v1` is the published graph of a Build Order: metadata, per-source status, epics,
 features, lanes, tickets, typed edges (`depends_on`, `serializes_with`, `suggested_after`, `contains`,

@@ -1,0 +1,511 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/capacity.v1.schema.json",
+  "title": "CapacityView",
+  "description": "How much coding work Aiur can still start. Computed from the same policy and reservation ledger dispatch uses; a client reads it and never schedules from it.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": {
+      "const": "aiur.capacity"
+    },
+    "contract_version": {
+      "const": 1
+    },
+    "observed_at": {
+      "description": "When this view was computed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "energy": {
+      "$ref": "#/$defs/energy"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "limits": {
+      "description": "Machine-wide USD limits over all metered and prepaid sources together.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/limit"
+      }
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "observed_at",
+    "energy",
+    "sources",
+    "limits"
+  ],
+  "$defs": {
+    "freshness": {
+      "description": "How current a figure is. unknown means no reading exists; such a figure is null.",
+      "enum": [
+        "fresh",
+        "partial",
+        "stale",
+        "unknown"
+      ]
+    },
+    "observedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "ageMs": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "nullablePercent": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "nullableUsd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "unknownFigure": {
+      "description": "A figure with no reading carries no time and no value.",
+      "if": {
+        "type": "object",
+        "properties": {
+          "freshness": {
+            "const": "unknown"
+          }
+        },
+        "required": [
+          "freshness"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "observed_at": {
+            "type": "null"
+          },
+          "age_ms": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    "energy": {
+      "title": "CapacityEnergy",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "state": {
+          "description": "available: an allowed, non-last-resort source has known headroom. last_resort: only last-resort sources are allowed. exhausted: every source is known and none is allowed. unknown: no source has a known figure.",
+          "enum": [
+            "available",
+            "last_resort",
+            "exhausted",
+            "unknown"
+          ]
+        },
+        "level": {
+          "description": "Largest remaining fraction, 0 to 1, that any allowed, non-last-resort source has above its reserve or limit. null when no source has a known figure; a client must render null as unknown, never as full or empty.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "binding_source": {
+          "description": "Backend whose figure sets level; null when level is null.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unknown_sources": {
+          "description": "Backends that have no known figure.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "observed_at": {
+          "$ref": "#/$defs/observedAt"
+        },
+        "age_ms": {
+          "$ref": "#/$defs/ageMs"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        }
+      },
+      "required": [
+        "state",
+        "level",
+        "binding_source",
+        "unknown_sources",
+        "observed_at",
+        "age_ms",
+        "freshness"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/unknownFigure"
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "null"
+              },
+              "binding_source": {
+                "type": "null"
+              },
+              "freshness": {
+                "const": "unknown"
+              }
+            }
+          },
+          "else": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "number"
+              },
+              "freshness": {
+                "not": {
+                  "const": "unknown"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sourceState": {
+      "enum": [
+        "available",
+        "last_resort",
+        "reserved",
+        "limited",
+        "exhausted",
+        "held",
+        "unknown"
+      ]
+    },
+    "source": {
+      "title": "CapacitySource",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "billing": {
+          "enum": [
+            "subscription",
+            "prepaid",
+            "metered",
+            "unknown"
+          ]
+        },
+        "serves": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "last_resort": {
+          "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/$defs/sourceState"
+        },
+        "reason": {
+          "description": "The policy's reason code for this source's state, such as reserve, limit_daily or reading_unknown; null when the source is allowed with no qualification.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "description": "The policy's human-readable reason text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/account"
+          }
+        },
+        "balance": {
+          "description": "Prepaid balance reading; null when the source has no balance meter.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/balance"
+            }
+          ]
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/limit"
+          }
+        }
+      },
+      "required": [
+        "backend",
+        "billing",
+        "serves",
+        "last_resort",
+        "state",
+        "reason",
+        "accounts",
+        "balance",
+        "limits"
+      ]
+    },
+    "account": {
+      "title": "CapacityAccount",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "account": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reserved": {
+          "type": "boolean"
+        },
+        "remaining_percent": {
+          "description": "Remaining percent of the binding window in the latest reading.",
+          "$ref": "#/$defs/nullablePercent"
+        },
+        "projected_percent": {
+          "description": "remaining_percent minus open holds created after the reading; null when any hold's estimate is unknown on a reserved account.",
+          "$ref": "#/$defs/nullablePercent"
+        },
+        "reserve_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "resets_at": {
+          "$ref": "#/$defs/observedAt"
+        },
+        "open_holds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_at": {
+          "$ref": "#/$defs/observedAt"
+        },
+        "age_ms": {
+          "$ref": "#/$defs/ageMs"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        }
+      },
+      "required": [
+        "account",
+        "reserved",
+        "remaining_percent",
+        "projected_percent",
+        "reserve_percent",
+        "resets_at",
+        "open_holds",
+        "observed_at",
+        "age_ms",
+        "freshness"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/unknownFigure"
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "freshness": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "remaining_percent": {
+                "type": "null"
+              },
+              "projected_percent": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "balance": {
+      "title": "CapacityBalance",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "remaining_usd": {
+          "$ref": "#/$defs/nullableUsd"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/observedAt"
+        },
+        "age_ms": {
+          "$ref": "#/$defs/ageMs"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        }
+      },
+      "required": [
+        "remaining_usd",
+        "observed_at",
+        "age_ms",
+        "freshness"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/unknownFigure"
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "freshness": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "remaining_usd": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "limit": {
+      "title": "CapacityLimit",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "period": {
+          "description": "UTC calendar period.",
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly"
+          ]
+        },
+        "limit_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "spent_usd": {
+          "description": "Recorded API-equivalent spend this period; null when pricing coverage is partial, which the policy treats as unknown spend.",
+          "$ref": "#/$defs/nullableUsd"
+        },
+        "reached": {
+          "description": "true when spend reached the limit; null when spend is unknown.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "observed_at": {
+          "$ref": "#/$defs/observedAt"
+        },
+        "age_ms": {
+          "$ref": "#/$defs/ageMs"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        }
+      },
+      "required": [
+        "period",
+        "limit_usd",
+        "spent_usd",
+        "reached",
+        "observed_at",
+        "age_ms",
+        "freshness"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/unknownFigure"
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "freshness": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "freshness"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "spent_usd": {
+                "type": "null"
+              },
+              "reached": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

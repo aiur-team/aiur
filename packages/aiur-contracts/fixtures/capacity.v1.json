@@ -1,0 +1,130 @@
+{
+  "contract": "aiur.capacity",
+  "contract_version": 1,
+  "observed_at": "2026-11-09T12:00:00Z",
+  "energy": {
+    "state": "available",
+    "level": 0.62,
+    "binding_source": "codex",
+    "unknown_sources": ["moonshot"],
+    "observed_at": "2026-11-09T11:59:20Z",
+    "age_ms": 40000,
+    "freshness": "fresh"
+  },
+  "sources": [
+    {
+      "backend": "codex",
+      "billing": "subscription",
+      "serves": ["coding"],
+      "last_resort": false,
+      "state": "available",
+      "reason": null,
+      "detail": null,
+      "accounts": [
+        {
+          "account": "default",
+          "reserved": false,
+          "remaining_percent": 62,
+          "projected_percent": 62,
+          "reserve_percent": 0,
+          "resets_at": "2026-11-09T17:00:00Z",
+          "open_holds": 0,
+          "observed_at": "2026-11-09T11:59:20Z",
+          "age_ms": 40000,
+          "freshness": "fresh"
+        }
+      ],
+      "balance": null,
+      "limits": []
+    },
+    {
+      "backend": "claude",
+      "billing": "subscription",
+      "serves": ["coding"],
+      "last_resort": false,
+      "state": "reserved",
+      "reason": "reserve",
+      "detail": "projected 27% <= reserve 30% (reading 33%, 2 holds)",
+      "accounts": [
+        {
+          "account": "default",
+          "reserved": true,
+          "remaining_percent": 33,
+          "projected_percent": 27,
+          "reserve_percent": 30,
+          "resets_at": "2026-11-09T15:00:00Z",
+          "open_holds": 2,
+          "observed_at": "2026-11-09T11:59:20Z",
+          "age_ms": 40000,
+          "freshness": "fresh"
+        }
+      ],
+      "balance": null,
+      "limits": []
+    },
+    {
+      "backend": "openrouter",
+      "billing": "prepaid",
+      "serves": ["coding"],
+      "last_resort": true,
+      "state": "last_resort",
+      "reason": "last_resort",
+      "detail": "deferred while another source is allowed",
+      "accounts": [],
+      "balance": {
+        "remaining_usd": 18.4,
+        "observed_at": "2026-11-09T11:58:00Z",
+        "age_ms": 120000,
+        "freshness": "fresh"
+      },
+      "limits": [
+        {
+          "period": "daily",
+          "limit_usd": 5,
+          "spent_usd": 1.25,
+          "reached": false,
+          "observed_at": "2026-11-09T11:59:50Z",
+          "age_ms": 10000,
+          "freshness": "fresh"
+        },
+        {
+          "period": "monthly",
+          "limit_usd": 40,
+          "spent_usd": null,
+          "reached": null,
+          "observed_at": null,
+          "age_ms": null,
+          "freshness": "unknown"
+        }
+      ]
+    },
+    {
+      "backend": "moonshot",
+      "billing": "prepaid",
+      "serves": ["coding"],
+      "last_resort": false,
+      "state": "unknown",
+      "reason": "reading_unknown",
+      "detail": "no balance meter; governed only by recorded USD limits",
+      "accounts": [],
+      "balance": {
+        "remaining_usd": null,
+        "observed_at": null,
+        "age_ms": null,
+        "freshness": "unknown"
+      },
+      "limits": []
+    }
+  ],
+  "limits": [
+    {
+      "period": "monthly",
+      "limit_usd": 60,
+      "spent_usd": 12.5,
+      "reached": false,
+      "observed_at": "2026-11-09T11:59:50Z",
+      "age_ms": 10000,
+      "freshness": "fresh"
+    }
+  ]
+}
