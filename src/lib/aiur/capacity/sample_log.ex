@@ -1,3 +1,4 @@
+# Cohesion: one sample row needs the meters, the policy and the ledger together; splitting would scatter the row shape.
 defmodule Aiur.Capacity.SampleLog do
   @moduledoc """
   Appends one capacity sample per probe interval to `<run-log-root>/log/capacity.ndjson`.
@@ -10,7 +11,7 @@ defmodule Aiur.Capacity.SampleLog do
 
   alias Aiur.Accounts.UsageReadings
   alias Aiur.Capacity.{Ledger, LedgerStore}
-  alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.Config.CapacityPolicy
   alias Aiur.LogFile
   alias Aiur.ProviderMeterProjection
 
@@ -38,7 +39,7 @@ defmodule Aiur.Capacity.SampleLog do
       accounts: UsageReadings.snapshot(),
       providers: provider_views(),
       running: running_by_account(),
-      capacity_policy: CapacityGate.policy(),
+      capacity_policy: capacity_policy(),
       ledger: LedgerStore.ledger()
     }
 
@@ -193,6 +194,14 @@ defmodule Aiur.Capacity.SampleLog do
 
   defp age_ms(%DateTime{} = at, now), do: max(DateTime.diff(now, at, :millisecond), 0)
   defp age_ms(_at, _now), do: nil
+
+  # An unreadable policy leaves every reserve unknown rather than guessing one.
+  defp capacity_policy do
+    case CapacityPolicy.effective() do
+      {:ok, policy} -> policy
+      {:error, _reason} -> nil
+    end
+  end
 
   defp provider_views do
     ProviderMeterProjection.snapshot()
