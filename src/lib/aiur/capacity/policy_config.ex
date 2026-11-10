@@ -208,20 +208,17 @@ defmodule Aiur.Capacity.PolicyConfig do
          {:ok, machine} <- machine_capacity(machine_fun) do
       [_capacity, _sources, backend | _] = path
 
-      bounds = [
-        {"L3", get_in(config, path)},
-        {"L1", get_in(plain(machine), ["sources", backend, "reserve", "percent"])}
-      ]
-
-      case Enum.find(bounds, fn {_layer, bound} -> is_number(bound) and value < bound end) do
-        nil -> :ok
-        {layer, bound} -> {:error, loosening(key, "L5", value, layer, bound)}
-      end
+      [{"L3", get_in(config, path)}, {"L1", get_in(plain(machine), ["sources", backend, "reserve", "percent"])}]
+      |> Enum.find(fn {_layer, bound} -> is_number(bound) and value < bound end)
+      |> runtime_verdict(key, value)
     else
       :error -> :ok
       error -> error
     end
   end
+
+  defp runtime_verdict(nil, _key, _value), do: :ok
+  defp runtime_verdict({layer, bound}, key, value), do: {:error, loosening(key, "L5", value, layer, bound)}
 
   defp runtime_value(_key, value) when is_number(value) and value >= 0 and value <= 100, do: :ok
   defp runtime_value(key, _value), do: {:error, {:invalid_workflow_config, "#{key} must be a number from 0 to 100"}}
