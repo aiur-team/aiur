@@ -1,6 +1,7 @@
 defmodule Aiur.OperatorRelayConfigTest do
   use Aiur.TestSupport
   alias Aiur.Events.Exchange
+  alias Aiur.WorkflowStore.Reload
 
   test "relay gate is on by default, opts out with false, and alerts once when re-enabled on reload" do
     ensure_workflow_store_running()
@@ -32,7 +33,7 @@ defmodule Aiur.OperatorRelayConfigTest do
     :ok = Exchange.subscribe("system.config.operator_relay.enabled")
     state = :sys.get_state(WorkflowStore)
     assert Config.relay_operator_answers?()
-    assert :ok = Aiur.WorkflowStore.Reload.commit(state)
+    assert :ok = Reload.commit(state)
     refute_receive {:event, _event}, 100
   end
 
