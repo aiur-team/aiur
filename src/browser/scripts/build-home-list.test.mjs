@@ -66,6 +66,14 @@ test('U7 unsupported models keep names and letter circles', () => {
   assert.equal(cell(row('now', { agent: { model: null, name: null } }), 'ag'), '<span class="ax-mono" aria-hidden="true">?</span>Model unknown');
   assert.equal(cell(row('now', { agent: null }), 'ag'), '<span class=\"lr-mu\">—</span>');
 });
+test('U7b the capacity reason follows the agent name, escaped', () => {
+  const reason = 'codex/default (preferred; 62% left at dispatch, reading 40s old) <b>';
+  assert.match(cell(row('now', { agent: { model: 'muse', name: 'Muse', reason } }), 'ag'), /Muse <span class="lr-mu" title="codex\/default \(preferred; 62% left at dispatch, reading 40s old\) &lt;b&gt;">codex\/default \(preferred; 62% left at dispatch, reading 40s old\) &lt;b&gt;<\/span>$/);
+});
+test('U7c a queued row without an agent shows the capacity waiting text, escaped', () => {
+  const capacity = 'waiting: no authorized source: codex limited <b>';
+  assert.equal(cell(row('plan', { agent: null, cue: { capacity } }), 'ag'), '<span class="lr-mu">waiting: no authorized source: codex limited &lt;b&gt;</span>');
+});
 test('U8 payload strings cannot create markup or styles', () => {
   const text = '<img src=x onerror="x">\'&';
   const out = html({ now: [row('now', { id: text, title: text, num: text, agent: { model: 'muse', name: text } })] }, { ...P.sources, queue: { state: 'unavailable', reason: text } });

@@ -384,6 +384,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       :measured,
       :detail,
       :threshold,
+      :capacity,
       :reclaimable_cpu_percent,
       :reclaimable_cpu_threshold
     ])

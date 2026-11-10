@@ -237,7 +237,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
       activity_stage: activity_stage(Issue.tracker_identity(metadata.issue), activity_by_identity),
-      ci_result: cached_ci_result(state, metadata.identifier)
+      ci_result: cached_ci_result(state, metadata.identifier),
+      capacity_reason: capacity_choice(metadata)
     }
     |> Map.merge(progress_facts(Issue.tracker_identity(metadata.issue), activity_by_identity))
     |> Map.merge(running_execution_facts(metadata))
@@ -363,6 +364,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
       dispatch_decline_reason: Map.get(state.dispatch_declines, issue.id),
       waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
+      capacity_reason: capacity_waiting(state, idle_evidence_waiting_reason(idle_evidence, release)),
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       blocked_by: known_blocked_by(issue),

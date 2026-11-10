@@ -184,7 +184,8 @@ defmodule AiurWeb.Build.IndexReaderTest do
                   replacement_boundary?: false,
                   runtime: %{bucket: :running, work_state: :starting},
                   reasons: %{},
-                  open_command_count: 0
+                  open_command_count: 0,
+                  capacity_reason: "waiting: no authorized source: codex limited (exhausted, age unknown)"
                 }
               ]
             }
@@ -195,7 +196,9 @@ defmodule AiurWeb.Build.IndexReaderTest do
       )
 
     assert read.now.rows == %{}
-    assert [%{id: "20", status: "queued"}] = read.planned.rows
+    assert [%{id: "20", status: "queued"} = row] = read.planned.rows
+    # The capacity hold's waiting text reaches the queued row on the dashboard (#7892).
+    assert row.cue.capacity == "waiting: no authorized source: codex limited (exhausted, age unknown)"
     assert {:ok, index} = assemble(read)
     assert index.all["20"].sec == "plan"
     assert index.all["20"].status == "queued"

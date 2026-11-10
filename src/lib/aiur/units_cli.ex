@@ -334,7 +334,7 @@ defmodule Aiur.UnitsCLI do
   defp unit_label(row) do
     unit = row["presentation"]["unit"]
 
-    [unit["provider"], complexity_label(unit["complexity"]), unit["model"], unit["priority"]]
+    [unit["provider"], complexity_label(unit["complexity"]), unit["model"], unit["priority"], unit["capacity"]]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end

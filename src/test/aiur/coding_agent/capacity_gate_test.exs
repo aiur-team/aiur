@@ -9,7 +9,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
   alias Aiur.Accounts.UsageReadings
   alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.CodingAgent.{CapacityGate, CapacityReasonText}
   alias Aiur.Config.{CapacityPolicy, Overrides}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, TelemetryCohort}
@@ -206,6 +206,86 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
       assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), configured_opts())
       assert %{verdict: :hold, reason: :reserve, detail: "reading 25% left, reserve 45%"} = verdict(issue, "claude/default")
+    end
+  end
+
+  describe "operator text (#7892)" do
+    test "the dispatch record renders the chosen reason and every passed-over source" do
+      {:ok, issue} = CodingAgent.select_for_dispatch(ticket(), opts([]))
+      text = CapacityReasonText.chosen(issue.dispatch_selection)
+
+      assert text =~ ~r/^openrouter \(last resort; /
+      assert text =~ "claude/default Executor reserve (reading 25% left, reserve 30%)"
+      assert text =~ "codex limited (exhausted at dispatch, age unknown)"
+    end
+
+    test "the fleet hold record lists one clause per held source" do
+      policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
+      text = @backends |> CapacityGate.record(opts(capacity_policy: policy)) |> CapacityReasonText.waiting()
+
+      assert text =~ "waiting: no authorized source: "
+      clauses = text |> String.replace_prefix("waiting: no authorized source: ", "") |> String.split("; ")
+      assert Enum.map(clauses, &(&1 |> String.split(" ") |> hd())) == ["codex", "claude/default", "openrouter"]
+    end
+  end
+
+  describe "operator surfaces (#7892)" do
+    alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+    alias Aiur.Orchestrator.StatusCLI.{AgentsTable, StatusTable}
+
+    defp probes(gate_opts) do
+      fn ->
+        %{
+          memory_mb: 4_096,
+          memory_threshold_mb: 1_024,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.0,
+          load_threshold: 10.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: @backends,
+          provider_gate_opts: gate_opts,
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+    end
+
+    test "a no-authorized-source hold reaches queued rows, and a dispatch choice reaches running rows" do
+      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}))
+      queued = %Issue{id: "id-2", identifier: "T-2", state: "todo", title: "Queued"}
+
+      state =
+        Dispatcher.maybe_choose_under_load(%State{max_concurrent_agents: 2, effective_concurrent_agents: 2}, [queued], fn state, _issues -> state end, admission_probes_fun: probes(held))
+
+      assert %{signal: :provider, threshold: :no_authorized_source, capacity: %{policy: "capacity/v1"}} = state.capacity_hold
+
+      # A later cycle refreshes the held hold's record: claude's reading drops from 25% to 20% left.
+      state = Dispatcher.maybe_choose_under_load(state, [queued], fn state, _issues -> state end, admission_probes_fun: probes(Keyword.put(held, :usage_snapshot, claude_meter(80))))
+
+      {:ok, running} = CodingAgent.select_for_dispatch(%{ticket() | state: "in-progress", title: "Running"}, opts([]))
+      entry = %{identifier: running.identifier, issue: running, started_at: DateTime.utc_now(), session_id: "s-1", control: %{status: :working}}
+      state = %{state | running: %{running.id => entry}, last_polled_issues: %{queued.id => queued}}
+
+      snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+      agents = ExUnit.CaptureIO.capture_io(fn -> AgentsTable.print_agents_table(snapshot.running ++ AgentsTable.visible_idle_rows(snapshot.idle, true)) end)
+      status = ExUnit.CaptureIO.capture_io(fn -> StatusTable.print_status_table(StatusReport.agent_statuses(state)) end)
+
+      chosen = "openrouter (last resort; "
+
+      waiting =
+        "[waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve (reading 20% left, reserve 30%); " <>
+          "openrouter spend unknown under a limit (spend unknown while a limit is set)]"
+
+      for text <- [agents, status] do
+        assert [running_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-1"))
+        assert running_line =~ chosen
+        assert [queued_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-2"))
+        assert String.ends_with?(queued_line, waiting)
+      end
     end
   end
 
