@@ -16,4 +16,12 @@ defmodule Aiur.ControlCLI.DispatchAccountTest do
     assert DispatchAccount.suffix(%{backend: "claude", account: "max"}) == " [account claude/max]"
     assert DispatchAccount.suffix(%{identifier: "T-1"}) == ""
   end
+
+  test "adds the capacity reason for a running or a queued row" do
+    assert DispatchAccount.suffix(%{backend: "codex", account: "default", capacity_reason: "codex/default (preferred; 62% left, 40s old)"}) ==
+             " [account codex/default; codex/default (preferred; 62% left, 40s old)]"
+
+    assert DispatchAccount.suffix(%{capacity_reason: "waiting: no authorized source: codex limited; claude/default Executor reserve"}) ==
+             " [waiting: no authorized source: codex limited; claude/default Executor reserve]"
+  end
 end

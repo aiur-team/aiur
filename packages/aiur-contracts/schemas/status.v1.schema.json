@@ -112,6 +112,7 @@
         "review": { "type": "string" },
         "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
         "waiting_reason": { "type": ["string", "null"] },
+        "capacity_reason": { "type": ["string", "null"], "description": "Why the capacity policy chose this ticket's source, with the reading taken at dispatch." },
         "work_state": { "type": ["string", "null"] }
       },
       "required": ["issue_id", "issue_identifier", "state", "turn_count", "queue_depth"]
@@ -176,6 +177,7 @@
         "tracker_paused": { "type": "boolean" },
         "queue_depth": { "type": "integer", "minimum": 0 },
         "waiting_reason": { "type": "string" },
+        "capacity_reason": { "type": ["string", "null"], "description": "Why no capacity source is authorized for this queued ticket: one clause per source." },
         "waiting": { "type": ["object", "null"], "additionalProperties": true },
         "open_decision_count": { "type": "integer", "minimum": 0 },
         "open_decision_count_health": { "type": "string" },

@@ -41,9 +41,10 @@ defmodule AiurWeb.Build.PayloadSchema do
               "native_hold" => nullable(object(%{"decision_id" => :string, "since" => nullable(:integer)})),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
-              "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
+              "effort" => nullable(enum(~w(none minimal low medium high xhigh max))),
+              "reason" => nullable({:short_string, 400})
             },
-            ~w(native_hold pause resume_at)
+            ~w(native_hold pause resume_at reason)
           )
         ),
       "est" => nullable(:number),
@@ -55,7 +56,7 @@ defmodule AiurWeb.Build.PayloadSchema do
       "deps_missing" => nullable(:nonnegative),
       "wave" => nullable(:integer),
       "qpos" => nullable(:nonnegative),
-      "cue" => nullable(object(cue(), ["unknown"])),
+      "cue" => nullable(object(cue(), ["unknown", "capacity"])),
       "pr" => nullable(object(%{"num" => :positive, "state" => enum(~w(open merged closed)), "ci" => nullable(:string)}, ["ci"]))
     }
   end
@@ -277,7 +278,8 @@ defmodule AiurWeb.Build.PayloadSchema do
       "waitAny" => :boolean,
       "failed" => nullable(object(%{"by" => :positive, "blocks" => list(:positive)})),
       "blockedChain" => :boolean,
-      "unknown" => :boolean
+      "unknown" => :boolean,
+      "capacity" => nullable({:short_string, 400})
     }
 
   defp object(fields, optional \\ []), do: {:object, fields, optional}
