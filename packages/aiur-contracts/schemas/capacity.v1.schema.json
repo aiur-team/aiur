@@ -355,18 +355,13 @@
         },
         {
           "if": {
-            "type": "object",
             "properties": {
               "freshness": {
                 "const": "unknown"
               }
-            },
-            "required": [
-              "freshness"
-            ]
+            }
           },
           "then": {
-            "type": "object",
             "properties": {
               "remaining_percent": {
                 "type": "null"
@@ -409,18 +404,13 @@
         },
         {
           "if": {
-            "type": "object",
             "properties": {
               "freshness": {
                 "const": "unknown"
               }
-            },
-            "required": [
-              "freshness"
-            ]
+            }
           },
           "then": {
-            "type": "object",
             "properties": {
               "remaining_usd": {
                 "type": "null"
@@ -483,18 +473,13 @@
         },
         {
           "if": {
-            "type": "object",
             "properties": {
               "freshness": {
                 "const": "unknown"
               }
-            },
-            "required": [
-              "freshness"
-            ]
+            }
           },
           "then": {
-            "type": "object",
             "properties": {
               "spent_usd": {
                 "type": "null"
