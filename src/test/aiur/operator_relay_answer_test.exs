@@ -76,7 +76,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
     decision = request(store, "reversible")
     refute Config.relay_operator_answers?()
     errors = capture_io(:stderr, fn -> assert OperatorRelayCLI.answer(params(decision), decision_store: store) == 1 end)
-    assert errors =~ "operator must enable executor.relay_operator_answers"
+    assert errors =~ "ask the operator to change it in .aiur/config to `relay_operator_answers: true` under `executor:`"
     assert {:ok, %{answer: nil, decision_status: :open}} = DecisionStore.get(decision.decision_id, store)
     enable(config)
     # Existing Executor authority floor, retained as a future-regression guard.
@@ -101,6 +101,16 @@ defmodule Aiur.OperatorRelayAnswerTest do
     assert {:ok, %{answer: ^answer}} = DecisionStore.get(decision.decision_id, restarted)
     assert {:ok, decoded} = answer |> DecisionAnswer.to_json_safe() |> DecisionAnswer.from_json_safe()
     assert decoded == DecisionAnswer.content(answer)
+  end
+
+  test "a config without executor.relay_operator_answers records relayed answers by default", %{dir: dir, config: config} do
+    File.write!(config, String.replace(File.read!(config), "executor: {relay_operator_answers: false}\n", ""))
+    Workflow.set_workflow_file_path(config)
+    assert Config.relay_operator_answers?()
+    store = store(dir)
+    decision = request(store)
+    assert relay(decision, store) =~ "answered by operator, relayed by attended-executor"
+    assert {:ok, %{answer: %{actor: %{kind: :operator_relayed}, operator_quote: "  keep them\n"}}} = DecisionStore.get(decision.decision_id, store)
   end
 
   test "canonical command relay fills the current version and creates an idempotency key", %{dir: dir, config: config} do
@@ -244,7 +254,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
     File.write!(config, String.replace(File.read!(config), "relay_operator_answers: true", "relay_operator_answers: false"))
     Workflow.set_workflow_file_path(config)
     errors = capture_io(:stderr, fn -> assert OperatorRelayCLI.answer(params(decision), decision_store: store) == 1 end)
-    assert errors =~ "operator must enable executor.relay_operator_answers"
+    assert errors =~ "ask the operator to change it in .aiur/config to `relay_operator_answers: true` under `executor:`"
     # Existing floor, deliberately retained as a future-regression guard.
     payload = %{expected_version: 1, option_id: "keep", rationale: "Already decided", idempotency_key: "executor-try"}
     assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} = DecisionStore.answer(decision.decision_id, payload, [actor: %{kind: :executor, id: "executor"}], store)

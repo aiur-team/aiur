@@ -4,6 +4,8 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
+  alias Aiur.ControlCall.Audit
+  alias Aiur.ControlCLI.CallerContext
   alias Aiur.ControlCLI.ExecutorRequest
   alias Aiur.ExecutorCommandCLI
   alias Aiur.GitHubCostCLI
@@ -28,7 +30,35 @@ defmodule Aiur.ControlCLI.EntryPoints do
 
   @spec operator_relay_answer(keyword()) :: :ok
   def operator_relay_answer(opts) when is_list(opts) do
-    guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
+    guarded("operator-relay-answer", fn ->
+      case CallerContext.check(opts) do
+        :ok -> opts |> Keyword.drop(CallerContext.keys()) |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker()
+        {:error, reason} -> refuse_relay(opts, reason)
+      end
+    end)
+  end
+
+  # Only the attended Executor may relay operator answers; the daemon decides from caller evidence, not the CLI's environment.
+  defp refuse_relay(opts, reason) do
+    _ =
+      Audit.append(%{
+        at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        event: "operator_relay_refused",
+        call: "Aiur.AgentControlCLI.operator_relay_answer/1",
+        actor: Aiur.ControlCall.actor(),
+        decision_id: opts[:decision_id],
+        relayed_by: opts[:relayed_by],
+        outcome: "refused",
+        reason: Atom.to_string(reason)
+      })
+
+    message =
+      if reason == :agent_workspace,
+        do: "relayed operator answers are refused from agent workspaces; only the attended Executor may relay",
+        else: "relayed operator answers require caller context from the aiur CLI"
+
+    control_error("aiur: operator-relay-answer #{message}")
+    exit_marker(1)
   end
 
   @spec executor_ack(keyword()) :: :ok

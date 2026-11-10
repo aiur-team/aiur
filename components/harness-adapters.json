@@ -37,6 +37,7 @@
     "Aiur.CodexProber",
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",
+    "Aiur.CodingAgent.CapacityGate",
     "Aiur.CodingAgent.HeadroomDispatch",
     "Aiur.CodingAgent.Models",
     "Aiur.CodingAgent.RouteFailure",

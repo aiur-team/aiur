@@ -29,7 +29,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   @spec matches?(Decision.t(), map()) :: boolean()
   def matches?(decision, query) do
-    Policy.matches_route?(decision, Map.get(query, :route)) and
+    route_match?(decision, query) and
       lifecycle_match?(decision, Map.get(query, :lifecycle)) and
       ticket_match?(decision, Map.get(query, :ticket)) and
       ticket_scope_match?(decision, Map.get(query, :tickets)) and
@@ -80,7 +80,13 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp scan_limited?(query) do
-    Enum.any?([:ticket, :tickets, :search, :authority, :blocking, :kind, :route, :tag], &(not is_nil(Map.get(query, &1))))
+    Enum.any?([:ticket, :tickets, :search, :authority, :blocking, :kind, :route, :tag, :creator_inbox], &(not is_nil(Map.get(query, &1))))
+  end
+
+  # A creator inbox read never shows an Executor-only Command, whatever the route filter.
+  defp route_match?(decision, query) do
+    Policy.matches_route?(decision, Map.get(query, :route)) and
+      not (Map.get(query, :creator_inbox) == true and Policy.executor_audience?(decision))
   end
 
   defp lifecycle_match?(_decision, nil), do: true

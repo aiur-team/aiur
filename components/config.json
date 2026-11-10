@@ -34,6 +34,7 @@
   "optional": [],
   "owns": {
     "config": [
+      "capacity",
       "compaction",
       "executor",
       "instance",
@@ -70,6 +71,7 @@
     "reference/configuration.md"
   ],
   "config": [
+    "capacity",
     "executor",
     "netlify",
     "usage"

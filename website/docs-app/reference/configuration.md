@@ -115,6 +115,32 @@ Deploy a build that recognizes a new config key before adding that key to `.aiur
 | `netlify.enabled` | boolean | false | Enable the read-only Netlify usage poller and dashboard card. |
 | `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |
 
+## capacity
+
+A project may only tighten the machine capacity policy (`machine:capacity.*` below).
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `capacity.sources` | map | `{}` | Per-backend tightening of `machine:capacity.sources`. |
+| `capacity.sources.<backend>.last_resort` | boolean | inherit | May set `true`; cannot clear a machine `true`. |
+| `capacity.sources.<backend>.reserve.percent` | number | inherit | 0–100; at least the machine reserve. |
+| `capacity.sources.<backend>.limits.daily_usd` | number | inherit | At most the machine limit; also `weekly_usd`, `monthly_usd`. |
+| `capacity.sources.<backend>.limits.weekly_usd` | number | inherit | See `daily_usd`. |
+| `capacity.sources.<backend>.limits.monthly_usd` | number | inherit | See `daily_usd`. |
+| `capacity.limits` | map | `{}` | Tightening of `machine:capacity.limits`. |
+| `capacity.limits.daily_usd` | number | inherit | At most the machine limit. |
+| `capacity.limits.weekly_usd` | number | inherit | At most the machine limit. |
+| `capacity.limits.monthly_usd` | number | inherit | At most the machine limit. |
+
+It may lower a limit, raise a reserve, or add `last_resort`. A value that loosens
+the machine policy fails config load, naming both layers. Billing, `serves`,
+`reserve.accounts` and the default burn are machine-only.
+
+At runtime, `aiur set capacity.sources.<backend>.reserve.percent <n>` may raise a
+reserve; a value below the machine or project reserve is refused. The effective
+value is the tightest of all layers; `aiur config explain capacity.<key>` names
+the layer it came from and lists the others. Dispatch does not read the policy yet.
+
 ## elevenlabs
 
 [Read this section](./configuration-integrations#elevenlabs).
@@ -185,6 +211,20 @@ the machine, independently of repository workflows.
 | `machine:projects.max_agents` | integer | `null` | At least 1; `null` means no project ceiling. |
 | `machine:projects.priority` | integer | `null` | At least 0; lower is served first, `null` last. |
 | `machine:capacity.max_agents` | integer | `null` | At least 1; `null` means no machine ceiling. |
+| `machine:capacity.sources` | map | `{}` | Capacity policy per backend (`claude`, `codex`, `openrouter`, ...). A backend not listed has no reserve, no limit and is not last resort. |
+| `machine:capacity.sources.<backend>.billing` | string | `unknown` | `subscription`, `prepaid`, `metered` or `unknown`. |
+| `machine:capacity.sources.<backend>.last_resort` | boolean | `false` | Defer this source while any other allowed source exists. |
+| `machine:capacity.sources.<backend>.serves` | string array | `[coding]` | Work kinds this source may take. |
+| `machine:capacity.sources.<backend>.reserve.percent` | number | `0` | 0–100; remaining percent workers must leave on the reserved accounts. |
+| `machine:capacity.sources.<backend>.reserve.accounts` | string array | all accounts | Which `agent.accounts.<backend>` entries the reserve covers. |
+| `machine:capacity.sources.<backend>.limits.daily_usd` | number | `null` | Hard USD cap per UTC day; also `weekly_usd` and `monthly_usd` (UTC calendar periods). Non-negative. |
+| `machine:capacity.sources.<backend>.limits.weekly_usd` | number | `null` | See `daily_usd`. |
+| `machine:capacity.sources.<backend>.limits.monthly_usd` | number | `null` | See `daily_usd`. |
+| `machine:capacity.limits` | map | `{}` | Hard USD caps over all metered and prepaid sources together. |
+| `machine:capacity.limits.daily_usd` | number | `null` | Also `weekly_usd` and `monthly_usd`. Non-negative. |
+| `machine:capacity.limits.weekly_usd` | number | `null` | See `machine:capacity.limits.daily_usd`. |
+| `machine:capacity.limits.monthly_usd` | number | `null` | See `machine:capacity.limits.daily_usd`. |
+| `machine:capacity.default_burn_percent_per_hour` | number | `null` | Greater than 0, at most 100; burn assumed for a running agent before one is learned. |
 | `machine:coordination.database_url_env` | string | `AIUR_LEASE_DATABASE_URL` | Name of an environment variable, never a URL. |
 | `machine:coordination.offline_after_seconds` | integer | `180` | A gateway whose newest instance heartbeat is older than this raises one `system.gateway.<id>.offline` attention per outage, from the repository leader only; return closes it silently. Needs the shared store (`AIUR_LEASE_DATABASE_URL`); 30–86400 seconds. |
 
