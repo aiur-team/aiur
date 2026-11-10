@@ -140,6 +140,8 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.Opencode.ActiveTurns => "Create the turn table before agent tasks can start or be adopted",
     # Initial orchestrator dispatch must persist attempts before starting runners.
     Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",
+    # Handoff adoption rebuilds capacity holds during Orchestrator init.
+    Aiur.Capacity.LedgerStore => "Hold capacity reservations before Orchestrator adopts agents or dispatches",
     Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up",
     Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
     Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",

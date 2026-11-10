@@ -24,6 +24,7 @@ defmodule Aiur.Commands.HostApi do
   """
 
   alias Aiur.Commands.{Answering, ComponentState, Media, Scope}
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.DecisionApi.PublicProjection
   alias Aiur.DecisionQuery
   alias Aiur.DecisionStore
@@ -290,7 +291,7 @@ defmodule Aiur.Commands.HostApi do
   defp authorize(decision, ticket_set) do
     identifier = get_in(decision.ticket, [:identifier]) || get_in(decision.ticket, ["identifier"])
 
-    if is_binary(identifier) and MapSet.member?(ticket_set, String.downcase(identifier)) do
+    if is_binary(identifier) and MapSet.member?(ticket_set, String.downcase(identifier)) and not Policy.executor_audience?(decision) do
       {:ok, decision}
     else
       # Same answer for a real but out-of-scope Command and for a missing one.

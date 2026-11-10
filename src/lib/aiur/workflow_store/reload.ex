@@ -281,7 +281,8 @@ defmodule Aiur.WorkflowStore.Reload do
   end
 
   defp maybe_announce_operator_relay_enablement(previous, current) do
-    if relay_enabled?(current) and not relay_enabled?(previous) do
+    # Boot (previous = nil) is not a change; announcing it would claim a transition that never happened.
+    if previous != nil and relay_enabled?(current) and not relay_enabled?(previous) do
       Signal.alert("system.config.operator_relay.enabled",
         message: "executor.relay_operator_answers enabled: Executors may record quoted operator answers",
         reason: "The operator-answer relay gate changed from disabled to enabled.",
@@ -297,7 +298,9 @@ defmodule Aiur.WorkflowStore.Reload do
     _kind, _reason -> :ok
   end
 
-  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
+  # On by default: only an explicit `false` disables relaying.
+  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => false}}}}), do: false
+  defp relay_enabled?(%{workflow: %{config: config}}) when is_map(config), do: true
   defp relay_enabled?(_state), do: false
 
   defp maybe_announce_reversible_human_required_delegation(previous, current) do

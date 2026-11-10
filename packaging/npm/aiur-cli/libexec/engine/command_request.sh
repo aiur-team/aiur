@@ -2,6 +2,13 @@
 # @cli-reference aiur command request <question> --media FILE-OR-URL[,kind=K,alt=TEXT,caption=TEXT,option=ID] | Attaches typed media to the prompt, or to one option with `option=ID`; repeatable. Local files must sit under a configured root and become attachments; HTTPS URLs must be allowlisted; expiring URLs are refused. MIME type and kind are inferred from the extension unless `mime=` or `kind=` is given. | aiur command request 'Which sprite?' --option a=Left --option b=Right --media shots/a.png,option=a,alt='Left sprite'
 # @cli-reference aiur command request <question> --after TICKET[,TICKET...] | Holds the Command as pending until every listed ticket is closed as completed, then publishes it. Unknown tickets and trackers that cannot report closure are refused. Any other closure drops it and raises an Executor attention. `aiur command` lists pending Commands. | aiur command request 'Which build feels better?' --option a=First --option b=Second --after 5,6
 # @cli-reference aiur command cancel PENDING-ID | Removes a pending `--after` Command before it publishes. | aiur command cancel pend_1a2b3c4d
+# Caller evidence the daemon checks before recording a relayed answer; a remote call omits its cwd.
+relay_caller_opts() {
+  local opts="caller_agent_workspace_env: Base.decode64!(\"$(encode_control_value "${AIUR_AGENT_WORKSPACE:-}")\")"
+  [ -n "${AIUR_REMOTE_INSTANCE:-}" ] || opts="caller_cwd: Base.decode64!(\"$(encode_control_value "$(pwd -P)")\"), $opts"
+  printf ', %s' "$opts"
+}
+
 cmd_command() {
   if [ "${1:-}" = request ]; then
     shift
@@ -57,6 +64,7 @@ cmd_command() {
 
   if [ "$relayed" -eq 1 ]; then
     [ -n "$quote" ] || { echo "aiur: command --relayed requires --quote" >&2; exit 64; }
+    refuse_fleet_worker_relay "command --relayed"
     local relayed_by="${AIUR_EXECUTOR_ID:-${USER:-executor}}"
     local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), quote: Base.decode64!(\"$(encode_control_value "$quote")\"), relayed_by: Base.decode64!(\"$(encode_control_value "$relayed_by")\"), auto_current: true"
     [ -z "$idempotency_key" ] || opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
@@ -71,7 +79,7 @@ cmd_command() {
       echo "aiur: command requires exactly one of --option or --custom-response" >&2
       exit 64
     fi
-    run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts])"
+    run_control_rpc "Aiur.AgentControlCLI.operator_relay_answer([$opts$(relay_caller_opts)])"
   else
     [ -z "$idempotency_key" ] || { echo "aiur: command --idempotency-key requires --relayed" >&2; exit 64; }
     [ -z "$quote" ] || { echo "aiur: command --quote requires --relayed" >&2; exit 64; }

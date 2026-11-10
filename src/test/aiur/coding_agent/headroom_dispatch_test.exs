@@ -205,7 +205,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
       assert HeadroomDispatch.backend_reading("codex", state: past, now: @now) == nil
 
       assert HeadroomDispatch.backend_reading("codex", state: @ledger, now: @now, max_reading_age_seconds: 1800) ==
-               %{windows: %{"weekly" => 94.0}, source: "ledger", age_seconds: 30}
+               %{windows: %{"weekly" => 94.0}, source: "ledger", age_seconds: 30, observed_at: ~U[2026-10-10 05:59:30Z]}
     end
 
     test "preferred Codex remains unknown until its probe refreshes its score" do

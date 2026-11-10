@@ -158,3 +158,4 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 146 | `Aiur.Project.Supervisors` | machine | Holds every project tree; one per daemon (MPG-306). | — |
 | 147 | `Aiur.Project.Watcher` | machine | Watches every project root and raises `system.project.boot_failed` (MPG-306). | — |
 | 148 | `Aiur.ControlCLI.PendingCommands` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
+| 149 | `Aiur.Capacity.LedgerStore` | machine | Holds capacity reservations against machine-wide accounts, shared by every project's dispatcher (#7890). | — |
