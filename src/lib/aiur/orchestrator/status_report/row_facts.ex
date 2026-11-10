@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   @moduledoc false
   # Row facts shared by the snapshot payload, running summaries and status rows.
 
-  alias Aiur.CodingAgent.CapacityReasonText
   alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.CapacityReasonText
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue

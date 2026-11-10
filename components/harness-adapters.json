@@ -38,6 +38,7 @@
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",
     "Aiur.CodingAgent.CapacityGate",
+    "Aiur.CodingAgent.CapacityReasonText",
     "Aiur.CodingAgent.HeadroomDispatch",
     "Aiur.CodingAgent.Models",
     "Aiur.CodingAgent.RouteFailure",
