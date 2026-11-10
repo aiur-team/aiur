@@ -8,15 +8,23 @@ defmodule Aiur.Capacity.SampleLog do
   """
 
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.LogFile
   alias Aiur.ProviderMeterProjection
-  alias Aiur.RunTelemetry
 
   @filename "capacity.ndjson"
   @schema 1
 
-  @doc "The capacity sample log beside the telemetry stream."
+  @doc "The capacity sample log beside the daemon log and telemetry stream: `<run-log-root>/log/capacity.ndjson`."
   @spec path() :: Path.t()
-  def path, do: Path.join(Path.dirname(RunTelemetry.telemetry_file()), @filename)
+  def path do
+    log_file =
+      case Application.get_env(:aiur, :log_file) do
+        path when is_binary(path) and path != "" -> path
+        _other -> LogFile.default_log_file()
+      end
+
+    Path.join(Path.dirname(log_file), @filename)
+  end
 
   @doc "Gathers live readings and appends one sample. Never raises."
   @spec record(keyword()) :: :ok
