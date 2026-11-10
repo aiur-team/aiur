@@ -196,7 +196,7 @@ defmodule Aiur.Orchestrator.OwnershipDispatchTest do
 
       ref = Process.monitor(pid)
       send(pid, :stop)
-      assert_receive {:DOWN, ^ref, :process, ^pid, _}
+      assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1000
       assert holds(ledger) == []
     end
 

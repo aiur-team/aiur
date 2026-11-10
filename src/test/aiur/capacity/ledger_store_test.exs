@@ -40,7 +40,7 @@ defmodule Aiur.Capacity.LedgerStoreTest do
   defp stop(server, pid, reason) do
     ref = Process.monitor(pid)
     send(pid, reason)
-    assert_receive {:DOWN, ^ref, :process, ^pid, ^reason}
+    assert_receive {:DOWN, ^ref, :process, ^pid, ^reason}, 1000
     # A call after the exit is ordered behind the store's :DOWN.
     LedgerStore.ledger(server)
   end
