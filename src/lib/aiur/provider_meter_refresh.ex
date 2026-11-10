@@ -34,6 +34,7 @@ defmodule Aiur.ProviderMeterRefresh do
 
   use GenServer
 
+  alias Aiur.Capacity.SampleLog
   alias Aiur.Config
   alias Aiur.Config.UsageCadence
   alias Aiur.ProviderMeterProbe
@@ -216,7 +217,7 @@ defmodule Aiur.ProviderMeterRefresh do
   defp default_sampler do
     if Application.get_env(:aiur, :env) == :test,
       do: fn -> :ok end,
-      else: fn -> Task.Supervisor.start_child(Aiur.TaskSupervisor, &Aiur.Capacity.SampleLog.record/0) end
+      else: fn -> Task.Supervisor.start_child(Aiur.TaskSupervisor, &SampleLog.record/0) end
   end
 
   # Dispatch reads the meter with nobody looking. Codex is observed by opening
