@@ -7,8 +7,22 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
 
   @spec record_dispatch(Aiur.Issue.t(), String.t(), map()) :: :ok
   def record_dispatch(issue, attempt_id, metadata) do
-    fields = issue |> attempt_fields() |> Map.put(:reason, dispatch_reason(issue))
+    # `account` and `priority` let `aiur capacity report` join samples and split windows.
+    fields =
+      Map.merge(attempt_fields(issue), %{
+        account: issue.selected_account,
+        priority: priority(),
+        reason: dispatch_reason(issue),
+        candidates: get_in(issue.dispatch_selection || %{}, [:candidates])
+      })
+
     Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(fields, metadata))
+  end
+
+  defp priority do
+    Enum.join(Config.agent_priority(), ",")
+  rescue
+    _error -> nil
   end
 
   @doc "Why the capacity policy chose this dispatch (`dispatch_selection.chosen.reason`), or `nil` (#7889)."

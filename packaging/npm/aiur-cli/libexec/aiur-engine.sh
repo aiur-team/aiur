@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all project fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all project fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage capacity voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -82,6 +82,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
        aiur usage [<provider>] [--json]  show shared usage or one provider
+       aiur capacity report --since <date> [--json]  capacity policy metrics since a date
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
        aiur logout <harness> <name> [--purge]  remove a backend account
@@ -295,6 +296,7 @@ aiur_engine_main() {
       shift
       cmd_usage "$@"
       ;;
+    capacity) shift; cmd_capacity "$@" ;;
     agents)
       shift
       cmd_agents "$@"
