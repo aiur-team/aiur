@@ -22,6 +22,31 @@ defmodule Aiur.Commands.AudienceHarnessTest do
     end
   end
 
+  # A fresh store: an earlier test's record can leave the shared store read-only.
+  setup do
+    dir = Path.join(System.tmp_dir!(), "aiur-audience-store-#{System.unique_integer([:positive])}")
+    original_dir = Application.fetch_env(:aiur, :decision_state_dir)
+    store_dir = Path.dirname(:sys.get_state(DecisionStore).ndjson_path)
+
+    on_exit(fn ->
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, DecisionStore)
+      Application.put_env(:aiur, :decision_state_dir, store_dir)
+      {:ok, _} = Supervisor.restart_child(Aiur.Supervisor, DecisionStore)
+
+      case original_dir do
+        :error -> Application.delete_env(:aiur, :decision_state_dir)
+        {:ok, value} -> Application.put_env(:aiur, :decision_state_dir, value)
+      end
+
+      Aiur.TestCleanup.rm_rf!(dir)
+    end)
+
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, DecisionStore)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+    {:ok, _} = Supervisor.restart_child(Aiur.Supervisor, DecisionStore)
+    :ok
+  end
+
   defp arguments do
     %{
       "name" => "decision.requested",
