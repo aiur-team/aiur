@@ -3,7 +3,7 @@ defmodule Aiur.Config.CapacityPolicyTest do
 
   alias Aiur.Config.CapacityPolicy
   alias Aiur.Config.CapacityPolicy.TightenCheck
-  alias Aiur.Config.{Overrides, Provenance, Schema}
+  alias Aiur.Config.{Overrides, Provenance, Schema, SemanticChecks}
   alias Aiur.Machine.Settings
 
   setup do
@@ -109,7 +109,7 @@ defmodule Aiur.Config.CapacityPolicyTest do
     config = %{"tracker" => %{"kind" => "memory"}, "capacity" => %{"limits" => %{"weekly_usd" => 25}}}
 
     assert {:ok, settings} = Aiur.Config.settings_from({:ok, %{config: config}})
-    assert {:error, {:invalid_workflow_config, message}} = Aiur.Config.SemanticChecks.validate(settings)
+    assert {:error, {:invalid_workflow_config, message}} = SemanticChecks.validate(settings)
     assert message =~ "capacity.limits.weekly_usd"
     assert message =~ "project (L3)"
     assert message =~ "machine (L1)"
