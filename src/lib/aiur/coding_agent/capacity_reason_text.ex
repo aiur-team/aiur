@@ -1,4 +1,4 @@
-defmodule Aiur.Capacity.ReasonText do
+defmodule Aiur.CodingAgent.CapacityReasonText do
   @moduledoc """
   Operator text for a `capacity/v1` dispatch decision record (plan
   `docs/plans/2026-11-08-7881-provider-capacity-policy.md`, section 5): the

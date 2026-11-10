@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   @moduledoc false
   # Row facts shared by the snapshot payload, running summaries and status rows.
 
-  alias Aiur.Capacity.ReasonText
+  alias Aiur.CodingAgent.CapacityReasonText
   alias Aiur.CodingAgent
   alias Aiur.Commands
   alias Aiur.Config
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   @spec capacity_choice(map()) :: String.t() | nil
   def capacity_choice(entry) when is_map(entry) do
     case Map.get(entry, :issue) do
-      %Issue{dispatch_selection: selection} -> ReasonText.chosen(selection)
+      %Issue{dispatch_selection: selection} -> CapacityReasonText.chosen(selection)
       _issue -> nil
     end
   end
@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.StatusReport.RowFacts do
   @doc false
   # Why a queued ticket waits on the fleet provider hold: one clause per held source (#7892).
   @spec capacity_waiting(State.t(), atom() | nil) :: String.t() | nil
-  def capacity_waiting(%State{capacity_hold: %{capacity: record}}, :backing_off), do: ReasonText.waiting(record)
+  def capacity_waiting(%State{capacity_hold: %{capacity: record}}, :backing_off), do: CapacityReasonText.waiting(record)
   def capacity_waiting(_state, _waiting_reason), do: nil
 
   @doc false

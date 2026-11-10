@@ -8,9 +8,8 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   use Aiur.TestSupport
 
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.Capacity.ReasonText
   alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.CodingAgent.{CapacityGate, CapacityReasonText}
   alias Aiur.Config.{CapacityPolicy, Overrides}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, TelemetryCohort}
@@ -211,7 +210,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   describe "operator text (#7892)" do
     test "the dispatch record renders the chosen reason and every passed-over source" do
       {:ok, issue} = CodingAgent.select_for_dispatch(ticket(), opts([]))
-      text = ReasonText.chosen(issue.dispatch_selection)
+      text = CapacityReasonText.chosen(issue.dispatch_selection)
 
       assert text =~ ~r/^openrouter \(last resort; /
       assert text =~ "claude/default Executor reserve (reading 25% left, reserve 30%)"
@@ -220,7 +219,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
 
     test "the fleet hold record lists one clause per held source" do
       policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
-      text = @backends |> CapacityGate.record(opts(capacity_policy: policy)) |> ReasonText.waiting()
+      text = @backends |> CapacityGate.record(opts(capacity_policy: policy)) |> CapacityReasonText.waiting()
 
       assert text =~ "waiting: no authorized source: "
       clauses = text |> String.replace_prefix("waiting: no authorized source: ", "") |> String.split("; ")
