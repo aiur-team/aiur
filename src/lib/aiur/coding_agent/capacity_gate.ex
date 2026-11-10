@@ -118,6 +118,7 @@ defmodule Aiur.CodingAgent.CapacityGate do
 
   # Tests set `:capacity_ledger_store` to nil (no holds) and pass `:ledger_store` to use their own.
   @doc false
+  @spec store(keyword()) :: GenServer.server() | nil
   def store(opts), do: Keyword.get_lazy(opts, :ledger_store, fn -> Application.get_env(:aiur, :capacity_ledger_store, LedgerStore) end)
 
   @doc """

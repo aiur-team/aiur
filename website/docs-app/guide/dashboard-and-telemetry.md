@@ -142,13 +142,11 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
-Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details. Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view that `aiur capacity --json` prints: one "Energy" figure plus each source's state, accounts, reserve, open holds and limits, computed by the capacity policy and reservation ledger dispatch uses. Every figure carries `observed_at`, `age_ms` and `freshness`; render a `null` `energy.level` as unknown, never as full. The schema is `packages/aiur-contracts/schemas/capacity.v1.schema.json`.
+Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
 
-With an `openrouter:` route configured, the provider row shows the key's
-remaining credit against the limit it was bought with, and
-`aiur usage openrouter` lists each route's spend per route and model beside that
-reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
-the row reports an unknown reading rather than zero credit.
+Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the same as `aiur capacity --json`: one "Energy" figure and each source's state, accounts, reserve, holds and limits, as dispatch computes them. Each figure carries `observed_at`, `age_ms` and `freshness`; show a `null` `energy.level` as unknown, never as full.
+
+With an `openrouter:` route configured, the provider row shows the key's remaining credit against the limit it was bought with, and `aiur usage openrouter` lists each route's spend per route and model beside that reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it the row reports an unknown reading rather than zero credit.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
