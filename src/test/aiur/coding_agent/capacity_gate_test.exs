@@ -11,7 +11,7 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Issue
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.{DispatchPolicy, TelemetryCohort}
 
   @now ~U[2026-10-10 06:00:00Z]
   @future "2999-01-01T00:00:00Z"
@@ -98,6 +98,8 @@ defmodule Aiur.CodingAgent.CapacityGateTest do
       assert %{verdict: :hold, reason: :reserve, detail: "reading 25% left, reserve 30%"} = verdict(issue, "claude/default")
       assert %{reason: :limited, status: :exhausted} = verdict(issue, "codex")
       assert issue.dispatch_selection.summary =~ "claude/default hold: reserve"
+      # The `dispatch` telemetry point carries the same reason.
+      assert TelemetryCohort.dispatch_reason(issue) == :last_resort_used
     end
 
     test "the last-resort source is deferred while another source is allowed" do
