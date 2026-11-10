@@ -135,7 +135,9 @@ defmodule Aiur.Capacity.Policy do
   defp reserve_decision(projected, percent) when projected <= percent, do: {:hold, :reserve}
   defp reserve_decision(_projected, _percent), do: :ok
 
-  defp projected(candidate, holds) do
+  @doc "A candidate's tightest-window remaining minus its open holds, or `nil` when the reading or a hold's estimate is unknown."
+  @spec projected(candidate(), [map()]) :: number() | nil
+  def projected(candidate, holds) do
     reading = Map.get(candidate, :reading)
 
     estimates =

@@ -108,14 +108,20 @@ defmodule Aiur.Accounts.UsageFloor do
 
   @doc "The percent a reading has left in its tightest window, or `nil` when unknown."
   @spec remaining_percent(reading()) :: number() | nil
-  def remaining_percent(reading) when is_map(reading) do
+  def remaining_percent(reading), do: with({_window, used} <- tightest(reading), do: remaining(used))
+
+  @doc "When the tightest window resets, or `nil` when unknown."
+  @spec resets_at(reading()) :: DateTime.t() | nil
+  def resets_at(reading), do: with({window, _used} <- tightest(reading), do: Map.get(resets(reading), window))
+
+  defp tightest(reading) when is_map(reading) do
     case windows(reading) do
       windows when map_size(windows) == 0 -> nil
-      windows -> windows |> Enum.max_by(fn {_window, used} -> used end) |> elem(1) |> remaining()
+      windows -> Enum.max_by(windows, fn {_window, used} -> used end)
     end
   end
 
-  def remaining_percent(_reading), do: nil
+  defp tightest(_reading), do: nil
 
   defp window_decision(windows, resets, floor, reading) when map_size(windows) > 0 do
     # The tightest window is the one with the most already used — the least

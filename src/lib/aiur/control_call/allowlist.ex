@@ -287,6 +287,7 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@handoff, :agents, 0}, %{class: :read, positional: [], options: %{}}},
             {{@session, :rpc, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean}}},
+            {{[:Aiur, :Capacity, :View], :rpc, 1}, %{class: :read, positional: [:boolean], options: %{}}},
             {{@usage, :rpc, 2}, %{class: :read, positional: [{:nullable, :string}, :boolean], options: %{}}},
             {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},

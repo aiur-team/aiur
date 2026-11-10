@@ -414,6 +414,13 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert out =~ ~s|RPC:Aiur.Usage.CLI.rpc(Base.decode64!("b3BlbnJvdXRlcg=="), true)|
   end
 
+  test "capacity RPCs the capacity view and rejects other arguments" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_capacity --json|, [])
+    assert out =~ "RPC:Aiur.Capacity.View.rpc(true)"
+    {out, code} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_capacity codex|, [])
+    assert code != 0 and out =~ "capacity accepts only --json"
+  end
+
   test "status RPCs the status expression" do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])

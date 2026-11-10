@@ -18,8 +18,8 @@
       "serves": ["coding"],
       "last_resort": false,
       "state": "unknown",
-      "reason": "reading_unknown",
-      "detail": "no usage reading yet",
+      "reason": null,
+      "detail": null,
       "accounts": [
         {
           "account": "default",
@@ -43,8 +43,8 @@
       "serves": ["coding"],
       "last_resort": false,
       "state": "unknown",
-      "reason": "reading_unknown",
-      "detail": "no usage reading yet",
+      "reason": null,
+      "detail": null,
       "accounts": [
         {
           "account": "default",
