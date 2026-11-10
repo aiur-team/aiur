@@ -75,6 +75,8 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     optimistic_start
     complexity
     dispatch_selection
+    account
+    priority
     model
     effort
     feature

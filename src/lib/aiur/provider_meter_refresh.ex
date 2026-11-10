@@ -87,6 +87,7 @@ defmodule Aiur.ProviderMeterRefresh do
   def init(opts) do
     state = %{
       observer: Keyword.get_lazy(opts, :observer, &default_observer/0),
+      sampler: Keyword.get_lazy(opts, :sampler, &default_sampler/0),
       agents_running?: Keyword.get(opts, :agents_running_fun, &agents_running?/0),
       headroom?: Keyword.get(opts, :headroom_fun, &headroom_selection?/0),
       interval_fun: Keyword.get(opts, :interval_fun, &configured_interval_ms/0),
@@ -132,6 +133,8 @@ defmodule Aiur.ProviderMeterRefresh do
         true -> state
       end
 
+    # One capacity sample per probe interval, observed or not, so a gap reads as unknown.
+    state.sampler.()
     schedule_refresh(state)
 
     {:noreply, state}
@@ -207,6 +210,13 @@ defmodule Aiur.ProviderMeterRefresh do
   # binary is configured when the boot baseline or a dashboard mount fires (#4221).
   defp default_observer do
     if Application.get_env(:aiur, :env) == :test, do: fn _target -> [] end, else: &ProviderMeterProbe.observe/1
+  end
+
+  # The sample reads the orchestrator, so it runs off this process; the test VM writes none.
+  defp default_sampler do
+    if Application.get_env(:aiur, :env) == :test,
+      do: fn -> :ok end,
+      else: fn -> Task.Supervisor.start_child(Aiur.TaskSupervisor, &Aiur.Capacity.SampleLog.record/0) end
   end
 
   # Dispatch reads the meter with nobody looking. Codex is observed by opening
