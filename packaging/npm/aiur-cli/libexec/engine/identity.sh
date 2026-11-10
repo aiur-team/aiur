@@ -153,7 +153,56 @@ warn_if_cli_behind_release_checkout() {
 # converge on), so control commands (status/pause/stop) must be run from the SAME
 # directory the run was launched from. A repo with a repo-local .aiur/config keeps
 # the walk-up, so its control commands still resolve from any subdir.
+# Gateway mode: ~/.aiur/machine lists `projects:`. The daemon is then one BEAM for
+# the machine, so its key must not depend on the cwd. AIUR_GATEWAY_MODE=0 is a
+# dev/test seam (aiurdev --test must never reach the live gateway). Shell sniffing,
+# not YAML parsing: control commands must work while the daemon is down.
+aiur_gateway_mode() {
+  [ "${AIUR_GATEWAY_MODE:-1}" != 0 ] || return 1
+  awk '
+    /^projects:[ \t]*\[[^]]/ { found = 1; exit }
+    /^projects:[ \t]*$/ { want = 1; next }
+    want && /^[ \t]+-/ { found = 1; exit }
+    want && /^[^ \t#]/ { exit }
+    END { exit !found }
+  ' "${HOME:-}/.aiur/machine" 2>/dev/null
+}
+
+aiur_machine_identity_file() {
+  printf '%s/machine/identity.json' "${AIUR_BG_STATE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/aiur}"
+}
+
+aiur_machine_id() {
+  sed -n 's/.*"machine_id"[[:space:]]*:[[:space:]]*"\([a-z2-7]\{26\}\)".*/\1/p' "$(aiur_machine_identity_file)" 2>/dev/null | head -n 1
+}
+
+# Creates identity.json when absent (same shape and never-replace rule as
+# Aiur.Identity.Store.create/2), so the key exists before the first boot.
+aiur_ensure_machine_identity() {
+  local file dir tmp id
+  file="$(aiur_machine_identity_file)"
+  [ ! -s "$file" ] || return 0
+  dir="$(dirname "$file")"
+  (umask 077 && mkdir -p "$dir") && chmod 0700 "$dir" || return 1
+  id="$(head -c 16 /dev/urandom | base32 | tr -d '=\n' | tr 'A-Z' 'a-z' | head -c 26)"
+  tmp="$(mktemp "$dir/identity.XXXXXX")" || return 1
+  printf '{"schema_version":1,"machine_id":"%s","machine_label":"%s","created_at":"%s"}\n' \
+    "$id" "$(hostname -s 2>/dev/null || echo host)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$tmp"
+  chmod 0600 "$tmp"
+  ln "$tmp" "$file" 2>/dev/null || true
+  rm -f "$tmp"
+}
+
+aiur_gateway_instance_key() {
+  local id
+  aiur_ensure_machine_identity || return 1
+  id="$(aiur_machine_id)"
+  [ -n "$id" ] || return 1
+  printf 'gw-%s' "$(printf '%s' "$id" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-10)"
+}
+
 aiur_project_root() {
+  if aiur_gateway_mode; then printf '%s/.aiur' "${HOME:-}"; return; fi
   if [ -n "${AIUR_REPO_ROOT:-}" ]; then printf '%s' "$AIUR_REPO_ROOT"; return; fi
 
   # Canonicalize $PWD and $HOME so the home-boundary test below holds even when
@@ -177,6 +226,7 @@ aiur_project_root() {
 }
 
 aiur_project_root_source() {
+  if aiur_gateway_mode; then printf 'gateway'; return; fi
   if [ -n "${AIUR_REPO_ROOT:-}" ]; then printf 'env'; return; fi
 
   local pwd_real home_real
@@ -202,6 +252,7 @@ aiur_project_root_source() {
 # to the legacy un-keyed name.
 aiur_instance_key() {
   local root
+  if aiur_gateway_mode; then aiur_gateway_instance_key; return; fi
   root="$(aiur_project_root)"
   [ -n "$root" ] || return 0
   # Canonicalize (resolve symlinks) so launch and control commands invoked via

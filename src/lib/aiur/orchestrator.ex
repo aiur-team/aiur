@@ -81,8 +81,9 @@ defmodule Aiur.Orchestrator do
   def handle_info({:dispatch_cycle_liveness_check, token}, state),
     do: DispatchCycleLiveness.handle_check(state, token)
 
-  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state),
-    do: GlobalPause.fleet_pause_info(state)
+  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state), do: GlobalPause.fleet_pause_info(state)
+
+  def handle_info({:gateway_pause, on?, _meta}, state), do: GlobalPause.gateway_pause_info(state, on?)
 
   def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
     do: {:noreply, StaleOwner.handle(state, identifier, epoch)}

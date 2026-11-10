@@ -10,15 +10,16 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
+  alias Aiur.Project.Context
 
   @default %{globally_paused: false, paused_at: nil, source: nil}
   @filename "global-pause.json"
 
-  @spec load() ::
+  @spec load(keyword()) ::
           {:ok, %{globally_paused: boolean(), paused_at: DateTime.t() | nil, source: String.t() | nil}}
           | {:error, term()}
-  def load do
-    case resolve_path() do
+  def load(opts \\ []) do
+    case resolve_path(opts) do
       {:ok, path} -> load_path(path)
       {:error, reason} -> read_failed("stable state path unavailable", reason)
     end
@@ -45,8 +46,8 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
     {:error, {:read_failed, reason}}
   end
 
-  @spec save(map()) :: :ok | {:error, term()}
-  def save(%{globally_paused: paused} = state) when is_boolean(paused) do
+  @spec save(map(), keyword()) :: :ok | {:error, term()}
+  def save(%{globally_paused: paused} = state, opts \\ []) when is_boolean(paused) do
     payload = %{
       "version" => 1,
       "globally_paused" => paused,
@@ -54,7 +55,7 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
       "source" => Map.get(state, :source)
     }
 
-    case resolve_path() do
+    case resolve_path(opts) do
       {:ok, path} ->
         persist(path, payload)
 
@@ -82,16 +83,21 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
       {:error, reason}
   end
 
-  defp resolve_path do
-    case Application.get_env(:aiur, :global_pause_store_path) do
-      path when is_binary(path) and path != "" ->
-        {:ok, path}
+  # An explicit `path:` wins; a project process keeps its flag in its own state
+  # root (the daemon's own repo resolves to today's leaf); otherwise today's path.
+  defp resolve_path(opts \\ []) do
+    case {opts[:path], Context.current(), Application.get_env(:aiur, :global_pause_store_path)} do
+      {path, _, _} when is_binary(path) -> {:ok, path}
+      {_, %Aiur.Project{state_root: root}, _} -> {:ok, Path.join(root, @filename)}
+      {_, _, path} when is_binary(path) and path != "" -> {:ok, path}
+      _ -> machine_path()
+    end
+  end
 
-      _ ->
-        case Paths.decision_state_dir() do
-          {:ok, state_dir} -> {:ok, Path.join(state_dir, @filename)}
-          {:error, reason} -> {:error, {:decision_state_dir_unavailable, reason}}
-        end
+  defp machine_path do
+    case Paths.decision_state_dir() do
+      {:ok, state_dir} -> {:ok, Path.join(state_dir, @filename)}
+      {:error, reason} -> {:error, {:decision_state_dir_unavailable, reason}}
     end
   end
 

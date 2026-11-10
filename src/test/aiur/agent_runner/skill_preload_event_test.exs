@@ -57,7 +57,7 @@ defmodule Aiur.AgentRunner.SkillPreloadEventTest do
 
     assert info.skill_preload == %{
              mapped: [%{name: "pixel-art", reason: "lane:art"}],
-             truncated: [],
+             over_budget: false,
              missing: ["ghost-skill"],
              bytes: skill_md_bytes,
              max_bytes: SkillsMapping.max_bytes(SkillsMapping.normalize(%{}))

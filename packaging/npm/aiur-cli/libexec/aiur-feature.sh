@@ -1,4 +1,5 @@
 # Shared launcher feature parser. Text enters the RPC only through base64.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 feature_usage_error() { echo "aiur: $*" >&2; exit 64; }
 feature_rpc_string() { printf 'Base.decode64!("%s")' "$(encode_control_value "$1")"; }
 
@@ -120,5 +121,6 @@ cmd_feature() {
   [ -n "$epic_icons" ] && opts="$opts, epic_icons: [$epic_icons]"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="feature $op $slug for $count tickets"
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.feature([$opts])"
 }

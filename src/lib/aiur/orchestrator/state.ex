@@ -201,6 +201,7 @@ defmodule Aiur.Orchestrator.State do
           github_poll_delays: map(),
           globally_paused: boolean(),
           fleet_paused: boolean(),
+          gateway_paused: boolean(),
           # Ticket identifiers with an open blocking Command, read once per
           # dispatch cycle from `DecisionStore.blocked_ticket_ids/1`. `nil`
           # means "never computed this cycle" (treated as no gate); a `MapSet`
@@ -358,6 +359,7 @@ defmodule Aiur.Orchestrator.State do
     github_poll_delays: %{},
     globally_paused: false,
     fleet_paused: false,
+    gateway_paused: false,
     blocked_ticket_ids: nil,
     global_pause: %{paused_at: nil, source: nil},
     # Reconciled merge receipts prevent retained records from closing a reopened ticket.

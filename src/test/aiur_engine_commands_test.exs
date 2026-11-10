@@ -27,7 +27,7 @@ defmodule AiurEngineCommandsTest do
   test "units routes page-visible filters through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
         []
       )
 
@@ -38,7 +38,7 @@ defmodule AiurEngineCommandsTest do
   test "units forwards the human layout format" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
         []
       )
 
@@ -52,7 +52,7 @@ defmodule AiurEngineCommandsTest do
   test "bare units invocation routes an empty condition list" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
         []
       )
 
@@ -293,7 +293,7 @@ defmodule AiurEngineCommandsTest do
   test "build-orders routes its selector and JSON mode through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
         []
       )
 

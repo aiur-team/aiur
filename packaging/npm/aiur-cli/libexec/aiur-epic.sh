@@ -1,4 +1,5 @@
 # Shared launcher epic command parser. Sourced by aiur-engine.sh.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 # `aiur epic create|edit|add|remove|show|list` manage epic records: an epic
 # holds features, and a Build Order root projects as one.
 # `aiur epic set|clear|confirm` are the deprecated spelling of `aiur lane`, so
@@ -101,5 +102,6 @@ cmd_epic_record() {
   opts="$opts$flags"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   local AIUR_CONTROL_ATTEMPT_CONTEXT="epic $action $slug"
+  aiur_project_join opts
   run_control_rpc "Aiur.AgentControlCLI.epic([$opts])"
 }

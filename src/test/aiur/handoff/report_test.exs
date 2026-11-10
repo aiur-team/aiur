@@ -77,4 +77,39 @@ defmodule Aiur.Handoff.ReportTest do
              %{"identifier" => "1", "issue_id" => "1", "session_id" => "thread-turn", "provider_pid" => "42", "codex_app_server_pid" => 42, "adopted_from" => "restart", "skill_preload" => nil}
            ]
   end
+
+  @tag :tmp_dir
+  test "in projects mode the report reads each project's own state root and merges them", %{tmp_dir: dir} do
+    for id <- ["o/a", "o/b"] do
+      root = Path.join(dir, String.replace(id, "/", "_"))
+      project = %Aiur.Project{id: id, repo: id, config_path: Path.join(root, "config"), state_root: root}
+      parent = self()
+
+      pid =
+        spawn_link(fn ->
+          {:ok, _} = Aiur.Project.Registry.register_root(project)
+          send(parent, :registered)
+          receive do: (:stop -> :ok)
+        end)
+
+      assert_receive :registered, 1_000
+      on_exit(fn -> Process.exit(pid, :kill) end)
+
+      record = %{
+        "handoff_id" => "h-" <> String.last(id),
+        "written_at" => "2026-10-15T10:00:00.000Z",
+        "completed_at" => "2026-10-15T10:00:01.000Z",
+        "outcome" => [%{"identifier" => id, "status" => "adopted"}]
+      }
+
+      Aiur.JsonStore.write!(Path.join([root, "handoff", "current.json"]) <> ".consumed", record)
+    end
+
+    assert {:ok, report} = Report.latest_all()
+    assert report.handoff_id == "h-a,h-b"
+    assert Enum.map(report.adopted, & &1["identifier"]) == ["o/a", "o/b"]
+    # An expected id from only one project must not complete the restart wait while the other is missing.
+    out = capture_io(fn -> CLI.report(expected_id: "h-a,h-z", wait_ms: 0) end)
+    assert out =~ "adoption_report_timeout"
+  end
 end

@@ -100,6 +100,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     terminal_verification_attempts: :lifecycle,
     globally_paused: :control,
     fleet_paused: :control,
+    gateway_paused: :control,
     global_pause: :control,
     control_lifecycle: :control,
     ci_lifecycle: :pr_lifecycle,

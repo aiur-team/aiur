@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_request_id remote_all project fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -131,7 +131,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature confirm <slug> <ids...> [--as <who>] [--json]
        aiur feature show [<slug>] [--unconfirmed] [--json]
        aiur gateway permissions [<peer>] [--json] | grant <peer> <categories> | revoke <peer> [<categories>] | trust <peer> --full | reload  local only
-       aiur gateway discover [--port N] | list | status <gateway>  [--json]  find gateways, show connectivity and agents (read-only)
+       aiur gateway discover [--port N] | list | status <gateway> [--json] | migrate-state [--apply] [--from-key <hex10>]  find gateways (read-only); move per-repository state to the gateway key (dry run by default)
        aiur voice transcripts [<conversation_id>] [--target <ticket>|executor] [--limit N] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
@@ -217,7 +217,7 @@ aiur_engine_main() {
   # Only explicit leading flags may select a remote target (an inherited value is
   # cleared first) or name a request id; see engine/remote_request_id.sh.
   aiur_parse_remote_flags "$@" || return $?
-  shift "$AIUR_FLAGS_CONSUMED"
+  aiur_project_args "$@" || return $? && set -- "${AIUR_ARGS[@]+"${AIUR_ARGS[@]}"}"
 
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says

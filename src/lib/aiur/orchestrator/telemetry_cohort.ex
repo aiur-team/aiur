@@ -28,6 +28,20 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
     }
   end
 
+  @doc "The issue's first `feature:<slug>` label in sorted order, else `:none`."
+  @spec feature_slug(Aiur.Issue.t()) :: String.t() | :none
+  def feature_slug(%Aiur.Issue{} = issue) do
+    issue
+    |> Aiur.Issue.label_names()
+    |> Enum.sort()
+    |> Enum.find_value(:none, fn label ->
+      case Features.parse_label(label) do
+        {:ok, slug} -> slug
+        :ignore -> nil
+      end
+    end)
+  end
+
   defp prefixes do
     case Config.settings() do
       {:ok, settings} -> Map.get(settings.observability, :capture_label_prefixes, ["experiment:", "cohort:", "feature:"])

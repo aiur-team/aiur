@@ -2,13 +2,15 @@ defmodule Aiur.Handoff.Compatibility do
   @moduledoc false
   alias Aiur.AppServer.RelayPort
   alias Aiur.{CodingAgent, Handoff, Tmux}
+  alias Aiur.Project.Context
 
   @spec check(map(), map(), keyword()) :: :ok | {:error, atom()}
   def check(agent, record, opts \\ []) do
     fingerprint = Keyword.get_lazy(opts, :config_fingerprint, &Handoff.config_fingerprint/0)
     probe = Keyword.get(opts, :relay_probe, &RelayPort.inspect_relay/1)
 
-    with :ok <- prepared_fallback(agent),
+    with :ok <- project(record),
+         :ok <- prepared_fallback(agent),
          :ok <- transport(agent["transport"], probe),
          :ok <- in_daemon_supported(agent),
          :ok <-
@@ -25,6 +27,10 @@ defmodule Aiur.Handoff.Compatibility do
       require_match(is_nil(agent["worker_host"]), :remote_worker)
     end
   end
+
+  # A record names the project that wrote it; another project's agents are never adopted.
+  defp project(%{"project_id" => id}) when is_binary(id), do: require_match(id == Context.current_id(), :project_mismatch)
+  defp project(_record), do: :ok
 
   defp prepared_fallback(%{"fallback_reason" => "remote_worker"}), do: {:error, :remote_worker}
   defp prepared_fallback(%{"fallback_reason" => "relay_protocol"}), do: {:error, :relay_protocol}

@@ -21,9 +21,7 @@
         "missing": [
           "ghost-skill"
         ],
-        "truncated": [
-          "palette"
-        ]
+        "over_budget": false
       }
     },
     {

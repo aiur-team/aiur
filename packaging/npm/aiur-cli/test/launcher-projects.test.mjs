@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { readFileSync, existsSync, rmSync } from "node:fs";
-import { captureFile, useTempRoot } from "./launcher-support.mjs";
+import { spawnSync } from "node:child_process";
+import { captureFile, setupRealLauncher, useTempRoot } from "./launcher-support.mjs";
 import { runControl, setupControlRpc } from "./launcher-control-support.mjs";
 
 useTempRoot();
@@ -37,4 +38,17 @@ test("gateway reload calls the daemon; anything else is a usage error", () => {
     expect(result.stderr).toContain(message);
     expect(existsSync(captureFile)).toBe(false);
   }
+});
+
+test("gateway migrate-state evals the gateway module directly, passing its flags through", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const result = spawnSync("bash", [launcher, "gateway", "migrate-state", "--apply"], {
+    encoding: "utf8",
+    env: { ...process.env, AIUR_RELEASE_DIR: releaseDir, AIUR_TEST_OUT: captureFile },
+  });
+  expect(result.status).toBe(0);
+  const out = readFileSync(captureFile, "utf8");
+  expect(out).toContain("System.halt(Aiur.Gateway.StateMigrationCli.main(Aiur.CLI.argv_from_file()))");
+  expect(out).toContain("ARGV_FILE:--apply");
+  expect(out).not.toContain("ARGV_FILE:gateway");
 });

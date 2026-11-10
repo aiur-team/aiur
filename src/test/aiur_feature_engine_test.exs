@@ -12,6 +12,7 @@ defmodule Aiur.FeatureEngineTest do
         "feature-test",
         @engine | args
       ],
+      cd: "/",
       env: [{"USER", "tester"} | env],
       stderr_to_stdout: true
     )

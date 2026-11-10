@@ -116,6 +116,10 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.pr.tested_head_stale", "orchestration"},
     # aiur/orchestrator/push_routing/pr_body_evidence.ex
     {"ticket.*.pr.tested_head_stale.resolved", "orchestration"},
+    # aiur/agent_runner/skill_gate.ex
+    {"ticket.*.skills.blocked", "agent-runner"},
+    # aiur/agent_runner/skill_gate.ex
+    {"ticket.*.skills.warning", "agent-runner"},
     # aiur/orchestrator/membership_lifecycle.ex
     {"ticket.*.terminal_verification_abandoned", "orchestration"},
     # aiur/orchestrator/spend_cap/runtime.ex

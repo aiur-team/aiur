@@ -8,6 +8,7 @@ defmodule Aiur.Config.SkillsMapping do
       agent:
         skills:
           preload_max_bytes: 32768
+          strict: false
           by_lane:
             art: [pixel-art, palette]
           by_feature:
@@ -28,6 +29,10 @@ defmodule Aiur.Config.SkillsMapping do
   record as a visible warning instead of failing the whole config. Shape,
   dimension keys and byte caps are validated here.
 
+  Mapped skills are mandatory: they are always inlined, even past the byte
+  budget. `strict: true` turns a mapped skill with no `SKILL.md`, or a mapped
+  set over the budget, into a blocked dispatch instead of a warning.
+
   `recommended` takes the same five dimensions. A recommended skill is listed to
   the worker with its description and path rather than inlined, so it never
   spends the `preload_max_bytes` budget.
@@ -41,7 +46,7 @@ defmodule Aiur.Config.SkillsMapping do
     "by_label" => :by_label,
     "by_complexity" => :by_complexity
   }
-  @keys ["preload_max_bytes", "recommended" | @dimensions]
+  @keys ["preload_max_bytes", "strict", "recommended" | @dimensions]
   @default_max_bytes 32_768
   # A skill name has to address a directory under a workspace skill path.
   @skill_name_pattern ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z/
@@ -49,6 +54,7 @@ defmodule Aiur.Config.SkillsMapping do
   @type dimension :: String.t()
   @type normalized :: %{
           preload_max_bytes: pos_integer(),
+          strict: boolean(),
           by_lane: %{String.t() => [String.t()]},
           by_feature: %{String.t() => [String.t()]},
           by_epic: %{String.t() => [String.t()]},
@@ -116,7 +122,7 @@ defmodule Aiur.Config.SkillsMapping do
   @doc "The empty mapping."
   @spec empty() :: normalized()
   def empty do
-    Map.merge(empty_dimensions(), %{preload_max_bytes: @default_max_bytes, recommended: empty_dimensions()})
+    Map.merge(empty_dimensions(), %{preload_max_bytes: @default_max_bytes, strict: false, recommended: empty_dimensions()})
   end
 
   defp empty_dimensions, do: Map.new(@dimension_atoms, fn {_name, atom} -> {atom, %{}} end)
@@ -161,9 +167,15 @@ defmodule Aiur.Config.SkillsMapping do
   def max_bytes(%{preload_max_bytes: bytes}) when is_integer(bytes) and bytes > 0, do: bytes
   def max_bytes(_mapping), do: @default_max_bytes
 
+  @doc "Whether a missing or over-budget mapped skill blocks the dispatch."
+  @spec strict?(normalized() | term()) :: boolean()
+  def strict?(%{strict: true}), do: true
+  def strict?(_mapping), do: false
+
   defp put_normalized({key, value}, acc) do
     case normalize_key(key) do
       "preload_max_bytes" -> Map.put(acc, :preload_max_bytes, normalize_bytes(value))
+      "strict" -> Map.put(acc, :strict, value)
       "recommended" -> Map.put(acc, :recommended, normalize_recommended(value))
       dimension when dimension in @dimensions -> Map.put(acc, Map.fetch!(@dimension_atoms, dimension), normalize_entries(dimension, value))
       other -> Map.put(acc, :unknown, Map.put(Map.get(acc, :unknown, %{}), other, value))
@@ -239,6 +251,7 @@ defmodule Aiur.Config.SkillsMapping do
   defp validate_raw(raw) do
     with :ok <- validate_unknown_keys(raw),
          :ok <- validate_max_bytes(Map.get(raw, "preload_max_bytes") || Map.get(raw, :preload_max_bytes)),
+         :ok <- validate_strict(Map.get(raw, "strict", Map.get(raw, :strict))),
          :ok <- validate_dimensions("agent.skills", raw) do
       raw
       |> Enum.find(fn {key, _value} -> normalize_key(key) == "recommended" end)
@@ -276,6 +289,9 @@ defmodule Aiur.Config.SkillsMapping do
 
   defp validate_max_bytes(_bytes),
     do: {:error, "agent.skills.preload_max_bytes must be a positive integer"}
+
+  defp validate_strict(strict) when is_boolean(strict) or is_nil(strict), do: :ok
+  defp validate_strict(_strict), do: {:error, "agent.skills.strict must be true or false"}
 
   defp validate_dimensions(prefix, raw) do
     raw
@@ -335,7 +351,11 @@ defmodule Aiur.Config.SkillsMapping do
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.preload_max_bytes
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-  # @config-detail agent.skills.preload_max_bytes | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt; mapped skills past it are listed to load on demand and reported as truncated. |
+  # @config-detail agent.skills.preload_max_bytes | integer | `32768` | Byte budget for skill instructions inlined into the cold prompt. Mapped skills are never truncated: a mapped set past it is still inlined and raises a warning alert, or blocks the dispatch under `agent.skills.strict`. |
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-reference config-configuration-agent-00 agent.skills.strict
+  # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+  # @config-detail agent.skills.strict | boolean | `false` | Makes mapped skills a dispatch requirement. When `true`, a mapped skill with no `SKILL.md` in the workspace, or a mapped set over `preload_max_bytes`, starts no worker: the ticket pauses as a preflight failure and an attention alert names the ticket, the skills and their mapping reasons. When `false`, the same cases dispatch and raise a warning alert. |
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
   # @config-reference config-configuration-agent-00 agent.skills.by_lane
   # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
