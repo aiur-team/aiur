@@ -234,9 +234,7 @@ record was quarantined is no longer listed; its line stays in the quarantine fil
 
 ## Operator answers relayed in conversation
 
-When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.
-
-The daemon refuses a relay whose caller runs inside an agent workspace, judged by the caller's working directory as well as `AIUR_AGENT_WORKSPACE`, and records each refusal in `control-audit.ndjson`.
+When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority. The daemon refuses relays from agent workspaces and logs each to control-audit.
 
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
