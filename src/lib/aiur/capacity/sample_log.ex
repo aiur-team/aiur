@@ -43,7 +43,10 @@ defmodule Aiur.Capacity.SampleLog do
       ledger: LedgerStore.ledger()
     }
 
-    append(Keyword.get_lazy(opts, :path, &path/0), sample(inputs, now))
+    path = Keyword.get_lazy(opts, :path, &path/0)
+    append(path, sample(inputs, now))
+    prune(path, Keyword.put(Aiur.Config.telemetry_retention(), :now, now))
+    :ok
   rescue
     _error -> :ok
   catch
@@ -86,6 +89,61 @@ defmodule Aiur.Capacity.SampleLog do
   def append(path, sample) do
     with :ok <- File.mkdir_p(Path.dirname(path)), do: File.write(path, [Jason.encode!(sample), ?\n], [:append])
   end
+
+  @doc """
+  Bounds the log with the telemetry retention settings (`:max_age_days`,
+  `:max_bytes`, `:now`). It drops samples older than the age limit, then the
+  oldest lines over the size limit, and rewrites the file by atomic rename.
+  To avoid rewriting on every tick, it waits until the oldest line is a day
+  past the age limit, and it trims to three quarters of `:max_bytes`.
+  """
+  @spec prune(Path.t(), keyword()) :: :ok | {:error, term()}
+  def prune(path, opts) do
+    max_bytes = Keyword.get(opts, :max_bytes)
+    cutoff = age_cutoff(opts)
+    lines = File.stream!(path, :line, [])
+    oversize? = is_integer(max_bytes) and max_bytes > 0 and File.stat!(path).size > max_bytes
+    stale? = cutoff != nil and Enum.any?(Enum.take(lines, 1), &older?(&1, DateTime.add(cutoff, -86_400, :second)))
+
+    if oversize? or stale? do
+      kept = lines |> Enum.reject(&older?(&1, cutoff)) |> Enum.reverse() |> newest_within(max_bytes && div(max_bytes * 3, 4))
+      tmp = path <> ".tmp"
+      with :ok <- File.write(tmp, kept), do: File.rename(tmp, path)
+    else
+      :ok
+    end
+  rescue
+    error in File.Error -> if error.reason == :enoent, do: :ok, else: {:error, error.reason}
+  end
+
+  defp age_cutoff(opts) do
+    case Keyword.get(opts, :max_age_days) do
+      days when is_integer(days) and days > 0 -> opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.add(-days * 86_400, :second)
+      _none -> nil
+    end
+  end
+
+  # A line without a readable `at` is kept; the size bound still trims it.
+  defp older?(_line, nil), do: false
+
+  defp older?(line, cutoff) do
+    with {:ok, %{"at" => at}} <- Jason.decode(line),
+         {:ok, sampled_at, _offset} <- DateTime.from_iso8601(at),
+         do: DateTime.before?(sampled_at, cutoff),
+         else: (_unreadable -> false)
+  end
+
+  defp newest_within(reversed, budget) when is_integer(budget) and budget > 0 do
+    {kept, _bytes} =
+      Enum.reduce_while(reversed, {[], 0}, fn line, {kept, bytes} ->
+        bytes = bytes + byte_size(line)
+        if bytes > budget, do: {:halt, {kept, bytes}}, else: {:cont, {[line | kept], bytes}}
+      end)
+
+    kept
+  end
+
+  defp newest_within(reversed, _no_budget), do: Enum.reverse(reversed)
 
   defp account_row(backend, account, entry, now) do
     observed_at = UsageReadings.observed_at(entry)

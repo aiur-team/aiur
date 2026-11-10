@@ -101,6 +101,14 @@ defmodule Aiur.Capacity.ReportTest do
     assert text =~ "agent.priority=claude,codex  codex 0/2 dispatches (0.0%)"
   end
 
+  test "a reserved account with no reading counts as unknown, never as a broken reserve" do
+    blind = row("claude", "default", %{"reserve_percent" => 30, "remaining_percent" => nil, "projected_percent" => nil, "running" => 1})
+    report = Report.build([sample("2026-11-02T10:00:00Z", [blind])], [dispatch("2026-11-02T10:01:00Z", "1", "claude", %{"account" => "default"})], @since)
+
+    assert %{count: 0, unknown: 1, items: []} = metric(report, "reserve_broken")
+    assert %{count: 0, population: 0, unknown: 1, items: []} = metric(report, "reserve_low_with_worker")
+  end
+
   test "no data reports zero populations rather than failing" do
     report = Report.build([], [], @since)
     assert Enum.all?(report.metrics, &(&1.population == 0 and &1.count == 0))

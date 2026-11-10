@@ -90,6 +90,25 @@ defmodule Aiur.Capacity.SampleLogTest do
     assert second["at"] == "2026-11-09T12:05:00Z"
   end
 
+  @tag :tmp_dir
+  test "prune drops the oldest samples past the age and size bounds and keeps the newest", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "capacity.ndjson")
+    day = fn n -> DateTime.add(@now, n * 86_400, :second) end
+    days = fn -> path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!(&1)["at"]) end
+    for n <- 0..39, do: :ok = SampleLog.append(path, SampleLog.sample(%{}, day.(n)))
+
+    # Within both bounds: untouched.
+    :ok = SampleLog.prune(path, max_age_days: 60, max_bytes: 1_000_000, now: day.(39))
+    assert length(days.()) == 40
+
+    :ok = SampleLog.prune(path, max_age_days: 30, max_bytes: 1_000_000, now: day.(39))
+    assert days.() == Enum.map(9..39, &DateTime.to_iso8601(day.(&1)))
+
+    line_bytes = path |> File.read!() |> String.split("\n", trim: true) |> hd() |> byte_size() |> Kernel.+(1)
+    :ok = SampleLog.prune(path, max_age_days: 30, max_bytes: line_bytes * 8, now: day.(39))
+    assert days.() == Enum.map(34..39, &DateTime.to_iso8601(day.(&1)))
+  end
+
   test "the refresh tick samples even when nothing is observed" do
     test = self()
 
