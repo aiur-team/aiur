@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PolicyTargetTest do
   describe "a claim paused at any priority position" do
     test "on the primary, a fallback held by its reserve is skipped for the next allowed source" do
       assert_moves("codex", "openrouter", claude_used: 75)
-      assert_receive {:label, "model:openrouter"}
+      assert_received {:label, "model:openrouter"}
     end
 
     test "on the primary, the configured fallback is used while the policy allows it" do
@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PolicyTargetTest do
 
   defp assert_moves(from, to, overrides) do
     RateLimitFallback.reconcile(state(from), opts(overrides))
-    assert_receive {:dispatch, ^to}
+    assert_received {:dispatch, ^to}
   end
 
   defp refute_moves(from, overrides) do
