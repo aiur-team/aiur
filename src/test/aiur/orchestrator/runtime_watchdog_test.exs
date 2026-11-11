@@ -141,7 +141,9 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     assert next.released_claims["issue-77"].cause == :mcp_socket_launch_failure
     assert_received {:launch_alert, "ticket.CLAUDE-77.agent.launch_failed", nil, opts}
     assert opts[:reason] =~ "listen EINVAL"
-    refute_received {:launch_alert, _, _, _}
+    # The sink is global, so unrelated system alerts (such as supervision
+    # health) can land here too; only a second launch alert is a failure.
+    refute_received {:launch_alert, "ticket.CLAUDE-77.agent.launch_failed", _, _}
     assert_receive {:state_write, "CLAUDE-77", "error", []}, 500
   end
 
