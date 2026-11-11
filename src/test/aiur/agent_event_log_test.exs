@@ -145,6 +145,33 @@ defmodule Aiur.AgentEventLogTest do
       assert markdown =~ ~s("reason":["port_exit",1])
     end
 
+    test "persists a crash reason that carries the turn's loop state" do
+      # Regression for #7963: `{:response_timeout, :codex_liveness_probe, state}`
+      # carries the loop state, which holds the `%Aiur.Issue{}` struct, timer
+      # references and callbacks. Encoding raised, so the crash reason never
+      # reached agent.ndjson.
+      workspace = tmp_workspace()
+      timer = make_ref()
+
+      state = %{
+        issue: %Aiur.Issue{id: "285", identifier: "285", title: "Blobs"},
+        liveness_probe_timer: timer,
+        on_message: fn _message -> :ok end,
+        relay_manual_ack_port: self()
+      }
+
+      assert :ok =
+               AgentEventLog.write(workspace, nil, %{
+                 event: "turn_ended_with_error",
+                 reason: {:response_timeout, :codex_liveness_probe, state}
+               })
+
+      ndjson = File.read!(Path.join(workspace, "logs/agent.ndjson"))
+      assert ndjson =~ ~s("reason":["response_timeout","codex_liveness_probe",)
+      assert ndjson =~ ~s("identifier":"285")
+      assert ndjson =~ ~s("liveness_probe_timer":"#{inspect(timer)}")
+    end
+
     test "accepts a binary timestamp string in the message and renders it unchanged" do
       workspace = tmp_workspace()
 
