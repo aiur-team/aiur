@@ -68,6 +68,13 @@ defmodule Aiur.Config.Schema.Codex do
     # @config-reference config-configuration-agent-05 agent.codex.reset_min_delay_seconds
     # @config-detail agent.codex.reset_min_delay_seconds | integer | 300 | Least wait before a resume when the Codex usage-limit text names a reset that already passed. |
     field(:reset_min_delay_seconds, :integer, default: 300)
+    # Codex's "Fast" service tier (id `priority`) runs faster and spends more of
+    # the account's usage. Codex stores the tier on the thread, so it is sent on
+    # both thread/start and thread/resume.
+    # @config-reference config-configuration-agent-05 agent.codex.fast_mode
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail agent.codex.fast_mode | boolean | false | Runs Codex threads on the Fast service tier (`priority`): quicker responses that spend more of the account's usage. Applies to new and resumed threads. A thread keeps its tier, so after turning this off a thread that ran fast stays fast until it starts a fresh thread. |
+    field(:fast_mode, :boolean, default: false)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -84,7 +91,8 @@ defmodule Aiur.Config.Schema.Codex do
         :thrash_max_per_window,
         :thrash_window_seconds,
         :reset_time_zone,
-        :reset_min_delay_seconds
+        :reset_min_delay_seconds,
+        :fast_mode
       ],
       empty_values: []
     )
