@@ -304,6 +304,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
     turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
     read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
     reset_time_zone = Keyword.get(config, :codex_reset_time_zone)
+    fast_mode = Keyword.get(config, :codex_fast_mode)
 
     [
       "  codex:",
@@ -312,7 +313,8 @@ defmodule Aiur.TestSupport.WorkflowYaml do
       "    thread_sandbox: #{yaml_value(thread_sandbox)}",
       "    turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
       "    read_timeout_ms: #{yaml_value(read_timeout_ms)}",
-      reset_time_zone && "    reset_time_zone: #{yaml_value(reset_time_zone)}"
+      reset_time_zone && "    reset_time_zone: #{yaml_value(reset_time_zone)}",
+      if(is_boolean(fast_mode), do: "    fast_mode: #{yaml_value(fast_mode)}")
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

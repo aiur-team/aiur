@@ -52,32 +52,45 @@ defmodule Aiur.Codex.Frames do
   end
 
   @spec thread_init_frame(String.t() | nil, Path.t(), map()) :: map()
-  def thread_init_frame(nil, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox}) do
+  def thread_init_frame(nil, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox} = policies) do
     %{
       "method" => "thread/start",
       "id" => thread_start_id(),
-      "params" => %{
-        "approvalPolicy" => approval_policy,
-        "sandbox" => thread_sandbox,
-        "cwd" => workspace,
-        "dynamicTools" => Catalog.specs()
-      }
+      "params" =>
+        put_service_tier(
+          %{
+            "approvalPolicy" => approval_policy,
+            "sandbox" => thread_sandbox,
+            "cwd" => workspace,
+            "dynamicTools" => Catalog.specs()
+          },
+          policies
+        )
     }
   end
 
-  def thread_init_frame(resume_thread_id, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox})
+  def thread_init_frame(resume_thread_id, workspace, %{approval_policy: approval_policy, thread_sandbox: thread_sandbox} = policies)
       when is_binary(resume_thread_id) do
     %{
       "method" => "thread/resume",
       "id" => thread_start_id(),
-      "params" => %{
-        "threadId" => resume_thread_id,
-        "approvalPolicy" => approval_policy,
-        "sandbox" => thread_sandbox,
-        "cwd" => workspace
-      }
+      "params" =>
+        put_service_tier(
+          %{
+            "threadId" => resume_thread_id,
+            "approvalPolicy" => approval_policy,
+            "sandbox" => thread_sandbox,
+            "cwd" => workspace
+          },
+          policies
+        )
     }
   end
+
+  # A resumed thread ignores the launch-time `service_tier` config, so the tier
+  # rides on both requests. Without one, Codex keeps the thread's own tier.
+  defp put_service_tier(params, %{service_tier: tier}) when is_binary(tier), do: Map.put(params, "serviceTier", tier)
+  defp put_service_tier(params, _policies), do: params
 
   @spec turn_start_frame(String.t(), String.t(), map(), Path.t(), String.t() | map(), map()) :: map()
   def turn_start_frame(thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do

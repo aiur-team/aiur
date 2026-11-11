@@ -131,6 +131,16 @@ defmodule Aiur.Codex.RateLimitAdapterTest do
     assert normalized.windows == %{}
   end
 
+  test "the Pro Max plan reads as a Pro tier, not unknown" do
+    # Codex reports the higher Pro subscription as `promax`; `aiur usage`
+    # showed it as an unknown tier.
+    patch = %{"limitId" => nil, "planType" => "promax"}
+
+    assert {:ok, update} = RateLimitAdapter.patch(patch, make_ref(), :subscription, @observed_at)
+    assert {:ok, normalized} = Input.normalize(update)
+    assert normalized.plan.tier == :pro
+  end
+
   test "normalizes a compatible v2 response without claiming its binary version" do
     response = fixture!("rate_limits_v2_compatible.json")
 

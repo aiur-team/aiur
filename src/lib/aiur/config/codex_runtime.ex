@@ -50,10 +50,15 @@ defmodule Aiur.Config.CodexRuntime do
        %{
          approval_policy: approval_policy,
          thread_sandbox: settings.agent.codex.thread_sandbox,
-         turn_sandbox_policy: turn_sandbox_policy
+         turn_sandbox_policy: turn_sandbox_policy,
+         service_tier: service_tier(settings.agent.codex)
        }}
     end
   end
+
+  # Codex names its Fast tier `priority` in the model catalog.
+  defp service_tier(%{fast_mode: true}), do: "priority"
+  defp service_tier(_codex), do: nil
 
   defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
     with {:ok, policy} <- Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
