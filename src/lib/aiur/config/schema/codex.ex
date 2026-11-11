@@ -73,7 +73,7 @@ defmodule Aiur.Config.Schema.Codex do
     # both thread/start and thread/resume.
     # @config-reference config-configuration-agent-05 agent.codex.fast_mode
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail agent.codex.fast_mode | boolean | `false` | Runs Codex threads on the Fast service tier (`priority`): quicker responses that spend more of the account's usage. Applies to new and resumed threads. A thread keeps its tier, so after turning this off a thread that ran fast stays fast until it starts a fresh thread. |
+    # @config-detail agent.codex.fast_mode | boolean | false | Runs Codex threads on the Fast service tier (`priority`): quicker responses that spend more of the account's usage. Applies to new and resumed threads. A thread keeps its tier, so after turning this off a thread that ran fast stays fast until it starts a fresh thread. |
     field(:fast_mode, :boolean, default: false)
   end
 

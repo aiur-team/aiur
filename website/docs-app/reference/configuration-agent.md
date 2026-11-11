@@ -353,7 +353,7 @@ Codex settings belong under `agent.codex`; a legacy root-level `codex:` section 
 | --- | --- | --- | --- |
 | `agent.codex.approval_policy` | string or map | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
-| `agent.codex.fast_mode` | boolean | `false` | Runs Codex threads on the Fast service tier (`priority`): quicker responses that spend more of the account's usage. Applies to new and resumed threads. A thread keeps its tier, so after turning this off a thread that ran fast stays fast until it starts a fresh thread. |
+| `agent.codex.fast_mode` | boolean | false | Runs Codex threads on the Fast service tier (`priority`): quicker responses that spend more of the account's usage. Applies to new and resumed threads. A thread keeps its tier, so after turning this off a thread that ran fast stays fast until it starts a fresh thread. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.reset_min_delay_seconds` | integer | 300 | Least wait before a resume when the Codex usage-limit text names a reset that already passed. |
 | `agent.codex.reset_time_zone` | string or nil | nil | IANA zone for the reset time in Codex usage-limit text. Nil uses the daemon host's zone. For a remote `worker_host`, set the worker's zone: Aiur cannot read it. The numeric `resetsAt` needs no zone and wins when present. |
