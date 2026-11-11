@@ -122,6 +122,31 @@ defmodule Aiur.Codex.LivenessProbeTest do
     refute_received {:agent_message, :turn_ended_with_error}
   end
 
+  # Regression for #7963: a completed turn returns `{:ok, :turn_completed}`, not
+  # its loop state, so its probe timer was never cancelled. Each finished turn
+  # left a `:codex_liveness_probe` message for the next turn on the same runner;
+  # two of them made the next turn send a read and immediately count it as
+  # unanswered, killing a healthy session within milliseconds of turn start.
+  test "probe timers from finished turns cannot time out a later turn", ctx do
+    %{root: root} = ctx
+    trace = Path.join(root, "codex.trace")
+    session = start_agent(ctx, instant_turn_script(trace))
+    test_pid = self()
+
+    for _turn <- 1..2 do
+      assert {:ok, %{result: :turn_completed}} =
+               CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
+    end
+
+    # Long enough for every timer the finished turns armed to have fired.
+    Process.sleep(@probe_interval_ms * 3)
+
+    assert {:ok, %{result: :turn_completed}} =
+             CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
+
+    refute_received {:agent_message, :turn_ended_with_error}
+  end
+
   defp issue do
     %Issue{id: "15", identifier: "15", title: "KHA-106", state: "In Progress", selected_backend: "codex"}
   end
@@ -205,6 +230,28 @@ defmodule Aiur.Codex.LivenessProbeTest do
     esac
     done
     wait
+    """
+  end
+
+  # A healthy server whose turns complete as soon as they start and which answers
+  # every probe read.
+  defp instant_turn_script(trace) do
+    """
+    #!/bin/sh
+    #{handshake_cases(trace)}
+      *'"method":"turn/start"'*)
+        rid=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+        printf '{"id":%s,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\\n' "$rid"
+        printf '%s\\n' '#{turn_started_frame()}'
+        printf '%s\\n' '#{completed_frame()}'
+        ;;
+      *'"method":"account/rateLimits/read"'*)
+        case "$line" in
+          *'"id":6'*) printf '%s\\n' '#{probe_answer_frame(28)}' ;;
+        esac
+        ;;
+    esac
+    done
     """
   end
 

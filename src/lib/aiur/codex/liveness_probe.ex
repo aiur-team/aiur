@@ -11,6 +11,10 @@ defmodule Aiur.Codex.LivenessProbe do
   `:liveness_probe_interval_ms` to shorten that interval; tests do, so they can
   prove a silent app-server is detected without waiting a full minute. Every
   real session keeps the 60-second default.
+
+  Every timer message carries the turn's `:liveness_probe_token`. A runner
+  process runs many turns, and a finished turn's timer can still fire after the
+  turn ends, so the receive loop acts only on its own turn's token (#7963).
   """
 
   alias Aiur.AppServer.Rpc
@@ -31,7 +35,8 @@ defmodule Aiur.Codex.LivenessProbe do
   @doc "Arms the next periodic probe and records its timer in `state`."
   @spec schedule(map(), map()) :: map()
   def schedule(state, session) do
-    timer = Process.send_after(self(), :codex_liveness_probe, interval_ms(session))
+    state = Map.put_new_lazy(state, :liveness_probe_token, &make_ref/0)
+    timer = Process.send_after(self(), {:codex_liveness_probe, state.liveness_probe_token}, interval_ms(session))
     Map.put(state, :liveness_probe_timer, timer)
   end
 
@@ -103,7 +108,7 @@ defmodule Aiur.Codex.LivenessProbe do
 
     case Rpc.send_line(session.port, frame) do
       true ->
-        timer = Process.send_after(self(), :codex_liveness_probe, probe_timeout_ms())
+        timer = Process.send_after(self(), {:codex_liveness_probe, state.liveness_probe_token}, probe_timeout_ms())
         {:continue, state |> Map.put(:liveness_probe_pending?, true) |> Map.put(:liveness_probe_timer, timer)}
     end
   rescue

@@ -39,6 +39,8 @@ defmodule Aiur.AppServer.TurnLoop do
   defp replay_frame(session, state, {:exit_status, status}), do: handle_port_exit(session, state, status)
 
   defp receive_messages(%{port: port} = session, state) do
+    probe_token = Map.get(state, :liveness_probe_token)
+
     receive do
       :handoff_abort ->
         Process.delete(:handoff_hold)
@@ -72,13 +74,13 @@ defmodule Aiur.AppServer.TurnLoop do
       {:DOWN, _ref, :port, ^port, reason} ->
         port_exit_failure(session, state, reason)
 
-      :codex_liveness_probe when state.backend == CodingAgent ->
+      {:codex_liveness_probe, ^probe_token} when state.backend == CodingAgent ->
         case Map.get(state, :liveness_probe_pending?, false) do
           true -> LivenessProbe.timeout(session, state)
           false -> handle_liveness_probe(session, state)
         end
 
-      :codex_liveness_probe ->
+      {:codex_liveness_probe, _other_turn} ->
         receive_loop(session, state)
 
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
