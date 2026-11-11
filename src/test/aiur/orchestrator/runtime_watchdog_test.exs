@@ -310,6 +310,34 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     assert next_state.retry_attempts == %{}
   end
 
+  test "a finished worker's parked entry is not restarted as stalled" do
+    # A worker that completes its run is parked with no process. Its last Codex
+    # activity only ages from then on, so the stall window must not read the
+    # finished run as a silent one and schedule a retry and a needs-attention
+    # alert for it.
+    now = DateTime.utc_now()
+    ref = make_ref()
+    topic = "ticket.repo#1.agent.stalled"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    finished =
+      running_entry(now)
+      |> Map.merge(%{ref: ref, control: %{status: :completed}})
+      |> Map.put(:last_codex_timestamp, now)
+
+    assert {:noreply, parked_state} = RetryEngine.handle_agent_down(%State{running: %{"issue-1" => finished}}, ref, :normal)
+    parked = parked_state.running["issue-1"]
+    assert parked.pid == nil
+
+    later = DateTime.add(now, 21, :minute)
+    next_state = RuntimeWatchdog.restart_stalled_issue(parked_state, "issue-1", parked, later, 1_200_000)
+
+    assert next_state.running["issue-1"] == parked
+    assert next_state.retry_attempts == %{}
+    refute_received {:event, %{topic: ^topic}}
+  end
+
   test "stalled alert names the command for its resolved backend" do
     now = DateTime.utc_now()
     topic = "ticket.repo#1.agent.stalled"
