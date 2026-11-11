@@ -28,6 +28,7 @@ defmodule Aiur.Codex.LivenessProbeTest do
   # Production arms the probe every 60_000 ms. The injected interval only
   # shortens the wait so a silent server is caught inside a test-sized window.
   @probe_interval_ms 200
+  @quick_turns_interval_ms 2_000
   # Above the 5_000 ms app-server read timeout the probe waits for an answer, so
   # a silent server's recoverable probe timeout stays distinguishable from the
   # turn's own backstop.
@@ -130,7 +131,9 @@ defmodule Aiur.Codex.LivenessProbeTest do
   test "probe timers from finished turns cannot time out a later turn", ctx do
     %{root: root} = ctx
     trace = Path.join(root, "codex.trace")
-    session = start_agent(ctx, instant_turn_script(trace))
+    # Both quick turns must finish before either one's timer fires, so neither
+    # timer is consumed by the second turn instead of reaching the third.
+    session = ctx |> start_agent(instant_turn_script(trace)) |> Map.put(:liveness_probe_interval_ms, @quick_turns_interval_ms)
     test_pid = self()
 
     for _turn <- 1..2 do
@@ -138,8 +141,10 @@ defmodule Aiur.Codex.LivenessProbeTest do
                CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
     end
 
-    # Long enough for every timer the finished turns armed to have fired.
-    Process.sleep(@probe_interval_ms * 3)
+    # Timers fire in deadline order, so once this later one arrives every timer
+    # the finished turns armed has already fired into this mailbox.
+    Process.send_after(self(), :earlier_probe_timers_fired, @quick_turns_interval_ms * 2)
+    assert_receive :earlier_probe_timers_fired, @quick_turns_interval_ms * 5
 
     assert {:ok, %{result: :turn_completed}} =
              CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
