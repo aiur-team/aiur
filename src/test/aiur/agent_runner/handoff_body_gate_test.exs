@@ -40,9 +40,11 @@ defmodule Aiur.AgentRunner.HandoffBodyGateTest do
     assert_receive {:applied, ^fixed}, 100
   end
 
-  test "a no-op bound does not park a ticket in human-review past a failing PR body" do
+  # A refused bound that kept the ticket active was redispatched within a minute
+  # and looped no-op turns for hours, holding a slot; agent:error frees it.
+  test "a no-op bound refused by the PR body check ends the ticket in error, not review or in-progress" do
     identifier = "7822-noop-#{System.unique_integer([:positive])}"
-    Application.put_env(:aiur, :memory_tracker_recipient, self())
+    use_memory_tracker!(self())
     issue = %Aiur.Issue{id: "gid-#{identifier}", identifier: identifier, state: "in-progress", labels: ["agent:in-progress"]}
     progress = %{consecutive_noops: 3}
 
@@ -53,9 +55,20 @@ defmodule Aiur.AgentRunner.HandoffBodyGateTest do
       opts: [open_pr_fetcher: fn _ -> {:ok, %{"number" => 7901, "body" => body(@stale_head, "- `mix test` -> passed"), "head" => %{"sha" => @head}}} end]
     }
 
-    assert {:completed, %Aiur.Issue{state: "in-progress"}} =
+    assert {:completed, %Aiur.Issue{state: "error"}} =
              TurnCompletion.complete_noop_bound_without_handoff(context, issue, progress, %{workspace: {:unavailable, :test}}, 3)
 
+    assert_received {:memory_tracker_state_update, ^identifier, "error"}
     refute_received {:memory_tracker_state_update, ^identifier, "human-review"}
+  end
+
+  defp use_memory_tracker!(recipient) do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["todo", "in-progress", "rework"]
+    )
+
+    Aiur.WorkflowStore.force_reload()
+    Process.put(:memory_tracker_recipient, recipient)
   end
 end
