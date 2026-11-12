@@ -119,7 +119,9 @@ keeps `human-review`.
 
 A draft PR cannot enter `ci-wait` or `human-review`. The one exception is a
 draft blocked from outside the ticket, such as a stop rule or a gate the ticket
-cannot pass. The worker passes the cause as `outside_blocker`, the ticket goes to
+cannot pass.
+
+The worker passes the cause as `outside_blocker`, the ticket goes to
 `human-review` with its PR still a draft, and the reviewer gets a
 `ticket.<id>.agent.draft_handoff` alert naming the PR and the cause.
 
