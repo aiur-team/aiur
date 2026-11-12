@@ -138,8 +138,10 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         "\n    - Aiur observed that the last #{noops} turn(s) changed nothing it can see: no commit, no push, " <>
           "no working-tree change, and no ticket label change. If there is genuinely no remaining agent work, " <>
           "say so plainly and end the turn — do NOT invent work, re-read files you already read, or push a " <>
-          "no-op commit to prove liveness. Aiur stops this loop by itself after a few more such turns and " <>
-          "raises an alert naming the ticket."
+          "no-op commit to prove liveness. If your pull request is a draft that a stop rule or a gate outside " <>
+          "this ticket keeps from being ready, hand it off now with " <>
+          ~s|`aiur_set_ticket_state({ "state": "human-review", "outside_blocker": "<cause>" })`. | <>
+          "Aiur stops this loop by itself after a few more such turns and raises an alert naming the ticket."
 
       _no_noop_run ->
         ""
