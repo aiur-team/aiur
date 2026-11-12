@@ -117,6 +117,12 @@ goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
 
+A draft PR cannot enter `ci-wait` or `human-review`. The one exception is a
+draft blocked from outside the ticket, such as a stop rule or a gate the ticket
+cannot pass. The worker passes the cause as `outside_blocker`, the ticket goes to
+`human-review` with its PR still a draft, and the reviewer gets a
+`ticket.<id>.agent.draft_handoff` alert naming the PR and the cause.
+
 The state tool reports the applied `state` and the
 `requested_state` separately. An approval redirect includes
 `result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
