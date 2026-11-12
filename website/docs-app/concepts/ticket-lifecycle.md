@@ -81,8 +81,10 @@ When the no-op turn bound or normal turn limit stops an agent, a newly opened or
 moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
 finishes, the ticket goes to `human-review`.
 
-At the no-op bound, verified rework with no new PR head becomes `error`. Other
-no-op-bound tickets keep their state and receive an alert. A normal turn limit
+At the no-op bound, verified rework with no new PR head becomes `error`, and so
+does a ticket whose open PR fails the PR body check, such as a draft. Kept
+active, it would be redispatched into the same no-op turns. Other no-op-bound
+tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the

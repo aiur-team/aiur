@@ -129,9 +129,10 @@ defmodule Aiur.AgentRunner.TurnCompletion do
           :allow ->
             handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
 
+          # Left active, the stopped ticket is redispatched within a minute and
+          # loops through the same no-op turns, holding a slot for hours.
           {:refused, _reason, _message} ->
-            emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
-            TurnLoop.return_completed(turn_context, issue)
+            fail_noop_bound(turn_context, issue, "error", progress, witness, cap)
         end
 
       :keep_rework ->
@@ -139,15 +140,21 @@ defmodule Aiur.AgentRunner.TurnCompletion do
         TurnLoop.return_completed(turn_context, issue)
 
       {:fail, state_name} ->
-        case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
-          :ok ->
-            failed_issue = %{issue | state: state_name}
-            emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
-            TurnLoop.return_completed(turn_context, failed_issue)
+        fail_noop_bound(turn_context, issue, state_name, progress, witness, cap)
+    end
+  end
 
-          {:error, reason} ->
-            {:error, {:noop_bound_state_write_failed, reason}}
-        end
+  defp fail_noop_bound(turn_context, issue, state_name, progress, witness, cap) do
+    %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
+
+    case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
+      :ok ->
+        failed_issue = %{issue | state: state_name}
+        emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
+        TurnLoop.return_completed(turn_context, failed_issue)
+
+      {:error, reason} ->
+        {:error, {:noop_bound_state_write_failed, reason}}
     end
   end
 
