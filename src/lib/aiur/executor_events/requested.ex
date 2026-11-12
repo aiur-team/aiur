@@ -17,6 +17,7 @@ defmodule Aiur.ExecutorEvents.Requested do
       authority: decision.authority,
       urgency: decision.urgency,
       blocking: decision.blocking,
+      requested_by_executor: match?(%{kind: :executor}, decision.requester),
       reversibility: decision.reversibility,
       consequence_of_delay: decision.consequence_of_delay,
       created_at: decision.created_at,

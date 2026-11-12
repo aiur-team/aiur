@@ -304,10 +304,13 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
       end
 
       assert :sys.get_state(pid).watermark >= event_id
-      assert {:ok, [wake]} = ExecutorWakeInbox.wait(0, ctx.inbox)
-      assert wake["decision_id"] == "later-request"
+      # The worker's own non-blocking Command woke the Executor once when it was
+      # requested; the later blocking request still gets its own wake.
+      assert {:ok, wakes} = ExecutorWakeInbox.wait(0, ctx.inbox)
+      assert [wake] = Enum.filter(wakes, &(&1["decision_id"] == "later-request"))
       assert wake["ticket"] == "979"
       assert wake["topic_class"] == "ticket.agent.attention.operator-decision"
+      assert [%{"topic_class" => "ticket.agent.command.requested", "blocking" => false}] = wakes -- [wake]
     end)
   end
 
