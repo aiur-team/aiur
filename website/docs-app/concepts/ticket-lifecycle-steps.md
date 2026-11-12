@@ -45,7 +45,10 @@ An open, unblocked ticket needs an **explicit** state label to be dispatchable.
   The provenance fetch starts with `per_page=50` pages and retries at
   `per_page=20` when a page exceeds the response cap. Events are pruned to the
   fields used for provenance before being held, dropping embedded source issue
-  bodies. If even the smallest page is too large the ticket is **deferred**
+  bodies. When every page size is too large, or the timeline runs past 400
+  events (long comment threads do both), Aiur reads the same label events from
+  the issue events endpoint, which carries no comments. If that is too large as
+  well, the ticket is **deferred**
   (never revoked), the log line carries
   `cause=transport_limit`, and the alert is
   `github.dispatch_authorization.timeline_unreadable` — an Aiur limit to raise,
