@@ -260,9 +260,12 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   end
 
   defp rework_handoff_state(identifier, original_head, metadata) do
+    # A draft PR goes back to rework so a fresh agent can finish it: in CI wait
+    # nothing marks it ready, so the ticket would sit there.
     opts = [
       open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Aiur.CodeHost.fetch_open_pull_request_for_branch/1),
-      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
+      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1),
+      draft_handoff: {:handoff, "rework"}
     ]
 
     case ReworkGate.stopped_agent_handoff(identifier, original_head, opts) do

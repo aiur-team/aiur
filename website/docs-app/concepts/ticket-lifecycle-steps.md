@@ -277,7 +277,7 @@ For a decided Command, the Executor may moot only an answer that an Executor rec
 
 The agent opens a `Closes #<issue>` **draft** PR. PRs run fast CI until approved. `ci:full`, a configured full-CI label, or an approved PR matching `full_ci_paths` selects the full suite. The merge queue always runs it. After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
 
-Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait.
+Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait. When a run with a draft PR exhausts its retries, the ticket goes back to `rework`, not to CI wait.
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
 
