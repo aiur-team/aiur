@@ -104,6 +104,85 @@ defmodule Aiur.GitHub.DispatchAuthorization.TimelineLimitsTest do
     refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 200
   end
 
+  # --- a busy ticket whose comments outgrow the timeline (Open-Games, 2026-11-11) ---
+  #
+  # Workers on its-everdred/open-games#264 and #291 posted long iteration
+  # comments. #264's timeline passed the 400-event page budget
+  # (`:timeline_page_limit_exceeded`) and a #291 page stayed past the cap even
+  # at `per_page=20`. Both tickets deferred forever, even after a trusted
+  # relabel, although their label events alone fit in a few small pages of the
+  # issue events endpoint (#264: 238 events, 3 pages).
+  describe "a timeline too big to read" do
+    test "authorizes from the issue events when every timeline page size truncates" do
+      label = labeled_event(900, "agent:todo", "trusted", "2026-01-02T00:00:00Z")
+      timeline = fat_comment_timeline(40, 40_000) ++ [label]
+      assert encoded_size(Enum.take(timeline, 20)) > 524_288
+
+      authorized = authorize_split(timeline, [label])
+
+      assert authorized.dispatch_authorized?
+      assert authorized.dispatch_authorization == :authorized
+      assert_received {:events_requested, "/repos/owner/repo/issues/42/events?per_page=100"}
+    end
+
+    test "authorizes from the issue events when the timeline passes the page budget" do
+      label = labeled_event(900, "agent:todo", "trusted", "2026-01-02T00:00:00Z")
+      timeline = fat_comment_timeline(450, 10) ++ [label]
+
+      authorized = authorize_split(timeline, [label])
+
+      assert authorized.dispatch_authorized?
+      assert_received {:events_requested, _path}
+    end
+
+    # The fallback reads label evidence, it does not skip it: the newest applier
+    # in the issue events still decides.
+    test "an untrusted latest applier in the issue events is still not authorized" do
+      trusted = labeled_event(900, "agent:todo", "trusted", "2026-01-02T00:00:00Z")
+      untrusted = labeled_event(901, "agent:todo", "outsider", "2026-01-03T00:00:00Z")
+      timeline = fat_comment_timeline(450, 10) ++ [trusted, untrusted]
+
+      refute authorize_split(timeline, [trusted, untrusted]).dispatch_authorized?
+    end
+  end
+
+  defp fat_comment_timeline(count, body_bytes) do
+    body = String.duplicate("x", body_bytes)
+
+    for id <- 1..count do
+      %{
+        "id" => id,
+        "event" => "commented",
+        "body" => body,
+        "actor" => %{"login" => "worker"},
+        "created_at" => "2026-01-01T00:00:00Z"
+      }
+    end
+  end
+
+  # Timeline URLs page through `timeline`; the issue events URL pages through
+  # `issue_events`.
+  defp authorize_split(timeline, issue_events) do
+    parent = self()
+    timeline_fun = paged_timeline_request_fun(timeline)
+    events_fun = paged_timeline_request_fun(issue_events)
+
+    DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+      allowed_users: ["trusted"],
+      token: "test-token",
+      request_fun: fn %{url: url} = request ->
+        uri = URI.parse(url)
+
+        if String.ends_with?(uri.path, "/events") do
+          send(parent, {:events_requested, uri.path <> "?" <> uri.query})
+          events_fun.(request)
+        else
+          timeline_fun.(request)
+        end
+      end
+    )
+  end
+
   # Regression guard for the fetch behavior restored from main: a page-size
   # retry must never reuse a validator issued for a different URL.
   test "per-page ETags stay scoped to the page size after a truncation retry" do

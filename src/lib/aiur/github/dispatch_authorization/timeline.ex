@@ -35,6 +35,16 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
   @timeline_page_sizes [50, 20]
   @max_timeline_events 400
 
+  # The timeline also carries every comment, with its full body. A busy ticket
+  # whose workers post long iteration comments outgrows the cap at every page
+  # size, or outgrows the page budget, while its label events stay few. The
+  # issue events endpoint lists those same `labeled` / `unlabeled` events, with
+  # the same ids, and no comments, so it is the fallback before the read is
+  # given up. It is still read in full: an incomplete applier history would
+  # weaken the all-appliers-trusted check in `LocalProvenance`.
+  @issue_events_per_page 100
+  @max_issue_event_pages 10
+
   @spec page_sizes() :: [pos_integer()]
   def page_sizes, do: @timeline_page_sizes
 
@@ -43,7 +53,43 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
   @spec fetch((map() -> term()), String.t(), String.t(), String.t(), Issue.t(), keyword()) :: term()
   def fetch(request_fun, token, owner, repo, issue, opts) do
-    TimelineFetch.run(&fetch_timeline_ladder/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts)
+    TimelineFetch.run(&fetch_label_evidence/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts)
+  end
+
+  defp fetch_label_evidence(request_fun, token, owner, repo, issue, page_sizes) do
+    case fetch_timeline_ladder(request_fun, token, owner, repo, issue, page_sizes) do
+      {:error, reason} = error ->
+        if size_limit?(reason), do: fetch_issue_events(request_fun, token, owner, repo, issue, error), else: error
+
+      result ->
+        result
+    end
+  end
+
+  defp size_limit?(:timeline_page_limit_exceeded), do: true
+  defp size_limit?(:timeline_truncated), do: true
+  defp size_limit?({:timeline_truncated, _per_page}), do: true
+  defp size_limit?(_reason), do: false
+
+  # When the events are unreadable for the same size reason, the timeline's own
+  # error stands, so the deferral and its alert still name the timeline limit.
+  defp fetch_issue_events(request_fun, token, owner, repo, issue, {:error, timeline_reason} = timeline_error) do
+    Logger.warning(
+      "GitHub dispatch authorization timeline unreadable issue_id=#{inspect(issue.id)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} reason=#{inspect(timeline_reason)}; reading issue events instead"
+    )
+
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/events?per_page=#{@issue_events_per_page}"
+
+    case fetch_timeline(request_fun, token, url, nil, @max_issue_event_pages) do
+      {:ok, events, _etag, _single_page?} ->
+        # No validator is kept: a multi-page read is never reused on a `304`,
+        # and a single events page must not answer for the timeline's URL.
+        {:ok, events, nil, false, @issue_events_per_page}
+
+      {:error, reason} = error ->
+        if size_limit?(reason), do: timeline_error, else: error
+    end
   end
 
   # Walk the `per_page` ladder: a truncated page is a statement about this page

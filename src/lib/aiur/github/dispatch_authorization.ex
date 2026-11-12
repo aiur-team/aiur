@@ -491,7 +491,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         "This is a transport limit, not a provenance denial.",
       issue: issue.identifier || issue.id,
       reason:
-        "Timeline provenance was unreadable at every page size in #{inspect(Timeline.page_sizes())}: " <>
+        "Timeline provenance was unreadable at every page size in #{inspect(Timeline.page_sizes())} " <>
+          "and from the issue events: " <>
           "#{inspect(reason)}. Label provenance was never evaluated.",
       needs_attention: true,
       severity: "warning"
