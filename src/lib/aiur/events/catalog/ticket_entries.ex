@@ -38,6 +38,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.paused", "orchestration"},
     # aiur/orchestrator/issue_sync/transition_alerts.ex
     {"ticket.*.agent.paused.resolved", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.draft_handoff", "agent-runner"},
     # aiur/orchestrator/operator_messages/calls.ex
     {"ticket.*.agent.provider_delivery_failed", "orchestration"},
     # aiur/orchestrator/rate_limit_fallback_transition.ex

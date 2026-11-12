@@ -50,7 +50,7 @@ defmodule Aiur.AgentTools.AgentLifecycleErrors do
         "reason" => "draft_pr_cannot_enter_state",
         "state" => state,
         "pull_request" => number,
-        "message" => "Mark the draft pull request ready before moving this ticket to #{state}."
+        "message" => "Mark the draft pull request ready before moving this ticket to #{state}." <> draft_escape(state)
       }
     }
 
@@ -70,4 +70,9 @@ defmodule Aiur.AgentTools.AgentLifecycleErrors do
         "state" => state
       }
     }
+
+  defp draft_escape("human-review"),
+    do: " If a stop rule or gate outside this ticket keeps it a draft, pass `outside_blocker` with that reason instead."
+
+  defp draft_escape(_state), do: ""
 end
