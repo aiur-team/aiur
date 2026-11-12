@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner.TurnProgressTest do
   # or would punish a productive run.
   use Aiur.TestSupport
 
-  alias Aiur.AgentRunner.TurnProgress
+  alias Aiur.AgentRunner.{TurnProgress, TurnPrompt}
   alias Aiur.Issue
 
   defp issue(overrides \\ []) do
@@ -35,6 +35,16 @@ defmodule Aiur.AgentRunner.TurnProgressTest do
         )
 
       assert TurnProgress.prompt_digest(base) == TurnProgress.prompt_digest(with_notice)
+    end
+
+    # A draft worker that only says "nothing left" is redispatched into the
+    # same turns; the notice names its way out, and the counter must still
+    # see two notices with different counts as the same prompt.
+    test "the real no-op notice offers the draft hand-off and is still ignored" do
+      prompt = fn noops -> TurnPrompt.build_turn_prompt(issue(), [turn_progress: %{consecutive_noops: noops}], 3, 12) end
+
+      assert prompt.(1) =~ ~s|"state": "human-review", "outside_blocker":|
+      assert TurnProgress.prompt_digest(prompt.(1)) == TurnProgress.prompt_digest(prompt.(2))
     end
 
     test "changes when the instructions change — real new input is not normalized away" do

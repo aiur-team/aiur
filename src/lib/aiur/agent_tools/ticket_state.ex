@@ -50,6 +50,12 @@ defmodule Aiur.AgentTools.TicketState do
           "Target state, with or without the `agent:` prefix (e.g. `human-review` or `agent:human-review`). One of: " <>
             Enum.join(@agent_settable_states, ", ") <> "."
       },
+      "outside_blocker" => %{
+        "type" => "string",
+        "description" =>
+          "Only with `human-review` while your pull request is still a draft: the stop rule or gate outside this ticket that keeps it " <>
+            "from being ready, written so a reviewer can act on it. Aiur then accepts the draft hand-off and alerts the reviewer with this reason."
+      },
       "review_findings" => %{
         "type" => "array",
         "description" =>
@@ -92,8 +98,8 @@ defmodule Aiur.AgentTools.TicketState do
     setter = Keyword.get(opts, :ticket_state_setter)
 
     with {:ok, state} <- normalize_state(arguments),
-         true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
-         {:ok, result} <- setter.(state, review_findings(arguments)) do
+         true <- is_function(setter, 3) || {:error, :ticket_state_setter_unavailable},
+         {:ok, result} <- setter.(state, review_findings(arguments), outside_blocker(arguments)) do
       result = Response.jsonable(result)
       applied_state = if is_map(result), do: Map.get(result, "state", state), else: state
 
@@ -112,6 +118,9 @@ defmodule Aiur.AgentTools.TicketState do
 
   defp review_findings(arguments) when is_map(arguments), do: Map.get(arguments, "review_findings") || Map.get(arguments, :review_findings)
   defp review_findings(_arguments), do: nil
+
+  defp outside_blocker(arguments) when is_map(arguments), do: Map.get(arguments, "outside_blocker") || Map.get(arguments, :outside_blocker)
+  defp outside_blocker(_arguments), do: nil
 
   @spec agent_settable_states() :: [String.t()]
   def agent_settable_states, do: @agent_settable_states
