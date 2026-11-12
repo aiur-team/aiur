@@ -58,4 +58,34 @@ defmodule Aiur.AgentRunner.HandoffBodyGateTest do
 
     refute_received {:memory_tracker_state_update, ^identifier, "human-review"}
   end
+
+  # Open-Games #286/#302/#310: a refused body at the no-op bound crashed the run
+  # (CaseClauseError), burned all three retries and released the claim.
+  test "a no-op bound whose pushed-rework handoff is refused stops the run instead of crashing" do
+    identifier = "7822-bound-#{System.unique_integer([:positive])}"
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+    issue = %Aiur.Issue{id: "gid-#{identifier}", identifier: identifier, state: "in-progress", labels: ["agent:in-progress"]}
+    pr = %{"number" => 7902, "body" => body(@stale_head, "- `mix test` -> passed"), "head" => %{"sha" => @head}}
+
+    context = %{
+      workspace: nil,
+      worker_host: nil,
+      turn_number: 5,
+      max_turns: 12,
+      opts: [
+        rework_head_sha: @stale_head,
+        open_pr_fetcher: fn _ -> {:ok, pr} end,
+        reviews_fetcher: fn 7902 -> {:ok, []} end,
+        pull_request_approval_fetcher: fn 7902 -> {:error, :not_found} end,
+        commit_ci_status_fetcher: fn @head -> {:ok, %{check_runs: [%{"status" => "queued"}], commit_status: %{}}} end
+      ]
+    }
+
+    assert {:error, {:rework_handoff_evidence_refused, :stale_pr_body_evidence, _message}} = TurnCompletion.noop_handoff(context, issue)
+
+    assert {:completed, %Aiur.Issue{state: "in-progress"}} =
+             TurnCompletion.stop_on_noop_bound(context, issue, %{consecutive_noops: 3}, %{workspace: {:unavailable, :test}}, 3)
+
+    refute_received {:memory_tracker_state_update, ^identifier, _state}
+  end
 end
