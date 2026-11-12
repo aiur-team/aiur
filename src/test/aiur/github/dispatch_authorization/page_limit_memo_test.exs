@@ -36,8 +36,9 @@ defmodule Aiur.GitHub.DispatchAuthorization.PageLimitMemoTest do
         request_fun: request_fun
       )
 
+    # 8 timeline pages, then 10 issue-events pages, both past their budget.
     assert first.dispatch_authorization == :deferred
-    assert Agent.get(counter, & &1) == 8
+    assert Agent.get(counter, & &1) == 18
 
     second =
       DispatchAuthorization.authorize(original, "owner", "repo", "agent",
@@ -47,7 +48,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.PageLimitMemoTest do
       )
 
     assert second.dispatch_authorization == :deferred
-    assert Agent.get(counter, & &1) == 8
+    assert Agent.get(counter, & &1) == 18
 
     updated = %{original | updated_at: ~U[2026-01-02 00:00:00Z]}
 
@@ -59,6 +60,6 @@ defmodule Aiur.GitHub.DispatchAuthorization.PageLimitMemoTest do
       )
 
     assert third.dispatch_authorization == :deferred
-    assert Agent.get(counter, & &1) == 16
+    assert Agent.get(counter, & &1) == 36
   end
 end
