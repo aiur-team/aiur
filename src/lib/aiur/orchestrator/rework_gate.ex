@@ -307,11 +307,17 @@ defmodule Aiur.Orchestrator.ReworkGate do
   def post_agent_handoff_target(pr, fallback, opts \\ []),
     do: PostAgentRouting.route(pr, fallback, opts)
 
-  @doc "Returns the safest handoff state when a stopped agent has an open PR."
+  @doc """
+  Returns the safest handoff state when a stopped agent has an open PR.
+
+  A draft PR is never handed to CI wait or review; `:draft_handoff` names the
+  result for one (default `:none`).
+  """
   @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
           :none | {:handoff, String.t()}
   def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
     case open_pr(issue_key, opts) do
+      {:ok, %{"draft" => true}} -> Keyword.get(opts, :draft_handoff, :none)
       {:ok, pr} -> open_pr_handoff(issue_key, pr, original_head, opts)
       {:error, _reason} -> {:handoff, "human-review"}
       {:skip, :no_open_pr} -> :none
