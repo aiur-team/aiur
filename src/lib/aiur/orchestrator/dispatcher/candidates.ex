@@ -127,6 +127,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   def maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
     do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
 
+  # A ci-wait, human-review or error ticket rides the candidate list only as
+  # label-repair evidence and is never authorized, so `:unauthorized` there
+  # names the wrong cause: it waits on its state, not on authorization.
+  def maybe_emit_dispatch_decline(%State{} = state, %Issue{state: issue_state} = issue, :unauthorized)
+      when not is_binary(issue_state) or issue_state in ["ci-wait", "human-review", "error"],
+      do: clear_dispatch_decline(state, issue)
+
   def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
       when reason in [
              :state_capacity,
