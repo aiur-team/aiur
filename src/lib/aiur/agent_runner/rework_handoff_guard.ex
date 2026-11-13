@@ -13,7 +13,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     case blockers(issue, state, workspace, opts) do
       {:blocked, checks} ->
         message =
-          "Cannot hand ticket #{issue.identifier} back to human review: PR head is unchanged and required checks are failing: #{Enum.join(checks, ", ")}. Address the Executor's latest rework comment or explain why it cannot be addressed."
+          "Cannot hand ticket #{issue.identifier} #{handoff_phrase(state)}: PR head is unchanged and required checks are failing: #{Enum.join(checks, ", ")}. Address the Executor's latest rework comment or explain why it cannot be addressed."
 
         alert(issue, checks, message, workspace, worker_host, opts)
         {:error, {:no_op_rework, message}}
@@ -46,11 +46,16 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     end
   end
 
-  defp rework_blockers(%Issue{state: state} = issue, "human-review", opts) when state in ["rework", "agent:rework"] do
+  # ci-wait too: the CI lifecycle handles a head's red checks once, so a
+  # ci-wait handoff at the head it sent to rework would never be woken again.
+  defp rework_blockers(%Issue{state: state} = issue, target, opts) when state in ["rework", "agent:rework"] and target in ["ci-wait", "human-review"] do
     ReworkGate.agent_handoff_blockers(issue.identifier, Keyword.get(opts, :rework_head_sha), opts)
   end
 
   defp rework_blockers(_issue, _state, _opts), do: :allow
+
+  defp handoff_phrase("ci-wait"), do: "to ci-wait"
+  defp handoff_phrase(_state), do: "back to human review"
 
   # #4611: a PR created after the first `aiur pre-pr` keeps stale Local tests evidence; refuse the handoff until it is refreshed.
   # #4937: with the worker's checkout at hand it runs the full `mix pr_body.check` lint (`Aiur.PrBodyLint`), so a body CI would reject is refused too.
