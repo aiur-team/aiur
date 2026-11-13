@@ -57,6 +57,25 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
+  # Open-Games #330: with no live worker the send resumes one, and while the
+  # ticket still said ci-wait that dispatch failed, so nothing was queued and
+  # the reason never reached the worker that started a minute later.
+  test "a reason whose send cannot start a worker yet is queued again once the ticket is in rework" do
+    attempts = :counters.new(1, [])
+
+    send = fn _id, _text, _opts ->
+      :counters.add(attempts, 1, 1)
+      if :counters.get(attempts, 1) == 1, do: {:error, {:dispatch_failed, :cause_unknown}}, else: {:ok, 13}
+    end
+
+    {output, calls} = run("330", "split the chest bug", send: send)
+
+    assert [{:pin, "330"}, {:send, "330", _}, {:state, "330", "rework", _}, {:send, "330", _}, {:resume, "330"}] = calls
+    assert output =~ "aiur: ticket 330 is in agent:rework; its PR is unchanged and the reason is queued for the worker"
+    refute output =~ "rework failed"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "a blank reason is refused before anything changes" do
     {output, calls} = run("327", "  \n ")
 
