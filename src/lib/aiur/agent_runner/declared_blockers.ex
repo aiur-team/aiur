@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.DeclaredBlockers do
+defmodule Aiur.AgentRunner.DeclaredBlockers do
   @moduledoc """
   Durable record of blocker links a worker declared with `aiur_declare_blocker`.
 
@@ -11,7 +11,6 @@ defmodule Aiur.Orchestrator.DeclaredBlockers do
   require Logger
 
   alias Aiur.{JsonStore, Signal}
-  alias Aiur.Orchestrator.DependencyGate
 
   @file_name "declared-blockers.json"
   @advisory ["declared", "dismissed"]
@@ -98,14 +97,12 @@ defmodule Aiur.Orchestrator.DeclaredBlockers do
     :ok
   end
 
+  # The worker's issue carries the blocked_by edges dispatch hydrated; any of those is a planned link.
   defp planned?(issue, blocker) do
     issue
-    |> DependencyGate.cached_issue()
-    |> Map.get(:blocked_by, [])
+    |> Map.get(:blocked_by)
     |> List.wrap()
-    |> Enum.any?(&(key(Map.get(&1, :identifier) || Map.get(&1, :id)) == key(blocker)))
-  rescue
-    _ -> false
+    |> Enum.any?(&(is_map(&1) and key(Map.get(&1, :identifier) || Map.get(&1, :id)) == key(blocker)))
   end
 
   defp put(ticket, blocker, status), do: update(&Map.update(&1, key(ticket), %{key(blocker) => status}, fn row -> Map.put(row, key(blocker), status) end))

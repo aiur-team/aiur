@@ -1,10 +1,10 @@
 defmodule Aiur.Orchestrator.DependencyGate do
   @moduledoc "Dispatch prerequisite verdicts from hydrated states and recorded PR progress, without tracker I/O."
 
+  alias Aiur.AgentRunner.DeclaredBlockers
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Config, Issue, StartTrigger}
   alias Aiur.GitHub.Tracker
-  alias Aiur.Orchestrator.DeclaredBlockers
   alias Aiur.Orchestrator.DispatchPolicy.IssueStates
   alias Aiur.StartTrigger.{Evidence, ProgressStore}
 

@@ -1,10 +1,9 @@
 defmodule Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentRunner.{DeclaredBlockers, ToolExecutor}
   alias Aiur.{Boot, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
-  alias Aiur.Orchestrator.DeclaredBlockers
 
   describe "emit_agent_event via event_publisher closure" do
     test "progress check-ins and phase updates preserve retry provenance without changing identity" do

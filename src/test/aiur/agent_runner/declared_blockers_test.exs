@@ -1,14 +1,15 @@
-defmodule Aiur.Orchestrator.DeclaredBlockersTest do
+defmodule Aiur.AgentRunner.DeclaredBlockersTest do
   # A worker's sibling "I'll integrate their work later" declaration once paused it and
   # held re-dispatch until the sibling merged, stalling a feature mid-build. These tests
   # pin that a declared link stays advisory until the Executor confirms it.
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.DeclaredBlockers
   alias Aiur.BuildQueue.Hints
   alias Aiur.ControlCLI.Blocker
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.JsonStore
-  alias Aiur.Orchestrator.{DeclaredBlockers, DispatchPolicy, PushRouting, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PushRouting, State}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("declared-blockers")

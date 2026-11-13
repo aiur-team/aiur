@@ -9,10 +9,11 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
+  alias Aiur.AgentRunner.DeclaredBlockers
   alias Aiur.{Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
-  alias Aiur.Orchestrator.{DeclaredBlockers, Dispatcher, GithubBudgetPause, PauseResume, State, TicketTransition}
+  alias Aiur.Orchestrator.{Dispatcher, GithubBudgetPause, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.PushRouting.{AutoResume, ClearedDependency}
   alias Aiur.Orchestrator.PushRouting.PrBodyEvidence
 
