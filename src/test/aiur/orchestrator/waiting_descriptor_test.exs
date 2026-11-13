@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       run_paused: "PauseResume",
       awaiting_dispatch: "Dispatcher",
       paused_operator: "PauseResume",
+      parked: "Executor",
       paused_transient: "AutoResume",
       provider_limited: "RateLimitFallback",
       latched_lifetime: "Dispatcher",
@@ -207,6 +208,21 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
       assert row.waiting.reason == :paused_operator
       assert row.waiting.cause == :label_override
       assert row.waiting.since == nil
+    end
+  end
+
+  # Open-Games #293/#294/#302/#311: parked tickets keep `agent:in-progress`, so
+  # status called them stale claims with no live agent, which reads as a fault
+  # for the Reconciler to clear instead of an Executor hold.
+  test "a parked in-progress ticket reports as parked by the Executor, not as a stale claim" do
+    issue = %Issue{id: "wait-parked", identifier: "wait-parked", state: "in-progress", parked: true}
+    state = %State{last_polled_issues: %{issue.id => issue}, startup_claim_reconciliation_complete?: true}
+    [status] = StatusReport.agent_statuses(state)
+    [snapshot] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).idle
+
+    for row <- [status, snapshot] do
+      assert row.waiting.reason == :parked
+      assert row.waiting.owner == "Executor"
     end
   end
 
