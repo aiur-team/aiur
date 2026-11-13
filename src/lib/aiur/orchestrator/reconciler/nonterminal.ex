@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
       # 30-second throttle into a terminal `agent:error` via retry exhaustion,
       # so the running agent stays and the next poll re-verifies from a fresh
       # timeline once the cause clears (#2409).
-      !DispatchPolicy.issue_dispatch_authorized?(issue) ->
+      keep_unverified_agent?(state, issue, active_states) ->
         Logger.info([
           "Issue dispatch authorization is temporarily unverifiable (deferred); ",
           "keeping active agent: ",
@@ -177,6 +177,16 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
           observe_membership_fun
         )
     end
+  end
+
+  # Only active states are authorized at all, so a ci-wait, human-review or
+  # error ticket stays `:deferred` for good. When its runner has already ended
+  # there is no agent to protect: skipping the state handling below kept the
+  # ended runner's slot and claim until an operator stepped in.
+  defp keep_unverified_agent?(state, issue, active_states) do
+    not DispatchPolicy.issue_dispatch_authorized?(issue) and
+      not (State.completed_running_entry?(Map.get(state.running, issue.id)) and
+             not DispatchPolicy.active_issue_state?(issue.state, active_states))
   end
 
   defp reconcile_routable_nonterminal_issue_state(
