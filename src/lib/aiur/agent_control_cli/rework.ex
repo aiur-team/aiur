@@ -34,14 +34,37 @@ defmodule Aiur.AgentControlCLI.Rework do
     id = Keyword.get(deps, :identifier, &resolve_identifier/1).(issue)
     Keyword.get(deps, :pin, &pin/1).(id)
 
-    with {:send, {:ok, _request}} <- {:send, Keyword.get(deps, :send, &Aiur.AgentChat.send/3).(id, message(reason), [])},
-         {:state, :ok} <- {:state, Keyword.get(deps, :state, &TicketTransition.write_state/3).(id, "rework", writer: :executor_rework)} do
-      IO.puts("aiur: ticket #{issue} is in agent:rework; its PR is unchanged and the reason is queued for the worker")
-      report_turn(issue, Keyword.get(deps, :resume, &PauseResume.resume_agent/1).(id))
+    send = fn -> Keyword.get(deps, :send, &Aiur.AgentChat.send/3).(id, message(reason), []) end
+    write_state = fn -> Keyword.get(deps, :state, &TicketTransition.write_state/3).(id, "rework", writer: :executor_rework) end
+
+    with {:send, {:ok, _request}} <- {:send, send.()},
+         {:state, :ok} <- {:state, write_state.()} do
+      queued(issue, id, deps)
     else
-      {:send, {:error, reason}} -> fail(issue, "could not queue the reason (#{inspect(reason)})")
+      {:send, {:error, reason}} -> retry_after_label(issue, id, reason, send, write_state, deps)
       {:state, {:error, reason}} -> fail(issue, "could not write agent:rework (#{inspect(reason)})")
     end
+  end
+
+  # With no live worker the send starts one, and while the ticket still holds
+  # its old state that start fails and nothing is queued (Open-Games #330).
+  # Write rework first, then queue the reason again.
+  defp retry_after_label(issue, id, reason, send, write_state, deps) when is_tuple(reason) and elem(reason, 0) in [:dispatch_failed, :redispatch_deferred] do
+    with {:state, :ok} <- {:state, write_state.()},
+         {:send, {:ok, _request}} <- {:send, send.()} do
+      queued(issue, id, deps)
+    else
+      {:state, {:error, state_reason}} -> fail(issue, "could not write agent:rework (#{inspect(state_reason)})")
+      {:send, {:error, send_reason}} -> fail(issue, "agent:rework is written but the reason could not be queued (#{inspect(send_reason)})")
+    end
+  end
+
+  defp retry_after_label(issue, _id, reason, _send, _write_state, _deps),
+    do: fail(issue, "could not queue the reason (#{inspect(reason)})")
+
+  defp queued(issue, id, deps) do
+    IO.puts("aiur: ticket #{issue} is in agent:rework; its PR is unchanged and the reason is queued for the worker")
+    report_turn(issue, Keyword.get(deps, :resume, &PauseResume.resume_agent/1).(id))
   end
 
   defp message(reason) do
