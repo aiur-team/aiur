@@ -351,20 +351,21 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   @impl true
-  def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
-    state = consume(state.pending <> line, %{state | pending: ""})
-
-    case acknowledge_incoming(state) do
-      {:ok, state} ->
+  # A chunk with no newline cannot complete a frame: append it without
+  # rescanning `pending`. Rescanning every chunk is quadratic, and a resume
+  # reply of 15 MB then drains slower than the relay's one-second limit.
+  def handle_info({:tcp, socket, chunk}, %{socket: socket, pending_offset: nil} = state) do
+    case :binary.match(chunk, "\n") do
+      :nomatch ->
         rearm_socket(state, socket)
-        {:noreply, state}
+        {:noreply, %{state | pending: state.pending <> chunk}}
 
-      {:error, reason, state} ->
-        Logger.warning("relay acknowledgement failed: #{inspect({:relay_send_failed, :ack, reason})}")
-
-        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, state}
+      _newline ->
+        receive_chunk(socket, chunk, state)
     end
   end
+
+  def handle_info({:tcp, socket, chunk}, %{socket: socket} = state), do: receive_chunk(socket, chunk, state)
 
   def handle_info({:tcp_closed, _socket}, state) do
     unless state.exited, do: send(state.owner, {self(), {:exit_status, 1}})
@@ -389,6 +390,21 @@ defmodule Aiur.AppServer.RelayPort do
     ProcessTree.graceful_kill_tree(state.metadata.relay_pid)
     GenServer.reply(state.closing, true)
     {:stop, :normal, state}
+  end
+
+  defp receive_chunk(socket, chunk, state) do
+    state = consume(state.pending <> chunk, %{state | pending: ""})
+
+    case acknowledge_incoming(state) do
+      {:ok, state} ->
+        rearm_socket(state, socket)
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        Logger.warning("relay acknowledgement failed: #{inspect({:relay_send_failed, :ack, reason})}")
+
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, state}
+    end
   end
 
   defp consume(data, state) do

@@ -99,6 +99,31 @@ defmodule Aiur.AppServer.RelayPortTest do
     Transport.close(relay)
   end
 
+  # A Codex thread/resume reply carries the whole thread history on one line
+  # (14.8 MB on an Open-Games worker). The relay drops a controller that takes
+  # over a second to drain a frame, and a resume that never arrives fails every
+  # retry of the same thread with :port_closed.
+  test "a line of tens of megabytes arrives whole, before the relay's drain timeout drops the controller" do
+    size = 24 * 1_048_576
+    command = ~s|python3 -c 'import sys; sys.stdout.write("x" * #{size} + "\\n"); sys.stdout.flush(); sys.stdin.read()'|
+    {:ok, relay} = Adapter.start_port(File.cwd!(), command)
+
+    assert receive_line(relay, 0) == size
+    :ok = Transport.acknowledge(relay)
+    refute_received {^relay, {:exit_status, _status}}
+    Transport.close(relay)
+  end
+
+  defp receive_line(relay, bytes) do
+    receive do
+      {^relay, {:data, {:noeol, chunk}}} -> receive_line(relay, bytes + byte_size(chunk))
+      {^relay, {:data, {:eol, chunk}}} -> bytes + byte_size(chunk)
+      {^relay, {:exit_status, status}} -> flunk("relay dropped the controller (exit #{status}) after #{bytes} bytes")
+    after
+      30_000 -> flunk("line not delivered after #{bytes} bytes")
+    end
+  end
+
   test "detach keeps provider alive and a higher generation can reconnect" do
     {:ok, relay} = Adapter.start_port(File.cwd!(), "exec cat")
     assert is_pid(relay)
