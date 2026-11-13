@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{DecisionAttention, ToolCoordination, ToolExecutor}
+  alias Aiur.AgentRunner.{DecisionAttention, DeclaredBlockers, ToolCoordination, ToolExecutor}
   alias Aiur.AgentStatusNote
   alias Aiur.AgentTools.EmitEvent
   alias Aiur.Issue
@@ -134,13 +134,21 @@ defmodule Aiur.AgentRunner.ToolEvents do
     end
   end
 
+  # Only a confirmed or planned link queues the ticket; a worker-declared one is recorded as advisory
+  # before the edge exists, so the orchestrator alerts the Executor instead of pausing.
   defp prepare_ticket_dependency(context, blocker_number, message, payload) do
     issue = context.issue
     current_number = ToolCoordination.issue_number_of(issue)
+    hold? = DeclaredBlockers.hold?(issue, blocker_number)
+    recorded = if hold?, do: :known, else: DeclaredBlockers.record(issue, blocker_number)
 
     with {:ok, current_number} <- github_issue_number(current_number),
-         :ok <- declare_and_queue_dependency(context, current_number, blocker_number) do
+         :ok <- declare_and_queue_dependency(context, current_number, blocker_number, hold?) do
       {:ok, {"Waiting for prerequisite ticket ##{blocker_number}: #{message}", payload}}
+    else
+      error ->
+        if recorded == :recorded, do: DeclaredBlockers.forget(issue, blocker_number)
+        error
     end
   end
 
@@ -174,7 +182,7 @@ defmodule Aiur.AgentRunner.ToolEvents do
     end
   end
 
-  defp declare_and_queue_dependency(context, current_number, blocker_number) do
+  defp declare_and_queue_dependency(context, current_number, blocker_number, hold?) do
     issue = context.issue
     identifier = ToolCoordination.issue_identifier(issue)
     issue_id = Map.get(issue, :id) || to_string(current_number)
@@ -182,17 +190,18 @@ defmodule Aiur.AgentRunner.ToolEvents do
     context.run.(
       ToolCoordination.ticket_coordination_key(issue),
       fn ->
-        declare_queue_dependency(context, current_number, blocker_number, identifier || to_string(current_number), issue_id)
+        declare_queue_dependency(context, {current_number, blocker_number}, identifier || to_string(current_number), issue_id, hold?)
       end,
       ToolCoordination.coordination_operation_opts(issue)
     )
   end
 
-  defp declare_queue_dependency(context, current_number, blocker_number, identifier, issue_id) do
+  defp declare_queue_dependency(context, {current_number, blocker_number}, identifier, issue_id, hold?) do
     case context.dependency_declarer.(current_number, blocker_number) do
       {:ok, _result} ->
         case context.dependency_subscriber.(identifier, blocker_number) do
-          :ok -> context.ticket_state_writer.(to_string(issue_id), "todo")
+          :ok when hold? -> context.ticket_state_writer.(to_string(issue_id), "todo")
+          :ok -> :ok
           {:error, _reason} = error -> error
         end
 
