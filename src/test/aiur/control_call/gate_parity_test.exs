@@ -68,6 +68,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :executor_subscriptions, [0], ~w(executor-subscriptions)},
     {:agent, :todo, [1, 2], ~w(--todo)},
     {:agent, :redispatch, [2], ~w(redispatch)},
+    {:agent, :rework, [2], ~w(rework)},
     {:agent, :reset_budget, [1], ~w(reset-budget)},
     {:agent, :pause_global, [0], ~w(pause)},
     {:agent, :resume_global, [0], ~w(resume)},
