@@ -174,3 +174,11 @@ cmd_rework() {
     run_control_rpc "Aiur.AgentControlCLI.rework(\"$id\", Base.decode64!(\"$(encode_control_value "$reason")\"))"
   fi
 }
+
+# `blocker confirm|dismiss <ticket> <blocker>`: the Executor's verdict on a worker-declared blocker.
+cmd_blocker() {
+  local usage='usage: aiur blocker confirm|dismiss <ticket> <blocker>'
+  case "${1:-}" in confirm|dismiss) ;; *) echo "$usage" >&2; exit 64 ;; esac
+  [ "$#" -eq 3 ] && [[ "$2" =~ ^[1-9][0-9]{0,9}$ ]] && [[ "$3" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "$usage" >&2; exit 64; }
+  run_control_rpc "Aiur.AgentControlCLI.blocker([action: :$1, ticket: \"$2\", blocker: \"$3\"])"
+}

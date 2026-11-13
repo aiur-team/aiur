@@ -240,9 +240,8 @@ source of the broker, hold, or deadline reason; do not replace it with a generic
   blocker, commit and push the promised API, then emit one final `unblocked`
   carrying that validated `ref` and `sha`. Aiur corroborates both against the
   observed branch push before resuming. Provisional or mismatched events never
-  resume consumers. Non-stubbable dependency pauses must use `pause.request`
-  with `payload: {reason: "dependency", blocker_identifier: "N"}` so retained
-  readiness is scoped to that pause generation.
+  resume consumers. Never emit a dependency `pause.request` for a blocker you
+  declared: it stays advisory and Aiur alerts the Executor, who may confirm it.
 - **Escalate Executor decisions before pausing.** When a scope, acceptance, or
   other Executor choice is the only remaining blocker, emit
   `attention.operator-decision` with the concrete question before
