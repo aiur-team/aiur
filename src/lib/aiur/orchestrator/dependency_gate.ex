@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.DependencyGate do
   @moduledoc "Dispatch prerequisite verdicts from hydrated states and recorded PR progress, without tracker I/O."
 
+  alias Aiur.AgentRunner.DeclaredBlockers
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Config, Issue, StartTrigger}
   alias Aiur.GitHub.Tracker
@@ -19,7 +20,10 @@ defmodule Aiur.Orchestrator.DependencyGate do
     {Enum.map(held, &elem(&1, 0)), Enum.map(held, fn {_blocker, evidence, verdict} -> StartTrigger.describe(trigger, evidence, verdict) end)}
   end
 
-  defp evaluated_edges(%Issue{id: id, blocked_by: blockers}, terminal_states) when is_list(blockers) and blockers != [] do
+  defp evaluated_edges(%Issue{id: id, blocked_by: blockers} = issue, terminal_states) when is_list(blockers) and blockers != [] do
+    # An unconfirmed worker-declared link is satisfied; only planned and confirmed links gate.
+    advisory = DeclaredBlockers.advisory(issue.identifier || id)
+    blockers = Enum.reject(blockers, &(is_map(&1) and to_string(Map.get(&1, :identifier) || Map.get(&1, :id)) in advisory))
     trigger = Hints.trigger_for(id)
     if trigger == :pr_approved, do: ProgressStore.watch(for(%{id: id} <- blockers, is_binary(id), do: id), trigger)
     now = System.system_time(:millisecond)

@@ -97,7 +97,7 @@ every blocker push is an integration signal.
 
 ## When you're blocked on a function from ticket N
 
-1. **Declare the blocker.** `aiur_declare_blocker(N)` — this records the dependency on GitHub natively and auto-subscribes you to the useful subset of ticket N's events.
+1. **Declare the blocker, then keep working.** `aiur_declare_blocker(N)` records the dependency on GitHub and auto-subscribes you to ticket N's events. Declare only a real dependency. A declared blocker is advisory: it never pauses you or holds re-dispatch unless the Executor confirms it, so stub against N's branch and don't emit a dependency pause.
 2. **Separate owned code from prep.** Do not reimplement ticket N's helper, API, schema, or shared module. Do keep writing caller-side scaffolding, config, tests, imports, TODO integration points, and any other code that can safely wait for the real branch.
 3. **Write a stub only when useful.** Based on the agreed signature (in the brainstorm, plan, or the parent issue's description), write a minimal stub that returns plausible-but-wrong values. Don't ship the stub — keep it local. A stub may let your local tests run, but it must never be pushed over files owned by ticket N or left in the branch you publish.
 4. **Required: emit `unblocked` once.** This is a fire-and-forget call: enqueue
@@ -146,11 +146,8 @@ Some blockers can't be reasonably stubbed — schema migrations that need to lan
    `payload: {stubbable: false, reason: "..."}`. Treat the call as
    fire-and-forget: enqueue it once and continue without waiting, polling, or
    retrying.
-3. Emit `pause.request` with
-   `payload: {reason: "dependency", blocker_identifier: "N"}`. Aiur assigns a
-   local pause generation and binds any retained readiness to that exact
-   dependency pause; unrelated operator, label, CI, or duration pauses cannot
-   consume it.
+3. Don't emit a dependency `pause.request`. Aiur alerts the Executor with the
+   declared link; only an Executor-confirmed link pauses you until N merges.
 4. Stop working on the dependent code only. Pick up unrelated or preparatory work on the same ticket.
 5. When the corroborated `ticket.N.agent.unblocked` arrives, return to the blocked work.
 
