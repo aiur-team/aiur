@@ -180,14 +180,17 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
   end
 
   # Only active states are authorized at all, so a ci-wait, human-review or
-  # error ticket stays `:deferred` for good. When its runner has already ended
-  # there is no agent to protect: skipping the state handling below kept the
-  # ended runner's slot and claim until an operator stepped in.
+  # error ticket stays `:deferred` for good. When its runner has already ended,
+  # or human review deactivated it, there is no agent to protect: skipping the
+  # state handling below kept the ended runner's slot and claim until an
+  # operator stepped in.
   defp keep_unverified_agent?(state, issue, active_states) do
     not DispatchPolicy.issue_dispatch_authorized?(issue) and
-      not (State.completed_running_entry?(Map.get(state.running, issue.id)) and
+      not (ended_runner?(Map.get(state.running, issue.id)) and
              not DispatchPolicy.active_issue_state?(issue.state, active_states))
   end
+
+  defp ended_runner?(entry), do: State.completed_running_entry?(entry) or State.deactivated_running_entry?(entry)
 
   defp reconcile_routable_nonterminal_issue_state(
          state,

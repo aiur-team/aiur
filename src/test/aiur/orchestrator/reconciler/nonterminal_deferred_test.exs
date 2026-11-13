@@ -23,8 +23,8 @@ defmodule Aiur.Orchestrator.Reconciler.NonterminalDeferredTest do
     }
   end
 
-  defp reconcile(issue) do
-    state = %State{running: %{issue.id => %{issue: issue, pid: nil, control: %{status: :completed}}}}
+  defp reconcile(issue, status \\ :completed) do
+    state = %State{running: %{issue.id => %{issue: issue, pid: nil, control: %{status: status}}}}
     {state, Nonterminal.reconcile_nonterminal_issue_state(state, issue, @active, MapSet.new(["done"]), fn _, _ -> :ok end)}
   end
 
@@ -38,6 +38,15 @@ defmodule Aiur.Orchestrator.Reconciler.NonterminalDeferredTest do
     issue = deferred("error")
     {state, result} = reconcile(issue)
     assert result == {state, [{:preserve_on_external_error, issue}]}
+  end
+
+  # Open-Game-Maker #740: the run ended, then human review deactivated the
+  # parked entry before CI moved the ticket on, so the ended runner no longer
+  # read as completed.
+  test "a ci-wait ticket whose ended runner human review deactivated still gets its ci-wait handling" do
+    issue = deferred("ci-wait")
+    {state, result} = reconcile(issue, :deactivated)
+    assert result == {state, [{:pause_for_ci_wait, issue}]}
   end
 
   test "an active ticket whose authorization is deferred keeps its agent until the next poll re-verifies it" do
