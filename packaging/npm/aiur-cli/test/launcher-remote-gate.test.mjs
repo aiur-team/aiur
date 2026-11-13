@@ -21,6 +21,13 @@ test("redispatch reaches the remote server with the local expression", () => {
   expect(requests[0].body.expression).toBe('Aiur.AgentControlCLI.redispatch(["12"], nil)');
 });
 
+test("rework reaches the remote server with the local expression", () => {
+  const { result, requests } = run(["rework", "12", "--reason", "redo"]);
+  expect(result.status).toBe(0);
+  expect(requests).toHaveLength(1);
+  expect(requests[0].body.expression).toBe('Aiur.AgentControlCLI.rework("12", Base.decode64!("cmVkbw=="))');
+});
+
 test("ticket estimate and operator-relay-answer and history label-writes make one request", () => {
   for (const args of [
     ["ticket", "estimate", "12"],

@@ -169,6 +169,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur redispatch <ids> [--backend <backend>]  restart a ticket on current routing or a selected backend
+       aiur rework <id> --reason <text>  send a ticket back to rework, keep its PR as is, give the worker a turn
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur listen-mode <id> [steer|sync|async|mute] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
@@ -432,6 +433,7 @@ aiur_engine_main() {
       esac
       ;;
     redispatch) shift; cmd_redispatch "$@" ;;
+    rework) shift; cmd_rework "$@" ;;
     reset-budget) shift; cmd_reset_budget "$@" ;;
     workspace-recover)
       shift

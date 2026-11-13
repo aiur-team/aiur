@@ -143,3 +143,26 @@ cmd_ticket_reopen() {
   [ "$json" -eq 0 ] || opts="$opts, json: true"
   run_control_rpc "Aiur.AgentControlCLI.ticket_reopen([$opts])"
 }
+
+# `rework <n> --reason <text>`: move a ticket back to agent:rework, keep its PR as is, give the worker a turn.
+cmd_rework() {
+  local usage='usage: aiur rework <id> --reason <text>'
+  local id="${1:-}" reason=""
+  [[ "$id" =~ ^[1-9][0-9]{0,9}$ ]] || { echo 'aiur: rework expects a positive numeric id' >&2; echo "$usage" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --reason)
+        [ "$#" -gt 1 ] || { echo 'aiur: --reason requires a value' >&2; exit 64; }
+        reason="$2"; shift ;;
+      *) echo "aiur: unknown rework option: $1" >&2; echo "$usage" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$reason" =~ [^[:space:]] ]] && [ "${#reason}" -le 4000 ] || {
+    echo 'aiur: rework requires --reason with 1..4000 characters' >&2; echo "$usage" >&2; exit 64;
+  }
+  # The reason may hold quotes and newlines, so it crosses the RPC as base64.
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
+  run_control_rpc "Aiur.AgentControlCLI.rework(\"$id\", Base.decode64!(\"$(encode_control_value "$reason")\"))"
+}
