@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest do
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.{Boot, Issue, TrackerIdentity}
   alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Orchestrator.DeclaredBlockers
 
   describe "emit_agent_event via event_publisher closure" do
     test "progress check-ins and phase updates preserve retry provenance without changing identity" do
@@ -193,44 +194,39 @@ defmodule Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest do
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
 
-    test "ticket dependency pauses persist the edge and queue the ticket before publishing" do
-      identifier = "100"
-      test_pid = self()
-      issue = %{id: "100", number: 100, identifier: identifier}
+    # A worker's own dependency pause once flipped its ticket to todo and stalled a running
+    # feature; only an Executor-confirmed (or planned) link may queue the ticket.
+    test "a worker-declared dependency pause persists the edge but leaves the ticket running" do
+      with_declared_blockers_store(fn ->
+        {executor, topic} = dependency_pause_executor("100")
 
-      executor =
-        ToolExecutor.build(issue, nil, nil, %{},
-          dependency_declarer: fn current, blocker ->
-            send(test_pid, {:dependency_declared, current, blocker})
-            {:ok, :already_present}
-          end,
-          blocker_subscriber: fn blockee, blocker ->
-            send(test_pid, {:blocker_subscribed, blockee, blocker})
-            :ok
-          end,
-          dependency_state_writer: fn issue_id, state_name ->
-            send(test_pid, {:ticket_queued, issue_id, state_name})
-            :ok
-          end
-        )
+        response = executor.("emit_event", dependency_pause_args())
 
-      topic = "ticket.#{identifier}.agent.pause.request"
-      :ok = Exchange.subscribe(topic)
+        assert response["success"], inspect(response)
+        assert_receive {:dependency_declared, "100", "200"}, 2_000
+        assert_receive {:blocker_subscribed, "100", "200"}, 2_000
+        assert :drained = Aiur.CoordinationTasks.run({:ticket, "100"}, fn -> :drained end)
+        assert_receive {:event, %{"message" => message, topic: ^topic}}, 2_000
+        assert message =~ "Waiting for prerequisite ticket #200"
+        refute_received {:ticket_queued, _, _}
+        assert DeclaredBlockers.status("100", "200") == "declared"
+      end)
+    end
 
-      response =
-        executor.("emit_event", %{
-          "name" => "pause.request",
-          "message" => "Waiting for its change",
-          "payload" => %{"reason" => "dependency", "blocker_identifier" => "200"}
-        })
+    test "an Executor-confirmed dependency pause queues the ticket before publishing" do
+      with_declared_blockers_store(fn ->
+        issue = %{id: "100", number: 100, identifier: "100"}
+        assert DeclaredBlockers.record(issue, "200") == :recorded
+        assert :ok = DeclaredBlockers.set_verdict("100", "200", :confirm)
+        {executor, topic} = dependency_pause_executor("100")
 
-      assert response["success"], inspect(response)
-      assert_receive {:dependency_declared, "100", "200"}, 2_000
-      assert_receive {:blocker_subscribed, "100", "200"}, 2_000
-      assert_receive {:ticket_queued, "100", "todo"}, 2_000
-      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
-      assert_receive {:event, %{"message" => message, topic: ^topic}}, 2_000
-      assert message =~ "Waiting for prerequisite ticket #200"
+        response = executor.("emit_event", dependency_pause_args())
+
+        assert response["success"], inspect(response)
+        assert_receive {:ticket_queued, "100", "todo"}, 2_000
+        assert :drained = Aiur.CoordinationTasks.run({:ticket, "100"}, fn -> :drained end)
+        assert_receive {:event, %{topic: ^topic}}, 2_000
+      end)
     end
 
     test "cycle rejection prevents a dependency pause event" do
@@ -421,6 +417,45 @@ defmodule Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest do
     case SubscriptionStore.snapshot(identifier) do
       :not_found -> []
       snapshot -> snapshot.open_attentions
+    end
+  end
+
+  defp dependency_pause_args, do: %{"name" => "pause.request", "message" => "Waiting for its change", "payload" => %{"reason" => "dependency", "blocker_identifier" => "200"}}
+
+  defp dependency_pause_executor(identifier) do
+    test_pid = self()
+    topic = "ticket.#{identifier}.agent.pause.request"
+    :ok = Exchange.subscribe(topic)
+
+    executor =
+      ToolExecutor.build(%{id: identifier, number: String.to_integer(identifier), identifier: identifier}, nil, nil, %{},
+        dependency_declarer: fn current, blocker ->
+          send(test_pid, {:dependency_declared, current, blocker})
+          {:ok, :already_present}
+        end,
+        blocker_subscriber: fn blockee, blocker ->
+          send(test_pid, {:blocker_subscribed, blockee, blocker})
+          :ok
+        end,
+        dependency_state_writer: fn issue_id, state_name ->
+          send(test_pid, {:ticket_queued, issue_id, state_name})
+          :ok
+        end
+      )
+
+    {executor, topic}
+  end
+
+  defp with_declared_blockers_store(fun) do
+    root = Aiur.TestSupport.tmp_root!("declared-blockers-pause")
+    previous = Application.get_env(:aiur, :declared_blockers_path)
+    Application.put_env(:aiur, :declared_blockers_path, Path.join(root, "declared-blockers.json"))
+
+    try do
+      fun.()
+    after
+      if previous, do: Application.put_env(:aiur, :declared_blockers_path, previous), else: Application.delete_env(:aiur, :declared_blockers_path)
+      Aiur.TestCleanup.rm_rf!(root)
     end
   end
 end

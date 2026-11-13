@@ -64,6 +64,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.usage_limit_exhausted", "agent-runner"},
     # aiur/orchestrator/operator_messages/control_alerts.ex
     {"ticket.*.ci.wait", "orchestration"},
+    # aiur/orchestrator/declared_blockers.ex
+    {"ticket.*.dependency.declared_blocker", "orchestration"},
     # aiur/orchestrator/merged_ticket_reconciler.ex
     {"ticket.*.dependency.merged_blocker_reconciled", "orchestration"},
     # aiur/orchestrator/merged_ticket_reconciler.ex

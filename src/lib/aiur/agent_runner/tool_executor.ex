@@ -21,7 +21,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.BuildOrder.HistoryBackfill
   alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
+  alias Aiur.{Orchestrator, Orchestrator.DeclaredBlockers, Orchestrator.TicketTransition}
 
   @invocation_key {__MODULE__, :invocation_id}
 
@@ -144,10 +144,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         subscriber: fn pattern -> ToolCoordination.subscribe_for_issue(issue, pattern) end,
         unsubscriber: fn pattern -> ToolCoordination.unsubscribe_for_issue(issue, pattern) end,
         blocker_declarer: fn blocker_number ->
-          ToolCoordination.declare_blocker_for_issue(issue, blocker_number, coordination)
+          issue
+          |> ToolCoordination.declare_blocker_for_issue(blocker_number, coordination)
+          |> DeclaredBlockers.after_declare(issue, blocker_number)
         end,
         unblocker: fn blocker_number ->
-          ToolCoordination.unblock_for_issue(issue, blocker_number, coordination)
+          issue
+          |> ToolCoordination.unblock_for_issue(blocker_number, coordination)
+          |> DeclaredBlockers.after_unblock(issue, blocker_number)
         end,
         history_exporter: fn args -> HistoryBackfill.tool_call(issue, args, Keyword.get(opts, :history_export_opts, [])) end,
         feature_writer: fn args ->

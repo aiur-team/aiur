@@ -110,6 +110,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
        aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]  claim tickets from state labels
        aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
+       aiur blocker confirm|dismiss <ticket> <blocker>  hold a ticket on a worker-declared blocker, or keep it advisory
        aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur lane clear <ids...> [--as <who>] [--json]
        aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
@@ -351,6 +352,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    blocker) shift; cmd_blocker "$@" ;;
     ownership) shift; cmd_ownership "$@" ;;
     lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;
