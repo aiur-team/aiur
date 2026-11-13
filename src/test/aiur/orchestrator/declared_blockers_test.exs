@@ -5,8 +5,8 @@ defmodule Aiur.Orchestrator.DeclaredBlockersTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.ControlCLI.Blocker
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.JsonStore
   alias Aiur.Orchestrator.{DeclaredBlockers, DispatchPolicy, PushRouting, State}
 
