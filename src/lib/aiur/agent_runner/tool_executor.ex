@@ -7,6 +7,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.AgentRunner.{
     DecisionAttention,
+    DeclaredBlockers,
     EpicSetter,
     FeatureWriter,
     ToolCoordination,
@@ -21,7 +22,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.BuildOrder.HistoryBackfill
   alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
-  alias Aiur.{Orchestrator, Orchestrator.DeclaredBlockers, Orchestrator.TicketTransition}
+  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
   @invocation_key {__MODULE__, :invocation_id}
 

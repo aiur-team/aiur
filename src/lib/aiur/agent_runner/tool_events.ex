@@ -2,11 +2,10 @@ defmodule Aiur.AgentRunner.ToolEvents do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{DecisionAttention, ToolCoordination, ToolExecutor}
+  alias Aiur.AgentRunner.{DecisionAttention, DeclaredBlockers, ToolCoordination, ToolExecutor}
   alias Aiur.AgentStatusNote
   alias Aiur.AgentTools.EmitEvent
   alias Aiur.Issue
-  alias Aiur.Orchestrator.DeclaredBlockers
   alias Aiur.Protocol.MapAccess
   alias Aiur.SecretRedactor
   @max_failure_chars 500

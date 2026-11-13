@@ -1,7 +1,7 @@
 defmodule Aiur.ControlCLI.Blocker do
   @moduledoc false
 
-  alias Aiur.Orchestrator.DeclaredBlockers
+  alias Aiur.AgentRunner.DeclaredBlockers
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, exit_marker: 1, guarded: 2]
 
   @doc "`aiur blocker confirm|dismiss <ticket> <blocker>`: the Executor's verdict on a worker-declared blocker."
