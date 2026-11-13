@@ -383,6 +383,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),
+          parked: Issue.parked?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           dispatch_hold_reason: dispatch_hold_reason,
           capacity_hold_active?: capacity_hold_active?,
