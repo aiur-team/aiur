@@ -140,7 +140,15 @@ defmodule Aiur.Handoff.Adopter do
   end
 
   defp restore_budget(state, _id, nil), do: state
-  defp restore_budget(state, id, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget[id], budget)
+  defp restore_budget(state, id, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget[id], without_restart_window(budget))
+
+  # The restart window is timed on the previous VM's monotonic clock, which
+  # means nothing in this one: a start ahead of this clock never lapses, so the
+  # ticket stays held until `reset-budget`. Lifetime spend survives the restart.
+  defp without_restart_window(budget) do
+    budget = Map.drop(budget, [:window_start_ms, :count])
+    if budget[:tripped] == :window, do: Map.drop(budget, [:tripped, :alert_emitted]), else: budget
+  end
 
   defp stop_fallback_agent(agent, opts) do
     stop = Keyword.get(opts, :stop_agent, &Fallback.stop/1)
