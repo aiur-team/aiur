@@ -40,6 +40,77 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
     refute_received :unexpected_write
   end
 
+  # The CI lifecycle already sent this head's red checks to rework, and it
+  # handles a failure once per head; a ci-wait handoff at that head waits for
+  # nothing and no worker comes back (Open-Game-Maker #756, #762).
+  test "same-head rework hand-back to ci-wait with failed required checks is refused" do
+    issue = %Issue{id: "gid-rework-ci", identifier: "762", state: "rework"}
+    test_pid = self()
+
+    executor =
+      ToolExecutor.build(issue, nil, nil, %{},
+        rework_head_sha: "same-head",
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ticket_state_writer: fn _issue_id, _state ->
+          send(test_pid, :unexpected_write)
+          :ok
+        end,
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
+        required_checks_fetcher: fn _ -> {:ok, [%{name: "required", app_id: nil}]} end,
+        commit_ci_status_fetcher: fn _ ->
+          {:ok, %{check_runs: [%{"id" => 1, "name" => "required", "status" => "completed", "conclusion" => "failure"}], commit_status: %{}}}
+        end,
+        no_op_rework_alert: fn issue_arg, checks, message -> send(test_pid, {:attention, issue_arg.identifier, checks, message}) end
+      )
+
+    response = executor.("aiur_set_ticket_state", %{"state" => "ci-wait"})
+
+    assert response["success"] == false
+    message = Jason.decode!(response["output"])["error"]["message"]
+    assert message =~ "Cannot hand ticket 762 to ci-wait"
+    assert message =~ "required"
+    assert_receive {:attention, "762", ["required"], _message}, 100
+    refute_received :unexpected_write
+  end
+
+  test "same-head rework hand-back to ci-wait is allowed while a rerun of the red check is in progress" do
+    issue = %Issue{id: "gid-rework-rerun", identifier: "762", state: "rework"}
+    test_pid = self()
+
+    executor =
+      ToolExecutor.build(issue, nil, nil, %{},
+        rework_head_sha: "same-head",
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ticket_state_writer: fn issue_id, state ->
+          send(test_pid, {:state_write, issue_id, state})
+          :ok
+        end,
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
+        required_checks_fetcher: fn _ -> {:ok, [%{name: "required", app_id: nil}]} end,
+        commit_ci_status_fetcher: fn _ ->
+          {:ok,
+           %{
+             check_runs: [
+               %{"id" => 1, "check_suite_id" => 9, "name" => "required", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-11-13T18:00:00Z"},
+               %{"id" => 2, "check_suite_id" => 9, "name" => "required", "status" => "in_progress", "conclusion" => nil, "started_at" => "2026-11-13T18:30:00Z"}
+             ],
+             commit_status: %{}
+           }}
+        end,
+        no_op_rework_alert: fn _issue, _checks, _message -> send(test_pid, :unexpected_alert) end
+      )
+
+    response = executor.("aiur_set_ticket_state", %{"state" => "ci-wait"})
+
+    assert response["success"]
+    assert_receive {:state_write, "gid-rework-rerun", "ci-wait"}, 100
+    refute_received :unexpected_alert
+  end
+
   test "same-head rework hand-back with green required checks writes human-review despite a non-blocking failure" do
     issue = %Issue{id: "gid-rework-green", identifier: "4180", state: "rework"}
     test_pid = self()
