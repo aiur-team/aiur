@@ -243,6 +243,23 @@ defmodule Aiur.Orchestrator.ControlCLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
+  # Open-Games #310 and #321: the Orchestrator accepted the resume and started
+  # its tracker write, and the CLI crashed on the reply instead of saying so.
+  test "resume accepted with its tracker write still in flight reports it and succeeds", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, :pending} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert output =~ "aiur: resuming #44; tracker write pending"
+    refute output =~ "query failed"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "resume renders structured dispatch and redispatch causes on the marker channel", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
       %{
