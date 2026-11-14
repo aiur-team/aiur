@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.ControlCLI.KeyedMessageTest do
   import ExUnit.CaptureIO
 
   alias Aiur.ControlCall.ReplayStore
-  alias Aiur.Orchestrator.ControlCLI.Message, as: AgentControlCLI
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 
   import TestFixture, except: [setup: 1]
@@ -39,7 +38,7 @@ defmodule Aiur.Orchestrator.ControlCLI.KeyedMessageTest do
     fixture
   end
 
-  defp message(text, key), do: with_message_confirm_timeout(50, fn -> capture_io(fn -> AgentControlCLI.message("44", text, key) end) end)
+  defp message(text, key), do: with_message_confirm_timeout(50, fn -> capture_io(fn -> Aiur.AgentControlCLI.message("44", text, key) end) end)
 
   test "a repeated key returns the first receipt across a restart and never sends again" do
     first = message("Use option B", "recon-768-r2")
