@@ -25,11 +25,17 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
     message_id = if is_binary(message_id) and message_id != "", do: message_id, else: new_message_id()
 
     guarded("message", fn ->
-      issue
-      |> message_status(text, message_id, control_status_snapshot())
-      |> exit_marker()
+      {code, _request_id} = send_and_report(issue, text, message_id)
+      exit_marker(code)
     end)
   end
+
+  @doc false
+  # Sends and prints like `message/3`, and returns the exit status with the
+  # request id it queued (nil when nothing was queued), for a caller that keeps
+  # a receipt.
+  @spec send_and_report(String.t(), String.t(), String.t()) :: {non_neg_integer(), pos_integer() | nil}
+  def send_and_report(issue, text, message_id), do: message_status(issue, text, message_id, control_status_snapshot())
 
   @doc "Show the current queue state for one message request id."
   @spec status(pos_integer()) :: :ok
@@ -74,7 +80,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
 
   defp message_status(_issue, _text, _message_id, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
-    control_query_exit_code(error)
+    {control_query_exit_code(error), nil}
   end
 
   # Empty/whitespace-only and over-long text are validated downstream by
@@ -90,7 +96,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
           _ -> :ok
         end
 
-        0
+        {0, request_id}
 
       # The daemon did not answer in time, but it may still queue the message
       # (#2717). That is an unknown outcome, not a failure. Only a retry with
@@ -102,11 +108,11 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
             "To retry this send without a duplicate, run: aiur message #{issue} --message-id #{message_id} #{shell_quote(text)}"
         )
 
-        control_query_exit_code(:timeout)
+        {control_query_exit_code(:timeout), nil}
 
       {:error, reason} ->
         print_failure(:message, status, reason)
-        control_query_exit_code(reason)
+        {control_query_exit_code(reason), nil}
     end
   end
 

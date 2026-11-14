@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseGuard, PauseResume, State, TicketTransition}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, InputWake, Unread}
 
   @doc false
   @spec payload_key(map(), term()) :: String.t() | nil
@@ -127,13 +127,16 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
         result
 
       :continue ->
-        case State.find_running_by_identifier(state.running, issue_identifier) do
-          nil ->
-            enqueue_for_next_worker(state, issue_identifier, text, request)
+        {result, next_state} =
+          case State.find_running_by_identifier(state.running, issue_identifier) do
+            nil ->
+              enqueue_for_next_worker(state, issue_identifier, text, request)
 
-          running_entry ->
-            enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
-        end
+            running_entry ->
+              enqueue_for_running_entry(state, running_entry, issue_identifier, text, request)
+          end
+
+        {result, InputWake.maybe_wake(next_state, issue_identifier, request, result)}
     end
   end
 
