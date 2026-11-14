@@ -398,7 +398,7 @@ defmodule Aiur.AlertFeed do
       [_, identifier, slug] ->
         question = attention_question(alert)
 
-        if question == "" or internal_decision_alert?(slug) do
+        if question == "" or internal_decision_alert?(slug) or system_alert?(alert) do
           nil
         else
           %{
@@ -420,6 +420,11 @@ defmodule Aiur.AlertFeed do
   defp internal_decision_alert?(slug) do
     String.starts_with?(slug, ["decision-delivery-", "decision-lifecycle-persistence-"])
   end
+
+  # The daemon's own ticket attentions (a stale blocking decision, a declined
+  # dispatch) are alerts for the Executor and the operator. Only a worker's
+  # attention asks a question the creator answers as a Command.
+  defp system_alert?(alert), do: Map.get(alert, "agent") == "system"
 
   defp attention_question(alert) do
     alert
