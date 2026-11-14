@@ -412,6 +412,18 @@ defmodule Aiur.AlertFeedTest do
     refute AlertLedger.backfilled?(ledger_path: ledger)
   end
 
+  # Open-Games, after a daemon restart: the daemon's own decision-stale and
+  # dispatch-declined alerts were imported as creator Commands routed "Needs you".
+  test "the daemon's own ticket attentions stay alerts and are not imported as Commands", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","agent":"system","timestamp":"2026-11-14T13:10:00Z","topic":"ticket.293.agent.attention.decision-stale-f4a1c6ecb17fbb82","reason":"An open blocking decision stops its ticket and every ticket it gates; answer it with `aiur commands`.","needs_attention":true,"source_ticket_id":"293"}
+    {"event":"alert","agent":"system","timestamp":"2026-11-14T13:11:00Z","topic":"ticket.293.agent.attention.dispatch-declined","reason":"Ticket 293 was not selected despite free fleet slots: claimed_without_runtime","needs_attention":true,"source_ticket_id":"293"}
+    {"event":"alert","agent":"382","timestamp":"2026-11-14T04:56:37Z","topic":"ticket.382.agent.attention.handoff-loop","reason":"Should the draft PR stay in review?","needs_attention":true,"source_ticket_id":"382"}
+    """)
+
+    assert [%{identifier: "382", slug: "handoff-loop"}] = AlertFeed.list_decision_attentions(ledger_paths: [ledger])
+  end
+
   test "projects active decision attentions from the ledger", %{ledger: ledger} do
     write_ledger!(ledger, """
     {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","needs_attention":true,"source_ticket_id":"42"}
