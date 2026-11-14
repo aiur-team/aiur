@@ -62,6 +62,8 @@ defmodule Aiur.ControlCall.KeyedReceipt do
 
   defp safe(fun) do
     fun.()
+  rescue
+    UndefinedFunctionError -> {:error, :unavailable}
   catch
     :exit, _reason -> {:error, :unavailable}
   end

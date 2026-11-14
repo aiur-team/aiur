@@ -1,0 +1,10 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.ControlCall.ReplayStore",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/application/children.ex",
+    "src/lib/aiur/control_call/keyed_receipt.ex"
+  ],
+  "reason": "#8010: keyed message and rework keep their receipts in the control replay ledger; an absent ledger reports unavailable and nothing runs"
+}
