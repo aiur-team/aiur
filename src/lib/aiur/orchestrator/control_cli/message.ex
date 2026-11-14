@@ -1,7 +1,6 @@
 defmodule Aiur.Orchestrator.ControlCLI.Message do
   @moduledoc false
   alias Aiur.AgentChat
-  alias Aiur.ControlCall.KeyedReceipt
   import Aiur.Orchestrator.ControlCLI, only: [control_status_snapshot: 0]
   import Aiur.ControlCLI.Protocol
   import Aiur.Orchestrator.ControlCLI.Output
@@ -23,42 +22,20 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
   """
   @spec message(String.t(), String.t(), String.t() | nil) :: :ok
   def message(issue, text, message_id \\ nil) when is_binary(issue) and is_binary(text) do
+    message_id = if is_binary(message_id) and message_id != "", do: message_id, else: new_message_id()
+
     guarded("message", fn ->
-      if is_binary(message_id) and message_id != "" do
-        keyed_message(issue, text, message_id)
-      else
-        {code, _request_id} = message_status(issue, text, new_message_id(), control_status_snapshot())
-        exit_marker(code)
-      end
+      {code, _request_id} = send_and_report(issue, text, message_id)
+      exit_marker(code)
     end)
   end
 
-  # A caller-named send keeps a durable receipt under its key, so a retry after
-  # a crash reports the first request instead of queueing a second copy. A
-  # first attempt that queued nothing may run again: the queue refuses a second
-  # copy under the same message id anyway (#2717).
-  defp keyed_message(issue, text, key) do
-    send = fn ->
-      {code, request_id} = message_status(issue, text, key, control_status_snapshot())
-      %{"exit" => code, "request_id" => request_id}
-    end
-
-    case KeyedReceipt.run("message", key, {issue, text}, send) do
-      {:new, %{"exit" => code}} ->
-        exit_marker(code)
-
-      {:replay, %{"exit" => code, "request_id" => request_id}} when is_integer(request_id) ->
-        IO.puts("aiur: message #{key} already sent to #{issue} (request #{request_id}); nothing queued again")
-        exit_marker(code)
-
-      {:replay, _nothing_queued} ->
-        exit_marker(send.()["exit"])
-
-      {:error, reason} ->
-        control_error("aiur: message #{key} was not sent: #{KeyedReceipt.describe(reason)}")
-        exit_marker(KeyedReceipt.exit_code(reason))
-    end
-  end
+  @doc false
+  # Sends and prints like `message/3`, and returns the exit status with the
+  # request id it queued (nil when nothing was queued), for a caller that keeps
+  # a receipt.
+  @spec send_and_report(String.t(), String.t(), String.t()) :: {non_neg_integer(), pos_integer() | nil}
+  def send_and_report(issue, text, message_id), do: message_status(issue, text, message_id, control_status_snapshot())
 
   @doc "Show the current queue state for one message request id."
   @spec status(pos_integer()) :: :ok
