@@ -1,9 +1,10 @@
 defmodule Aiur.AgentControlCLI.ReworkTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 
   alias Aiur.AgentControlCLI.Rework
+  alias Aiur.ControlCall.ReplayStore
 
   # Open-Games #327: relabelling a ready PR's ticket to rework let a stale
   # worker turn and the CI lifecycle pull it back to ci-wait, and resume was
@@ -84,6 +85,54 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:64"
   end
 
+  # The #768 reconciler may crash after `aiur rework --key K` and run it again.
+  # The repeat must return the first receipt, also after a daemon restart, and
+  # must not queue the reason or request a turn a second time.
+  describe "with --key" do
+    setup do
+      root = Path.join(System.tmp_dir!(), "rework-key-#{System.unique_integer([:positive])}")
+      previous = Application.get_env(:aiur, :control_replay_state_dir)
+      Application.put_env(:aiur, :control_replay_state_dir, root)
+      ReplayStore.reload()
+
+      on_exit(fn ->
+        if previous, do: Application.put_env(:aiur, :control_replay_state_dir, previous), else: Application.delete_env(:aiur, :control_replay_state_dir)
+        ReplayStore.reload()
+        Aiur.TestCleanup.rm_rf!(root)
+      end)
+    end
+
+    test "a repeat returns the first receipt and runs nothing" do
+      {first, calls} = run("768", "Round 2 needs work", key: "recon-768-r2", send: fn _, _, opts -> send(self(), {:message_id, opts[:message_id]}) && {:ok, 41} end)
+
+      assert first =~ "the reason is queued for the worker (request 41)"
+      assert first =~ "__AIUR_CONTROL_EXIT__:0"
+      assert Enum.any?(calls, &match?({:resume, "768"}, &1))
+      assert_received {:message_id, "rework:recon-768-r2"}
+
+      ReplayStore.reload()
+      {again, repeat_calls} = run("768", "Round 2 needs work", key: "recon-768-r2")
+
+      assert again =~ "aiur: rework recon-768-r2 already ran for 768 (reason request 41); nothing queued again"
+      assert again =~ "__AIUR_CONTROL_EXIT__:0"
+      assert repeat_calls == []
+
+      {clash, clash_calls} = run("768", "Something else", key: "recon-768-r2")
+      assert clash =~ "this key was already used with different arguments"
+      assert clash =~ "__AIUR_CONTROL_EXIT__:65"
+      assert clash_calls == []
+    end
+
+    test "a failed first attempt runs again under the same key" do
+      {failed, _calls} = run("768", "redo", key: "recon-768-r3", state: fn _, _, _ -> {:error, :github_down} end)
+      assert failed =~ "__AIUR_CONTROL_EXIT__:1"
+
+      {retried, calls} = run("768", "redo", key: "recon-768-r3")
+      assert retried =~ "__AIUR_CONTROL_EXIT__:0"
+      assert Enum.any?(calls, &match?({:state, "768", "rework", _}, &1))
+    end
+  end
+
   defp run(issue, reason, overrides \\ []) do
     parent = self()
     record = fn call -> send(parent, {:call, call}) end
@@ -98,6 +147,7 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
     funs = Keyword.merge(defaults, overrides)
 
     deps = [
+      key: overrides[:key],
       identifier: & &1,
       pin: fn id -> record.({:pin, id}) && funs[:pin].(id) end,
       send: fn id, text, opts -> record.({:send, id, text}) && funs[:send].(id, text, opts) end,
