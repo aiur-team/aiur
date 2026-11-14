@@ -3,6 +3,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
 
   import Aiur.OrchestratorLifecycleSupport
 
+  alias Aiur.Memory.Tracker, as: MemoryTracker
   alias Aiur.OrchestratorLifecycleSupport.HermeticReworkGitHubClient
   require Logger
 
@@ -32,7 +33,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
       state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
 
       assert {:noreply, next} =
-               Orchestrator.handle_info({:event, comment_event(identifier, "pr.review_comment")}, state)
+               Orchestrator.handle_info({:event, stored_write(comment_event(identifier, "pr.review_comment"))}, state)
 
       assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 2000
       refute get_in(next.running[issue_id], [:control, :status]) == :deactivated
@@ -44,7 +45,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
       memory_tracker!([review_issue(identifier)])
 
       assert {:noreply, next} =
-               Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, base_state())
+               Orchestrator.handle_info({:event, stored_write(comment_event(identifier, "issue.commented"))}, base_state())
 
       assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
       assert MapSet.member?(next.claimed, identifier)
@@ -86,7 +87,7 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
         )
 
       assert {:noreply, next} =
-               Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, state)
+               Orchestrator.handle_info({:event, stored_write(comment_event(identifier, "issue.commented"))}, state)
 
       assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
       refute MapSet.member?(next.claimed, identifier)
@@ -273,4 +274,9 @@ defmodule Aiur.Regression.OrchestratorLifecycle.CommentWakeTest do
       assert MapSet.member?(next.claimed, issue_id)
     end
   end
+
+  # The comment wake re-reads the ticket after writing `rework`, as GitHub does;
+  # the memory tracker only stores guarded writes, so guard this one.
+  defp stored_write(event),
+    do: Map.put(event, :comment_update_issue_state_fun, &MemoryTracker.update_issue_state(&1, &2, expected_state: "human-review"))
 end

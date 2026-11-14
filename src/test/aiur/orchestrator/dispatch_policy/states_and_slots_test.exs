@@ -13,13 +13,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
     # are states where by definition no agent work exists. Dispatching into them
     # cannot produce progress, only cost, and each committed dispatch bills a
     # lifetime unit toward the terminal latch.
-    test "a merging or ci-wait ticket is not dispatchable even when listed as an active state" do
+    test "a merging, ci-wait or human-review ticket is not dispatchable even when listed as an active state" do
       # The operator config that produced #1759 listed `merging` in
       # `active_states`, so the refusal must hold *despite* that listing —
       # otherwise this test would pass against the pre-fix code.
       write_workflow_file!(Workflow.workflow_file_path(),
         max_concurrent_agents: 5,
-        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait"]
+        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait", "human-review"]
       )
 
       state = %State{max_concurrent_agents: 5}
@@ -36,7 +36,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         assert DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
       end
 
-      for parked <- ["merging", "ci-wait"] do
+      # open-games lists `human-review` as active: a ticket waiting on the
+      # creator's verdict was redispatched into no-op turns until agent:error.
+      for parked <- ["merging", "ci-wait", "human-review"] do
         ticket = issue("parked-#{parked}", state: parked)
 
         assert DispatchPolicy.no_agent_work_state?(parked)
@@ -58,7 +60,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       assert DispatchPolicy.no_agent_work_state?("Merging")
       assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
 
-      refute DispatchPolicy.no_agent_work_state?("human-review")
+      assert DispatchPolicy.no_agent_work_state?(" Human-Review")
+
+      refute DispatchPolicy.no_agent_work_state?("rework")
       refute DispatchPolicy.no_agent_work_state?(nil)
       refute DispatchPolicy.no_agent_work_state?(:merging)
     end
