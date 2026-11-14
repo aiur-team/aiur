@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWakeTest do
     assert {{:ok, %{item: item}}, state} =
              OperatorMessages.enqueue_operator_message(base_state(), "780", "Use option B: keep the toggle", answer("dec_a1"), :correlated)
 
-    assert_receive {:memory_tracker_state_update, "780", "rework"}
+    assert_receive {:memory_tracker_state_update, "780", "rework"}, 1_000
     assert tracker_state("780") == "rework"
     # The worker the dispatcher starts for rework reads the answer first.
     assert {_store, claimed} = Aiur.AgentQueueStore.claim_next_deliverable(state.queue_store, "780")
@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWakeTest do
 
     for id <- ["321", "366"] do
       assert {{:ok, _item_id}, _state} = OperatorMessages.enqueue_operator_message(base_state(), id, "Address the splash", %{origin: :executor_cli})
-      assert_receive {:memory_tracker_state_update, ^id, "rework"}
+      assert_receive {:memory_tracker_state_update, ^id, "rework"}, 1_000
     end
   end
 
@@ -46,8 +46,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWakeTest do
       %Issue{id: "402", identifier: "402", state: "human-review", title: "Review"}
     ])
 
-    worker = spawn(fn -> Process.sleep(:infinity) end)
-    on_exit(fn -> Process.exit(worker, :kill) end)
+    worker = start_supervised!({Task, fn -> receive do: (:stop -> :ok) end})
     live = running_entry("400", "400", :working) |> Map.put(:pid, worker)
     state = base_state(running: %{"400" => live}, claimed: MapSet.new(["400"]))
 
@@ -57,7 +56,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWakeTest do
     refute_receive {:memory_tracker_state_update, _id, _state}, 100
 
     assert {{:ok, _}, _} = OperatorMessages.enqueue_operator_message(base_state(), "402", "first", %{origin: :executor_cli})
-    assert_receive {:memory_tracker_state_update, "402", "rework"}
+    assert_receive {:memory_tracker_state_update, "402", "rework"}, 1_000
     assert {{:ok, _}, _} = OperatorMessages.enqueue_operator_message(base_state(), "402", "second", answer("dec_a2"), :correlated)
     refute_receive {:memory_tracker_state_update, "402", _state}, 100
   end

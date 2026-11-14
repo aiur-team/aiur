@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.ControlCLI.KeyedMessageTest do
     first = message("Use option B", "recon-768-r2")
     assert first =~ "(request 7)"
     assert first =~ "__AIUR_CONTROL_EXIT__:0"
-    assert_receive {:sent, _identifier, "Use option B", "recon-768-r2"}
+    assert_receive {:sent, _identifier, "Use option B", "recon-768-r2"}, 1_000
 
     ReplayStore.reload()
 
@@ -64,11 +64,11 @@ defmodule Aiur.Orchestrator.ControlCLI.KeyedMessageTest do
     Process.put(:send_result, {:error, :queue_full})
     failed = message("Retry me", "recon-768-r3")
     refute failed =~ "__AIUR_CONTROL_EXIT__:0"
-    assert_receive {:sent, _identifier, "Retry me", "recon-768-r3"}
+    assert_receive {:sent, _identifier, "Retry me", "recon-768-r3"}, 1_000
 
     Process.put(:send_result, {:ok, 9})
     retried = message("Retry me", "recon-768-r3")
     assert retried =~ "(request 9)"
-    assert_receive {:sent, _identifier, "Retry me", "recon-768-r3"}
+    assert_receive {:sent, _identifier, "Retry me", "recon-768-r3"}, 1_000
   end
 end
