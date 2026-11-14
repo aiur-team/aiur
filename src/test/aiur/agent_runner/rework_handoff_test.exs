@@ -154,6 +154,23 @@ defmodule Aiur.AgentRunner.ReworkHandoffTest do
              TurnLoop.continue_with_issue?(issue, fn ["ci-wait"] -> {:ok, [refreshed]} end)
   end
 
+  # open-games #293 and #368 list `human-review` as active. After handing off
+  # for the creator's verdict, the run continued, and the no-op park timeout and
+  # progress check-ins drove empty turns until the no-op limit and agent:error.
+  test "human-review never starts a continuation even if configured as active" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"]
+    )
+
+    Aiur.WorkflowStore.force_reload()
+    issue = %Aiur.Issue{id: "293", identifier: "293", state: "in-progress"}
+    refreshed = %{issue | state: "human-review"}
+
+    assert {:done, ^refreshed} =
+             TurnLoop.continue_with_issue?(issue, fn ["293"] -> {:ok, [refreshed]} end)
+  end
+
   test "a pushed rework head with completed failing CI hands off for review instead of retrying" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",
