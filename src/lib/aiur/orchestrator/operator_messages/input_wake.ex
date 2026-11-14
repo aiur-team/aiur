@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWake do
   require Logger
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{DispatchPolicy, Reconciler, State, TicketTransition, TrackerTasks}
   alias Aiur.Tracker
 
   @parked_states ["human-review", "ci-wait"]
@@ -39,18 +39,35 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWake do
     issue_id = issue_id(state, identifier)
     worker_live? = live_worker?(State.find_running_by_identifier(state.running, identifier))
 
-    TrackerTasks.run(state, {:input_wake, issue_id}, fn -> write_rework(issue_id, identifier, worker_live?) end, fn current, _result -> current end)
+    TrackerTasks.run(state, {:input_wake, issue_id}, fn -> write_rework(issue_id, identifier, worker_live?) end, &cache_rework(&1, issue_id, &2))
   end
 
+  # The running entry's cached issue is what `aiur status` shows; the running-state
+  # poll would correct it only on its next successful refresh, which a GitHub budget
+  # hold can delay for minutes. Only a cache still showing the state we woke from moves.
+  defp cache_rework(state, issue_id, {:ok, from_slug}) do
+    case Map.get(state.running, issue_id) do
+      %{issue: %Issue{state: cached} = issue} ->
+        if DispatchPolicy.state_slug(cached) == from_slug,
+          do: Reconciler.refresh_running_issue_state(state, %{issue | state: "rework"}),
+          else: state
+
+      _no_entry ->
+        state
+    end
+  end
+
+  defp cache_rework(state, _issue_id, _result), do: state
+
   @doc false
-  @spec write_rework(String.t(), String.t(), boolean()) :: :ok | :skipped | {:error, term()}
+  @spec write_rework(String.t(), String.t(), boolean()) :: {:ok, String.t()} | :skipped | {:error, term()}
   def write_rework(issue_id, identifier, worker_live?) do
     with {:ok, [%Issue{state: observed} | _]} <- Tracker.fetch_issue_states_by_ids([issue_id]),
          slug when is_binary(slug) <- DispatchPolicy.state_slug(observed),
          true <- wakes_from?(slug, worker_live?) do
       result = TicketTransition.write_state(issue_id, "rework", writer: :input_wake, expected_state: slug)
       Logger.info("Input queued for #{identifier} in #{slug}; wrote rework so a worker reads it: #{inspect(result)}")
-      result
+      if result == :ok, do: {:ok, slug}, else: result
     else
       _not_parked -> :skipped
     end
