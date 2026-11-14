@@ -256,6 +256,45 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert reconciled.running["issue-approved-digest"].issue.state == "rework"
   end
 
+  # Open-Games #327: the Executor relabelled a ticket with a ready PR to rework
+  # while its worker's turn was still in flight. The worker then handed itself
+  # to human-review, CI moved it to ci-wait and paused the worker, and resume
+  # was refused. `aiur rework` pins rework before it queues the reason, so the
+  # reason's fence holds rework rather than the stale cached review state.
+  test "an Executor rework makes the reason's fence hold rework against a stale review handoff" do
+    pinned =
+      running_entry_state()
+      |> put_in([Access.key(:running), "issue-approved-digest", :issue, Access.key(:state)], "human-review")
+      |> LifecycleFence.pin_rework("1577")
+
+    item = %Aiur.AgentQueueItem{id: 91, category: :operator_message, target_issue_identifier: "1577"}
+    fenced = LifecycleFence.protect_queued_item(pinned, "1577", item)
+
+    assert fence_authoritative_rework?(fenced.running["issue-approved-digest"])
+    stale = %Issue{id: "issue-approved-digest", identifier: "1577", state: "human-review"}
+    assert LifecycleFence.handoff_blocked?(fenced, stale)
+    assert {:fenced, reconciled} = LifecycleFence.reconcile_observed_state(fenced, stale)
+    assert reconciled.running["issue-approved-digest"].issue.state == "rework"
+  end
+
+  test "an Executor rework retargets a fence that already holds another state" do
+    state =
+      update_in(running_entry_state().running["issue-approved-digest"], fn entry ->
+        Map.put(entry, :lifecycle_fence, %{authoritative_state: "human-review", generation: 2, opened_at: DateTime.utc_now(), pending_item_ids: MapSet.new([5])})
+      end)
+
+    pinned = LifecycleFence.pin_rework(state, "1577")
+
+    assert %{authoritative_state: "rework", pending_item_ids: pending} = pinned.running["issue-approved-digest"].lifecycle_fence
+    assert pending == MapSet.new([5])
+    assert pinned.running["issue-approved-digest"].issue.state == "rework"
+  end
+
+  test "an Executor rework on a ticket with no worker changes nothing" do
+    state = running_entry_state()
+    assert LifecycleFence.pin_rework(state, "9999") == state
+  end
+
   defp running_entry_state do
     issue_id = "issue-approved-digest"
 

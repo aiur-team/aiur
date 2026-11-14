@@ -117,6 +117,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
 
   defdelegate redispatch(targets, backend), to: Aiur.AgentControlCLI.Redispatch
+  defdelegate rework(issue, reason), to: Aiur.AgentControlCLI.Rework
+  defdelegate rework(issue, reason, opts), to: Aiur.AgentControlCLI.Rework
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
   defdelegate take(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :take
   defdelegate release(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :release

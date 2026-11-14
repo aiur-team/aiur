@@ -39,6 +39,29 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     end
   end
 
+  # `aiur rework` (Open-Games #327): the Executor's rework must outrank a worker
+  # turn still in flight. Pinning the cached state before the reason is queued
+  # makes that reason's fence hold `rework`, so a stale review handoff is
+  # restored and CI cannot move the ticket until the worker has the reason.
+  @spec pin_rework(State.t(), String.t()) :: State.t()
+  def pin_rework(%State{} = state, identifier) when is_binary(identifier) do
+    case State.find_running_key_by_identifier(state.running, identifier) do
+      nil ->
+        state
+
+      issue_id ->
+        update_in(state.running[issue_id], &pin_entry_rework/1)
+    end
+  end
+
+  defp pin_entry_rework(entry), do: entry |> Map.update(:issue, nil, &pin_issue_rework/1) |> pin_fence_rework(fence_for_entry(entry))
+
+  defp pin_issue_rework(%Issue{} = issue), do: %{issue | state: "rework"}
+  defp pin_issue_rework(other), do: other
+
+  defp pin_fence_rework(entry, nil), do: entry
+  defp pin_fence_rework(entry, fence), do: Map.put(entry, :lifecycle_fence, %{fence | authoritative_state: "rework", generation: fence.generation + 1})
+
   @spec acknowledge_provider_delivery(State.t(), AgentQueueItem.t()) :: State.t()
   def acknowledge_provider_delivery(%State{} = state, %AgentQueueItem{} = item) do
     case State.find_running_key_by_identifier(state.running, item.target_issue_identifier) do
