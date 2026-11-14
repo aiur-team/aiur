@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.ControlCLI.Message do
   @moduledoc false
   alias Aiur.AgentChat
+  alias Aiur.ControlCall.KeyedReceipt
   import Aiur.Orchestrator.ControlCLI, only: [control_status_snapshot: 0]
   import Aiur.ControlCLI.Protocol
   import Aiur.Orchestrator.ControlCLI.Output
@@ -22,13 +23,41 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
   """
   @spec message(String.t(), String.t(), String.t() | nil) :: :ok
   def message(issue, text, message_id \\ nil) when is_binary(issue) and is_binary(text) do
-    message_id = if is_binary(message_id) and message_id != "", do: message_id, else: new_message_id()
-
     guarded("message", fn ->
-      issue
-      |> message_status(text, message_id, control_status_snapshot())
-      |> exit_marker()
+      if is_binary(message_id) and message_id != "" do
+        keyed_message(issue, text, message_id)
+      else
+        {code, _request_id} = message_status(issue, text, new_message_id(), control_status_snapshot())
+        exit_marker(code)
+      end
     end)
+  end
+
+  # A caller-named send keeps a durable receipt under its key, so a retry after
+  # a crash reports the first request instead of queueing a second copy. A
+  # first attempt that queued nothing may run again: the queue refuses a second
+  # copy under the same message id anyway (#2717).
+  defp keyed_message(issue, text, key) do
+    send = fn ->
+      {code, request_id} = message_status(issue, text, key, control_status_snapshot())
+      %{"exit" => code, "request_id" => request_id}
+    end
+
+    case KeyedReceipt.run("message", key, {issue, text}, send) do
+      {:new, %{"exit" => code}} ->
+        exit_marker(code)
+
+      {:replay, %{"exit" => code, "request_id" => request_id}} when is_integer(request_id) ->
+        IO.puts("aiur: message #{key} already sent to #{issue} (request #{request_id}); nothing queued again")
+        exit_marker(code)
+
+      {:replay, _nothing_queued} ->
+        exit_marker(send.()["exit"])
+
+      {:error, reason} ->
+        control_error("aiur: message #{key} was not sent: #{KeyedReceipt.describe(reason)}")
+        exit_marker(KeyedReceipt.exit_code(reason))
+    end
   end
 
   @doc "Show the current queue state for one message request id."
@@ -74,7 +103,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
 
   defp message_status(_issue, _text, _message_id, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
-    control_query_exit_code(error)
+    {control_query_exit_code(error), nil}
   end
 
   # Empty/whitespace-only and over-long text are validated downstream by
@@ -90,7 +119,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
           _ -> :ok
         end
 
-        0
+        {0, request_id}
 
       # The daemon did not answer in time, but it may still queue the message
       # (#2717). That is an unknown outcome, not a failure. Only a retry with
@@ -102,11 +131,11 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
             "To retry this send without a duplicate, run: aiur message #{issue} --message-id #{message_id} #{shell_quote(text)}"
         )
 
-        control_query_exit_code(:timeout)
+        {control_query_exit_code(:timeout), nil}
 
       {:error, reason} ->
         print_failure(:message, status, reason)
-        control_query_exit_code(reason)
+        {control_query_exit_code(reason), nil}
     end
   end
 
