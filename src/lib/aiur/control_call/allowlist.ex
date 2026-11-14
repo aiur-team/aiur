@@ -222,6 +222,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:todo, 2, :tickets, [:string_list, :keyword], %{only: :boolean, budget_ms: :positive, emit_exit_marker: :boolean}},
     {:redispatch, 2, :agents, [:string_list, {:nullable, :string}], %{}},
     {:rework, 2, :tickets, [{:regex, ~r/^[1-9]\d{0,9}$/}, :string], %{}},
+    {:rework, 3, :tickets, [{:regex, ~r/^[1-9]\d{0,9}$/}, :string, :keyword], %{key: {:regex, ~r/^[A-Za-z0-9._:-]{1,128}$/}}},
     {:reset_budget, 1, :config, [:string_list], %{}},
     {:pause_global, 0, :agents, [], %{}},
     {:pause_project, 1, :agents, [:string], %{}},
