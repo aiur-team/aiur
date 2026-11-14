@@ -36,7 +36,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   alias Aiur.Project.Context
-  require Logger
 
   @poll_transition_render_delay_ms 20
   @control_ack_timeout_ms 30_000
@@ -428,25 +427,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
         poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
-    |> release_cap_override_on_config_edit(state.max_concurrent_agents)
+    |> Slots.release_session_cap_on_config_edit(state.max_concurrent_agents)
   end
-
-  # Editing the configured cap is newer operator intent than a max-agents
-  # override, which the journal restores at every boot; the edit ends it.
-  defp release_cap_override_on_config_edit(%State{max_concurrent_agents: configured, session_max_concurrent_agents: override} = state, previous)
-       when is_integer(previous) and is_integer(override) and configured != previous do
-    case ControlLifecycleStore.update_checked(&%{&1 | max_agents: nil}) do
-      :ok ->
-        Logger.info("Configured max_concurrent_agents changed #{previous} -> #{configured}; cleared the max-agents override #{override}")
-        %{state | session_max_concurrent_agents: nil}
-
-      {:error, reason} ->
-        Logger.warning("Configured max_concurrent_agents changed #{previous} -> #{configured}; max-agents override #{override} kept: #{inspect(reason)}")
-        state
-    end
-  end
-
-  defp release_cap_override_on_config_edit(state, _previous), do: state
 
   defp install_event_tracked_fn(tracked_issue?) do
     if Events.publisher_available?() do

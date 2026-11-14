@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.Slots do
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, State, StatusReport}
 
+  require Logger
+
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
 
@@ -184,6 +186,25 @@ defmodule Aiur.Orchestrator.Slots do
         true
     end
   end
+
+  # Editing the configured cap is newer operator intent than a max-agents
+  # override, which the journal restores at every boot; the edit ends it.
+  @doc false
+  @spec release_session_cap_on_config_edit(State.t(), pos_integer() | nil) :: State.t()
+  def release_session_cap_on_config_edit(%State{max_concurrent_agents: configured, session_max_concurrent_agents: override} = state, previous)
+      when is_integer(previous) and is_integer(override) and configured != previous do
+    case ControlLifecycleStore.update_checked(&%{&1 | max_agents: nil}) do
+      :ok ->
+        Logger.info("Configured max_concurrent_agents changed #{previous} -> #{configured}; cleared the max-agents override #{override}")
+        %{state | session_max_concurrent_agents: nil}
+
+      {:error, reason} ->
+        Logger.warning("Configured max_concurrent_agents changed #{previous} -> #{configured}; max-agents override #{override} kept: #{inspect(reason)}")
+        state
+    end
+  end
+
+  def release_session_cap_on_config_edit(state, _previous), do: state
 
   # `--max-agents N` at launch lands in `:max_concurrent_agents_override`
   # (set by `Aiur.CLI`). Returns a positive integer or nil (no override).
