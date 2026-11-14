@@ -39,6 +39,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.InputWakeTest do
     end
   end
 
+  # Core #768: the message woke the ticket and its worker started, but `aiur status`
+  # kept showing human-review from the running entry's cache until the next poll.
+  test "the running entry's cached state moves to rework with the label" do
+    memory_tracker!([%Issue{id: "768", identifier: "768", state: "human-review", title: "Settings"}])
+    entry = running_entry("768", "768", :working) |> Map.put(:issue, %Issue{id: "768", identifier: "768", state: "human-review"})
+    state = base_state(running: %{"768" => entry}, claimed: MapSet.new(["768"]))
+
+    assert {{:ok, _item}, next} = OperatorMessages.enqueue_operator_message(state, "768", "No Executor look is needed", %{origin: :executor_cli})
+    assert_receive {:memory_tracker_state_update, "768", "rework"}, 1_000
+    assert next.running["768"].issue.state == "rework"
+  end
+
   test "input leaves a live worker, an active ticket and internal notes alone, and wakes a ticket once" do
     memory_tracker!([
       %Issue{id: "400", identifier: "400", state: "in-progress", title: "Live"},
