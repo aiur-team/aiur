@@ -47,9 +47,10 @@ defmodule Aiur.Codex.LivenessProbe do
     Map.put(state, :liveness_probe_timer, timer)
   end
 
-  @doc "Records that the app-server sent a line since the last probe step."
+  @doc "Records that the app-server sent a line since the last probe step, on turns the probe watches."
   @spec note_frame(map()) :: map()
-  def note_frame(state), do: Map.put(state, :liveness_frame_seen?, true)
+  def note_frame(%{liveness_probe_token: _token} = state), do: Map.put(state, :liveness_frame_seen?, true)
+  def note_frame(state), do: state
 
   @doc false
   @spec run(map(), map()) :: {:continue, map()} | {:paused, map()} | {:error, term()}
