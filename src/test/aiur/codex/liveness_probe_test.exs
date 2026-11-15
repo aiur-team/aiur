@@ -100,11 +100,30 @@ defmodule Aiur.Codex.LivenessProbeTest do
 
     assert result.result == :turn_completed
     refute_received {:agent_message, :turn_ended_with_error}
-    # The server answered every read it received, so the turn crossed several
-    # probe intervals and was not killed by one.
-    assert [_, _ | _rest] = probe_reads(trace)
+    # The turn crossed several probe intervals and was not ended by one; its
+    # frames are the liveness evidence, so any read it drew was answered.
     assert elapsed >= 1_000
     assert elapsed < @turn_timeout_ms
+  end
+
+  # Open-games 467 (2026-11-15): under CPU load the rate-limit read missed its
+  # deadline while the turn streamed, the probe ended the turn, and Codex killed
+  # every running command with exit 137. A quiet spell draws a read here; the
+  # server never answers it but streams past the read's deadline, so only the
+  # frames prove it is alive.
+  test "a turn that streams past an unanswered probe read is not ended", ctx do
+    %{root: root} = ctx
+    trace = Path.join(root, "codex.trace")
+    deltas = div(LivenessProbe.probe_timeout_ms() + 1_500, 150)
+    session = start_agent(ctx, unanswered_stream_script(trace, deltas))
+    test_pid = self()
+
+    assert {:ok, result} = CodexAgent.run_turn(session, "busy host", issue(), on_message: forward_to(test_pid))
+
+    assert result.result == :turn_completed
+    refute_received {:agent_message, :turn_ended_with_error}
+    # The read really went out and was never answered.
+    assert [_read | _rest] = probe_reads(trace)
   end
 
   test "an app-server that refuses the probe read with a usage-limit error pauses", ctx do
@@ -202,6 +221,32 @@ defmodule Aiur.Codex.LivenessProbeTest do
         printf '{"id":%s,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\\n' "$rid"
         printf '%s\\n' '#{turn_started_frame()}'
         printf '%s\\n' '#{rate_limits_frame(used_percent)}'
+        ;;
+    esac
+    done
+    """
+  end
+
+  # A server that starts the turn, stays quiet long enough for the probe to
+  # send a read, then streams `deltas` deltas 150 ms apart and completes. It
+  # never answers a probe read.
+  defp unanswered_stream_script(trace, deltas) do
+    """
+    #!/bin/sh
+    #{handshake_cases(trace)}
+      *'"method":"turn/start"'*)
+        rid=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+        printf '{"id":%s,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\\n' "$rid"
+        printf '%s\\n' '#{turn_started_frame()}'
+        printf '%s\\n' '#{rate_limits_frame(28)}'
+        (
+          sleep 0.7
+          for _ in #{Enum.join(1..deltas, " ")}; do
+            sleep 0.15
+            printf '%s\\n' '#{delta_frame()}'
+          done
+          printf '%s\\n' '#{completed_frame()}'
+        ) &
         ;;
     esac
     done
