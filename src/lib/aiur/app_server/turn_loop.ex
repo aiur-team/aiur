@@ -59,6 +59,7 @@ defmodule Aiur.AppServer.TurnLoop do
         session |> Handoff.capture(state, from, ref) |> receive_loop(state)
 
       {^port, {:data, {:eol, chunk}}} ->
+        state = LivenessProbe.note_frame(state)
         complete_line = state.pending_line <> to_string(chunk)
         # Callbacks may wait for nested RPC responses from this same relay.
         :ok = Transport.acknowledge(port)
@@ -66,7 +67,7 @@ defmodule Aiur.AppServer.TurnLoop do
         continue_or_return(session, result)
 
       {^port, {:data, {:noeol, chunk}}} ->
-        receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
+        receive_loop(session, %{LivenessProbe.note_frame(state) | pending_line: state.pending_line <> to_string(chunk)})
 
       {^port, {:exit_status, status}} ->
         handle_port_exit(session, state, status)
@@ -76,7 +77,7 @@ defmodule Aiur.AppServer.TurnLoop do
 
       {:codex_liveness_probe, ^probe_token} when state.backend == CodingAgent ->
         case Map.get(state, :liveness_probe_pending?, false) do
-          true -> LivenessProbe.timeout(session, state)
+          true -> continue_or_return(session, LivenessProbe.timeout(session, state))
           false -> handle_liveness_probe(session, state)
         end
 
