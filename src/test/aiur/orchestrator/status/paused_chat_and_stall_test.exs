@@ -146,6 +146,44 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
     assert status.paused == 1
   end
 
+  # Open-Games #468/#475: `aiur rework` on a parked worker with the fleet full
+  # was refused, so neither the reason nor the label was recorded. Its reason
+  # carries `queue_when_full`, so it waits on the entry for the turn that a
+  # freed slot starts; a plain chat still refuses rather than queue silently.
+  for status <- [:paused, :deactivated] do
+    test "a rework reason queues on a #{status} agent when no slot is free" do
+      orchestrator_name = Module.concat(__MODULE__, :"ReworkQueueWhenFull#{unquote(status)}")
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+      parent = self()
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :kill)
+      end)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | session_max_concurrent_agents: 1,
+            running: %{
+              "issue-active" => running_entry("issue-active", "MT-ACTIVE", :working, parent),
+              "issue-parked" => running_entry("issue-parked", "MT-PARKED", unquote(status), parent)
+            }
+        }
+      end)
+
+      assert {:error, :max_concurrent_agents_reached} =
+               Orchestrator.send_operator_message(orchestrator_name, "MT-PARKED", %{kind: :text, body: "plain"})
+
+      assert {:ok, item_id} =
+               Orchestrator.send_operator_message(orchestrator_name, "MT-PARKED", %{kind: :text, body: "rework reason", queue_when_full: true})
+
+      state = :sys.get_state(pid)
+      assert %{target_issue_identifier: "MT-PARKED", status: :pending} = state.queue_store.items[item_id]
+      assert state.running["issue-parked"].control.status == unquote(status)
+      refute_receive {:resume_agent, _request_id, _generation}, 100
+    end
+  end
+
   test "orchestrator can claim only operator queue items without consuming coordination events" do
     orchestrator_name = Module.concat(__MODULE__, :OperatorOnlyClaimOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
