@@ -15,7 +15,7 @@ defmodule Aiur.AgentControlCLI.Rework do
   import Aiur.Orchestrator.ControlCLI.Output, only: [canonical_identifier: 1, target_matches?: 2]
 
   alias Aiur.ControlCall.KeyedReceipt
-  alias Aiur.Orchestrator.{PauseResume, TicketTransition}
+  alias Aiur.Orchestrator.{OverrideRecovery, PauseResume, TicketTransition}
 
   @spec rework(String.t(), String.t()) :: :ok
   def rework(issue, reason), do: rework(issue, reason, [])
@@ -70,7 +70,9 @@ defmodule Aiur.AgentControlCLI.Rework do
     id = Keyword.get(deps, :identifier, &resolve_identifier/1).(issue)
     Keyword.get(deps, :pin, &pin/1).(id)
 
-    send_opts = if is_binary(deps[:key]), do: [message_id: "rework:" <> deps[:key]], else: []
+    # A full fleet must not refuse the reason: it is queued on the parked
+    # worker and read by the turn that starts when a slot frees.
+    send_opts = [queue_when_full: true] ++ if(is_binary(deps[:key]), do: [message_id: "rework:" <> deps[:key]], else: [])
     send = fn -> Keyword.get(deps, :send, &Aiur.AgentChat.send/3).(id, message(reason), send_opts) end
     write_state = fn -> Keyword.get(deps, :state, &TicketTransition.write_state/3).(id, "rework", writer: :executor_rework) end
 
@@ -124,8 +126,13 @@ defmodule Aiur.AgentControlCLI.Rework do
   end
 
   defp report_turn(issue, {:error, reason}) do
-    control_error("aiur: no worker turn started for #{issue} (#{inspect(reason)}); the rework label and reason are recorded")
-    1
+    if OverrideRecovery.capacity?(reason) do
+      IO.puts("aiur: no free agent slot for #{issue}; its turn starts when one frees and reads the reason first")
+      0
+    else
+      control_error("aiur: no worker turn started for #{issue} (#{inspect(reason)}); the rework label and reason are recorded")
+      1
+    end
   end
 
   defp fail(issue, detail) do

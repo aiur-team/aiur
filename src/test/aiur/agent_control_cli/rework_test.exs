@@ -39,6 +39,26 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
     assert String.ends_with?(text, "Mark the PR ready if it matches")
   end
 
+  # Open-Games #468/#475: with the fleet full, rework refused and recorded
+  # nothing. The reason is queued even when no slot is free, the label is
+  # written, and the refused turn is a wait for a slot, not a failure.
+  test "a full fleet records the reason and label and the turn waits for a slot" do
+    parent = self()
+
+    record_opts = fn _id, _text, opts ->
+      send(parent, {:send_opts, opts})
+      {:ok, 14}
+    end
+
+    {output, calls} = run("475", "Host the stills", send: record_opts, resume: fn _id -> {:error, {:max_concurrent_agents_reached, %{}}} end)
+
+    assert_receive {:send_opts, opts}, 1_000
+    assert opts[:queue_when_full] == true
+    assert Enum.any?(calls, &match?({:state, "475", "rework", _}, &1))
+    assert output =~ "aiur: no free agent slot for 475; its turn starts when one frees and reads the reason first"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "a working worker reads the reason at its next checkpoint" do
     {output, _calls} = run("327", "redo", resume: fn _ -> {:ok, :already_running} end)
 
@@ -47,10 +67,10 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
   end
 
   test "a refused turn is reported after rework and the reason are recorded" do
-    {output, _calls} = run("327", "redo", resume: fn _ -> {:error, :max_concurrent_agents_reached} end)
+    {output, _calls} = run("327", "redo", resume: fn _ -> {:error, :lifetime_dispatch_latch} end)
 
     assert output =~ "aiur: ticket 327 is in agent:rework"
-    assert output =~ "no worker turn started for 327 (:max_concurrent_agents_reached)"
+    assert output =~ "no worker turn started for 327 (:lifetime_dispatch_latch)"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
