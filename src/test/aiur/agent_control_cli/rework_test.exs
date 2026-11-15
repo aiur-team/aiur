@@ -27,6 +27,18 @@ defmodule Aiur.AgentControlCLI.ReworkTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  # Open-Games #418/#407/#422: the wrapper said never to change the draft or
+  # ready state, so workers held a draft the reason told them to mark ready.
+  # The command leaves the PR alone; the reason decides what the worker does.
+  test "the wrapper defers the draft or ready state to the reason" do
+    {_output, calls} = run("418", "Mark the PR ready if it matches")
+    [text] = for {:send, "418", text} <- calls, do: text
+
+    assert text =~ "Keep the PR's draft or ready state unless the reason below says otherwise"
+    refute text =~ "do not change its draft or ready state"
+    assert String.ends_with?(text, "Mark the PR ready if it matches")
+  end
+
   test "a working worker reads the reason at its next checkpoint" do
     {output, _calls} = run("327", "redo", resume: fn _ -> {:ok, :already_running} end)
 

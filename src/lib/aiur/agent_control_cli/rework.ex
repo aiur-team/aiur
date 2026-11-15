@@ -109,7 +109,7 @@ defmodule Aiur.AgentControlCLI.Rework do
   defp request_id(_request), do: nil
 
   defp message(reason) do
-    "The Executor moved this ticket back to agent:rework. The PR stays as it is, so do not change its draft or ready state. " <>
+    "The Executor moved this ticket back to agent:rework. Keep the PR's draft or ready state unless the reason below says otherwise. " <>
       "Address this, push, then hand the ticket back:\n\n" <> reason
   end
 
