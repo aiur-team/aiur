@@ -307,17 +307,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
         do_enqueue_running_operator_message(next_state, reactivated_entry, issue_identifier, text, request)
 
       {{:error, reason} = error, next_state} ->
-        if queue_when_full?(request, reason),
-          do: do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
-          else: {error, next_state}
+        queue_when_full(state, running_entry, issue_identifier, text, request, reason, {error, next_state})
     end
   end
 
-  # `aiur rework` must record its reason even when no slot is free: the input
-  # stays queued on the parked entry, and the turn that reads it starts when
-  # the reconciler finds a slot (Open-Games #468, #475).
-  defp queue_when_full?(%{queue_when_full: true}, reason), do: OverrideRecovery.capacity?(reason)
-  defp queue_when_full?(_request, _reason), do: false
+  defp queue_when_full(state, entry, identifier, text, request, reason, error),
+    do: if(OverrideRecovery.queue_when_full?(request, reason), do: do_enqueue_running_operator_message(state, entry, identifier, text, request), else: error)
 
   defp enqueue_after_resume(state, running_entry, issue_identifier, text, request) do
     with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
@@ -330,16 +325,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
            TicketTransition.apply_effect(queued_state, {:resume_paused, queued_entry, true}) do
       {queued, resumed_state}
     else
-      {:error, reason} ->
-        if queue_when_full?(request, reason),
-          do: do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
-          else: {{:error, reason}, state}
-
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
-
-      _missing_entry ->
-        {{:error, :no_running_agent}, state}
+      {:error, reason} -> queue_when_full(state, running_entry, issue_identifier, text, request, reason, {{:error, reason}, state})
+      {{:error, _reason} = error, next_state} -> {error, next_state}
+      _missing_entry -> {{:error, :no_running_agent}, state}
     end
   end
 
