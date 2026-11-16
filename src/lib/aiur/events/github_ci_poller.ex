@@ -22,6 +22,10 @@ defmodule Aiur.Events.GithubCIPoller do
 
   @spec recover_failure(map(), map(), keyword()) :: map()
   defdelegate recover_failure(issue, result, opts), to: Recovery, as: :recover
+  @doc "Keeps an early failure only for a ticket waiting on CI; any other state waits for the full run."
+  @spec settle_early_failure(map(), boolean()) :: map()
+  def settle_early_failure(result, true = _waiting_on_ci), do: result
+  def settle_early_failure(result, false), do: Evaluation.await_remaining_checks(result)
   @spec complete_recovery(map(), map(), term(), keyword()) :: map()
   defdelegate complete_recovery(issue, result, recovered, opts), to: Recovery, as: :complete
   @spec record_failure(map(), map(), keyword()) :: :ok | {:error, term()}

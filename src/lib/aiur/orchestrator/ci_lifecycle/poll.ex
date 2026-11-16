@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.Events.GithubCIPoller.Evaluation
   alias Aiur.GitHub.{CIPollBatch, Client}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
@@ -373,14 +372,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     end
   end
 
-  # Only a ticket waiting on CI acts on a failure before every check finishes;
-  # any other state keeps waiting for the full run, as before.
-  defp settle_early_failure(issue, result) do
-    if Transition.effective_ci_state(issue) == @ci_wait_state,
-      do: result,
-      else: Evaluation.await_remaining_checks(result)
-  end
-
   defp apply_ci_poll_result_for_target(state, result, issues_by_target, opts) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
@@ -390,7 +381,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         else
           result = classify_merge_queue_departure(state, issue, result)
           result = confirm_conflict_streak(state, issue, result)
-          result = settle_early_failure(issue, result)
+          result = GithubCIPoller.settle_early_failure(result, Transition.effective_ci_state(issue) == @ci_wait_state)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
