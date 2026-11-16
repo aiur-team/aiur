@@ -85,6 +85,11 @@ At the no-op bound, verified rework with no new PR head becomes `error`. Other
 no-op-bound tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
+A `ci-wait` ticket whose ready PR has a required check that already failed goes
+to `rework` without waiting for the checks still running on that head. The rework
+comment lists the failed checks with each one's first error lines. A failure the
+CI recovery would rerun as a flake still waits for the run to finish.
+
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next

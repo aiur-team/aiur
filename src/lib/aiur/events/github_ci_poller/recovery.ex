@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
-  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, FailureObservation, RepoWideFailure}
+  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, Evaluation, FailureObservation, RepoWideFailure}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -188,15 +188,24 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp digest(sha, opts), do: Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts)
 
+  # A rerun needs the finished workflow run, so an early failure it would rerun waits for the remaining checks.
   defp recover_failure(issue, result, entry, opts) do
-    if result[:pending_reason] == :ci_cancelled or ApprovedLandingFailure.all_infrastructure_failures?(result) or get_in(entry, ["heads", result.head_sha]) != nil or
-         retryable?(result.ci_failure_digest, result.pr_number, opts) do
-      case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
-        {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
-        {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
-      end
-    else
-      result
+    cond do
+      not rerun_candidate?(result, entry, opts) -> result
+      result[:checks_incomplete] == true -> Evaluation.await_remaining_checks(result)
+      true -> observe_and_recover(issue, result, entry, opts)
+    end
+  end
+
+  defp rerun_candidate?(result, entry, opts) do
+    result[:pending_reason] == :ci_cancelled or ApprovedLandingFailure.all_infrastructure_failures?(result) or get_in(entry, ["heads", result.head_sha]) != nil or
+      retryable?(result.ci_failure_digest, result.pr_number, opts)
+  end
+
+  defp observe_and_recover(issue, result, entry, opts) do
+    case Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts) do
+      {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
+      {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
     end
   end
 

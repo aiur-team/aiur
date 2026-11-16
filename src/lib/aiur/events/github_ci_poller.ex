@@ -179,6 +179,7 @@ defmodule Aiur.Events.GithubCIPoller do
             Evaluation.evaluate(check_runs, commit_status)
             |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
             |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.fail_fast(pr, opts)
             |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
             |> Map.merge(%{
               target: target,
@@ -195,6 +196,7 @@ defmodule Aiur.Events.GithubCIPoller do
             Evaluation.evaluate(check_runs, commit_status)
             |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
             |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.fail_fast(pr, opts)
             |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
             |> Map.merge(%{
               target: target,
@@ -388,6 +390,7 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, ^observed_head_sha} ->
         Evaluation.evaluate(check_runs, commit_status)
         |> Evaluation.enforce_required_checks(check_runs, commit_status, current_pr, opts)
+        |> Evaluation.fail_fast(current_pr, opts)
         |> Evaluation.enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{
           target: target,

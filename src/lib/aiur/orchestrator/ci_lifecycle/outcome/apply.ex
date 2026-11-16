@@ -177,6 +177,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   end
 
   defp transition_ci_failure(state, issue, result) do
+    result = FailureComment.with_error_lines(result)
+
     if LifecycleFence.handoff_blocked?(state, issue) do
       Transition.log_fenced_ci_handoff(issue, "rework")
       state
