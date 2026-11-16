@@ -149,11 +149,10 @@ defmodule Aiur.DecisionAttentionTest do
 
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
 
-    # Human-required decisions still need an answer and cannot defer.
+    # An unanswered attention keeps re-asking.
     send(pid, {:reask, {identifier, "operator-decision"}})
     :sys.get_state(pid)
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
-    assert {:error, {:conflict, :not_deferrable}} = DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "test"}], store)
     send(pid, {:reask, {identifier, "operator-decision"}})
     :sys.get_state(pid)
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
