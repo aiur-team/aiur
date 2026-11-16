@@ -331,6 +331,7 @@ An exported value wins, followed by the global file and then the repository file
 | `decisions.native_capture.claude` | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
 | `decisions.native_capture.codex` | boolean | true | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Set false to opt out. |
 | `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
+| `decisions.require_option_media` | boolean | false | Refuse a `decision.requested` Command when any option has no media (an image path or URL), and tell the worker which options lack it. For projects where a person must see each option to choose. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
 

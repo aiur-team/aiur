@@ -223,6 +223,17 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload({:decision_rejected, {:decision_invalid, {:option_media_missing, option_ids}}} = reason) do
+    %{
+      "error" => %{
+        "message" =>
+          "Command not raised: this project requires media (an image path or URL) on every option. " <>
+            "Add `media` to these options and raise it again: #{Enum.join(option_ids, ", ")}.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
   def payload({:decision_rejected, reason}) do
     %{
       "error" => %{
