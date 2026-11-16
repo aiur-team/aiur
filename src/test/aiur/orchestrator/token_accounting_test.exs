@@ -53,6 +53,28 @@ defmodule Aiur.Orchestrator.TokenAccountingTest do
     assert completed.completed_turn_count == 1
   end
 
+  # The dashboard reads effort from the running entry; a ticket raised to a
+  # higher effort mid-thread must show the effort its latest turn ran at.
+  test "a started turn records the effort it runs at on the running entry" do
+    entry = %{
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      session_id: "thread-1-turn-1",
+      session_execution: %{backend: "codex", effort: "low"}
+    }
+
+    {started, _delta} =
+      TokenAccounting.integrate_codex_update(entry, %{
+        event: :session_started,
+        timestamp: DateTime.utc_now(),
+        session_id: "thread-1-turn-2",
+        effort: "xhigh"
+      })
+
+    assert started.session_execution == %{backend: "codex", effort: "xhigh"}
+  end
+
   test "prefers cumulative usage and preserves highwater deltas" do
     now = DateTime.utc_now()
 
