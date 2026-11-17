@@ -32,6 +32,7 @@ config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
 config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
 config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
 config :aiur, :github_rework_ci_canceller, {Aiur.GitHub.ReworkCICancel, :cancel_async}
+config :aiur, :merged_round_handoff_check, {Aiur.Orchestrator.MergedRoundHandoff, :allow?}
 
 # Sources are named here so the sweep's complete set is readable in one place.
 config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]

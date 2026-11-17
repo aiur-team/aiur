@@ -1,4 +1,4 @@
-defmodule Aiur.AgentRunner.MergedRoundHandoffTest do
+defmodule Aiur.Orchestrator.MergedRoundHandoffTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.ToolExecutor
