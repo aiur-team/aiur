@@ -24,7 +24,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
       "Completed agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}"
     )
 
-    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher) do
+    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher, Map.get(turn_context, :opts, [])) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
         ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
           continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
