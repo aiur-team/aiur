@@ -16,6 +16,7 @@ defmodule Aiur.CommandsFacadeTest do
     record_override_prompt_receipt: {Aiur.Commands.OverridePrompt, :received},
     override_dispatchable?: {Aiur.DecisionStore.Overrides, :dispatchable?},
     requester_notified: {Aiur.Commands.ExecutorDelivery, :on_enqueued},
+    describe_refusal: {Aiur.Commands.Media, :describe},
     public_v2: {Aiur.Commands.Projection, :public_v2},
     needs_you?: {Aiur.Commands.Routing.Policy, :needs_you?},
     matches_route?: {Aiur.Commands.Routing.Policy, :matches_route?},
