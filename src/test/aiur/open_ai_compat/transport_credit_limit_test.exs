@@ -110,6 +110,22 @@ defmodule Aiur.OpenAICompat.TransportCreditLimitTest do
     assert second.json["max_tokens"] == 4_096
   end
 
+  # The exact refusal open-game-maker #854 hit: the key's monthly limit is spent,
+  # so no smaller request fits. It used to fail the turn three times into
+  # agent:error with the claim released; it is a credit pause instead.
+  test "a spent per-key limit pauses the route at once instead of retrying or failing" do
+    parent = self()
+
+    key_limit =
+      "Prompt tokens limit exceeded: 13485 > 561. To increase, visit https://openrouter.ai/workspaces/default/keys/abc " <>
+        "and adjust the key's monthly limit"
+
+    queue = start_supervised!({Agent, fn -> [refusal(key_limit), ok()] end})
+
+    assert {:error, :credit_limited} = Transport.complete(config(queue_fun(queue, parent)), [], [])
+    assert [_only] = collect_requests(1)
+  end
+
   test "a 402 that is not about credits or max_tokens keeps its error and is not retried" do
     parent = self()
     queue = start_supervised!({Agent, fn -> [refusal("Payment method declined."), ok()] end})
