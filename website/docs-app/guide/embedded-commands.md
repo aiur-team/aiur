@@ -149,6 +149,13 @@ rejected or dismissed, every other open or deferred sibling is mooted with
 Command. An answered sibling keeps its answer, and other groups and tickets are
 untouched.
 
+A ticket also keeps one open question for its creator. When a worker raises a
+new `audience: creator` or human-required Command, the ticket's older open ones
+of either kind are mooted with `reason_class: superseded` and the detail
+`Replaced by <new decision id>.`, so the creator only sees the latest question.
+Answered Commands, Commands sharing the new one's `group:` tag, native questions
+and legacy attentions are left alone.
+
 ## Component states
 
 Every Command renders to one component map with a stable `state` that the
