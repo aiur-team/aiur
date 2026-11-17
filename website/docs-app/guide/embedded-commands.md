@@ -190,6 +190,11 @@ A Command's prompt and each of its options can carry typed media: `image`,
 `animated_image`, `video`, `audio`, or `embed`. The component's `media[]` holds those
 items, and an option's own `media[]` sits on the option.
 
+A prompt or an option holds at most 8 media items, or 128 when every item is
+audio, so a voice review fits in one Command. An answer holds at most 8. A refused
+list's error names the limit and how to fit: split clips across options, or link
+one review page as a single `embed`.
+
 A typed item has a `kind`, a `mime_type`, a `locator`, and alt text or a caption.
 A pre-existing artifact reference in the same list has a bare `kind` + `value`.
 The presence of `locator` is what tells the two apart.
