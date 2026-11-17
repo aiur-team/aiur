@@ -49,8 +49,8 @@ defmodule Aiur.Commands.RoutingResilienceTest do
     pid
   end
 
-  defp command(ctx, payload \\ %{}) do
-    {:ok, %{decision: decision}} = request(ctx.store, Map.merge(%{"question" => "Proceed?", "blocking" => false}, payload))
+  defp command(ctx, payload \\ %{}, opts \\ []) do
+    {:ok, %{decision: decision}} = request(ctx.store, Map.merge(%{"question" => "Proceed?", "blocking" => false}, payload), opts)
     decision
   end
 
@@ -124,7 +124,8 @@ defmodule Aiur.Commands.RoutingResilienceTest do
 
   test "history reread error skips one Command, continues others and repairs on retry", ctx do
     failed = command(ctx, %{"question" => "History unavailable?", "authority" => "human_required"})
-    healthy = command(ctx, %{"question" => "Healthy?", "authority" => "human_required"})
+    # A second creator question on the same ticket would replace the first.
+    healthy = command(ctx, %{"question" => "Healthy?", "authority" => "human_required"}, ticket: %{@ticket | identifier: "980"})
     proxy = start_supervised!({StoreProxy, store: ctx.store, fail_history_id: failed.decision_id, history_reads: 0})
     assert {nil, [{id, :history_unavailable}]} = Sweep.run([failed, healthy], :live, ctx.now, @config, proxy)
     assert id == failed.decision_id
