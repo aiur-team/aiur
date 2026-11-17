@@ -1,9 +1,10 @@
-defmodule Aiur.AgentRunner.MergedRoundHandoff do
+defmodule Aiur.Orchestrator.MergedRoundHandoff do
   @moduledoc false
 
   # A round whose PR merged leaves no open PR for the review-findings read, yet a
   # worker waiting on the creator's verdict belongs in human-review (#644).
-  alias Aiur.{DecisionStore, RecentMergeStore}
+  # `ReworkHandoffGuard` reaches it through `config :aiur, :merged_round_handoff_check`.
+  alias Aiur.{Commands, RecentMergeStore}
 
   @spec allow?(String.t() | integer(), keyword()) :: boolean()
   def allow?(identifier, opts) do
@@ -17,7 +18,7 @@ defmodule Aiur.AgentRunner.MergedRoundHandoff do
   end
 
   defp open_creator_command?(identifier, opts) do
-    decisions = read(Keyword.get(opts, :decisions_fun, &DecisionStore.list/0))
+    decisions = read(Keyword.get(opts, :decisions_fun, &Commands.list_decisions/0))
     Enum.any?(decisions, &creator_command?(&1, identifier))
   end
 
