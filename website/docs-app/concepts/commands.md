@@ -456,6 +456,11 @@ Each item names its kind and MIME type, a locator, and alt text or a caption:
 | Size, dimensions, duration | Optional bounds checked against the kind's limit; an embed's `duration_hint` is in seconds. |
 | Poster | A still frame for video or audio. |
 
+A prompt or an option holds at most 8 media items, or 128 when every item is
+audio, so a voice review fits in one Command. An answer holds at most 8. A refused list's error
+names the limit and how to fit: split clips across options, or link one review
+page as a single `embed`.
+
 A worker sends media in the `decision.requested` payload that already carries
 its question and options. The Executor attaches media from the shell with
 `aiur command request --media <file|https-url>[,alt=…,caption=…,option=<id>]`,
