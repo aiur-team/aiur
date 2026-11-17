@@ -63,6 +63,9 @@ defmodule Aiur.Commands.Media do
   }
 
   @max_items 8
+  # A voice or sound review is many short clips (open-games #645: 8 characters
+  # x 16 lines), so a list of audio alone may hold more.
+  @max_audio_items 128
   @alt_text_max 400
   @caption_max 500
   @locator_max 4_096
@@ -168,7 +171,7 @@ defmodule Aiur.Commands.Media do
   def normalize([], _safe_roots), do: {:ok, []}
 
   def normalize(items, safe_roots) when is_list(items) and is_list(safe_roots) do
-    if length(items) > @max_items do
+    if length(items) > max_items(items) do
       {:error, {:media, :too_many}}
     else
       collect(items, safe_roots)
@@ -176,6 +179,23 @@ defmodule Aiur.Commands.Media do
   end
 
   def normalize(_items, _safe_roots), do: {:error, {:media, :invalid_type}}
+
+  defp max_items(items), do: if(Enum.all?(items, &(item_kind(&1) == "audio")), do: @max_audio_items, else: @max_items)
+
+  defp item_kind(%{"kind" => kind}), do: to_string(kind)
+  defp item_kind(%{kind: kind}), do: to_string(kind)
+  defp item_kind(_item), do: nil
+
+  @doc "What a worker should change to fit a refused media list, or nil for other errors."
+  @spec describe(term()) :: String.t() | nil
+  def describe({:decision_invalid, reason}), do: describe(reason)
+
+  def describe({:media, :too_many}),
+    do:
+      "A prompt or option holds at most #{@max_items} media items, or #{@max_audio_items} when every item is audio. " <>
+        "Split the clips across options (one option per character, for example), or link one review page as a single `embed` item on a `decisions.embed_hosts` host."
+
+  def describe(_reason), do: nil
 
   defp collect(items, safe_roots) do
     Enum.reduce_while(items, {:ok, []}, fn raw, {:ok, acc} ->

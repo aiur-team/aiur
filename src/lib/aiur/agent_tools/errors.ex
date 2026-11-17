@@ -243,6 +243,10 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  # The hint says what to change so the same request fits.
+  def payload({:decision_rejected, reason, hint}),
+    do: put_in(payload({:decision_rejected, reason}), ["error", "hint"], hint)
+
   def payload({:decision_lifecycle_rejected, reason}) do
     %{
       "error" => %{

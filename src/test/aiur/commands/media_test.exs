@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.MediaTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.AgentTools.Errors
   alias Aiur.Commands.Media
 
   setup do
@@ -78,6 +79,29 @@ defmodule Aiur.Commands.MediaTest do
 
     test "rejects more than the item cap" do
       assert {:error, {:media, :too_many}} = Media.normalize(List.duplicate(image(), 9), [])
+    end
+
+    # open-games #645 asked its creator about 8 characters x 16 voice lines and
+    # was refused at the 8-item cap, so the creator was never asked.
+    test "a list of audio clips alone holds a whole voice review" do
+      clip = %{"kind" => "audio", "mime_type" => "audio/mpeg", "locator" => "https://github.com/a/b/line.mp3", "caption" => "Blob 1, line 1"}
+
+      assert {:ok, items} = Media.normalize(List.duplicate(clip, 128), [])
+      assert length(items) == 128
+      assert {:error, {:media, :too_many}} = Media.normalize(List.duplicate(clip, 129), [])
+      assert {:error, {:media, :too_many}} = Media.normalize([image() | List.duplicate(clip, 8)], [])
+    end
+
+    test "the refusal says the limits and how to fit under them" do
+      hint = Media.describe({:decision_invalid, {:media, :too_many}})
+      assert hint =~ "at most 8 media items, or 128 when every item is audio"
+      assert hint =~ "`embed`"
+      assert Media.describe({:media, :invalid_kind}) == nil
+
+      assert %{"error" => %{"hint" => ^hint, "reason" => "{:decision_invalid, {:media, :too_many}}"}} =
+               Errors.payload({:decision_rejected, {:decision_invalid, {:media, :too_many}}, hint})
+
+      refute Map.has_key?(Errors.payload({:decision_rejected, :other})["error"], "hint")
     end
 
     test "accepts a local file under a safe root", %{root: root} do
