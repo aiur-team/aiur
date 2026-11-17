@@ -175,6 +175,8 @@ refused. One case is allowed: a `human-review` handback when aiur recorded a
 merged PR for the ticket and a creator Command on it is still open. The worker
 waits there for the creator's verdict instead of asking the Executor to move it.
 
+When the stall watchdog kills a worker that made no progress, messages already handed to that session, such as a rework reason, go back to the ticket's queue. The retry, or a later dispatch after a claim release, receives them.
+
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
 and after CI. Up to three integrations per handoff
 need no approval; each runs local tests and format, size and components gates,

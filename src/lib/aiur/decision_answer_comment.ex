@@ -62,13 +62,20 @@ defmodule Aiur.DecisionAnswerComment do
     **Question:** #{decision.question}
 
     **Answer:** #{chosen}
-
+    #{operator_words(answer)}
     **Answered by:** #{answer.actor.kind}#{if answer.actor.id, do: " (#{answer.actor.id})", else: ""}
 
     **Answered at:** #{DateTime.to_iso8601(answer.accepted_at)}
     """
     |> String.trim()
   end
+
+  # A relayed answer's verbatim operator words are the substance of the verdict (#644).
+  defp operator_words(%DecisionAnswer{operator_quote: quote}) when is_binary(quote) and quote != "" do
+    "\n**Operator's words:**\n\n" <> (quote |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &("> " <> &1))) <> "\n"
+  end
+
+  defp operator_words(_answer), do: ""
 
   defp comment_body(comment) when is_map(comment), do: Map.get(comment, :body, Map.get(comment, "body", ""))
   defp comment_body(_comment), do: ""

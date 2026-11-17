@@ -90,13 +90,16 @@ defmodule Aiur.PromptBuilder do
   def answered_decisions_prompt(decisions) when is_list(decisions) and decisions != [] do
     entries =
       Enum.map_join(decisions, "\n\n", fn decision ->
-        "Question: #{decision.question}\nAnswer: #{decision.answer}\nAnswered by: #{decision.actor}\nAnswered at: #{DateTime.to_iso8601(decision.accepted_at)}"
+        "Question: #{decision.question}\nAnswer: #{decision.answer}\n#{operator_words(decision)}Answered by: #{decision.actor}\nAnswered at: #{DateTime.to_iso8601(decision.accepted_at)}"
       end)
 
     "## Answered decisions\n\nThese durable answers are provided for this session. Apply them as the ticket's recorded decisions.\n\n#{entries}\n"
   end
 
   def answered_decisions_prompt(_decisions), do: ""
+
+  defp operator_words(%{operator_words: words}) when is_binary(words) and words != "", do: "Operator's words (verbatim):\n#{words}\n"
+  defp operator_words(_decision), do: ""
 
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
   #
