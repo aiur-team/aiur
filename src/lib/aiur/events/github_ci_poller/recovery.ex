@@ -187,11 +187,12 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp digest(sha, opts), do: Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts)
+  defp observation(result, opts), do: if(result[:checks_incomplete], do: :rerun_needs_finished_run, else: Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts))
 
   defp recover_failure(issue, result, entry, opts) do
     if result[:pending_reason] == :ci_cancelled or ApprovedLandingFailure.all_infrastructure_failures?(result) or get_in(entry, ["heads", result.head_sha]) != nil or
          retryable?(result.ci_failure_digest, result.pr_number, opts) do
-      case if(result[:checks_incomplete], do: :rerun_needs_finished_run, else: Keyword.get(opts, :ci_recovery_observation) || CIRecovery.observe(result.pr_number, opts)) do
+      case observation(result, opts) do
         :rerun_needs_finished_run -> Evaluation.await_remaining_checks(result)
         {:ok, pr} -> choose_recovery(issue, result, entry, pr, opts)
         {:error, reason} -> attention(issue, result, "observation_unavailable", reason, opts, "transient")
@@ -375,7 +376,6 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   defp rerun_completed?({run, {:ok, %{"head_sha" => sha, "status" => "completed", "run_attempt" => attempt}}}, sha), do: attempt > run["attempt"]
   defp rerun_completed?(_, _), do: false
-
   defp now(opts), do: Keyword.get(opts, :ci_recovery_now, System.system_time(:second))
 
   defp await_attempt(issue, result, %{"error" => error}, kind, opts), do: attention(issue, result, kind <> "_failed", error, opts)
