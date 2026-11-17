@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @moduledoc false
 
-  alias Aiur.AgentRunner.{ApprovedHandoff, ReworkFindings}
+  alias Aiur.AgentRunner.{ApprovedHandoff, MergedRoundHandoff, ReworkFindings}
   alias Aiur.{Alerts, Issue, LocalTestEvidence, PrBodyLint, Tracker}
   alias Aiur.Events.GithubCIPoller.ApprovalCarry
   alias Aiur.GitHub.Client, as: GitHubClient
@@ -243,7 +243,10 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         })
 
       {:error, reason} ->
-        {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
+        if reason == :no_open_pr and state == "human-review" and MergedRoundHandoff.allow?(issue.identifier, opts),
+          do: {:allow, []},
+          else:
+            {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
     end
   end
 
