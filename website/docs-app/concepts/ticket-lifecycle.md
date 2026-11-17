@@ -90,6 +90,13 @@ to `rework` without waiting for the checks still running on that head. The rewor
 comment lists the failed checks with each one's first error lines. A failure the
 CI recovery would rerun as a flake still waits for the run to finish.
 
+Some failures are not about the code and never send a ticket to `rework`:
+
+- A gate job such as `required` that failed only because its upstream jobs were cancelled counts as a cancelled run. Aiur reruns it once and raises an attention if the rerun is cancelled too.
+- A check GitHub never started, for billing, a spending limit or a `startup_failure`, leaves the verdict pending.
+
+A repository whose CI runs outside hosted Actions sets `agent.ci_failed_rework: false`, and no CI failure reworks its tickets.
+
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next

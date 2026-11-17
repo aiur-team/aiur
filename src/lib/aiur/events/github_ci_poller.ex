@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
+  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery, UnavailableCI}
   alias Aiur.GitHub.{Access, CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -194,6 +194,7 @@ defmodule Aiur.Events.GithubCIPoller do
               reviewed_head?: Map.get(pr, "reviewed_head?")
             })
             |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> UnavailableCI.settle(opts)
             |> log_classification()
 
           {:ok, {:unchanged, recovered_invalidation}} ->
@@ -212,6 +213,7 @@ defmodule Aiur.Events.GithubCIPoller do
               base_repair_invalidation: recovered_invalidation
             })
             |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> UnavailableCI.settle(opts)
             |> log_classification()
 
           {:ok, {:repaired, invalidation}} ->
@@ -408,6 +410,7 @@ defmodule Aiur.Events.GithubCIPoller do
         |> Map.put(:ready_at_ms, Map.get(current_pr, "ready_at_ms"))
         |> Map.put(:reviewed_head?, Map.get(current_pr, "reviewed_head?"))
         |> Map.merge(Evaluation.merge_queue_observation(current_pr))
+        |> UnavailableCI.settle(opts)
         |> log_classification()
 
       {:ok, current_head_sha} ->
