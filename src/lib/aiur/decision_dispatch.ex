@@ -77,12 +77,13 @@ defmodule Aiur.DecisionDispatch do
     response = NativeAnswer.render(decision, answer) || response_text(decision, answer)
     rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
     feedback = if answer.feedback != [], do: "Option feedback:\n" <> Feedback.render(answer.feedback), else: nil
+    words = if is_binary(answer.operator_quote) and answer.operator_quote != "", do: "Operator's words (verbatim):\n#{answer.operator_quote}", else: nil
 
     lifecycle =
       Enum.join([lifecycle_correlation(decision, answer), lifecycle_instruction()], "\n\n")
 
     prefix =
-      [response, rationale, feedback]
+      [response, words, rationale, feedback]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n\n")
 
