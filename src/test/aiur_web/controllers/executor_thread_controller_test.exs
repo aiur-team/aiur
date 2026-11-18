@@ -30,6 +30,7 @@ defmodule AiurWeb.ExecutorThreadControllerTest do
 
     EndpointStubs.put(
       dashboard_writable: true,
+      executor_thread_queued_fun: fn -> {:ok, []} end,
       conversation_executor_session_fun: fn -> %{"state" => "live"} end,
       executor_thread_opts: [
         binding_fun: fn -> Process.get(:binding, @live) end,
@@ -81,6 +82,18 @@ defmodule AiurWeb.ExecutorThreadControllerTest do
     assert_received {:listener_send, _ref, "are you there?", _opts}
     assert_received {:wake, %{"topic" => "executor.thread.message", "action" => "operator_message", "request_id" => 41}}
     assert %{"can_send" => true, "executor" => %{"attached" => false}} = request(:get, "/api/v1/executor/thread", grant()).resp_body |> Jason.decode!()
+  end
+
+  test "messages still waiting for an Executor session are listed as queued on every read" do
+    queued = %{id: 77, body: %{text: "while you were away"}, inserted_at: ~U[2026-11-17 21:12:57Z]}
+    EndpointStubs.put(executor_thread_queued_fun: fn -> {:ok, [queued]} end)
+
+    for after_pos <- [0, 9] do
+      body = request(:get, "/api/v1/executor/thread/messages?after=#{after_pos}", grant()).resp_body |> Jason.decode!()
+
+      assert [%{"id" => "req_77", "request_id" => 77, "role" => "operator", "text" => "while you were away", "delivery" => "queued", "created_at" => "2026-11-17T21:12:57Z"}] =
+               body["queued"]
+    end
   end
 
   test "a read-only instance refuses the send instead of queueing it" do

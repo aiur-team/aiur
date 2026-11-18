@@ -24,7 +24,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
         turn_id: request.turn_id,
         action_id: request.action_id,
         correlation: request.correlation,
-        persist_across_restart?: identifier != "executor"
+        # Executor messages persist too: a pin swap restarts the daemon, and a
+        # message waiting for the next Executor session must survive it. Hook
+        # delivery saves the item as delivered before the Executor sees it, so
+        # a restart never sends it twice.
+        persist_across_restart?: true
       )
 
     case enqueue_plain.(state.queue_store, attrs, request) do

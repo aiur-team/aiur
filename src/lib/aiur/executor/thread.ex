@@ -42,19 +42,27 @@ defmodule Aiur.Executor.Thread do
   @doc """
   Operator and Executor messages after journal position `after`, oldest first.
   `next_after` is the position to pass next; it stays put when nothing is new.
+  `queued` is every operator message still waiting for an Executor session,
+  whatever `after` is; it is kept across a daemon restart.
   """
-  @spec messages(non_neg_integer(), pos_integer(), term()) :: {:ok, %{messages: [message()], next_after: non_neg_integer()}} | {:error, atom()}
-  def messages(after_pos, limit, principal) do
-    case History.list_entries(Ref.executor(), after: after_pos, limit: limit, kinds: @kinds, principal: principal) do
-      {:ok, page} ->
-        {:ok, %{messages: Enum.flat_map(page.entries, &message/1), next_after: next_after(page, after_pos)}}
-
-      {:error, :not_found} ->
-        {:ok, %{messages: [], next_after: after_pos}}
-
-      {:error, _reason} = error ->
-        error
+  @spec messages(non_neg_integer(), pos_integer(), term(), keyword()) ::
+          {:ok, %{messages: [message()], next_after: non_neg_integer(), queued: [message()]}} | {:error, atom()}
+  def messages(after_pos, limit, principal, opts \\ []) do
+    with {:ok, page} <- journal_page(after_pos, limit, principal),
+         {:ok, queued} <- Keyword.get(opts, :queued_fun, fn -> {:ok, []} end).() do
+      {:ok, %{messages: Enum.flat_map(page.entries, &message/1), next_after: next_after(page, after_pos), queued: Enum.map(queued, &queued/1)}}
     end
+  end
+
+  defp journal_page(after_pos, limit, principal) do
+    case History.list_entries(Ref.executor(), after: after_pos, limit: limit, kinds: @kinds, principal: principal) do
+      {:error, :not_found} -> {:ok, %{entries: []}}
+      result -> result
+    end
+  end
+
+  defp queued(item) do
+    %{sent(item.id, item.body.text, "queued") | created_at: timestamp(item.inserted_at)}
   end
 
   @doc """

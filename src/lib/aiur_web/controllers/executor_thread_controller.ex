@@ -3,6 +3,7 @@ defmodule AiurWeb.ExecutorThreadController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.Executor.{Thread, ThreadGrant}
+  alias Aiur.Orchestrator.OperatorMessages.Snapshot
   alias AiurWeb.{EndpointConfig, ExecutorThreadAuth}
   alias Plug.Conn
 
@@ -20,7 +21,7 @@ defmodule AiurWeb.ExecutorThreadController do
   def index(conn, params) do
     with {:ok, after_pos} <- integer(params["after"], 0, 0, nil),
          {:ok, limit} <- integer(params["limit"], @default_limit, 1, @maximum_limit),
-         {:ok, page} <- Thread.messages(after_pos, limit, principal(conn)) do
+         {:ok, page} <- Thread.messages(after_pos, limit, principal(conn), queued_fun: queued_fun()) do
       json(conn, page)
     else
       {:error, :invalid} -> error(conn, 422, "invalid_params", "after must be a position and limit 1-#{@maximum_limit}")
@@ -56,6 +57,10 @@ defmodule AiurWeb.ExecutorThreadController do
   end
 
   defp thread_opts, do: EndpointConfig.get(:executor_thread_opts, [])
+
+  defp queued_fun do
+    EndpointConfig.get(:executor_thread_queued_fun, fn -> Snapshot.queued_executor_messages(Aiur.Project.whereis(Aiur.Orchestrator), 5_000) end)
+  end
 
   defp text(text) when is_binary(text) and byte_size(text) <= @maximum_text_bytes do
     if String.trim(text) != "" and String.valid?(text), do: {:ok, text}, else: {:error, :invalid_text}

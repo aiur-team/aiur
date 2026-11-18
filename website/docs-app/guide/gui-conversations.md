@@ -94,7 +94,7 @@ a client token needs the `executor` category to send. Responses set
 | Method | Path | Result |
 | --- | --- | --- |
 | `GET` | `/api/v1/executor/thread` | `{conversation_id, executor: {attached, live}, can_send}`; `can_send` is `true` or `{reason}` |
-| `GET` | `/api/v1/executor/thread/messages?after=POS&limit=N` | `{messages, next_after}`, oldest first; `limit` is 1–200, default 50 |
+| `GET` | `/api/v1/executor/thread/messages?after=POS&limit=N` | `{messages, next_after, queued}`, oldest first; `limit` is 1–200, default 50 |
 | `POST` | `/api/v1/executor/thread/messages` | `{text, client_request_id}` returns 202 `{message}` |
 | `POST` | `/api/v1/executor/thread/grants` | Supervisor only. `{subject, ttl_s}` returns 201 `{token, expires_at}` |
 
@@ -102,10 +102,16 @@ A message is `{id, pos, request_id, role, text, attachments, created_at,
 delivery}`. `role` is `operator` or `executor`. `delivery` is `queued`,
 `delivered`, `outcome_unknown`, or null for Executor messages.
 
-The list comes from the Executor conversation, so a sent message appears once
-the Executor session records it. The send response carries `request_id`; the
-listed operator message carries the same `request_id`, so a host can replace
-its pending copy. Pass the last `next_after` to fetch only newer messages.
+`messages` comes from the Executor conversation, so a sent message appears
+there once the Executor session records it. Until then it is in `queued`, which
+lists every operator message still waiting for a session on each read,
+whatever `after` is. Both carry the send's `request_id`, so a host can match
+its own copy. Pass the last `next_after` to fetch only newer messages.
+
+Queued messages survive a daemon restart, with their `client_request_id`, so
+a retry after the restart still matches. A message is removed from the saved
+queue only when it is handed to an Executor session, so a restart never sends
+it twice.
 
 A send to a live Executor is queued for its session. With no Executor
 attached, the message waits for the next attached session and records an
