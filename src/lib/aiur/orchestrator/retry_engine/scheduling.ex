@@ -134,6 +134,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
                 last_failure_at: last_failure_at,
                 transient_reason: transient_reason,
                 retry_poll_failures: retry_poll_failures,
+                tracker_outage: metadata[:tracker_outage],
                 prior_work: prior_work?,
                 worker_host: worker_host,
                 workspace_path: workspace_path,
@@ -210,6 +211,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
           last_failure_at: Map.get(retry_entry, :last_failure_at),
           transient_reason: Map.get(retry_entry, :transient_reason),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
+          tracker_outage: Map.get(retry_entry, :tracker_outage),
           prior_work: Map.get(retry_entry, :prior_work, false),
           worker_host: Map.get(retry_entry, :worker_host),
           workspace_path: Map.get(retry_entry, :workspace_path),
@@ -308,13 +310,16 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
 
       :precondition ->
         Logger.warning(
-          "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt}, retry_poll_failure #{retry_poll_failures}/#{@max_retry_poll_failures})#{error_suffix}"
+          "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt}, #{retry_poll_progress(retry_poll_failures, metadata)})#{error_suffix}"
         )
 
       _ ->
         Logger.warning("Retrying agent failure issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{attempt})#{error_suffix}")
     end
   end
+
+  defp retry_poll_progress(failures, %{tracker_outage: %{}}), do: "tracker outage failure #{failures}; claim kept"
+  defp retry_poll_progress(failures, _metadata), do: "retry_poll_failure #{failures}/#{@max_retry_poll_failures}"
 
   @doc false
   @spec normalize_retry_poll_failures(term()) :: non_neg_integer()

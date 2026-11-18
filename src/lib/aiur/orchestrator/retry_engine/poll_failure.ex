@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
 
   require Logger
 
+  alias Aiur.AgentRunner.TrackerOutage
   alias Aiur.Config
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -61,8 +62,43 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   end
 
   defp handle_generic_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+    if TrackerOutage.outage?(reason),
+      do: defer_retry_poll_for_tracker_outage(state, issue_id, attempt, metadata, reason),
+      else: release_after_retry_poll_failures(state, issue_id, attempt, metadata, reason)
+  end
+
+  # A GitHub outage (5xx, timeout, dropped connection) says nothing about the
+  # ticket, so the claim and the workspace stay put and the poll keeps backing
+  # off; releasing would send the ticket back through dispatch the moment
+  # GitHub answers, while its workspace still holds the work.
+  defp defer_retry_poll_for_tracker_outage(state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
-    retry_poll_failures = Scheduling.normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
+    now_ms = metadata[:now_ms] || System.monotonic_time(:millisecond)
+    outage = TrackerOutage.note(metadata[:tracker_outage], identifier, reason, now_ms)
+
+    Logger.warning(
+      "Retry poll hit a tracker outage for issue_id=#{issue_id} issue_identifier=#{identifier} outage_failure=#{outage.failures} " <>
+        "agent_attempt=#{attempt} tracker_error=#{inspect(reason)}; keeping the claim"
+    )
+
+    Scheduling.schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        delay_type: :precondition,
+        error: "retry poll failed: #{inspect(reason)}",
+        retry_poll_failures: outage.failures,
+        tracker_outage: outage
+      })
+    )
+  end
+
+  defp release_after_retry_poll_failures(%State{} = state, issue_id, attempt, metadata, reason) do
+    identifier = metadata[:identifier] || issue_id
+    # Outage failures counted toward the backoff, not toward this release.
+    prior_failures = if metadata[:tracker_outage], do: 0, else: metadata[:retry_poll_failures]
+    retry_poll_failures = Scheduling.normalize_retry_poll_failures(prior_failures) + 1
 
     Logger.warning(
       "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{identifier} retry_poll_failure=#{retry_poll_failures}/#{@max_retry_poll_failures} agent_attempt=#{attempt} tracker_error=#{inspect(reason)}"
@@ -89,6 +125,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
           delay_type: :precondition,
           error: "retry poll failed: #{inspect(reason)}",
           retry_poll_failures: retry_poll_failures,
+          tracker_outage: nil,
           terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
         })
       )
