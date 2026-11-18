@@ -17,9 +17,9 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   @max_retry_poll_failures 3
 
   @doc false
-  @spec record_claim_release(State.t(), String.t(), term()) :: State.t()
-  def record_claim_release(%State{} = state, issue_id, reason) when is_binary(issue_id) do
-    {cause, details} = claim_release_reason(reason)
+  @spec record_claim_release(State.t(), String.t(), term(), :tracker | :agent) :: State.t()
+  def record_claim_release(%State{} = state, issue_id, reason, source \\ :tracker) when is_binary(issue_id) do
+    {cause, details} = claim_release_reason(reason, source)
 
     release = %{
       cause: cause,
@@ -209,13 +209,22 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
 
   @doc false
   @spec emit_claim_released_alert(State.t(), String.t(), String.t(), integer(), term(), map()) :: term()
+  # `metadata[:source]` is `:agent` when the agent's own retries ran out (a
+  # stalled or crashed worker), so the alert does not send the reader looking
+  # for a GitHub failure that never happened.
   def emit_claim_released_alert(state, issue_id, identifier, attempt, reason, metadata) do
-    {reason_code, details} = claim_release_reason(reason)
+    source = Map.get(metadata, :source, :tracker)
+    {reason_code, details} = claim_release_reason(reason, source)
     auto_reclaim = Map.get(state.auto_resume, issue_id)
     recovery = claim_recovery_message(auto_reclaim)
 
+    failures =
+      if source == :agent,
+        do: "#{attempt} failed agent attempts (last error: #{format_last_error(reason)})",
+        else: "#{@max_retry_poll_failures} tracker failures"
+
     message =
-      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{failures} " <>
         "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
@@ -234,12 +243,16 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
     )
   end
 
-  defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
+  defp claim_release_reason({:github, :rate_limited, details}, _source) when is_map(details), do: {:rate_limit_exhausted, details}
 
-  defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}) when is_integer(timeout_ms),
+  defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}, _source) when is_integer(timeout_ms),
     do: {:workspace_hook_timeout, %{hook: "before_run", timeout_ms: timeout_ms}}
 
-  defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+  defp claim_release_reason(_reason, :agent), do: {:agent_retry_exhausted, %{}}
+  defp claim_release_reason(_reason, _source), do: {:tracker_retry_exhausted, %{}}
+
+  defp format_last_error(reason) when is_binary(reason), do: reason
+  defp format_last_error(reason), do: inspect(reason)
 
   @doc false
   @spec recovery_delay_options(term()) :: keyword()

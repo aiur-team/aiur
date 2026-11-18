@@ -87,7 +87,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
       released =
         state
         |> RetryEngine.release_issue_claim(issue_id)
-        |> PollFailure.record_claim_release(issue_id, exhaustion_reason)
+        |> PollFailure.record_claim_release(issue_id, exhaustion_reason, :agent)
 
       released =
         Exhaustion.maybe_schedule_transient_auto_resume(
@@ -96,7 +96,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
           exhaustion_reason
         )
 
-      PollFailure.emit_claim_released_alert(released, issue_id, identifier, failed_attempts, exhaustion_reason, %{worker_host: worker_host})
+      PollFailure.emit_claim_released_alert(released, issue_id, identifier, failed_attempts, exhaustion_reason, %{worker_host: worker_host, source: :agent})
 
       released
       |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))

@@ -71,6 +71,34 @@ defmodule Aiur.Orchestrator.RetryEngine.ExhaustionTest do
     end
   end
 
+  describe "claim release after the agent's own retries" do
+    # open-games #687: three stalled Claude workers exhausted the agent retries
+    # right after its PR merged, and the release alert read "after 3 tracker
+    # failures (reason=tracker_retry_exhausted)", so the hunt went to GitHub.
+    test "names the agent failure, not the tracker" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("orchestrator.claim_released")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      state =
+        RetryEngine.schedule_issue_retry(%State{claimed: MapSet.new(["issue-stalled"])}, "issue-stalled", Config.max_retry_attempts() + 1, %{
+          identifier: "MT-STALLED",
+          error: "stalled for 1264936ms without claude activity",
+          delay_type: :failure
+        })
+
+      assert_receive {:event, %{topic: "orchestrator.claim_released"} = event}, 500
+      assert event["message"] =~ "failed agent attempts (last error: stalled for 1264936ms without claude activity)"
+      assert event["message"] =~ "reason=agent_retry_exhausted"
+      refute event["message"] =~ "tracker"
+      assert %{cause: :agent_retry_exhausted} = state.released_claims["issue-stalled"]
+    end
+  end
+
   describe "exhaustion error-state write (#2420)" do
     # Switching the active workflow to the GitHub tracker routes
     # `Tracker.update_issue_state/2` through `:github_client_module`, which each
