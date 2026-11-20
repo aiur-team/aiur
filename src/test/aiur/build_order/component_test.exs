@@ -230,7 +230,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
           Aiur.Executor.SessionIngest,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
           Aiur.Executor.TranscriptIngest,
-          Aiur.ControlCLI.PendingCommands
+          Aiur.ControlCLI.PendingCommands,
+          Aiur.Orchestrator.UnresponsiveWatchdog
         ]
 
     assert Aiur.Application.child_specs(@opts) == expected
