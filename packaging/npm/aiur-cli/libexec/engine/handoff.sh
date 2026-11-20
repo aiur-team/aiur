@@ -13,14 +13,22 @@ else
 end'
 
 prepare_restart_handoff() {
-  local output
-  output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=120 run_control_rpc "$AIUR_HANDOFF_PREPARE_EXPRESSION")" || {
+  local output errors reason status=0
+  errors="$(mktemp "${TMPDIR:-/tmp}/aiur-preflight.XXXXXX")"
+  output="$(AIUR_CONTROL_RPC_TIMEOUT_SECONDS=120 run_control_rpc "$AIUR_HANDOFF_PREPARE_EXPRESSION" 2>"$errors")" || status=$?
+  cat "$errors" >&2
+  if [ "$status" -ne 0 ]; then
     [ -z "$output" ] || printf '%s\n' "$output" >&2
+    # Callers often keep only the last lines, so the abort line carries the first
+    # diagnostic (indented lines are detail, later lines are advice).
+    reason="$({ printf '%s\n' "$output"; cat "$errors"; } | sed -n '/^[^[:space:]]/{s/^handoff preflight failed: //;p;q;}')"
+    rm -f "$errors"
     aiur_restart_phase="preflight_failed"
     aiur_restart_reason="handoff_preflight_rpc_failed"
     aiur_write_restart_diagnostic
-    die "restart --keep-agents aborted before stop: handoff preflight failed"
-  }
+    die "restart --keep-agents aborted before stop: handoff preflight failed${reason:+: $reason}"
+  fi
+  rm -f "$errors"
   printf '%s\n' "$output" | sed '/^__AIUR_HANDOFF__:/d; /^__AIUR_CONTROL_EXIT__:/d' >&2
   AIUR_RESTART_HANDOFF_ID="$(printf '%s\n' "$output" | sed -n 's/^__AIUR_HANDOFF__://p')"
   if ! [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_,-]+$ ]]; then
