@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
   use Aiur.TestSupport
 
+  alias Aiur.Executor.Claims
   alias Aiur.ExecutorWakeInbox
   alias Aiur.ExecutorWakeInbox.StaleHumanReview
   alias Aiur.GitHub.ResourceStore
@@ -79,6 +80,36 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
+  # open-games, 2026-11-20: about 600 stale human-review wakes sat behind one live
+  # wake. Only a stale prefix was ever trimmed, so every read checked and logged
+  # all of them again, 25 times a minute, and kept the inbox busy.
+  test "a stale wake behind a live one is checked once, not on every read", %{opts: opts} do
+    write_wakes(opts, [{1, "42"}, {2, "43"}])
+    put_ticket_projection(42, "open", ["agent:human-review"])
+    put_ticket_projection(43, "open", ["agent:ci-wait"])
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
+
+    for _read <- 1..3 do
+      assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending(__MODULE__)
+    end
+
+    assert_receive {:human_review_state_read, 2}, 1_000
+    refute_receive {:human_review_state_read, 2}, 100
+  end
+
+  test "once the live wake is acknowledged the stale one behind it is passed too", %{opts: opts} do
+    write_wakes(opts, [{1, "42"}, {2, "43"}])
+    put_ticket_projection(42, "open", ["agent:human-review"])
+    put_ticket_projection(43, "open", ["agent:ci-wait"])
+    start_supervised!({ExecutorWakeInbox, with_state_reader(opts)})
+
+    assert [live] = ExecutorWakeInbox.pending(__MODULE__)
+    {:ok, _claim} = Claims.claim("stale-behind-live")
+    assert :ok = ExecutorWakeInbox.acknowledge_as("stale-behind-live", [live], __MODULE__)
+    assert ExecutorWakeInbox.pending(__MODULE__) == []
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 2
+  end
+
   defp with_state_reader(opts) do
     caller = self()
 
@@ -132,5 +163,27 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
     labels = Enum.map(state_labels, &%{"name" => &1})
     :ok = ResourceStore.put_resource(issue_key, %{"number" => number, "state" => state, "labels" => labels})
     :ok = ResourceStore.put_resource(labels_key, labels)
+  end
+
+  defp write_wakes(opts, wakes) do
+    File.mkdir_p!(Path.dirname(opts[:path]))
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    lines =
+      for {id, ticket} <- wakes do
+        Jason.encode!(%{
+          "wake_id" => id,
+          "event_id" => 100 + id,
+          "ticket" => ticket,
+          "topic" => "ticket.#{ticket}.agent.handoff.human_review",
+          "topic_class" => "ticket.agent.handoff.human_review",
+          "action" => "human_review",
+          "count" => 1,
+          "first_seen_at" => now,
+          "last_seen_at" => now
+        }) <> "\n"
+      end
+
+    File.write!(opts[:path], lines)
   end
 end
