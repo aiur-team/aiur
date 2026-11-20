@@ -63,7 +63,7 @@ that declares `supervisor_allowed` or `supervisor_preferred` together with
 `reversible`.
 
 Operators may opt in to delegation for reversible legacy
-engineering Commands with `executor.allow_reversible_human_required_answers`;
+ engineering Commands with `executor.allow_reversible_human_required_answers`;
 product, spend, publication, and security decisions remain human-only.
 
 Classification is consequence-based and defaults delegable: a Command that
@@ -75,8 +75,9 @@ Known Command types carry an explicit policy
 (`src/lib/aiur/decision_command_type.ex`): a **re-review request**
 (`kind: "rework_review"`) classifies `supervisor_preferred` + `reversible`, a
 **PR/ticket sequencing** question (`kind: "sequencing"`) classifies
-`supervisor_allowed` + `reversible`, and pre-OCC `legacy_attention` projections
-stay `human_required`.
+`supervisor_allowed` + `reversible`. Legacy attention provenance identifies
+where a Command came from; newly projected engineering attentions use the same
+Executor-answerable defaults.
 
 Because omission defaults to the Executor floor, a Command that is genuinely
 irreversible, involves spend or external publication, or changes product

@@ -153,12 +153,34 @@ defmodule Aiur.DecisionValidationTest do
       assert decision.reversibility == :reversible
     end
 
-    test "a legacy attention keeps the fail-closed human_required classification" do
+    test "an attention-origin engineering question is Executor-answerable" do
       payload = %{"question" => "Reclassify #2071?", "blocking" => false, "kind" => "legacy_attention"}
 
-      assert {:ok, decision} = normalize(payload)
-      assert decision.authority == :human_required
-      assert decision.reversibility == :irreversible
+      assert {:ok, decision} =
+               normalize(payload,
+                 legacy_attention: %{slug: "scope-question", topic: "ticket.123.agent.attention.scope-question"},
+                 ticket: %{identifier: "123"}
+               )
+      assert decision.authority == :supervisor_allowed
+      assert decision.reversibility == :reversible
+      assert decision.legacy_attention.slug == "scope-question"
+    end
+
+    test "attention-origin spend and publication choices stay human-required" do
+      for {basis, reversibility} <- [{"spend", "irreversible"}, {"external_publication", "irreversible"}] do
+        payload = %{
+          "question" => "Proceed with protected action?",
+          "blocking" => false,
+          "kind" => "legacy_attention",
+          "authority" => "human_required",
+          "reversibility" => reversibility,
+          "context" => %{"authority_basis" => basis}
+        }
+
+        assert {:ok, decision} = normalize(payload)
+        assert decision.authority == :human_required
+        assert decision.context.authority_basis == basis
+      end
     end
 
     test "an explicitly declared authority wins over the type classification" do

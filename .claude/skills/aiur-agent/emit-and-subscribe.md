@@ -33,11 +33,12 @@ Legacy `attention.<slug>` events use the same pending admission. If the
 attention needs an answer, immediately follow it with
 `decision.requested` carrying that `attention_slug`; Aiur serializes the
 structured request behind the projection and returns its terminal
-`decision_id`, `version`, and status. An attention by itself projects a
-`human_required` legacy Command, so `executor-answer` cannot answer it. For a
-redacted factual observation, set `kind: "factual_observation"`,
-`authority: "supervisor_allowed"`, and `reversibility: "reversible"` on the
-structured request. Reserve `human_required` for an actual human policy choice.
+`decision_id`, `version`, and status. An attention by itself is a legacy origin
+projection and defaults to Executor-answerable (`supervisor_allowed` +
+`reversible`). For an actual human policy choice, use `decision.requested` with
+`authority: "human_required"`, matching reversibility and
+`context.authority_basis` (`product`, `spend`, `external_publication`, or
+`security`).
 
 ### Requesting an operator decision
 

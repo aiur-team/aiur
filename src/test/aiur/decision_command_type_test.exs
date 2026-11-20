@@ -22,11 +22,8 @@ defmodule Aiur.DecisionCommandTypeTest do
            }
   end
 
-  test "a legacy attention stays human_required and irreversible" do
-    assert DecisionCommandType.for_kind("legacy_attention") == %{
-             authority: :human_required,
-             reversibility: :irreversible
-           }
+  test "attention origin does not override consequence-based defaults" do
+    assert DecisionCommandType.for_kind("legacy_attention") == nil
   end
 
   test "an unknown, blank, or missing kind has no explicit classification" do
