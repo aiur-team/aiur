@@ -161,7 +161,8 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Refreshed release fails during startup | When `aiurdev restart` rebuilds and the new release exits before becoming ready, restart restores the saved previous release at the configured release path before booting it with the same keep-agents handoff. This keeps its runtime assets available to the running daemon. It reports the previous build SHA and first startup error, and raises a critical `system.restart.rollback` alert. |
 | Installed `aiur` | Bounces the pinned release without building. |
 | Development release | Refreshes between stop and start, then boots current code. |
-| Daemon already stopped | Starts it. |
+| Daemon already stopped | Starts it, with or without `--keep-agents` (there are no agents to hand off). |
+| Interrupted (`SIGINT`, `SIGTERM`, `SIGHUP`, for example a caller's `timeout`) | Before the stop: aborts with nothing changed. After the stop: finishes the start, then exits 128 + the signal number. |
 | Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
 | Startup boot fails | Cleans up and retries once; exits nonzero if the retry also fails. |
 

@@ -162,6 +162,20 @@ cmd_restart() {
     esac
   done
 
+  # Before the stop nothing has changed, so a signal simply aborts; the EXIT
+  # trap reports. Resuming after the trap would carry on with a half-run restart.
+  aiur_restart_deferred_signal=""
+  trap aiur_restart_report_state EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+
+  # Nothing running means nothing to hand off: start it instead of refusing.
+  if [ "$keep_agents" -eq 1 ] && restart_daemon_confirmed_down; then
+    echo "aiur: nothing is running, so there are no agents to keep; restart will start aiur" >&2
+    keep_agents=0
+  fi
+
   aiur_restart_keep_agents="$keep_agents"
   if [ "$keep_agents" -eq 1 ]; then
     aiur_restart_phase="preflight"
@@ -174,13 +188,18 @@ cmd_restart() {
     aiur_write_restart_diagnostic
   fi
 
-  trap aiur_restart_report_state EXIT INT TERM
   local previous_sha="unknown" snapshot_dir=""
   if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
     restart_release_snapshot "${AIUR_RELEASE_DIR:-}" || die "restart aborted before stop: could not preserve the previous release"
     previous_sha="${RESTART_PREVIOUS_SHA:-unknown}"
     snapshot_dir="${RESTART_SNAPSHOT_DIR:-}"
   fi
+  # From the stop on, a signal would abandon a stopped fleet (a caller's
+  # `timeout` reaches the whole process group, start subshell included), so it
+  # is held until the start has finished.
+  trap 'aiur_restart_defer_signal INT' INT
+  trap 'aiur_restart_defer_signal TERM' TERM
+  trap 'aiur_restart_defer_signal HUP' HUP
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
   # get. Any OTHER stop failure is fatal — building and starting on top of a
@@ -303,4 +322,33 @@ cmd_restart() {
     aiur_restart_reason="restart_succeeded"
   fi
   aiur_write_restart_diagnostic
+  aiur_restart_exit_if_signalled
+}
+
+restart_daemon_confirmed_down() {
+  # Only epmd answering without our node counts; an unreachable epmd or an
+  # unresolvable instance keeps the keep-agents preflight and its refusal.
+  local state
+  state="$({ resolve_release && prepare_distribution && resolve_control_identity_from_records &&
+    { [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -ne 1 ] || prepare_distribution; } && probe_node_liveness; } 2>/dev/null)" || return 1
+  [ "$state" = "down" ]
+}
+
+aiur_restart_defer_signal() {
+  [ -z "$aiur_restart_deferred_signal" ] || return 0
+  aiur_restart_deferred_signal="$1"
+  echo "aiur: restart received SIG$1 after the stop; finishing the start before exiting" >&2 || true
+}
+
+aiur_restart_exit_if_signalled() {
+  local code
+  case "$aiur_restart_deferred_signal" in
+    INT) code=130 ;;
+    TERM) code=143 ;;
+    HUP) code=129 ;;
+    *) trap - INT TERM HUP; return 0 ;;
+  esac
+  trap - EXIT INT TERM HUP
+  echo "aiur: the daemon is running; exiting $code for the SIG$aiur_restart_deferred_signal received during the restart" >&2 || true
+  exit "$code"
 }
