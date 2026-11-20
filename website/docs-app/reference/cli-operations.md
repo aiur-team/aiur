@@ -324,6 +324,8 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 
 Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Manual lines need a UTC timestamp; tag/commit times resolve from base history. Before/after creation freezes before unless `--no-freeze`, reporting count and coverage (`frozen_snapshot` in JSON). Exit codes: 0 success, 1 refused, 64 usage. Newer specs refuse writes.
 
+An imported summary preserves the exact source bytes and SHA-256, and keeps raw observation coverage unavailable without creating unit rows. For A/B experiments, import it under `before` as contextual evidence; cohort evaluation continues to use the separate `observation` window.
+
 ## Operational facts that change an incident response
 
 | Fact | Response |

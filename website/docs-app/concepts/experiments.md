@@ -58,14 +58,6 @@ reads verify their SHA-256. Tampered evidence is refused without live fallback.
 `observation` for A/B. Use `--window after` to freeze the after window, or
 `--reason "updated baseline"` to add a revision; previous revisions remain.
 
-Use `aiur experiments import-baseline` for a summary-only external baseline.
-It verifies the supplied SHA-256 against the exact source bytes, stores those
-bytes and provenance in the normal journaled snapshot, and refuses mismatches.
-Imported summaries keep `observations: []` and mark raw-observation coverage
-unavailable; summary counts are never expanded into invented unit rows. For an
-A/B experiment, import into a separate `before` snapshot as contextual evidence;
-it is not assigned to either cohort and does not replace the live `observation`
-window.
 
 The observation limit (50,000 by default) refuses excess data without truncation.
 Open duration units are censored observations with their elapsed value.
