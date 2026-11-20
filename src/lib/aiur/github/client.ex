@@ -185,7 +185,10 @@ defmodule Aiur.GitHub.Client do
     key = Access.key_for_repo(:branch_pull_request_listing_all, repo_full_name(opts), "open")
 
     fetcher = fn fetch_opts ->
-      PullRequests.fetch_open_pull_requests_conditional(Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag), caller: "open_pull_request_for_branch"))
+      case PullRequests.fetch_open_pull_requests_conditional(Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag), caller: "open_pull_request_for_branch")) do
+        {:ok, pull_requests, etag} -> {:ok, Enum.map(pull_requests, &without_api_links/1), etag}
+        other -> other
+      end
     end
 
     case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "open pull request listing") do
@@ -201,6 +204,23 @@ defmodule Aiur.GitHub.Client do
     do: TicketBranch.ticket_branch?(branch, issue_number)
 
   defp ticket_pull_request?(_pull_request, _issue_number), do: false
+
+  # A listed pull request is ~18 KiB, two thirds of it REST URL templates
+  # (`_links` and every `*_url` except `html_url`, mostly inside the embedded
+  # head and base repositories). Fourteen open PRs cross the store's body cap,
+  # so the listing would never be held and every lookup would pay for a full
+  # `200` instead of a free `304`. Nothing reads those templates.
+  defp without_api_links(map) when is_map(map) do
+    for {key, value} <- map, not api_link_key?(key), into: %{}, do: {key, without_api_links(value)}
+  end
+
+  defp without_api_links(list) when is_list(list), do: Enum.map(list, &without_api_links/1)
+  defp without_api_links(value), do: value
+
+  defp api_link_key?("_links"), do: true
+  defp api_link_key?("html_url"), do: false
+  defp api_link_key?(key) when is_binary(key), do: String.ends_with?(key, "_url")
+  defp api_link_key?(_key), do: false
 
   defp repo_full_name(opts) do
     case Keyword.get(opts, :repo) do
