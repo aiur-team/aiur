@@ -211,9 +211,10 @@ defmodule Aiur.TestTicketScope do
 
   # Runs on every issue filter and every GitHub write, often inside the
   # orchestrator, so the walk to `/` (one stat per directory, each queued
-  # behind the node's file server) happens once per working directory (#8051).
+  # behind the node's file server) happens once per working directory, and the
+  # working directory is read with `:prim_file`, which skips the file server (#8051).
   defp pinned_tickets do
-    {:ok, cwd} = :file.get_cwd()
+    {:ok, cwd} = :prim_file.get_cwd()
     cwd = List.to_string(cwd)
     key = {__MODULE__, :pinned_tickets, cwd}
 
