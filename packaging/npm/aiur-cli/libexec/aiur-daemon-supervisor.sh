@@ -27,10 +27,20 @@ supervise_daemon() {
   local max_crashes="${AIUR_DAEMON_MAX_RESTARTS:-5}" crash_window=600
   printf '%s\n' "$$" >"$supervisor_file"
   release_bin="$AIUR_RELEASE_DIR/bin/aiur"
+  # A restart must boot with the same argv. The file lives in /tmp, where any
+  # later launch's stale-artifact sweep removes it after a day, live run or not.
+  local argv_snapshot=""
+  if [ -n "${AIUR_ARGV_FILE:-}" ] && [ -r "$AIUR_ARGV_FILE" ]; then
+    argv_snapshot="$(cat "$AIUR_ARGV_FILE"; printf x)"
+    argv_snapshot="${argv_snapshot%x}"
+  fi
   mkdir -p "$AIUR_LOGS_ROOT/log"
   exec 3<&0
   while :; do
     started="$SECONDS"
+    if [ -n "$argv_snapshot" ] && [ ! -f "$AIUR_ARGV_FILE" ]; then
+      (umask 077 && printf '%s' "$argv_snapshot" >"$AIUR_ARGV_FILE") || true
+    fi
     (set +e; "$@" 2>&1 | tee -a "$capture"; exit "${PIPESTATUS[0]}") <&3 &
     child=$!
     if [ -n "$down_since" ]; then
