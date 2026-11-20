@@ -11,7 +11,7 @@ defmodule Aiur.Events.FacadeUsageTest do
       for path <- Path.wildcard(Path.join(@lib, "**/*.ex")),
           Path.relative_to(path, @lib) != "aiur/events.ex",
           not String.starts_with?(Path.relative_to(path, @lib), "aiur/events/"),
-          call <- internal_calls(File.read!(path)),
+          call <- internal_calls(read_source!(path)),
           do: "#{Path.relative_to(path, @lib)}: #{call}"
 
     assert violations == []
@@ -53,5 +53,12 @@ defmodule Aiur.Events.FacadeUsageTest do
 
   defp expand([first | rest] = parts, aliases) do
     if Enum.all?(parts, &is_atom/1), do: Enum.join([Map.get(aliases, first, first) | rest], "."), else: ""
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

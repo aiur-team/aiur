@@ -20,10 +20,14 @@ const outputs = [
     refs: ['capabilities.v1.schema.json', 'capability-error.v1.schema.json'],
   },
   {
+    name: 'AgentsContract',
+    target: new URL('../src/agents.generated.ts', import.meta.url),
+    refs: ['agents.v1.schema.json'],
+  },
+  {
     name: 'StatusContract',
     target: new URL('../src/status.generated.ts', import.meta.url),
     refs: [
-      'agents.v1.schema.json',
       'status.v1.schema.json',
       'ticket.v1.schema.json',
       'ticket-cancel.v1.schema.json',
@@ -40,7 +44,14 @@ const outputs = [
       'ticket-usage-event.v1.schema.json',
       'ticket-spend-cap-reached-event.v1.schema.json',
       'ticket-cancel-result-event.v1.schema.json',
+      'ticket-decision-event.v1.schema.json',
     ],
+    ignoreMinAndMaxItems: true,
+  },
+  {
+    name: 'BuildOrderContract',
+    target: new URL('../src/build-order.generated.ts', import.meta.url),
+    refs: ['build-order.v1.schema.json'],
   },
   {
     name: 'TicketSpendCapContract',
@@ -61,7 +72,7 @@ for (const output of outputs) {
   const generated = await compile({
     title: output.name,
     oneOf: output.refs.map(($ref) => ({ $ref })),
-  }, output.name, { cwd });
+  }, output.name, { cwd, ignoreMinAndMaxItems: output.ignoreMinAndMaxItems === true });
 
   if (process.argv.includes('--check')) {
     if (await readFile(output.target, 'utf8') !== generated) {

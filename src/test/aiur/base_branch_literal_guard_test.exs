@@ -2,6 +2,8 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
   use ExUnit.Case, async: true
 
   @allowed_main_literals %{
+    # LiveView's root marker is a framework selector, not a branch default.
+    "aiur_web/components/layouts.ex" => [~s|document.querySelector("[data-phx-main]")|],
     "aiur_web/live/streamdeck_live.ex" => [~s(class="sd-key-main")],
     # Policy labels are identifiers, independent of the configured integration branch.
     "aiur/config/schema/merge_policy.ex" => [~s|field(:fixer_label, :string, default: "main-fix")|, ~s|field(:full_ci_labels, {:array, :string}, default: ["main-fix"])|],
@@ -89,7 +91,7 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       |> Path.wildcard()
       |> Enum.flat_map(fn path ->
         relative_path = Path.relative_to(path, lib_root)
-        source = File.read!(path)
+        source = read_source!(path)
         lines = String.split(source, "\n")
 
         source
@@ -120,5 +122,12 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
 
   defp allowed_main_literal?(path, line) do
     Enum.any?(Map.get(@allowed_main_literals, path, []), &String.contains?(line, &1))
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

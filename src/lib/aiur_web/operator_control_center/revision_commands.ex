@@ -6,6 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.Commands
+  alias Aiur.Commands.Answering
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionCommands
   alias Phoenix.LiveView.Socket
@@ -154,7 +155,16 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   end
 
   defp safe_revise(decision_id, payload) do
-    Commands.revise(decision_id, payload, [actor: DecisionCommands.actor()], decision_store())
+    case Answering.override(decision_id, payload,
+           actor: DecisionCommands.actor(),
+           actor_source: :dashboard_session,
+           client: %{surface: :dashboard},
+           store: decision_store()
+         ) do
+      %{status: status} = accepted when status in [:accepted, :duplicate] -> {:ok, accepted}
+      %{status: :stale, current_version: version} -> {:error, {:conflict, {:stale_version, payload["expected_version"], version}}}
+      %{reason: reason} -> {:error, reason}
+    end
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -242,10 +252,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp revision_notice(%{status: :duplicate}),
     do: "This durable revision was already recorded. Canonical state was refreshed."
 
-  defp revision_notice(%{revision_result: :dispatched}),
+  defp revision_notice(%{decision: %{revision_result: :dispatched}}),
     do: "Revision recorded and corrective follow-up queued."
 
-  defp revision_notice(%{revision_result: :no_longer_applicable}),
+  defp revision_notice(%{decision: %{revision_result: :no_longer_applicable}}),
     do: "Revision recorded; the target is no longer active and Executor follow-up is required."
 
   defp revision_notice(_accepted), do: "Revision recorded; corrective follow-up is pending."

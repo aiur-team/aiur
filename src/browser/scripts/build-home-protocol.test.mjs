@@ -49,7 +49,8 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     snapshot.sections.hist = days.slice(0, initialDays).flatMap(key => pages.get(key));
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
-    assert.deepEqual(actual.epics, raw.epics);
+    // The design source still calls its columns epics; the payload names them lanes.
+    assert.deepEqual(actual.lanes, raw.epics);
     const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => {
       const ends = raw.hist.filter(t => (t.feature === key || t.also.includes(key)) && t.end != null).map(t => t.end);
       return [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), oldest: ends.length ? Math.trunc(Math.min(...ends)) : null, stats: snapshot.features[key].stats }];

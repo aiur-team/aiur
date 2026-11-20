@@ -278,7 +278,7 @@ defmodule Aiur.DecisionApi do
   end
 
   defp write_revision(decision_id, payload, opts, store) do
-    case safe_store_call(fn -> DecisionStore.revise(decision_id, payload, opts, store) end) do
+    case safe_store_call(fn -> DecisionStore.override(decision_id, payload, opts, store) end) do
       {:ok,
        %{
          status: status,

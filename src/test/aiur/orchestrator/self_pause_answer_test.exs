@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     assert text =~ "Continue with the accepted contract"
     assert_working(ctx.orchestrator, issue)
     old_id = old_decision.decision_id
-    receive_barrier({:answer_queued, ^old_id, {:error, :no_running_agent}})
+    receive_barrier({:answer_queued, ^old_id, {:ok, _item_id}})
   end
 
   # A pause request that expires unacknowledged leaves a working worker. A
@@ -284,7 +284,9 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     expire_pause(ctx.orchestrator, issue)
     state = :sys.get_state(ctx.orchestrator)
     stale_entry = Map.put(state.running[issue.id], :pending_pause_reason, entry.pending_pause_reason)
-    assert {:error, :max_concurrent_agents_reached} = PauseResume.resume_paused_issue_preflight(state, stale_entry)
+
+    assert {:error, {:state_concurrency_limit_reached, "in-progress"}} =
+             PauseResume.resume_paused_issue_preflight(state, stale_entry)
   end
 
   defp expire_pause(orchestrator, issue) do

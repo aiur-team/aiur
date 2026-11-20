@@ -121,8 +121,7 @@ defmodule Aiur.ExecutorListenerTest do
     :ok = Exchange.subscribe("executor.command.requested")
     pid = start_listener(resubscribe_interval_ms: :infinity)
 
-    first = command_decision("dec-gap-first")
-    assert {:ok, first_id, 1} = ExecutorEvents.publish_requested(first)
+    assert {:ok, first_id, first_count} = ExecutorEvents.publish_requested(command_decision("dec-gap-first"))
     assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}, 1000
     assert first_message =~ "dec-gap-first"
     assert :sys.get_state(pid).watermark >= first_id
@@ -130,13 +129,14 @@ defmodule Aiur.ExecutorListenerTest do
 
     # Simulate the Exchange being restarted by the supervisor: its fresh
     # binding table no longer has this listener's row. The Command below is
-    # synchronously proven to have no live subscriber during that real gap.
+    # synchronously proven to lose this listener during that real gap.
     table = :persistent_term.get({{Aiur.Events.Exchange, :table}, Aiur.Events.Exchange})
     :ets.match_delete(table, {:_, pid, :_})
     assert ExecutorListener.alive?(@listener_name) == false
 
     second = command_decision("dec-gap-second")
-    assert {:ok, second_id, 0} = ExecutorEvents.publish_requested(second)
+    assert {:ok, second_id, second_count} = ExecutorEvents.publish_requested(second)
+    assert second_count == first_count - 1
     refute_received {:event, %{"topic" => "executor.command.requested"}}
 
     # Drive the next re-subscribe tick and use the state read as a mailbox

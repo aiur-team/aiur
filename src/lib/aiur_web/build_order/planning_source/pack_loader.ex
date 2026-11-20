@@ -6,6 +6,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader.TicketAttributes
 
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
@@ -144,7 +145,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
           completed: declared_completed? or status_completed?(status),
           completed_at: status_completed_at(status),
           status: status,
-          metadata: Map.take(json, ["workstreams", "phases", "external_gates", "label_projection"]),
+          metadata:
+            Map.take(json, [
+              "workstreams",
+              "phases",
+              "external_gates",
+              "label_projection",
+              "build_order_id",
+              "ticket_prefix",
+              "plan_version",
+              "researched_at_commit"
+            ]),
           materialized?: Enum.any?(tickets, &is_integer(&1.number)),
           tickets: tickets
         }
@@ -294,6 +305,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
          number: number,
          node_id: ticket_node_id(attributes),
          depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
+         feature: TicketAttributes.feature(attributes),
+         kind: TicketAttributes.kind(attributes),
+         provenance: TicketAttributes.provenance(attributes),
+         serializes_with: TicketAttributes.references(attributes, "serializes_with"),
+         suggested_after: TicketAttributes.references(attributes, "suggested_after"),
+         contains: TicketAttributes.references(attributes, "contains"),
+         external_gates: TicketAttributes.references(attributes, "external_gates"),
          document_url: nil,
          document_path: document_path,
          draft_body: if(include_drafts? and is_nil(number), do: draft_body(document_path, pack_dir)),

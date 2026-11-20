@@ -123,26 +123,34 @@ export default withMermaid(defineConfig({
               { text: 'Launch and setup', link: '/reference/cli-launch' },
               { text: 'Operations', link: '/reference/cli-operations' },
               { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
+              { text: 'Gateway permissions', link: '/reference/cli-gateways' },
               { text: 'Development commands', link: '/reference/cli-development' }
             ] },
             { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
+            { text: 'GUI conversations', link: '/guide/gui-conversations' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
+            { text: 'Projects home', link: '/guide/projects-home' },
             { text: 'Outbound events', link: '/guide/outbound-events' },
-            { text: 'Stream Deck', link: '/guide/stream-deck' }
+            { text: 'Embedded Commands', link: '/guide/embedded-commands' },
+            { text: 'Daily newsletter', link: '/guide/newsletter' },
+            { text: 'Stream Deck', link: '/guide/stream-deck' },
+            { text: 'Mobile local builds', link: '/guide/mobile' }
           ]
         },
         {
           text: 'Concepts',
           items: [
             { text: 'Executor', link: '/concepts/executor' },
+            { text: 'Conversations', link: '/concepts/conversations' },
             { text: 'Units', link: '/concepts/units' },
             { text: 'Commands', link: '/concepts/commands' },
             { text: 'Continuous build history', link: '/concepts/build-history' },
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
             { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
+            { text: 'Ticket lifecycle timeline', link: '/concepts/lifecycle' },
             { text: 'Agent workspaces', link: '/concepts/workspaces' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
             { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
@@ -165,7 +173,10 @@ export default withMermaid(defineConfig({
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
             { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
-            { text: 'ElevenLabs', link: '/apis/elevenlabs' }
+            { text: 'ElevenLabs', link: '/apis/elevenlabs' },
+            { text: 'OpenAI', link: '/apis/openai' },
+            { text: 'Gemini', link: '/apis/gemini' },
+            { text: 'Anthropic', link: '/apis/anthropic' }
           ]
         },
         {

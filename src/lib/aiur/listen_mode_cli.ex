@@ -1,5 +1,6 @@
 defmodule Aiur.ListenModeCli do
   @moduledoc "Read and compare-and-set ticket listener modes from the shared launcher."
+  alias Aiur.Listener.ModeCopy
   import Aiur.ControlCLI.Protocol
   alias Aiur.Listener
 
@@ -22,7 +23,7 @@ defmodule Aiur.ListenModeCli do
 
   defp execute(ticket, [], _opts, _key), do: Listener.get_mode(ticket)
 
-  defp execute(ticket, [mode], opts, key) when mode in ["steer", "sync", "async"] do
+  defp execute(ticket, [mode], opts, key) when mode in ["steer", "sync", "async", "mute"] do
     actor = opts[:actor] || "human"
 
     if actor in ["human", "executor"] do
@@ -85,13 +86,14 @@ defmodule Aiur.ListenModeCli do
   end
 
   defp print_record(record, opts) do
-    record = Map.merge(record, %{observed_at: DateTime.to_iso8601(DateTime.utc_now()), age_ms: 0, freshness: :fresh, routing: :legacy})
+    record = Map.merge(record, %{observed_at: DateTime.to_iso8601(DateTime.utc_now()), age_ms: 0, freshness: :fresh, routing: Listener.routing()})
 
     if opts[:json] do
       IO.puts(Jason.encode!(record))
     else
       IO.puts("aiur: requested #{record.requested}; effective #{record.effective || "unknown"}; reason #{record.effective_reason || "none"}; version #{record.version}; actor #{record.actor}")
-      IO.puts("aiur: legacy routing ignores the stored mode")
+      IO.puts("aiur: #{ModeCopy.label(record.requested)}")
+      IO.puts("aiur: #{record.routing} routing; observed #{record.observed_at}; age #{record.age_ms}ms (#{record.freshness})")
     end
   end
 end

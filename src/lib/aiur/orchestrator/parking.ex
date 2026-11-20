@@ -115,9 +115,6 @@ defmodule Aiur.Orchestrator.Parking do
       match?(%{action: :resume}, ControlLifecycle.current_pending(state.control_lifecycle, issue.id)) ->
         {:reply, {:error, :resume_pending}, state}
 
-      State.reserved_paused_running_count(%{issue.id => entry}) == 0 ->
-        {:reply, {:error, :reservation_not_held}, state}
-
       Issue.parked?(issue) ->
         {:reply, {:ok, :already_parked}, park_paused_entry(state, issue)}
 
@@ -135,10 +132,16 @@ defmodule Aiur.Orchestrator.Parking do
     {:reply, {:ok, :pending}, state}
   end
 
-  defp apply_park_result(current, entry, issue, result) do
+  @doc false
+  @spec apply_park_result(State.t(), map(), Issue.t(), term()) :: State.t()
+  def apply_park_result(current, _entry, issue, result) do
     case {Map.get(current.running, issue.id), result} do
-      {%{control: %{status: :paused}, issue: %Issue{} = latest_issue} = latest, :ok} ->
-        park_if_same_runner(current, latest, entry, latest_issue)
+      {%{control: %{status: :paused}, issue: %Issue{} = latest_issue}, :ok} ->
+        # The park marker is ticket-scoped. A resume/replacement may have
+        # changed the runner while the tracker write was in flight; once the
+        # marker lands, apply it to the current paused entry so it cannot keep
+        # reserving capacity indefinitely.
+        park_paused_entry(current, latest_issue)
 
       {_latest, {:error, reason}} ->
         Logger.warning("Could not park #{issue.identifier}: #{inspect(reason)}")
@@ -156,10 +159,6 @@ defmodule Aiur.Orchestrator.Parking do
       _ ->
         current
     end
-  end
-
-  defp park_if_same_runner(current, latest, entry, issue) do
-    if Map.take(latest, [:pid, :ref]) == Map.take(entry, [:pid, :ref]), do: park_paused_entry(current, issue), else: current
   end
 
   defp park_paused_entry(state, issue) do

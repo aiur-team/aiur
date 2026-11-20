@@ -264,7 +264,8 @@ def ownership(manifest, files):
 
 def module_violations(root, manifest, file_owners, include_modules=False):
     walker = Path(__file__).parent / 'components/module_references.exs'
-    files = sorted(path for path in file_owners if path.startswith('src/lib/') and path.endswith('.ex'))
+    files = sorted(path for path in file_owners if path.endswith('.ex') and
+                   (path.startswith('src/lib/') or re.match(r'^packages/elixir/[^/]+/lib/', path)))
     started = time.monotonic()
     try:
         result = subprocess.run(['elixir', str(walker), str(root), '--files', *files], capture_output=True, text=True)

@@ -49,9 +49,11 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   # capacity leak where parked agents accumulate against the fleet limit
   # (#2329).
   # A provider usage limit belongs here for the same reason: the account, not
-  # this agent, is what the fleet waits on. Any pause on a `ci-wait` ticket
+  # this agent, is what the fleet waits on. A tracker `agent:paused` label
+  # (`:label_override`) releases too: a consumer that pauses many tickets must
+  # not starve dispatch. Any pause on a `ci-wait` ticket
   # releases too: its PR is handed off and the daemon owns that wait (#4694).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted]
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted, :label_override]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons
@@ -75,28 +77,28 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   def active_running_entry?(_entry), do: false
   @spec paused_running_entry?(term()) :: boolean()
   def paused_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :paused
+    (control_status(entry) || :working) == :paused
   end
 
   def paused_running_entry?(_entry), do: false
 
   @spec error_running_entry?(term()) :: boolean()
   def error_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :error
+    (control_status(entry) || :working) == :error
   end
 
   def error_running_entry?(_entry), do: false
 
   @spec sleeping_running_entry?(term()) :: boolean()
   def sleeping_running_entry?(entry) when is_map(entry) do
-    (get_in(entry, [:control, :status]) || :working) == :sleeping
+    (control_status(entry) || :working) == :sleeping
   end
 
   def sleeping_running_entry?(_entry), do: false
 
   @spec completed_running_entry?(term()) :: boolean()
   def completed_running_entry?(entry) when is_map(entry) do
-    get_in(entry, [:control, :status]) == :completed
+    control_status(entry) == :completed
   end
 
   def completed_running_entry?(_entry), do: false
@@ -110,10 +112,30 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
 
   @spec deactivated_running_entry?(term()) :: boolean()
   def deactivated_running_entry?(entry) when is_map(entry) do
-    get_in(entry, [:control, :status]) == :deactivated
+    control_status(entry) == :deactivated
   end
 
   def deactivated_running_entry?(_entry), do: false
+
+  # A running entry's control metadata is normally a map written by the
+  # dispatcher or the worker's control protocol. A corrupt or partially
+  # restored entry can carry anything else, and `get_in/2` over that value
+  # raises — inside a read-only status projection that used to take the whole
+  # Orchestrator call down before the pause control call could run (#7537).
+  # Row reads use this helper so a corrupt value degrades to "no control
+  # metadata"; control calls that act on the entry keep their own crash guard
+  # and still report the corruption.
+  @spec control_map(term()) :: map()
+  def control_map(entry) when is_map(entry) do
+    case Map.get(entry, :control) do
+      %{} = control -> control
+      _corrupt -> %{}
+    end
+  end
+
+  def control_map(_entry), do: %{}
+
+  defp control_status(entry), do: Map.get(control_map(entry), :status)
 
   @spec find_running_key_by_identifier(map(), String.t()) :: term() | nil
   def find_running_key_by_identifier(running, identifier) do

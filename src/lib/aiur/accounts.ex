@@ -2,6 +2,7 @@ defmodule Aiur.Accounts do
   @moduledoc "Machine-local harness accounts and pure account selection."
 
   alias Aiur.Accounts.{EnvKey, SessionMove}
+  alias Aiur.Machine.Yaml, as: MachineYaml
 
   @registry "machine"
 
@@ -406,17 +407,15 @@ defmodule Aiur.Accounts do
   defp maybe_purge(_entry, _purge), do: :ok
 
   defp write_entry({harness, name}, entry) do
-    entries = normalize_registry(registry())
-
-    entries = preserve_legacy_entry(entries, harness, name)
+    entries = registry() |> delete_legacy_entry(harness, name) |> normalize_registry()
 
     write_registry(Map.put(entries, registry_key(harness, name), entry))
   end
 
-  defp preserve_legacy_entry(entries, harness, name) do
-    case Map.pop(entries, registry_key(harness, name)) do
-      {nil, _entries} -> entries
-      {old, rest} -> Map.put(rest, name, Map.put(old, "harness", harness))
+  defp delete_legacy_entry(entries, harness, name) do
+    case Map.get(entries, name) do
+      %{"harness" => ^harness} -> Map.delete(entries, name)
+      _entry -> entries
     end
   end
 
@@ -445,9 +444,27 @@ defmodule Aiur.Accounts do
   defp write_registry(accounts) do
     path = machine_path()
 
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, Jason.encode!(%{"accounts" => accounts}, pretty: true), [:binary]) do
-      File.chmod(path, 0o600)
+    with {:ok, document} <- machine_document(path),
+         :ok <- File.mkdir_p(Path.dirname(path)) do
+      Aiur.Fs.atomic_write(path, MachineYaml.emit(Map.put(document, "accounts", accounts)), mode: 0o600)
+    end
+  end
+
+  defp machine_document(path) do
+    case File.stat(path) do
+      {:error, :enoent} ->
+        {:ok, %{}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, _stat} ->
+        case Aiur.Yaml.read_from_file(path) do
+          {:ok, nil} -> {:ok, %{}}
+          {:ok, document} when is_map(document) -> {:ok, document}
+          {:ok, _other} -> {:error, :machine_file_must_be_mapping}
+          {:error, _reason} = error -> error
+        end
     end
   end
 

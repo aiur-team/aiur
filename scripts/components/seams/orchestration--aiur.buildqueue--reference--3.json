@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildQueue",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/instance_heartbeat_metadata/project_signals.ex"
+  ],
+  "reason": "#7820 read the next ready queue entry for the gateway summary; an unreadable or absent queue reports unknown"
+}

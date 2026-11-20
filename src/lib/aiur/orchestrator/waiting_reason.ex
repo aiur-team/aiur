@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
       released_at: monotonic_since(release[:released_at_ms], now),
       hold_since: monotonic_since(hold[:held_since_ms], now),
       hold_cause: hold[:detail] || hold[:signal],
-      workspace_retention: retained(row.identifier),
-      workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
+      workspace_retention: if(row.waiting_reason == :workspace_retained, do: retained(row.identifier)),
+      workspace_wait: if(row.waiting_reason == :workspace_ownership_waiting, do: workspace_wait(state, row.issue_id, row.identifier))
     }
   end
 
@@ -186,7 +186,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
-  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  # `inspect/1` reads a small printable-byte list as a charlist (`[10]` -> `~c"\n"`).
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids, charlists: :as_lists)}"
   defp render_pending_ids(_waiting), do: ""
 
   defp render_age(nil), do: "since unknown"

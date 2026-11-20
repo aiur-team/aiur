@@ -2,7 +2,7 @@ defmodule AiurWeb.Build.UnfiledRowsTest do
   use ExUnit.Case, async: true
   alias AiurWeb.Build.UnfiledRows
 
-  defp context, do: %{filed_numbers: MapSet.new([9, 10]), done_numbers: MapSet.new([9]), max_wave: 4, max_ord: 3, epics: MapSet.new(["bugs"]), now: 123}
+  defp context, do: %{filed_numbers: MapSet.new([9, 10]), done_numbers: MapSet.new([9]), max_wave: 4, max_ord: 3, lanes: MapSet.new(["bugs"]), now: 123}
   defp item(id, overrides \\ %{}), do: Map.merge(%{id: id, number: nil, phase: 0, complexity: 3, title: id, lane: "bugs", depends_on: []}, overrides)
 
   defp pack(items, overrides \\ %{}),

@@ -1,6 +1,9 @@
 defmodule Aiur.AgentEnvironment.WorkspaceEnv do
   @moduledoc false
 
+  # Cohesion: this module owns the complete environment contract for local and
+  # remote agent launches, including the private MCP socket override.
+
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
   alias Aiur.AgentEnvironment.{Contributor, CredentialScrub, GitHubPath, GitIdentity, Names, SchedulerOptions, ShellScrub}
   alias Aiur.Config.Paths
@@ -51,6 +54,9 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
         {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
       end)
 
+    mcp_socket_env = AgentScratch.mcp_socket_env(workspace, mcp_socket_opts(opts))
+    AgentScratch.warn_mcp_socket_path(workspace, mcp_socket_env)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -76,6 +82,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
       ] ++
         GitHubPath.port_env(workspace) ++
         scratch_env(workspace) ++
+        mcp_socket_env ++
         GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
@@ -176,6 +183,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"; TMPPREFIX="$aiur_scratch_dir/zsh-"\n) <>
       "  export TMPDIR TMP TEMP TMPPREFIX\nfi\nunset aiur_scratch_dir\n" <>
+      remote_mcp_socket_env_prefix(workspace) <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       "{ #{ShellScrub.scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
@@ -183,6 +191,23 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
+
+  defp remote_mcp_socket_env_prefix(workspace) do
+    "aiur_mcp_workspace=#{Aiur.Shell.escape(workspace)}\n" <>
+      ~s"""
+      unset AIUR_MCP_SOCKET_DIR
+      aiur_mcp_uid=$(id -u)
+      aiur_mcp_hash=$(printf '%s' "$aiur_mcp_workspace" | sha256sum | cut -c1-10)
+      aiur_mcp_root="${XDG_RUNTIME_DIR:-/tmp}/aiur-${aiur_mcp_uid}"
+      if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ "$(stat -c %u "$XDG_RUNTIME_DIR" 2>/dev/null)" != "$aiur_mcp_uid" ]; then aiur_mcp_root="/tmp/aiur-${aiur_mcp_uid}"; fi
+      aiur_mcp_socket_probe="$aiur_mcp_root/$aiur_mcp_hash/aiur-mcp-9999999-999.sock"
+      if [ "$(LC_ALL=C printf '%s' "$aiur_mcp_socket_probe" | wc -c)" -gt 100 ]; then aiur_mcp_root="/tmp/aiur-${aiur_mcp_uid}"; fi
+      unset aiur_mcp_socket_probe
+      mkdir -p "$aiur_mcp_root" 2>/dev/null && [ ! -L "$aiur_mcp_root" ] && [ "$(stat -c %u "$aiur_mcp_root" 2>/dev/null)" = "$aiur_mcp_uid" ] && chmod 700 "$aiur_mcp_root" 2>/dev/null &&
+      AIUR_MCP_SOCKET_DIR="$aiur_mcp_root/$aiur_mcp_hash" && mkdir -p "$AIUR_MCP_SOCKET_DIR" 2>/dev/null && [ ! -L "$AIUR_MCP_SOCKET_DIR" ] && [ "$(stat -c %u "$AIUR_MCP_SOCKET_DIR" 2>/dev/null)" = "$aiur_mcp_uid" ] && chmod 700 "$AIUR_MCP_SOCKET_DIR" 2>/dev/null && export AIUR_MCP_SOCKET_DIR
+      unset aiur_mcp_uid aiur_mcp_hash aiur_mcp_root aiur_mcp_workspace
+      """
+  end
 
   defp build_gate_export_prefix(workspace, opts) do
     if Keyword.get(opts, :build_gate, false) do
@@ -291,6 +316,31 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnv do
     |> case do
       url when is_binary(url) and url != "" -> url
       _ -> neutral_repo_url()
+    end
+  end
+
+  defp mcp_socket_opts(_opts) do
+    {user_id, 0} = System.cmd("id", ["-u"], stderr_to_stdout: true)
+    user_id = String.trim(user_id)
+    runtime_dir = System.get_env("XDG_RUNTIME_DIR")
+
+    runtime_root =
+      if is_binary(runtime_dir) and runtime_dir != "" and writable_directory?(runtime_dir, user_id),
+        do: runtime_dir,
+        else: "/tmp"
+
+    [runtime_root: runtime_root, user_id: user_id]
+  rescue
+    _ -> [runtime_root: "/tmp", user_id: "unknown"]
+  end
+
+  defp writable_directory?(path, user_id) do
+    case File.stat(path) do
+      {:ok, %File.Stat{type: :directory, mode: mode, uid: uid}} ->
+        to_string(uid) == user_id and Bitwise.band(mode, 0o200) != 0
+
+      _ ->
+        false
     end
   end
 end

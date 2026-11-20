@@ -122,6 +122,8 @@ defmodule Aiur.Events.EnvelopeTest do
   end
 
   defp topic_for("ticket.*.agent.decision.#"), do: "ticket.42.agent.decision.answered"
+  defp topic_for("ticket.*.agent.decision.requested"), do: "ticket.42.agent.decision.requested"
+  defp topic_for("ticket.*.agent.decision.answered"), do: "ticket.42.agent.decision.answered"
   defp topic_for("ticket.*.agent.attention.#"), do: "ticket.42.agent.attention.example"
   defp topic_for("system.#"), do: "system.dispatch.cycle_stalled"
   defp topic_for(pattern), do: pattern |> String.replace("*", "42") |> String.replace("#", "example")
@@ -140,6 +142,7 @@ defmodule Aiur.Events.EnvelopeTest do
 
   defp ref_value(:pr_number), do: 2210
   defp ref_value(:job_id), do: "run-42-1"
+  defp ref_value(:run_id), do: 42
   defp ref_value(:head_sha), do: "abc1234"
   defp ref_value(:decision_id), do: "decision-1"
   defp ref_value(:decision_version), do: 1
@@ -157,4 +160,7 @@ defmodule Aiur.Events.EnvelopeTest do
   defp attr_value(:boolean), do: true
   defp attr_value(:id), do: "identifier-1"
   defp attr_value(:sha), do: "abc1234"
+  defp attr_value(:text), do: "question"
+  defp attr_value(:decision_options), do: [%{"id" => "yes", "label" => "Yes", "description" => nil, "benefits" => nil, "drawbacks" => nil, "risk" => nil}]
+  defp attr_value(:decision_answer), do: %{"selected_option_id" => "yes", "custom_response" => nil, "rationale" => nil}
 end

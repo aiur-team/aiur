@@ -105,6 +105,23 @@ defmodule Aiur.AgentTools.FeatureTest do
     refute Map.has_key?(owners, 12)
   end
 
+  test "the lane field is the current name and epic stays a working alias", %{store: store} do
+    run = executor("77", store)
+
+    lanes = [%{"key" => "f-other-work", "label" => "Other work"}]
+    created = run.("aiur_feature", %{"op" => "create", "slug" => "other", "label" => "Other", "lanes" => lanes})
+    assert created["success"] == true
+    assert {:ok, %{features: %{"other" => %{epics: [%{key: "f-other-work", label: "Other work"}]}}}} = Features.snapshot(server: store)
+
+    alias_call = run.("aiur_feature", %{"op" => "add", "slug" => "other", "ids" => [12], "lane" => "f-other-work"})
+    assert alias_call["success"] == true
+    assert {:ok, %{owners: %{12 => %{epic: "f-other-work", actor: "agent:77"}}}} = Features.snapshot(server: store)
+
+    both = run.("aiur_feature", %{"op" => "add", "slug" => "other", "ids" => [13], "lane" => "f-other-work", "epic" => "f-other-work"})
+    assert both["success"] == false
+    assert payload(both)["error"]["reason"] =~ "conflicting_feature_arguments"
+  end
+
   defp executor(identifier, store), do: ToolExecutor.build(%Aiur.Issue{id: "gid-te-feat", identifier: identifier}, nil, nil, %{}, feature_opts: [server: store])
   defp payload(response), do: Jason.decode!(response["output"])
 end

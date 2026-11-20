@@ -13,7 +13,7 @@ defmodule Aiur.BuildGate.HookSnapshot do
 
   # ponytail: snapshots are never pruned; each is ~115 KiB and only a changed hook adds one.
   # Read by name, so a missing release tree is an error rather than an empty snapshot.
-  @files ~w(build_gate.bash browser_build_gate.bash build_priority.bash build_gate_holder.py)
+  @files ~w(build_gate.bash browser_build_gate.bash build_priority.bash build_gate_holder.py build_gate_reaper.py)
   @globs ~w(build_gate/*.bash build_gate_holder_lib/*.py)
 
   # A stage older than this was left by a BEAM that died before its rename.

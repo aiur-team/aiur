@@ -20,7 +20,7 @@ defmodule Aiur.AgentGitHubGuard.Script do
   # `.claude/hooks/issue-disposition.py` assembles the `gh` guard from the same
   # directory in file-name order, so list order and name order must agree.
   @parts [
-    git: ~w(00-destructive 10-worktree-push)
+    git: ~w(00-destructive 10-worktree-push 20-ownership-fence)
   ]
 
   @paths for {guard, names} <- @parts, do: {guard, Enum.map(names, &Path.join([@root, "#{guard}", &1 <> ".sh"]))}

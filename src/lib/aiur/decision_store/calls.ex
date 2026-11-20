@@ -10,6 +10,8 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Enrichment
   alias Aiur.DecisionStore.Index
+  alias Aiur.DecisionStore.JournalRepair
+  alias Aiur.DecisionStore.OverrideMerges
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
@@ -17,6 +19,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Revisions
   alias Aiur.DecisionStore.Transport
   alias Aiur.DecisionStore.Withdrawals
+  alias Aiur.DecisionStore.WorkerHandoffs
 
   @spec handle_call(term(), term(), term()) :: term()
   def handle_call(
@@ -35,6 +38,8 @@ defmodule Aiur.DecisionStore.Calls do
 
   def handle_call(:await_failure_attention_reprojection, _from, state), do: {:reply, :ok, state}
 
+  def handle_call(:repair_journal, _from, state), do: JournalRepair.handle_call(state)
+
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -51,6 +56,12 @@ defmodule Aiur.DecisionStore.Calls do
   def handle_call({:command_fact, id, type, data, opts}, _from, state) do
     CommandFacts.record(state, id, type, data, opts)
   end
+
+  def handle_call({:override_handoff_candidates, identifier}, _from, state),
+    do: {:reply, {:ok, WorkerHandoffs.snapshots(state, identifier)}, state}
+
+  def handle_call({:record_override_handoff, identifier, snapshots, receipt}, _from, state),
+    do: WorkerHandoffs.apply(state, identifier, snapshots, receipt)
 
   def handle_call({:request, payload, opts}, _from, state) do
     Requests.handle_request(payload, opts, state)
@@ -70,6 +81,14 @@ defmodule Aiur.DecisionStore.Calls do
 
   def handle_call({:enrich, decision_id, patch, opts}, _from, state) do
     Enrichment.handle_enrichment(decision_id, patch, opts, state)
+  end
+
+  # A gateway grant is answered only through Aiur.Gateway.GrantConfirmation, which carries a verified human proof.
+  def handle_call({op, id, payload, opts}, _from, %{writable?: true, current: current} = state)
+      when op in [:answer, :override, :supersede] and is_map_key(current, id) and :erlang.map_get(:kind, :erlang.map_get(id, current)) == "gateway_grant" do
+    if op == :answer and match?(%Aiur.DecisionStore.HumanConfirmation{}, opts[:grant_confirmation]),
+      do: Answers.handle_answer(id, payload, opts, state),
+      else: {:reply, {:error, :grant_requires_session_confirmation}, state}
   end
 
   def handle_call({:answer, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
@@ -140,6 +159,12 @@ defmodule Aiur.DecisionStore.Calls do
     Withdrawals.handle_moot(decision_id, payload, opts, state)
   end
 
+  def handle_call({:override, _id, _payload, _opts}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, {:store_unavailable, state.health}}, state}
+
+  def handle_call({:override, id, payload, opts}, _from, state),
+    do: Revisions.handle_override(id, payload, opts, state)
+
   def handle_call({:supersede, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -197,6 +222,18 @@ defmodule Aiur.DecisionStore.Calls do
         %{writable?: false} = state
       ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:recheck_override_delivery, _id, _action}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, :store_unavailable}, state}
+
+  def handle_call({:recheck_override_delivery, id, action}, _from, state) do
+    item = %{action_id: action, correlation: %{decision_id: id}}
+
+    case OverrideMerges.before_delivery(state, item) do
+      {:merged, next} -> {:reply, {:error, :pr_merged}, next}
+      {:ok, next} -> {:reply, :ok, next}
+    end
   end
 
   def handle_call({:validate_delivery, _item}, _from, %{writable?: false} = state) do

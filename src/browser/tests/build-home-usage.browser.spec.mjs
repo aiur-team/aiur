@@ -39,7 +39,11 @@ test('unknown and partial model readings stay distinct with remaining percentage
   await expect(model.locator('i')).toHaveCount(0)
   await expect(model.locator('.ax-ln')).toHaveAttribute('data-tip', /not observed/)
   await paint(page, fixture('partial'))
-  await expect(model.locator('.ax-pc')).toHaveText('40% left')
+  // One full-width line per login, stacked; the login lives in the aria-label.
+  await expect(model.locator('.ax-pc')).toHaveText(['', '40% left'])
+  await expect(model.locator('.ax-ln')).toHaveClass(['ax-ln', 'ax-ln acct'])
+  await expect(model.locator('.ax-ln').nth(0)).toHaveAttribute('aria-label', /Max · work.*not observed/)
+  await expect(model.locator('.ax-ln').nth(1)).toHaveAttribute('aria-label', /Pro · personal.*40% left/)
   await expect(model.locator('.ax-x')).toHaveText('×2')
   await expect(model.locator('.ax-seg.none i')).toHaveCount(0)
   await expect(model.locator('.ax-seg i')).toHaveAttribute('style','width:40%')
@@ -82,52 +86,60 @@ test('meter percentage labels stay inside their rows at desktop and phone widths
   const u = fixture('n2')
   u.apis[0].lines[0].acc = [57]
   u.apis[0].lines[1].acc = [7]
+  u.apis[1].lines[0].acc = [100]
   u.providers[0].session.acc = [8]
   u.providers[0].weekly.acc = [8]
 
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 900 })
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
     await paint(page, u)
 
     for (const card of ['.api', '.mdl']) {
-      const labels = await page.locator(`${card} .ax-ln .ax-pc`).evaluateAll((elements) => elements
-        .filter((label) => label.textContent.trim())
-        .map((label) => {
-          const labelBox = label.getBoundingClientRect()
-          const rowBox = label.closest('.ax-ln').getBoundingClientRect()
-          const barBox = label.closest('.ax-ln').querySelector('.ax-bar').getBoundingClientRect()
-          const resetBox = label.closest('.ax-ln').querySelector('.ax-rs').getBoundingClientRect()
+      const rows = await page.locator(`${card} .ax-ln`).evaluateAll((elements) => elements.map((row) => {
+        const rowBox = row.getBoundingClientRect()
+        const cells = [...row.children].map((cell) => {
+          const box = cell.getBoundingClientRect()
           return {
-            text: label.textContent.trim(),
-            labelTop: labelBox.top,
-            labelBottom: labelBox.bottom,
-            rowTop: rowBox.top,
-            rowBottom: rowBox.bottom,
-            barWidth: barBox.width,
-            resetLeft: resetBox.left,
-            resetRight: resetBox.right,
-            rowLeft: rowBox.left,
-            rowRight: rowBox.right
+            kind: cell.classList.contains('ax-tg') ? 'tag' : cell.classList.contains('ax-pc') ? 'percent' :
+              cell.classList.contains('ax-bar') ? 'bar' : 'reset',
+            text: cell.textContent.trim(), x: box.x, y: box.y, right: box.right, bottom: box.bottom,
+            width: box.width, scrollWidth: cell.scrollWidth, clientWidth: cell.clientWidth
           }
-        }))
+        })
+        return { text: row.innerText.replace(/\s+/g, ' ').trim(), x: rowBox.x, y: rowBox.y,
+          right: rowBox.right, bottom: rowBox.bottom, cells,
+          tip: row.getAttribute('data-tip') }
+      }))
 
-      expect(labels.length, `${card} labels should render at ${width}px`).toBeGreaterThan(1)
-      for (const label of labels) {
-        expect(label.labelTop, `${card} ${label.text} starts inside its row at ${width}px`).toBeGreaterThanOrEqual(label.rowTop)
-        expect(label.labelBottom, `${card} ${label.text} ends inside its row at ${width}px`).toBeLessThanOrEqual(label.rowBottom)
-        expect(label.barWidth, `${card} ${label.text} bar remains visible at ${width}px`).toBeGreaterThan(0)
-        expect(label.resetLeft, `${card} ${label.text} reset stays in its row at ${width}px`).toBeGreaterThanOrEqual(label.rowLeft)
-        expect(label.resetRight, `${card} ${label.text} reset stays in its row at ${width}px`).toBeLessThanOrEqual(label.rowRight)
+      expect(rows.length, `${card} rows should render at ${width}×${height}`).toBeGreaterThan(1)
+      for (const row of rows) {
+        expect(row.cells.every((cell) => cell.y >= row.y && cell.bottom <= row.bottom),
+          `${card} ${row.text} cells stay inside their row at ${width}×${height}`).toBe(true)
+        expect(row.cells.find((cell) => cell.kind === 'bar').width,
+          `${card} ${row.text} bar remains visible at ${width}×${height}`).toBeGreaterThan(0)
+        for (const cell of row.cells) {
+          if (cell.kind === 'tag' || cell.kind === 'percent' || cell.kind === 'reset') {
+            expect(cell.scrollWidth, `${card} ${cell.kind} text is not clipped at ${width}×${height}`)
+              .toBeLessThanOrEqual(cell.clientWidth)
+          }
+        }
+        for (let index = 1; index < row.cells.length; index++) {
+          expect(row.cells[index - 1].right, `${card} ${row.cells[index - 1].kind} and ${row.cells[index].kind} do not overlap at ${width}×${height}`)
+            .toBeLessThanOrEqual(row.cells[index].x)
+        }
       }
 
-      for (let index = 1; index < labels.length; index++) {
-        expect(labels[index - 1].labelBottom, `${card} adjacent percentages do not overlap at ${width}px`)
-          .toBeLessThanOrEqual(labels[index].labelTop)
+      if (card === '.mdl') {
+        expect(rows.some((row) => row.tip?.includes('Session')),
+          `model session details remain available in their tooltip at ${width}×${height}`).toBe(true)
+        expect(rows.some((row) => row.tip?.includes('Weekly')),
+          `model weekly details remain available in their tooltip at ${width}×${height}`).toBe(true)
       }
     }
 
     await expect(page.locator('.api .ax-pc').nth(0)).toHaveText('57% left')
     await expect(page.locator('.api .ax-pc').nth(1)).toHaveText('7% left')
+    await expect(page.locator('.api .ax-tg').nth(2)).toHaveText('credits')
     await expect(page.locator('.mdl .ax-pc').first()).toHaveText('8% left')
     await expect(page.locator('.mdl .ax-pc').nth(1)).toHaveText('8% left')
   }
@@ -138,8 +150,8 @@ test('unknown and ended resets, stale ages, holds and notes are truthful', async
   await expect(page.locator('.mdl .ax-rs')).toHaveText('reset unknown')
   await expect(page.locator('.mdl .ax-rs em')).toHaveCount(0)
   await paint(page, fixture('ended'))
-  await expect(page.locator('.mdl .ax-ln')).toHaveClass(/stale/)
-  await expect(page.locator('.mdl .ax-rs')).toHaveText('window ended')
+  await expect(page.locator('.mdl .ax-ln')).toHaveClass([/stale/, /stale/])
+  await expect(page.locator('.mdl .ax-rs')).toHaveText(['window ended', 'window ended'])
   await paint(page, fixture('stale'))
   await expect(page.locator('.mdl .ax-r2')).toHaveClass(/stale/)
   await expect(page.locator('.mdl .ax-ln').first()).toHaveAttribute('data-tip', /12m ago/)
@@ -160,7 +172,7 @@ test('credits, absent windows, counters, empty and locked states', async ({ page
   await expect(page.locator('.api .ax-ln')).toHaveAttribute('data-tip', /ElevenLabs · renews in/)
   await expect(page.locator('.api em')).toHaveCount(0)
   await paint(page, fixture('onewin'))
-  await expect(page.locator('.mdl .ax-r2').first().locator('.ax-ln')).toHaveCount(1)
+  await expect(page.locator('.mdl .ax-r2').first().locator('.ax-ln')).toHaveCount(2)
   await expect(page.locator('.mdl .ax-r2').last().locator('.ax-no')).toHaveText('not observed')
   await paint(page, fixture('one'))
   await expect(page.locator('.api .ax-uh')).toHaveText('APIs1 API')
@@ -197,7 +209,7 @@ test('popover mouse and keyboard, offsets, hide delay, scroll and live diff repl
   await page.mouse.move(0,0); await page.clock.runFor(50); await expect(pop).toHaveClass('ax-pop show')
   await page.clock.runFor(20); await expect(pop).toHaveClass('ax-pop')
   await line.focus(); await expect(pop).toHaveClass('ax-pop show')
-  await expect(line).toHaveAttribute('aria-label', /Claude.*Max · work 99% left/)
+  await expect(line).toHaveAttribute('aria-label', /Claude Max · work · .*Session window 5h 99% left/)
   await page.evaluate(() => window.dispatchEvent(new Event('scroll'))); await expect(pop).toHaveClass('ax-pop')
   await line.hover()
   await page.clock.resume()

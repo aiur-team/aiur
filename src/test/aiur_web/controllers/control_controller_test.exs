@@ -20,6 +20,7 @@ defmodule AiurWeb.ControlControllerTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.Identity.Machine
   alias AiurWeb.Router
 
   @session_options Plug.Session.init(store: :cookie, key: "_aiur_control_test", signing_salt: "aiur-test-session")
@@ -34,20 +35,49 @@ defmodule AiurWeb.ControlControllerTest do
     audit_path = Path.join(root, "control-audit.ndjson")
     previous_token_path = Application.get_env(:aiur, :client_tokens_path)
     previous_audit_path = Application.get_env(:aiur, :control_audit_file)
+    previous_registry_path = Application.get_env(:aiur, :gateway_registry_path)
     previous_cap = Aiur.Orchestrator.max_concurrent_agents()
     Application.put_env(:aiur, :client_tokens_path, token_path)
     Application.put_env(:aiur, :control_audit_file, audit_path)
+    Application.put_env(:aiur, :gateway_registry_path, Path.join(root, "remote-instances.yaml"))
     assert {:ok, read_token} = Aiur.ClientTokens.create("control-read", "read")
     assert {:ok, write_token} = Aiur.ClientTokens.create("control-write", "write")
 
     on_exit(fn ->
       restore_env(:client_tokens_path, previous_token_path)
       restore_env(:control_audit_file, previous_audit_path)
+      restore_env(:gateway_registry_path, previous_registry_path)
       if is_map(previous_cap), do: Aiur.AgentControlCLI.set_max_agents(previous_cap.max)
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{read_token: read_token, write_token: write_token, audit_path: audit_path, previous_cap: previous_cap}
+  end
+
+  test "result carries the gateway identity, or null and unavailable without one", %{read_token: token} do
+    keys = [{Machine, :boot_result}, {Machine, :boot_context}]
+    key = hd(keys)
+    previous = Map.new(keys, &{&1, :persistent_term.get(&1, :absent)})
+    dir = Path.join(System.tmp_dir!(), "gw-ctl-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      for {k, v} <- previous, do: if(v == :absent, do: :persistent_term.erase(k), else: :persistent_term.put(k, v))
+      Aiur.TestCleanup.rm_rf!(dir)
+    end)
+
+    body = Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})
+
+    :persistent_term.put(key, {:degraded, :identity_unreadable, :x})
+    unavailable = Jason.decode!(post_control(token, body).resp_body)
+    assert unavailable["gateway_id"] == nil
+    assert Map.has_key?(unavailable, "gateway_id")
+    assert unavailable["gateway_identity"] == "unavailable"
+
+    {:ok, %{machine_id: id}} = Machine.ensure(dir: dir)
+    available = Jason.decode!(post_control(token, body).resp_body)
+    assert available["gateway_id"] == id
+    assert available["gateway_identity"] == "available"
+    assert Map.has_key?(available, "instance_id")
   end
 
   test "read token runs allowlisted calls and returns the local exit marker", %{read_token: token} do
@@ -223,6 +253,22 @@ defmodule AiurWeb.ControlControllerTest do
 
     assert method.status == 405
     assert issue_route.plug == AiurWeb.ObservabilityApiController
+  end
+
+  test "a token without the agents category is refused pause and the audit names category and peer", %{audit_path: path} do
+    {:ok, token} = Aiur.ClientTokens.create("peer-token", "write", peer: "gw-peer", categories: ["read", "message"])
+    File.write!(Application.get_env(:aiur, :gateway_registry_path), "version: 1\ninstances:\n  nook:\n    gateway_id: gw-peer\n    allows:\n      categories: [read, message]\n")
+
+    refused = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.pause([\"1\"])"}))
+    assert refused.status == 403
+    assert Jason.decode!(refused.resp_body)["error"]["code"] == "category_not_granted: agents"
+
+    assert path |> File.read!() |> String.split("\n", trim: true) |> List.last() |> Jason.decode!() |> Map.take(["category", "peer", "outcome"]) ==
+             %{"category" => "agents", "peer" => "gw-peer", "outcome" => "refused"}
+
+    assert post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})).status == 200
+    granted = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.message(\"1\", \"hi\")"}))
+    refute granted.resp_body =~ "category_not_granted"
   end
 
   defp post_control(token, payload), do: request(:post, "Bearer " <> token, payload)

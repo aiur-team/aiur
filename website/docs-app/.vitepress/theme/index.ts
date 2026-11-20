@@ -1,5 +1,6 @@
 import DefaultTheme from 'vitepress/theme'
 import VPButton from 'vitepress/dist/client/theme-default/components/VPButton.vue'
+import LifecycleTimeline from './components/LifecycleTimeline.vue'
 import type { Theme } from 'vitepress'
 import { defineComponent, h, onMounted, onUnmounted } from 'vue'
 import 'aiur-style/tokens.css'
@@ -38,5 +39,6 @@ export default {
   // markdown would render unstyled. Register the real component instead.
   enhanceApp({ app }) {
     app.component('VPButton', VPButton)
+    app.component('LifecycleTimeline', LifecycleTimeline)
   }
 } satisfies Theme

@@ -85,6 +85,7 @@ config :aiur, :capability_providers, [
   Aiur.Executor.CapabilityProvider,
   Aiur.BuildOrder.CapabilityProvider,
   Aiur.ElevenLabs.CapabilityProvider,
+  Aiur.VoiceConverse.Host.Capability,
   AiurWeb.StreamdeckCapabilityProvider,
   Aiur.Webhooks.CapabilityProvider,
   Aiur.Claude.RemoteControl.CapabilityProvider,
@@ -111,7 +112,8 @@ config :aiur, :config_semantic_checks,
   always: [
     Aiur.Orchestrator.HostedModeCheck,
     Aiur.Config.Schema.TurnSandboxPolicyCheck,
-    Aiur.Opencode.Config.SemanticCheck
+    Aiur.Opencode.Config.SemanticCheck,
+    Aiur.Config.CapacityPolicy.TightenCheck
   ]
 
 config :phoenix, :json_library, Jason
@@ -180,6 +182,12 @@ if config_env() == :test do
   # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
   config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
+  # The label catalogue refreshes hourly against GitHub. The shared test app starts the
+  # process so its table exists, but no test may dial for it; cases drive `refresh/1`
+  # with an injected request function.
+  config :aiur, :label_catalogue_refresh?, false
+  # The capacity ledger is machine-wide state; tests that reach it start their own (`:ledger_store`).
+  config :aiur, :capacity_ledger_store, nil
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available
@@ -243,6 +251,15 @@ if config_env() == :test do
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false
+
+  # The shared app's LandingWatch, QuarantineLifter and MainWatch read GitHub on a
+  # timer and on bus events. With no token they log `landing watcher poll
+  # unavailable: :missing_github_token` into unrelated async capture_log calls
+  # (#6474). Tests that exercise them start their own named instances.
+  config :aiur, :repository_services?, false
+
+  # The shared app never reads the developer's ~/.aiur/machine `projects:`; project-tree tests start their own.
+  config :aiur, :projects_enabled?, false
 
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and

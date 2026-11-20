@@ -26,6 +26,7 @@
   },
   "revision_follow_ups": {},
   "active_action_id": null,
+  "tags": [],
   "acknowledgement": null,
   "questions": [],
   "short_label": "Scope",
@@ -42,6 +43,7 @@
   "active_answer": null,
   "native": null,
   "options": [],
+  "media": [],
   "context": {
     "long_context_markdown": null,
     "short_summary": "Scope"
@@ -56,5 +58,6 @@
   "routed_at": null,
   "human_visible_at": null,
   "executor_acknowledged_at": null,
-  "escalations": []
+  "escalations": [],
+  "overrides": []
 }

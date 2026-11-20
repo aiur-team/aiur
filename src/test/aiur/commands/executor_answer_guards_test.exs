@@ -8,6 +8,8 @@ defmodule Aiur.Commands.ExecutorAnswerGuardsTest do
     File.mkdir_p!(dir)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
+    {:ok, delegated} = Agent.start_link(fn -> false end)
+
     store =
       start_supervised!(
         {DecisionStore,
@@ -16,11 +18,65 @@ defmodule Aiur.Commands.ExecutorAnswerGuardsTest do
          filesystem_sync_fun: fn -> :ok end,
          dispatch_delay_ms: 60_000,
          relay_enabled: fn -> true end,
+         allow_reversible_human_required_answers: fn -> Agent.get(delegated, & &1) end,
          relay_notifier: fn _, _ -> :ok end,
          answer_comment_publisher: fn _ -> :ok end}
       )
 
-    %{store: store, journal: Path.join(dir, "decisions.ndjson")}
+    %{store: store, journal: Path.join(dir, "decisions.ndjson"), delegated: delegated}
+  end
+
+  test "operator delegation permits only reversible legacy human-required Commands and keeps Executor attribution", ctx do
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          question: "Use the established trailer format?",
+          kind: "legacy_attention",
+          blocking: true,
+          authority: "human_required",
+          reversibility: "reversible",
+          source_id: "delegated-legacy",
+          options: [%{id: "yes", label: "Use the established format"}]
+        },
+        [ticket: %{identifier: "6410"}, source: %{agent_id: "worker", session_id: "delegated-test"}],
+        ctx.store
+      )
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(decision.decision_id, payload("before-delegation"), actor(:executor), ctx.store)
+
+    assert :ok = Agent.update(ctx.delegated, fn _ -> true end)
+
+    assert {:ok, %{decision: answered, status: :accepted}} =
+             DecisionStore.answer(decision.decision_id, payload("after-delegation"), actor(:executor), ctx.store)
+
+    assert answered.answer.actor.kind == :executor
+    assert answered.answer.rationale == "Operator choice"
+  end
+
+  test "delegation cannot authorize product, spend, publication, or security basis", ctx do
+    :ok = Agent.update(ctx.delegated, fn _ -> true end)
+
+    for basis <- ["product", "spend", "external_publication", "security"] do
+      {:ok, %{decision: decision}} =
+        DecisionStore.request(
+          %{
+            question: "Do the protected action?",
+            kind: "legacy_attention",
+            context: %{authority_basis: basis},
+            blocking: true,
+            authority: "human_required",
+            reversibility: "reversible",
+            source_id: "protected-#{basis}",
+            options: [%{id: "yes", label: "Yes"}]
+          },
+          [ticket: %{identifier: "6410"}, source: %{agent_id: "worker", session_id: "delegated-test"}],
+          ctx.store
+        )
+
+      assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+               DecisionStore.answer(decision.decision_id, payload("protected-#{basis}"), actor(:executor), ctx.store)
+    end
   end
 
   test "Executor cannot answer its own Command even with delegable authority", ctx do

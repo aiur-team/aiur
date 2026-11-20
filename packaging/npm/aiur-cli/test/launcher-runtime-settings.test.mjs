@@ -5,6 +5,18 @@ import { captureFile, useTempRoot } from "./launcher-support.mjs";
 
 useTempRoot();
 
+test("set help explains runtime overrides and config hot reload without contacting the daemon", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {}, ["set", "--help"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("Store or remove an allowlisted runtime setting for this Aiur instance.");
+  expect(result.stdout).toContain("edit the file directly");
+  expect(result.stdout).toContain("about once a second");
+  expect(result.stdout).toContain("CONFIG RELOAD REJECTED");
+  expect(existsSync(captureFile)).toBe(false);
+});
+
 test("set runtime settings safely forwards values, list modes, and unset", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const env = {
@@ -30,12 +42,16 @@ test("set runtime settings safely forwards values, list modes, and unset", () =>
     ]).status,
   ).toBe(0);
 
-  const capture = readFileSync(captureFile, "utf8");
+  // A checkout with a GitHub origin adds project_hint, so the call is wrapped for ControlCall; unwrap it.
+  const capture = readFileSync(captureFile, "utf8").replace(
+    /Aiur\.ControlCall\.Project\.run_local\(Base\.decode64!\("([^"]+)"\)\)/g,
+    (_, encoded) => Buffer.from(encoded, "base64").toString(),
+  );
   expect(capture).toContain(
     'Aiur.AgentControlCLI.set_setting(Base.decode64!("YWdlbnQucm91dGluZw=="), Base.decode64!("eyIzIjoib3BlbnJvdXRlcjptb2RlbCB3aXRoIHNwYWNlcyJ9"), caller_cwd: Base.decode64!("',
   );
   expect(capture).toContain(
-    'caller_agent_workspace_env: Base.decode64!("L2N1c3RvbS1hZ2VudC1yb290L3JlcG8vNTk2OQ=="))',
+    'caller_agent_workspace_env: Base.decode64!("L2N1c3RvbS1hZ2VudC1yb290L3JlcG8vNTk2OQ=="',
   );
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings()");
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings(json: true)");

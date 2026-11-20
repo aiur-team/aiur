@@ -3,16 +3,16 @@ defmodule Aiur.ClientTokensCLI do
 
   @spec run([String.t()]) :: :ok | {:error, String.t()}
   def run(["create", name | rest]) do
-    {opts, positional, invalid} = OptionParser.parse(rest, strict: [scope: :string])
+    {opts, positional, invalid} = OptionParser.parse(rest, strict: [scope: :string, peer: :string, categories: :string])
 
     with true <- positional == [] and invalid == [],
          :ok <- select_project_workflow(),
-         {:ok, token} <- Aiur.ClientTokens.create(name, opts[:scope] || "write") do
+         {:ok, token} <- Aiur.ClientTokens.create(name, scope(opts), create_opts(opts)) do
       IO.puts(token)
       :ok
     else
       {:error, reason} -> {:error, "token create failed: #{inspect(reason)}"}
-      _ -> {:error, "usage: aiur token create <name> [--scope read|write]"}
+      _ -> {:error, usage()}
     end
   end
 
@@ -22,7 +22,7 @@ defmodule Aiur.ClientTokensCLI do
     case Aiur.ClientTokens.list() do
       {:ok, tokens} ->
         if tokens == [], do: IO.puts("No client tokens.")
-        Enum.each(tokens, &IO.puts("#{&1["name"]}\t#{&1["scope"]}\t#{&1["created_at"]}"))
+        Enum.each(tokens, &IO.puts("#{&1["name"]}\t#{&1["scope"]}\t#{&1["peer"]}\t#{Enum.join(&1["categories"] || [], ",")}\t#{&1["created_at"]}"))
         :ok
 
       {:error, reason} ->
@@ -43,7 +43,17 @@ defmodule Aiur.ClientTokensCLI do
     end
   end
 
-  def run(_), do: {:error, "usage: aiur token create <name> [--scope read|write] | list | revoke <name>"}
+  def run(_), do: {:error, usage()}
+
+  defp usage, do: "usage: aiur token create <name> [--scope read|write] [--peer <id>] [--categories a,b] | list | revoke <name>"
+
+  # --categories alone sets the scope itself; --peer alone is read-only until categories are named.
+  defp scope(opts), do: opts[:scope] || if(opts[:peer] && !opts[:categories], do: "read", else: "write")
+
+  defp create_opts(opts) do
+    categories = opts[:categories] && String.split(opts[:categories], ",", trim: true)
+    [peer: opts[:peer], categories: categories || if(opts[:peer], do: ["read"])]
+  end
 
   defp select_project_workflow do
     case System.get_env("AIUR_PROJECT_ROOT") do

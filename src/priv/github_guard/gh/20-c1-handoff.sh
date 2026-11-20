@@ -36,3 +36,29 @@ update_branch_handoff() {
   return 1
 }
 
+
+# An agent hands off through aiur_set_ticket_state, which gates the PR body; a raw
+# label write to a handoff state skips that gate.
+state_label_write() {
+  label_next_adds=0
+  case "${1:-} ${2:-}" in
+    "issue edit"|"pr edit") label_command=edit ;;
+    *)
+      label_command=
+      [ "${1:-}" = api ] && [ "$direction" = write ] && label_command=api
+      ;;
+  esac
+  [ -n "$label_command" ] || return 1
+
+  for label_arg in "$@"; do
+    case "$label_command:$label_next_adds:$label_arg" in
+      edit:1:*agent:ci-wait*|edit:1:*agent:human-review*|edit:*:--add-label=*agent:ci-wait*|edit:*:--add-label=*agent:human-review*|api:*:*agent:ci-wait*|api:*:*agent:human-review*)
+        unset label_command label_next_adds label_arg
+        return 0
+        ;;
+    esac
+    case "$label_arg" in --add-label|-l) label_next_adds=1 ;; *) label_next_adds=0 ;; esac
+  done
+  unset label_command label_next_adds label_arg
+  return 1
+}

@@ -12,8 +12,7 @@ defmodule Aiur.AsksCommandIntegrationTest do
       if previous, do: Application.put_env(:aiur, :executor_state_dir, previous), else: Application.delete_env(:aiur, :executor_state_dir)
     end)
 
-    store = start_store!(dir)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store = start_supervised_store!(dir)
     %{store: store}
   end
 

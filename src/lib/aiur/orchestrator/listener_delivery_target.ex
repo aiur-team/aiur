@@ -6,6 +6,9 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
   alias Aiur.Orchestrator.OperatorMessages
 
   @impl true
+  def executor_delivery_installed?, do: Code.ensure_loaded?(OperatorMessages.ExecutorHookClaims)
+
+  @impl true
   def enqueue(target, text, opts) do
     payload = %{
       kind: :text,
@@ -18,7 +21,7 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
     }
 
     payload = Map.merge(payload, Map.new(Keyword.take(opts, [:actor, :correlation])))
-    Orchestrator.send_operator_message(target, payload)
+    Orchestrator.send_operator_message(queue_target(target), payload)
   end
 
   @impl true
@@ -31,10 +34,14 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
   end
 
   @impl true
-  def read_snapshot(id, timeout), do: OperatorMessages.Snapshot.read(Orchestrator, id, timeout)
+  def read_snapshot(id, timeout), do: OperatorMessages.Snapshot.read(Aiur.Project.whereis(Aiur.Orchestrator), id, timeout)
+
+  # The hook consumer owns this queue key; external sessions never become worker runners.
+  defp queue_target(%{v: 1, subject: :executor}), do: "executor"
+  defp queue_target(target), do: target
 
   defp call(request, timeout, timeout_result) do
-    GenServer.call(Orchestrator, request, timeout)
+    GenServer.call(Aiur.Project.whereis(Aiur.Orchestrator), request, timeout)
   catch
     :exit, {:timeout, _} -> timeout_result
     :exit, _ -> {:error, :unavailable}

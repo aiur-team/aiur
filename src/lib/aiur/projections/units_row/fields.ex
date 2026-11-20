@@ -32,6 +32,11 @@ defmodule Aiur.Projections.UnitsRow.Fields do
     sourced_derived_value(issue_fact, status_row, &build_lane/1)
   end
 
+  @spec sourced_priority(map() | term(), map() | term()) :: {pos_integer() | nil, atom()}
+  def sourced_priority(issue_fact, status_row) do
+    sourced_derived_value(issue_fact, status_row, &priority/1)
+  end
+
   @type command_count_source :: :decisions | :status_report | :unknown
 
   @spec reasons(map() | term(), non_neg_integer() | nil) :: map()
@@ -141,6 +146,13 @@ defmodule Aiur.Projections.UnitsRow.Fields do
     case Value.get(issue, :complexity) do
       value when is_integer(value) and value > 0 -> value
       _value -> label_value(issue, "complexity:", &parse_positive_integer/1)
+    end
+  end
+
+  defp priority(issue) do
+    case Value.get(issue, :priority) do
+      value when is_integer(value) and value > 0 -> value
+      _value -> label_value(issue, "priority:", &parse_positive_integer/1)
     end
   end
 

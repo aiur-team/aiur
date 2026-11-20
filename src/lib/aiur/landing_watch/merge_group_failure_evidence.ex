@@ -37,7 +37,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
       )
       |> Enum.map(fn [name, path] -> "#{name} :: #{normalize_test_path(path)}" end)
 
-    browser_identities = Enum.map(browser_spec_paths(log), &"BrowserSpec :: #{&1}")
+    browser_identities = merge_browser_identities(browser_spec_paths(log), browser_test_identities(log))
 
     Enum.uniq(exunit_identities ++ browser_identities)
   end
@@ -48,9 +48,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   defp browser_spec_paths(log) do
     annotations =
-      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s|$)/, log, capture: :all_but_first)
-      |> List.flatten()
-      |> Enum.map(&normalize_browser_path/1)
+      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s*(?:::|\s|$))/, log, capture: :all_but_first)
+      |> Enum.map(fn [path] -> normalize_browser_path(path) end)
 
     playwright =
       Regex.scan(
@@ -63,6 +62,23 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
     Enum.uniq(annotations ++ playwright)
   end
+
+  defp browser_test_identities(log) do
+    Regex.scan(
+      ~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)\s*::\s*(.*?)\s*::\s*(\d+)(?=\s|$)/,
+      log,
+      capture: :all_but_first
+    )
+    |> Enum.map(fn [path, title, line] -> "BrowserSpec :: #{normalize_browser_path(path)} :: #{String.trim(title)} :: #{line}" end)
+  end
+
+  defp merge_browser_identities(paths, tests) do
+    detailed_paths = Enum.map(tests, &browser_identity_path/1)
+    fallbacks = paths |> Enum.reject(&(&1 in detailed_paths)) |> Enum.map(&"BrowserSpec :: #{&1}")
+    fallbacks ++ tests
+  end
+
+  defp browser_identity_path("BrowserSpec :: " <> rest), do: rest |> String.split(" :: ") |> hd()
 
   defp strip_actions_timestamps(log), do: Regex.replace(~r/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /m, log, "")
 

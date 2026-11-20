@@ -62,6 +62,16 @@ defmodule Aiur.Orchestrator.SessionLimitResumeTest do
     refute_received {:event, %{topic: "ticket.2.agent.stalled.resolved"}}
   end
 
+  # #7879: the paused-claim fallback reads `credit_limited` to skip its wait.
+  test "a credit-limited worker pause records the credit refusal on the entry" do
+    entry = paused_entry("1") |> Map.drop([:paused_reason, :usage_limit_reset_at]) |> Map.put(:control, %{status: :working})
+    payload = %{kind: :usage_limit_exhausted, reason: :credit_limited, credit_limited: true, backend: "openrouter"}
+
+    {:noreply, state} = PauseResume.handle_worker_control_state(%State{running: %{"1" => entry}}, "1", :paused, payload)
+
+    assert state.running["1"].usage_limit_session == %{backend: "openrouter", credit_limited: true}
+  end
+
   defp paused_entry(id) do
     %{
       pid: self(),

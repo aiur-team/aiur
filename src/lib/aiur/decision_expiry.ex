@@ -10,6 +10,10 @@ defmodule Aiur.DecisionExpiry do
   escalated to the operator is the expected steady state for that Decision,
   not evidence it went stale, and retiring it removes the only surface the
   operator can answer (see #1779).
+
+  A Command routed to the human (`:with_human` or `:with_both`) is exempt for
+  the same reason, blocking or not: it ends by answer, supersede or moot, never
+  by worker liveness or age (#7872).
   """
 
   use GenServer
@@ -18,6 +22,7 @@ defmodule Aiur.DecisionExpiry do
 
   alias Aiur.Commands.DeliveryTarget
   alias Aiur.Commands.Requester
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
   @interval_ms 60_000
@@ -108,6 +113,7 @@ defmodule Aiur.DecisionExpiry do
     not Requester.executor?(decision) and decision.decision_status == :open and
       not (decision.blocking and is_nil(decision.answer)) and
       not waiting_on_operator?(decision) and
+      not Policy.needs_you?(decision) and
       not MapSet.member?(active, decision.ticket.identifier) and
       DateTime.diff(now, decision.created_at, :second) >= grace_seconds
   end

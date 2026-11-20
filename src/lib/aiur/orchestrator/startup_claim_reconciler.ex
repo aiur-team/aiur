@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp reconcile_owned(state, %Issue{identifier: identifier} = issue, live_identifiers, opts) do
     cond do
       approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
-        release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
+        release_orphaned_claim(state, issue, Keyword.merge(opts, forced_target: "ci-wait", body_gate: :skip))
 
       not recoverable_claim?(state, issue, identifier) ->
         {:ok, resolve_release_failure(state, issue, opts), issue}
@@ -192,7 +192,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp release_orphaned_claim_sync(%State{} = state, %Issue{} = issue, opts) do
     case Release.run(issue, opts) do
       {:ok, target} ->
-        Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
+        Logger.warning("Orphan sweep released claim to #{target}; no orchestrator entry owns it #{State.issue_context(issue)}")
         if release_changes_state?(issue, target), do: emit_released_alert(issue, target, opts)
         if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
@@ -289,11 +289,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
-      "ticket.#{issue.identifier}.agent.attention.startup_orphan_claim_released",
+      "ticket.#{issue.identifier}.agent.attention.orphan_claim_released",
       issue: issue,
-      message: "Startup reconciliation released ticket #{issue.identifier} from in-progress to #{target}.",
+      message: "Orphan sweep released ticket #{issue.identifier} from in-progress to #{target}.",
       reason:
-        "Ticket #{issue.identifier} carried an in-progress claim but no live runtime in the current orchestrator " <>
+        "Ticket #{issue.identifier} carried an in-progress claim but no entry in the current orchestrator " <>
           "registry owned it, so the claim was released by a guarded update.",
       needs_attention: false,
       severity: "warning",

@@ -38,8 +38,17 @@ defmodule Aiur.Listener.EffectiveTest do
                actor: :human,
                version: 7,
                harness_source: :session,
+               backlog_on_leave_async: :notice,
                support: %{sync: %{status: @sync_status, carrier: nil, reason: nil}, steer: steer, async: async_support}
              }
+    end
+  end
+
+  test "mute stays effective without a delivery primitive or pull tool" do
+    for facts <- [nil, %{source: :session, primitives: :unknown}, harness("claude-repl")] do
+      result = Effective.compute(record(:mute), facts)
+      assert result.requested == :mute
+      assert result.effective == :mute
     end
   end
 

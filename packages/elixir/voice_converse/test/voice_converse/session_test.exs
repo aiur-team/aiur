@@ -59,6 +59,45 @@ defmodule VoiceConverse.SessionTest do
     assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}
   end
 
+  test "no-transcript session enqueues and deletes its provider conversation", %{root: root, name: name} do
+    StaticCredentials.put(%{fake: "test-secret", elevenlabs: "test-cleanup-secret"})
+    parent = self()
+
+    config =
+      config!(root, name,
+        transcript: :none,
+        transcript_root: nil,
+        cleanup_root: root,
+        provider_cleanup: true
+      )
+
+    http = fn url, _opts ->
+      send(parent, {:deleted, url})
+      {:ok, 204, ""}
+    end
+
+    config = %{config | cleanup_options: [http: http]}
+
+    start_instance(config)
+    {:ok, id} = start!(name)
+    assert_receive {:voice_conversation_state, ^id, :connecting}
+    assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, _session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    :ok = VoiceConverse.end_session(name, id)
+
+    assert_receive {:deleted, "https://api.elevenlabs.io/v1/convai/conversations/provider-session"}
+    assert TranscriptStore.mode(:none) == :none
+    refute File.exists?(Path.join(root, id <> ".ndjson"))
+    queue = Path.join(root, "provider-cleanup.ndjson")
+    assert_eventually(fn -> String.contains?(File.read!(queue), "\"op\":\"done\"") end)
+    assert File.exists?(queue)
+
+    assert Enum.map(File.read!(queue) |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1), & &1["op"]) == [
+             "enqueue",
+             "done"
+           ]
+  end
+
   test "audio and partial text are broadcast but never stored", %{root: root, name: name} do
     config = config!(root, name)
     start_instance(config)
@@ -185,9 +224,48 @@ defmodule VoiceConverse.SessionTest do
     {:ok, id} = start!(name, event_broadcast: event_broadcast)
     assert_receive {:voice_conversation_state, ^id, :connecting}
     assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    monitor = Process.monitor(session)
     assert :ok = VoiceConverse.end_session(name, id)
-    assert_receive {:end_ready_to_broadcast, ^id}
+    # The session sends end_ready_to_broadcast before it exits, so after DOWN the message is already here.
+    assert_receive {:DOWN, ^monitor, :process, ^session, :normal}, 1_000
+    assert_received {:end_ready_to_broadcast, ^id}
     assert_end_and_cleanup(root, id, "user_end")
+  end
+
+  test "a failed cleanup marker append does not broadcast ended", %{root: root, name: name} do
+    StaticCredentials.put(%{fake: "test-secret", elevenlabs: "test-cleanup-secret"})
+    config = config!(root, name, provider_cleanup: true)
+    start_instance(config)
+
+    {:ok, id} = start!(name)
+    assert_receive {:voice_conversation_state, ^id, :connecting}
+    assert_receive {:voice_conversation_state, ^id, :listening}
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+    store = :sys.get_state(session).store
+    assert MapSet.member?(:sys.get_state(session).provider_ids, "provider-session")
+    test_pid = self()
+
+    failing_store = %{
+      store
+      | datasync: fn fd ->
+          case File.read!(store.path) |> String.split("\n", trim: true) |> List.last() |> Jason.decode!() do
+            %{"type" => "cleanup_enqueued"} ->
+              send(test_pid, :cleanup_marker_sync_failed)
+              {:error, :eio}
+
+            _record ->
+              store.datasync.(fd)
+          end
+        end
+    }
+
+    :sys.replace_state(session, &%{&1 | store: failing_store})
+    :ok = VoiceConverse.end_session(name, id)
+
+    assert_receive :cleanup_marker_sync_failed, 1_000
+    refute_receive {:voice_conversation, ^id, {:ended, :user_end}}, 100
+    refute_receive {:voice_conversation_state, ^id, :ended}, 100
   end
 
   test "state transitions follow the session state table", %{root: root, name: name} do
@@ -264,7 +342,10 @@ defmodule VoiceConverse.SessionTest do
     assert_eventually(fn -> :sys.get_state(session).provider_ref != nil end)
     Process.exit(client, :kill)
     assert_eventually(fn -> :sys.get_state(session).transport_token != nil end)
+    monitor = Process.monitor(session)
     send(session, {:transport_grace, :sys.get_state(session).transport_token})
+    # No client is left to receive {:ended, _}; exit is the barrier that cleanup_enqueued follows session_ended.
+    assert_receive {:DOWN, ^monitor, :process, ^session, :normal}, 1_000
     assert_end_and_cleanup(root, id, "transport_lost")
     assert_eventually(fn -> VoiceConverse.SessionRegistry.lookup(name, id) == :error end)
 

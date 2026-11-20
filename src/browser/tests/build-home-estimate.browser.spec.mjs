@@ -22,6 +22,9 @@ test('hostile override reasons stay escaped in cards and modal', async ({ page }
   await expect(cue).toHaveAttribute('title', /onmouseover/)
   const card = cue.locator('xpath=ancestor::*[contains(@class,"bd-card")][1]')
   await expect(card.locator('.bd-status')).toContainText('≈1h')
+  // History paging and its anchored scroll keep moving cards after first paint; a click mid-scroll lands on empty board.
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+  await expect(page.locator('.bd-content')).not.toHaveClass(/scrolling/)
   await card.click()
   await expect(page.locator('.bm-facts')).toContainText('Estimate≈1h')
   await expect(page.locator('.bm-cue').filter({ hasText: /onmouseover/ }).last()).toBeVisible()

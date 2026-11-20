@@ -18,7 +18,7 @@ Supported secret and workspace-root fields resolve `~` and `$VAR` values; other 
 
 Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
 
-Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`.
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`, `capacity.sources.<backend>.reserve.percent` (may only raise the reserve).
 
 Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
 
@@ -39,11 +39,12 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `instance.deployment_kind` | string | `operator` | Selects credential owner. Hosted operators may use subscriptions; consumers use API keys only. |
-| `instance.id` | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+| `instance.id` | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads, except under `instance.ownership: github`, where dispatch continues on the GitHub ownership claim. |
 | `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.mode` | string | `local` | `hosted` adds static startup, reload, and dispatch checks for permission, network, credentials, the effective API-key-only fallback, Remote Control, local panes, and REPL isolation. Authentication for primary routes and account profiles is learned at runtime: unsafe first or later observations fail closed. Claude reauthorizes each action; Codex refuses an unsafe initial account read and later unsafe notifications before subsequent progress, tool calls, or success. Current production backends remain ineligible until #5701. Read once at daemon start; restart to change. |
+| `instance.ownership` | string | `off` | `github` makes every agent start, including recycles and PR-anchored units, require a durable ownership ref (`refs/aiur/owners/<ticket>`, `pr-<N>` for PRs): this gateway and daemon must already own it or win its claim, otherwise dispatch is declined and retried next poll. Enable on a drained or quiet gateway. Read at each dispatch, so a config reload applies without a restart. The owner also gets a `gateway:<slug>` label (blue, created on first use); the ref stays authoritative. If the ref and the label disagree, the ticket is skipped and `system.ownership.ambiguous` fires once per ticket per hour. A `gateway:` label with no ref and no state label is logged as an assignment request, never dispatched. The Postgres lease store becomes optional: with it unset or unreachable, dispatch proceeds on the ownership claim alone, and with it up the run lease still refuses a second concurrent run. Once enabled, an agent whose ref moved to another owner is refused `git push` and `gh pr create/ready/reopen/merge` (exit 77), then stopped with its workspace kept and one `system.ownership.stale_agent` alert; an unreadable ref refuses with exit 75. |
 | `instance.owns` | array of maps | `[]` | Ticket rules reserved for this live instance. Each entry has exactly one `label` or positive `ticket`; matching rules apply only while this instance is dispatching. Requires the shared lease store to coordinate live instances. Hot-reloadable. |
 | `instance.pool` | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` never claims the repository leader lease; `primary` is eligible to lead on equal terms with other eligible instances when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, and main-branch work. Label heals remain scoped to each instance's tracker view. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
@@ -56,7 +57,8 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
-| `executor.relay_operator_answers` | boolean | false | Opt-in quoted operator answers via `operator-relay-answer`, including human-only Commands. Enabling and recording raise info alerts; disable to revoke. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
+| `executor.relay_operator_answers` | boolean | true | Lets an Executor record your quoted answer via `operator-relay-answer`, including human-only Commands. Recording, and enabling on reload, raise info alerts; set `false` to opt out. When off, the refusal names the line to change. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
+| `executor.allow_reversible_human_required_answers` | boolean | false | Explicitly delegates reversible `human_required` engineering Commands to the Executor. The answer remains attributed to the Executor with its rationale in history. Spend, external publication, product direction, and security basis remain human-only. Enabling raises an info alert. |
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
@@ -83,6 +85,10 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-03 -->
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
+| `monitoring.daemon_memory_alert_fraction` | float | 0.5 | Share of host memory the daemon may use, by resident memory or `:erlang.memory(:total)`, before Aiur raises `system.daemon.memory_high` once and logs the largest processes (memory, queue length), any that do not answer, and the largest ETS tables. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
+| `monitoring.disk_alert_percent` | integer | 90 | Used-space percentage on the filesystem holding `workspace.root`, the run-log root or `~/.aiur` at which Aiur raises `system.disk.pressure` once, naming the filesystem, its use, free bytes and the largest workspace directories. `system.disk.pressure.resolved` follows when usage falls back below the line. Checked every minute. |
+| `monitoring.disk_stop_dispatch_free_gb` | integer | 10 | Free space in GiB below which Aiur stops starting new agents on any watched filesystem, whatever its used percentage, because a percentage alone is too loose on a small disk and too strict on a large one. Dispatch stops when either this floor or `monitoring.disk_stop_dispatch_percent` is crossed. `0` disables the floor. |
+| `monitoring.disk_stop_dispatch_percent` | integer | 97 | Used-space percentage on any watched filesystem at which Aiur stops starting new agents, so a full disk does not crash the daemon. Running agents continue. `aiur status` shows the `DISK` line and a `disk` admission hold. Dispatch also stops below `monitoring.disk_stop_dispatch_free_gb` free. Dispatch resumes once usage is 2 points below the line and free space is 2% of the filesystem above the floor, so a disk hovering on the line does not start an agent every minute. A failed, timed-out or stale free-space sample shows as `unknown` or `stale` and does not stop dispatch. Must be at least `monitoring.disk_alert_percent`. |
 
 ## workspace
 
@@ -216,6 +222,22 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 `AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
 environment-variable equivalents; the check also stays silent in CI runs.
 
+## toolchain
+
+At startup and then hourly, the daemon checks the CLIs its workers spawn (`aiur-claude`, `claude`, `codex`) and the `aiur` launcher. It resolves each one on the PATH and backend `command` the workers use. It records the version and install kind: `npm`, `dev link` (an `npm link` or a checkout on PATH) or `standalone`.
+
+A version below Aiur's minimum (today `aiur-claude` 1.3.0) raises `system.toolchain.below_minimum`, and routing skips that backend for the next allowed route. A ticket pinned to it, or left with no other route, is held; the decline names the binary and the update command. A version behind npm's latest is a warning with the update command.
+
+`aiur status` prints the result as its `TOOLCHAIN` section, where rows read `latest unknown` when `upgrade.check_enabled: false` skips the npm lookup.
+
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-toolchain -->
+| --- | --- | --- | --- |
+| `toolchain.auto_update` | boolean | false | Updates behind npm-managed `aiur-claude`, `claude` and `codex` installs while none of their workers run; never an `npm link`. |
+
+Auto-update holds dispatch to that backend while npm installs, and waits for the next hourly check while a worker of that backend runs. A `dev link` is reported, never replaced. The `aiur` launcher is never auto-updated, since that needs a daemon restart.
+
+Running agents keep the binary they started with; only new spawns use the updated one.
+
 ## alerts
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->
@@ -301,12 +323,13 @@ An exported value wins, followed by the global file and then the repository file
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-17 -->
 | --- | --- | --- | --- |
+| `decisions.embed_hosts` | array | `[]` | Hosts allowed to serve `embed` Command media (playable builds, interactive previews). A host matches exactly; list each subdomain you want to allow. Empty turns embeds off. |
 | `decisions.escalation.enabled` | boolean | true | Enables escalation of Executor Commands to the operator. |
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
 | `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
-| `decisions.native_capture.claude` | boolean | false | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
-| `decisions.native_capture.codex` | boolean | false | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Experimental; leave disabled until the native reply and release decision in #6424 is resolved (see also #4450). |
+| `decisions.native_capture.claude` | boolean | true | Capture deferred Claude questions as Commands; requires aiur-claude >= 1.3.0. Older or unversioned siblings remain non-interactive. |
+| `decisions.native_capture.codex` | boolean | true | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Set false to opt out. |
 | `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
@@ -324,10 +347,13 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-18 -->
 | --- | --- | --- | --- |
 | `server.allowed_hosts` | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
+| `server.dashboard_origins` | array | `[]` | Origins (`https://host[:port]`) allowed to read `GET /api/v1/gateway/summary` and to `POST` the four gateway/fleet pause routes cross-origin with credentials; `http` only on loopback. Every other write stays same-origin. |
+| `server.gateway_hello` | boolean | derived | Answer the unauthenticated `GET /api/v1/gateway/hello` (gateway id, label, build, TLS fingerprint, enrollment). Default `true` on a loopback or tailnet bind (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and `false` on any other bind; an explicit value always wins. When off the route answers 404, and `POST /api/v1/gateway/enroll` does too. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.public_url` | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+| `server.public_url` | string | nil | Absolute `http://` or `https://` URL for generated links and Host/origin allowlists; other values fail config load. Loopback listeners also accept tailnet hosts. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
+| `server.tls_pin_sha256` | string | nil | SHA-256 of the SPKI of the TLS certificate peers see in front of this gateway, 64 lowercase hex characters. Reported in `GET /api/v1/gateway/hello` and written into gateway invites so a joiner pins it. Unset means invites carry no pin. |
 | `server.trusted_proxies` | array | `[]` | CIDRs allowed to set X-Forwarded-* request metadata; `platform` trusts private proxy-network peers. |
 
 Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
@@ -347,6 +373,11 @@ The target probe is a bounded liveness check, not proof of daemon identity or ro
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 
 The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
+
+## dashboard
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-25 -->
+| --- | --- | --- | --- |
+| `dashboard.projects_home` | boolean | false | Serves the all-projects home at `/projects` and redirects a bare `/` to it. `/build` stays the Build page. |
 
 ## dashboard_auth
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->

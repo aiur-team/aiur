@@ -14,9 +14,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
@@ -54,7 +57,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
           {{:ok, :started} | {:error, term()}, State.t()}
   def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue) do
-    next_state = do_dispatch_issue(state, issue, nil, nil)
+    next_state = do_dispatch_issue(state, issue, nil, nil, dependency_checked: true)
 
     result =
       cond do
@@ -92,14 +95,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   @spec do_dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    SharedLeaseDispatch.dispatch(
-      state,
-      issue,
-      attempt,
-      preferred_worker_host,
-      opts,
-      &dispatch_to_worker/5
-    )
+    case Prevalidated.check(issue, opts) do
+      {:ok, checked} ->
+        SharedLeaseDispatch.dispatch(state, checked, attempt, preferred_worker_host, opts, &dispatch_to_worker/5)
+
+      {:error, :waiting_for_dependencies} ->
+        Logger.info("Skipping dispatch; open blocker: #{State.issue_context(issue)}")
+        Candidates.emit_dispatch_attempt_decline(state, issue, :dependency, false)
+
+      {:error, {:dependency_hydration_failed, reason}} ->
+        Logger.warning("Skipping dispatch; blocked-by read failed (fail-closed): #{State.issue_context(issue)}: #{inspect(reason)}")
+        decline = HoldDecline.classify(issue, {:error, reason}, :dependency_hydration_failed)
+        Candidates.emit_dispatch_attempt_decline(state, issue, decline, true)
+    end
   end
 
   @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::
@@ -208,7 +216,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
      ), MapSet.member?(state.claimed, id), Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
+  # Out of machine or project grant: start nothing, the next poll retries.
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
+    MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end, MachineGrant.feature(issue))
+  end
+
+  defp start_granted_worker(state, issue, attempt, recipient, worker_host, opts) do
     runner = Keyword.get(opts, :runner, &AgentRunner.run/3)
     worker_generation = System.unique_integer([:positive, :monotonic])
     lifecycle_attempt_id = Signal.new_attempt_id(dispatch_attempt_ticket(issue))
@@ -267,7 +280,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             optimistic_start: issue.optimistic_start,
             start_mode: OptimisticSlots.start_mode(optimistic_blockers),
             worker_host: worker_host,
-            workspace_path: nil,
+            workspace_path: Keyword.get(opts, :workspace_path),
             session_id: nil,
             session_execution: nil,
             last_codex_message: nil,
@@ -291,12 +304,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             stalled_alert_outstanding: Keyword.get(opts, :stalled_alert_outstanding, false),
             prior_work: Keyword.get(opts, :prior_work, false),
+            redispatch_safety: Keyword.get(opts, :redispatch_safety),
             rework_head_sha: rework_head_sha,
             pending_answered_decisions: Enum.map(runner_context.answered_decisions, & &1.action_id),
             decision_store: decision_store,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
+          |> Map.merge(redispatch_safety_fields(opts))
 
         running = Map.put(state.running, issue.id, running_entry)
         deliver_pending_answers(issue, opts)
@@ -347,6 +362,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
       runner.(issue, recipient,
         attempt: context.attempt,
         prior_work: Keyword.get(opts, :prior_work, false),
+        fresh_session: Keyword.get(opts, :fresh_session, false),
         account_name: Keyword.get(opts, :account_name),
         resume_thread_id: Keyword.get(opts, :resume_thread_id),
         telemetry_attempt_id: context.lifecycle_attempt_id,
@@ -436,6 +452,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   end
 
   defp inherit_redispatch_safety(entry, _previous), do: entry
+
+  defp redispatch_safety_fields(opts) do
+    case Keyword.get(opts, :redispatch_safety) do
+      safety when is_map(safety) -> safety
+      _ -> %{}
+    end
+  end
 
   defp maybe_put_redispatch_fence(entry, fence) when is_map(fence),
     do: Map.put(entry, :lifecycle_fence, fence)

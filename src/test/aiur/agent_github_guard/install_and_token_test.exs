@@ -187,6 +187,24 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
     refute File.exists?(context.calls)
   end
 
+  test "refuses a raw handoff-state label write from an agent workspace", context do
+    for args <- [
+          ["issue", "edit", "7822", "--add-label", "agent:ci-wait"],
+          ["issue", "edit", "7822", "--add-label=agent:human-review"],
+          ["api", "repos/o/r/issues/7822/labels", "-f", "labels[]=agent:ci-wait"]
+        ] do
+      assert {output, 77} = run_guard(context, args)
+      assert output =~ "aiur_set_ticket_state"
+    end
+
+    refute File.exists?(context.calls)
+  end
+
+  test "an unrelated or removing label edit is not refused as a handoff write", context do
+    {output, _} = run_guard(context, ["issue", "edit", "7822", "--remove-label", "agent:ci-wait", "--add-label", "bug"])
+    refute output =~ "aiur_set_ticket_state"
+  end
+
   test "refuses an approval even when the agent strips both token variables", context do
     assert {output, 77} =
              run_agent_guard(

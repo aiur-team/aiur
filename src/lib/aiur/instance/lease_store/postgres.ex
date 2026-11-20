@@ -1,6 +1,8 @@
 defmodule Aiur.Instance.LeaseStore.Postgres do
   @moduledoc false
 
+  alias Aiur.Instance.LeaseStore.IntentState
+
   @spec create_tables(Postgrex.conn()) :: :ok | {:error, term()}
   def create_tables(conn) do
     with {:ok, _} <-
@@ -108,7 +110,8 @@ defmodule Aiur.Instance.LeaseStore.Postgres do
              )
              """,
              []
-           ) do
+           ),
+         :ok <- IntentState.create_tables(conn) do
       :ok
     else
       {:error, reason} -> {:error, reason}

@@ -51,9 +51,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
       not Issue.paused?(issue) and not Issue.held?(issue) and
+      not orchestrator_entry?(state, issue.identifier) and
       not rework_waiting_for_capacity?(state, issue) and
       not tracked?(state, issue) and
       lease_free?(issue, opts)
+  end
+
+  # A paused/deactivated entry can deliberately outlive its worker process.
+  # Any current orchestrator entry is ownership evidence; only missing entries
+  # are eligible for orphan recovery.
+  defp orchestrator_entry?(state, identifier) do
+    Enum.any?(state.running, fn
+      {_issue_id, %{identifier: current}} -> to_string(current) == identifier
+      _ -> false
+    end)
   end
 
   defp rework_waiting_for_capacity?(state, issue) do

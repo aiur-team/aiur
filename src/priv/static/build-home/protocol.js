@@ -24,8 +24,7 @@ export function intake(snapshot) {
     if (!byId[child]) (children[row.id] ??= []).push(child);
   }
   const features = Object.fromEntries(Object.entries(snapshot.features).map(([key, feature]) => [key, { ...feature, to: feature.to === null ? Infinity : feature.to }]));
-  return { icons: snapshot.icons || {}, epics: snapshot.epics, features, order: snapshot.order, counts: snapshot.counts, feature_progress: snapshot.feature_progress, ...sections, all, byId, children };
-  return { icons: snapshot.icons || {}, epics: snapshot.epics, features, order: snapshot.order, counts: snapshot.counts, ...sections, all, byId, children };
+  return { icons: snapshot.icons || {}, lanes: snapshot.lanes, features, order: snapshot.order, counts: snapshot.counts, feature_progress: snapshot.feature_progress, lane_progress: snapshot.lane_progress, ...sections, all, byId, children };
 }
 
 export const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

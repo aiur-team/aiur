@@ -27,16 +27,6 @@ defmodule Aiur.AgentRunner.AsyncMessageContextTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
 
-    previous = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:aiur, :listener_send_routing, value)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-    end)
-
     issue = %Issue{id: "prompt-internal", identifier: "prompt-count", title: "Prompt count", state: "in-progress", selected_backend: "codex"}
     entry = %{identifier: issue.identifier, issue: issue, session_execution: %{backend: "codex", pull_tool_installed: true}}
 

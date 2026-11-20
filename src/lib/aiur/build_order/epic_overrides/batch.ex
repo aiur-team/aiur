@@ -24,7 +24,7 @@ defmodule Aiur.BuildOrder.EpicOverrides.Batch do
   @spec catalog((-> term())) :: {:ok, [map()]} | {:error, :epic_config_unavailable}
   def catalog(settings_fun) do
     case settings_fun.() do
-      {:ok, %{build_order: %{general_epics: epics}}} when is_list(epics) -> {:ok, Enum.map(epics, &Map.take(&1, [:key, :label]))}
+      {:ok, %{build_order: %{lanes: epics}}} when is_list(epics) -> {:ok, Enum.map(epics, &Map.take(&1, [:key, :label]))}
       _ -> {:error, :epic_config_unavailable}
     end
   rescue

@@ -10,25 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   use Phoenix.Component
 
-  alias Aiur.Heroicons
-
-  # Epic (build lane) -> Heroicons v2 outline icon name. "adhoc" is the runtime
-  # Ad Hoc overlay lane, tracked separately from the planning lanes.
-  @lane_icons %{
-    "plan-graph" => "share",
-    "runtime" => "bolt",
-    "dashboard-ui" => "rectangle-group",
-    "accounting" => "banknotes",
-    "platform" => "server-stack",
-    "adhoc" => "sparkles",
-    # Additional lanes used by planning packs (e.g. the CropTracker demo).
-    "core" => "cube",
-    "web" => "window",
-    "data" => "circle-stack",
-    "api" => "cloud",
-    "billing" => "credit-card"
-  }
-
   # Distinct accent colours per epic, used in the column headings and the epic
   # breakdown list (NOT on the ticket cards, which keep a neutral icon).
   @lane_colors %{
@@ -55,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   def build_order_epic_icon(assigns) do
     assigns =
       assigns
-      |> assign(:svg, svg_for(assigns.lane))
+      |> assign(:svg, svg(assigns.lane))
       |> assign(:label, label(assigns.lane))
       |> assign(:style, assigns.colored && "color: #{color(assigns.lane)}")
 
@@ -79,6 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   @spec planning_lanes() :: [String.t()]
   def planning_lanes, do: ["plan-graph", "runtime", "dashboard-ui", "accounting", "platform"]
 
-  defp svg_for(lane) when is_binary(lane), do: lane |> then(&Map.get(@lane_icons, &1, &1)) |> Heroicons.svg()
-  defp svg_for(_lane), do: Heroicons.svg(nil)
+  @doc "Trusted inlined SVG, shared with the Stream Deck renderer."
+  @spec svg(term()) :: String.t()
+  defdelegate svg(lane), to: AiurWeb.EpicIcon
 end

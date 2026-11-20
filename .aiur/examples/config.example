@@ -131,12 +131,12 @@ agent:
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
-  # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
+  # stall_timeout_ms: 3600000            # final silent-agent watchdog; Codex also probes every 60s (long test/coverage work can be quiet)
   # max_cpu_pressure: 20.0              # Linux CPU PSI some avg60 percent ceiling; null disables
   # target_cpu_pressure: 10.0           # PSI AIMD target percent; null disables
   # max_load_average: 1.5                # per-scheduler ceiling only when PSI unavailable; null disables
   # target_load_average: 1.0             # per-scheduler AIMD fallback only; null disables
-  # load_resume_max_age_seconds: 21600   # safe occupancy record lifetime; 0 disables resume
+  # load_resume_max_age_seconds: 3600    # safe occupancy record lifetime; 0 disables resume
   # load_ramp_step: 1                    # slots added below 80% PSI target, or at/below load target
   # load_cooldown_seconds: 60            # minimum seconds between sustained above-target decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
@@ -222,10 +222,12 @@ alerts:
 # executor_takeover_first_alert_hours: 8     # first advisory after this many hours of convergence
 # executor_takeover_continuous_alert_hours: 1 # repeat cadence (hours) while unresolved; 0 = first alert only
 
-# === Executor sweep ===
-# Threshold for an open, non-draft PR in agent:human-review that has no review on its current head.
+# === Executor ===
+# relay_operator_answers lets an attended Executor record an answer you gave it in conversation,
+# with your verbatim quote, the relayer and an info alert. On by default; set false to opt out.
+# sweep: threshold for an open, non-draft PR in agent:human-review with no review on its current head.
 # executor:
-#   relay_operator_answers: false     # opt-in quoted operator answers recorded by an attended Executor
+#   relay_operator_answers: true
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}
@@ -233,9 +235,21 @@ alerts:
 # llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
 # voice:
 #   conversation:
+#     provider: elevenlabs_agents     # or openai_realtime; uses daemon OPENAI_API_KEY, no Agent id
+#     voice_id: marin                 # OpenAI only; optional
 #     llm: <model id>                  # required; the model the assistant reasons with
 #     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
 #     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     providers:
+#       preference: [elevenlabs_agents, openai_live, gemini_live, cascade]
+#       mode: voice                      # voice | text
+#       on_missing_credential: text_only  # next | text_only | refuse
+#       openai: {live_model: null, realtime_model: null}  # null = adapter default
+#       gemini: {live_model: null}
+#       cascade:
+#         stt: [browser_stt]
+#         llm: anthropic:<model id>       # cascade/text_only only; conversation.llm is separate
+#         tts: [browser_tts]
 #     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
 #     max_session_seconds: 1800        # 60..3600
 #     idle_timeout_seconds: 120        # 15..900
@@ -313,8 +327,9 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions:
-#   native_capture: {codex: false, claude: false} # Claude requires aiur-claude >= 1.3.0
+#   native_capture: {codex: true, claude: true} # Claude requires aiur-claude >= 1.3.0
 #   require_suggested_responses: false # opt in after reviewing informational warning counts
+#   embed_hosts: [] # hosts allowed to serve `embed` Command media; empty = off
 #   escalation:
 #     enabled: true
 #     executor_ack_ms: 300000
@@ -324,6 +339,7 @@ alerts:
 #   supervisor_allow_non_reversible: false
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
 # server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com], trusted_proxies: [10.0.0.0/8] }
+# dashboard: { projects_home: true }   # serve the all-projects home at /projects and send a bare / there
 # dashboard_auth: { google: { allowed_emails: [operator@example.com] }, passkeys: false, session_max_age_days: 30, browser_basic_auth: true }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.

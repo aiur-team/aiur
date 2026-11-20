@@ -24,6 +24,7 @@ defmodule Aiur.ModelAvailability do
   alias Aiur.{CodexProber, CodingAgent, Workflow}
   alias Aiur.Config.RoutingValue
   alias Aiur.ModelAvailability.Limits
+  alias Aiur.Project.Context
 
   # Stale threshold: refresh cached limit when older than 5 minutes
   @stale_threshold_seconds 300
@@ -36,7 +37,7 @@ defmodule Aiur.ModelAvailability do
       case {Aiur.Config.booted_instance_mode(), System.get_env("AIUR_BG_STATE_DIR")} do
         {"hosted", state_dir} when is_binary(state_dir) and state_dir != "" -> state_dir
         {"hosted", _} -> Path.expand("~/.config/aiur")
-        _ -> Path.dirname(Workflow.workflow_file_path())
+        _ -> Path.dirname(Context.without(&Workflow.workflow_file_path/0))
       end
 
     Path.join(state_dir, "model-usage.json")

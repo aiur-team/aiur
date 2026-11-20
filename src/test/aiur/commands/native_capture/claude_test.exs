@@ -29,21 +29,21 @@ defmodule Aiur.Commands.NativeCapture.ClaudeTest do
     %{root: root, store: store}
   end
 
-  test "default-off Claude gate validates and reloads", c do
+  test "default-on Claude gate validates and allows explicit opt-out", c do
     assert {:ok, settings} = Schema.parse(%{})
-    assert settings.decisions.native_capture.claude == false
-    assert Config.decisions_native_capture?(:claude) == false
-    assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"decisions" => %{"native_capture" => %{"claude" => "bad"}}})
-    configure(c, true, "false")
+    assert settings.decisions.native_capture.claude == true
     assert Config.decisions_native_capture?(:claude) == true
+    assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"decisions" => %{"native_capture" => %{"claude" => "bad"}}})
+    configure(c, false, "false")
+    assert Config.decisions_native_capture?(:claude) == false
   end
 
   for {name, gate, version, reason} <- [
         {"gate off", false, "1.3.0", :gate_off},
-        {"old sibling", true, "1.2.0", :sibling_too_old},
+        {"old sibling", true, "1.1.0", :sibling_too_old},
         {"unversioned sibling", true, nil, :version_unknown},
         {"invalid sibling version", true, "unknown", :version_unknown},
-        {"prerelease sibling", true, "1.3.0-rc.1", :sibling_too_old}
+        {"prerelease sibling", true, "1.1.1-rc.1", :sibling_too_old}
       ] do
     test "#{name} omits nativeQuestions and answers defensively", c do
       run_scenario(c, unquote(gate), unquote(version), unquote(reason))

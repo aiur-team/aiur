@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
   defp render(view, opts \\ []) do
     render_component(&ConversationDrawer.conversation_drawer/1, %{
-      id: "units-conversation-drawer",
+      id: "voice-conversation-drawer",
       view: view,
       composer: Keyword.get(opts, :composer),
       writable: Keyword.get(opts, :writable, false),
@@ -76,10 +76,10 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
   test "renders a semantic modal dialog wired for accessible focus and close" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ ~s(id="units-conversation-drawer")
+    assert html =~ ~s(id="voice-conversation-drawer")
     assert html =~ ~s(role="dialog")
     assert html =~ ~s(aria-modal="true")
-    assert html =~ ~s(aria-labelledby="units-conversation-drawer-title")
+    assert html =~ ~s(aria-labelledby="voice-conversation-drawer-title")
     assert html =~ ~s(phx-hook="ConversationDrawer")
     assert html =~ ~s(data-close-event="close-conversation")
     assert html =~ ~s(data-focus-fallback-id="units-title")
@@ -238,80 +238,17 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "data-voice-stt-state"
   end
 
-  # Captured verbatim from the drawer before the voice controls moved into
-  # AiurWeb.Components.VoiceInput. The voice controller and the drawer focus hook
-  # bind these exact selectors, classes and labels.
-  @pre_extraction_voice_tools """
-    <div class="agent-voice-tools">
-      <div class="agent-voice-controls">
-        <button
-          class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
-          type="button"
-          aria-label="Dictate message"
-          aria-pressed="false"
-          title="Dictate into the message box"
-          data-voice-mic
-          data-conversation-focus="dictation"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
-            <path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7" />
-          </svg>
-        </button>
-        <button
-          class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
-          type="button"
-          aria-label="Start interactive voice chat"
-          aria-pressed="false"
-          title="Talk to this agent and hear its reply"
-          data-voice-conversation
-          data-conversation-focus="conversation"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" />
-            <path d="M2.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5M13.5 15c1-.8 2.1-1.2 3.5-1.2 2.6 0 4.1 1.4 4.5 4.2M12 6.5l2-1.2M13.5 9.5l2 .8" />
-          </svg>
-        </button>
-        <label class="agent-voice-device-label">
-          <span>Browser microphone</span>
-          <select data-voice-device aria-label="Browser microphone">
-            <option value="">Default microphone</option>
-          </select>
-        </label>
-      </div>
-      <canvas
-        class="agent-voice-waveform"
-        width="360"
-        height="52"
-        aria-label="Microphone waveform"
-        role="img"
-        data-voice-waveform
-      ></canvas>
-      <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
-        Press the microphone to dictate. Review the text, then press Send.
-      </p>
-    </div>
-  """
-
-  test "voice tools subtree is identical to the pre-extraction markup (guards C1 extraction)" do
-    composer = %{target_key: "1110", writable_target?: true, messages: []}
-    html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
-
-    rendered = html |> Floki.parse_fragment!() |> Floki.find(".agent-voice-tools") |> normalize_tree()
-    expected = @pre_extraction_voice_tools |> Floki.parse_fragment!() |> normalize_tree()
-
-    assert rendered == expected
+  test "renders the D16 chooser for the composer's worker" do
+    html = render(Presenter.present(row(), snapshot()), composer: %{target_key: "typed-row-token", issue_identifier: "1110", writable_target?: true}, writable: true)
+    document = Floki.parse_fragment!(html)
+    assert [_] = Floki.find(document, "[data-voice-chooser][aria-haspopup=menu]")
+    assert [menu] = Floki.find(document, "[data-voice-menu][role=menu][hidden]")
+    assert Floki.attribute(Floki.find(menu, "[data-voice-mode]"), "data-voice-mode") == ["dictate", "converse"]
+    assert [root] = Floki.find(document, "[data-voice-root]")
+    assert Floki.attribute(root, "data-voice-surface") == ["agent_composer"]
+    assert [target] = Floki.attribute(root, "data-voice-target")
+    assert Jason.decode!(target) == %{"kind" => "worker", "ticket" => "1110"}
   end
-
-  defp normalize_tree(nodes) when is_list(nodes) do
-    nodes
-    |> Enum.map(&normalize_tree/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp normalize_tree({tag, attrs, children}), do: {tag, Enum.sort(attrs), normalize_tree(children)}
-  defp normalize_tree(text) when is_binary(text), do: String.trim(text)
-  defp normalize_tree(_comment), do: ""
 
   test "renders the not-unique-writable-target notice when a composer is present but not writable" do
     composer = %{target_key: "1110", writable_target?: false, messages: []}

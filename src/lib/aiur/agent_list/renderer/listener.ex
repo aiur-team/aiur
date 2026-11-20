@@ -1,5 +1,6 @@
 defmodule Aiur.AgentList.Renderer.Listener do
   @moduledoc "Read-only listener mode and held-message count for the fleet board."
+  alias Aiur.Listener.ModeCopy
 
   alias Aiur.AgentList.Renderer.Text
 
@@ -43,6 +44,6 @@ defmodule Aiur.AgentList.Renderer.Listener do
   def block(summary, %{listener_width: width}) when width > 0, do: [" ", Text.cell(label(summary[:listener]), width)]
   def block(_summary, _layout), do: []
 
-  defp mode(mode) when mode in [:steer, :sync, :async], do: Atom.to_string(mode)
+  defp mode(mode) when mode in [:steer, :sync, :async, :mute], do: ModeCopy.label(mode)
   defp mode(_), do: "unavailable"
 end

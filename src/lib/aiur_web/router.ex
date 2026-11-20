@@ -44,13 +44,44 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ClientTokenAuth)
   end
 
+  # CORS runs first so the 401 for a signed-out page still carries CORS headers.
+  pipeline :gateway_summary do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth)
+  end
+
+  # Browser writes from this gateway's own pages or a listed peer's page: preflighted, `X-Aiur-Request`, a session.
+  pipeline :gateway_write do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth, write?: true)
+    plug(:require_custom_header)
+    plug(:require_dashboard_writable)
+    plug(:verify_gateway_write_origin)
+  end
+
   pipeline :control_token do
     plug(:fetch_session)
     plug(AiurWeb.ControlTokenAuth)
   end
 
+  pipeline :executor_hook_delivery_auth do
+    plug(AiurWeb.ExecutorHookAuth, delivery: true)
+  end
+
+  pipeline :executor_hook_auth do
+    plug(AiurWeb.ExecutorHookAuth)
+  end
+
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
+  end
+
+  # Ticket-scoped Commands API: the caller carries a short-lived grant minted
+  # by a host server, never the instance supervisor credential.
+  pipeline :commands_scope_auth do
+    plug(AiurWeb.CommandsScopeAuth)
   end
 
   # GitHub webhook deliveries carry no bearer token and no browser session:
@@ -100,14 +131,26 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Events, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+  GatewayHello.receiver()
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_delivery_auth)
+    post("/api/v1/executor/hook/deliver", ExecutorHookDeliveryController, :create)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_hook_auth)
+    post("/api/v1/executor/hook", ExecutorHookController, :create)
+    match(:*, "/api/v1/executor/hook", ExecutorHookController, :method_not_allowed)
+  end
 
   get("/healthz", AiurWeb.PublicHealthController, :live)
   get("/readyz", AiurWeb.PublicHealthController, :live)
@@ -129,13 +172,26 @@ defmodule AiurWeb.Router do
   end
 
   # Decision routes and catches must precede generic issue reads.
+  CommandsApi.reads()
+  CommandsApi.mutations()
+  CommandsApi.method_catches()
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
   Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
+    end
+  end
+
   DashboardPages.static_assets()
   DashboardPages.pages()
-  Experiments.pages()
+  # Before Api.agent_writes(): `/api/v1/:issue_identifier/pause` would capture `gateway`.
+  GatewayPause.writes()
   Api.agent_writes()
   Api.machine_writes()
   Events.session()
@@ -159,6 +215,17 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
 
+  scope "/", AiurWeb do
+    pipe_through(:client_token_read)
+    get("/api/v1/conversations/resolve", ConversationApiController, :resolve)
+    get("/api/v1/conversations/:conversation_id/entries", ConversationApiController, :entries)
+    get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)
+    get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
+    match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
+  end
+
+  GatewaySummary.reads()
+
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 
@@ -176,6 +243,19 @@ defmodule AiurWeb.Router do
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
+  defp verify_gateway_write_origin(conn, _opts) do
+    listed? = match?([origin] when is_binary(origin), Plug.Conn.get_req_header(conn, "origin")) and AiurWeb.DashboardCors.listed_origin?(hd(Plug.Conn.get_req_header(conn, "origin")))
+
+    if listed? or origin_allowed?(conn) do
+      conn
+    else
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(403, ~s({"error":"origin not allowed"}))
+      |> Plug.Conn.halt()
+    end
+  end
+
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn

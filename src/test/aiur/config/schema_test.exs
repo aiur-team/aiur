@@ -25,7 +25,7 @@ defmodule Aiur.Config.SchemaTest do
       {Agent, ["codex.ex", "git_identity.ex", "pricing_policy.ex"]},
       {Github, ["github_app.ex", "github_credential.ex"]},
       {Experiments, ["experiments_analyst.ex", "experiments_auto.ex"]},
-      {BuildOrder, ["general_epic.ex"]},
+      {BuildOrder, ["lane.ex"]},
       {Voice, ["voice_conversation.ex"]}
     ]
 
@@ -199,13 +199,22 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
-  test "operator relay defaults off and must be explicitly enabled" do
+  test "operator relay defaults on and an explicit false opts out" do
     assert {:ok, defaults} = Schema.parse(%{})
-    assert defaults.executor.relay_operator_answers == false
-    assert {:ok, enabled} = Schema.parse(%{"executor" => %{"relay_operator_answers" => true}})
-    assert enabled.executor.relay_operator_answers == true
+    assert defaults.executor.relay_operator_answers == true
+    assert {:ok, disabled} = Schema.parse(%{"executor" => %{"relay_operator_answers" => false}})
+    assert disabled.executor.relay_operator_answers == false
     assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"executor" => %{"relay_operator_answers" => "yes please"}})
     assert message =~ "relay_operator_answers"
+  end
+
+  test "reversible human-required Executor delegation defaults off and is boolean" do
+    assert {:ok, defaults} = Schema.parse(%{})
+    refute defaults.executor.allow_reversible_human_required_answers
+    assert {:ok, enabled} = Schema.parse(%{"executor" => %{"allow_reversible_human_required_answers" => true}})
+    assert enabled.executor.allow_reversible_human_required_answers
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"executor" => %{"allow_reversible_human_required_answers" => "yes"}})
+    assert message =~ "allow_reversible_human_required_answers"
   end
 
   describe "agent Mix scheduler cap" do

@@ -2,7 +2,7 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the build history, the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-High-rate snapshot notifications on Home, Units, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+High-rate snapshot notifications on Home, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
 
 ## Open the GUI
 
@@ -29,14 +29,15 @@ Use the browser when you need interactive detail; use the paired command when te
 | GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
-| **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
-| **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
+| **Units** | CLI fleet inspection; legacy /units URLs redirect to Build. | `aiur units` |
+| **Talk to Executor** | `/voice`, from Home’s Settings menu; provider comparison, delivery receipts and worker conversation voice. | none |
+| **Commands** | `/commands` is the durable decision inbox and each decision's detail. Executor requests read **From Executor**; `?requester=executor` limits the inbox to them. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
-| `/units` | Hidden Units rollback page, retained for one release. |
+| `/units` | Permanent redirect to /, preserving the query string. |
 | `/chat/:owner/:repository/:identifier` | Redirects same-repository ticket links to `/?ticket=identifier`, opening the Build ticket modal. |
 | `/?v=1&scope=…&conditions=…` | Opens Build with the matching legacy Units filter. |
 | `/commands` and `/commands/:decision_id` | Current Commands inbox and detail URLs. |
@@ -46,40 +47,53 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
-The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
-**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
-routing facts show **Routing…**. Cards show when they were asked and, after human
-routing, how long they have needed you.
+The Commands inbox keeps all open Commands visible, one compact card each: the ticket
+and title, the question, a **Blocking** pill when it blocks work, and when it was asked.
+Options are radio cards with one primary action.
 
-Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
-links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
-include unrouted Commands. Resolved Commands appear in the history table.
+**Details** opens the rest: context, the recommendation and its rationale, lifecycle
+status, routing, how long it has needed you, the agent and model, and the version.
+Routing reads **With Executor**, **Needs you**, **Needs you and Executor**, **From
+Executor**, or **Routing…** for older Commands.
+
+Filter with **Needs you**, **With Executor**, **From Executor**, **Blocking** or **All**;
+links keep the filter in the URL. All includes unrouted Commands. Resolved Commands
+appear in the history table.
 
 Only Commands routed to you (including those shared with the Executor) count in the
-banner, navigation badge, and Units **Commands** column. Unknown counts display an
+banner and navigation badge. Unknown counts display an
 unavailable notice or `—`; partial retained data is labelled partial.
 
-The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
+`?requester=executor` applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
-Listener-routed Units rows show a compact mode and unread count; unknown values
-show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
-the selector, effective-mode reason, oldest unread age and observation age.
+New worker journals recover conversation from the workspace transcript
+when it can be replayed, otherwise from this launch's IssueLog. Recovered
+records belong to an `import` session after a `pre_journal` gap: earlier history
+may still be missing. IssueLog bodies at its 1,000-character cut are marked
+truncated. Existing journals are not imported again.
 
-The conversation header selector offers **Steer · interrupts**,
-**Sync · next turn**, or **Async · on demand**. A different effective mode is
+On `/voice`, the worker conversation drawer offers **Steer · interrupts**,
+**Sync · next turn**, **Async · pings only**, or **Mute · silent**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.
 
-The selector is hidden under legacy delivery routing and disabled on read-only
-dashboards. Changes wait for confirmation; a concurrent change shows the winning
+The worker list includes conversations that are running or have stored history;
+unavailable tickets are omitted, with a count of how many were hidden. Use
+**Previous** and **Next** to page through large lists.
+
+The selector is disabled on read-only dashboards. Conversation input defaults to
+Sync and waits for turn end; Steer delivers mid-turn when supported. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
 remain pull-only.
+
+Aiur extends this count-only notice to leaving Mute for Sync or
+Steer; the Mute-exit notice is outside the shared listener spec.
 
 The drawer shows receipts for messages sent during this visit;
 “Accepted” and “Handed to the agent” do not mean the message was read. An unknown
 outcome is shown explicitly.
 
-Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
+Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its Build ticket modal for containment.
 
 Pause requires writable access and a known fleet state; an unavailable state reads “Pause state unknown”. The “New starts paused” chip appears only when pause is confirmed.
 
@@ -87,13 +101,9 @@ The theme starts dark until you toggle it. Both choices stay in this browser; an
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
-The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts), with a remaining-percentage bar and reset time. Full means 100% left; empty means unusable until reset. Warning colours appear near empty. The tooltip shows freshness, age and last probe error; stale lines are dimmed. Missing readings show `unknown`, not zero.
-
-The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
+Provider usage remains in the [Build usage strip](/concepts/build-history#usage-strip); the legacy Models pane has been retired.
 
 GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
-
-Fleet and capacity facts show their observation age, including fresh data. Tracker rows and retry failures retain their source ages; unknown observations say `age unavailable`. Retry rows identify `since daemon start <UTC time>` because retry state resets on restart. These observations come from the same status read model as `aiur status` and `aiur agents`.
 
 A degraded CODEOWNERS trust banner shows the lookup cause and elapsed age (`age unknown` when unavailable); see [GitHub trust](/apis/github-auth#who-aiur-trusts).
 
@@ -107,8 +117,19 @@ List (`?view=list`) shows Live, Planned, Not queued and newest-first History as 
 Ticket rows support keyboard focus. Use **Load earlier day** to fetch more history.
 Unknown values stay explicit, and degraded section headings show their source state and read age.
 
-The Now band shows active agents between history and the plan. It settles at
-the nearest viewport edge; **Live** returns to it. Minimize keeps state counts
+Build order (`?view=build-order`) renders the published `build-order.v1` document — the review and the
+dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
+otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
+
+Build home intentionally renders two surfaces: Build order is a static review of the published plan,
+while Timeline, Gantt and List stay on the interactive board (scrolling, the Now band, dependency
+chains and time range), which the package does not provide.
+
+The Now band shows active agents between history and the plan, using the same
+card style as the other tickets. It scrolls with the board and pins to the top
+or bottom edge instead of leaving view.
+
+**Live** scrolls to its place. Minimize keeps state counts
 visible (`live=min`), and a state preset expands it. The clock shows cached
 observation time when stale and `—` when unknown.
 
@@ -116,6 +137,15 @@ Agents in failure back-off carry `agent:retrying` and are counted separately
 from running agents. Labels such as `agent:ci-red` and
 `agent:paused-usage-limit` appear on cards and in agent-state filters. Tickets
 with spent retry latches have no live agent and are left out of Now.
+
+In List view, a Now row's agent cell ends with the capacity policy's reason for
+its source, the same text `aiur agents` prints, for example
+`codex/default (preferred; 62% left at dispatch, reading 40s old)`. The
+reading is the one taken when the ticket was dispatched.
+
+When the capacity policy allows no source, each queued ticket's card shows a
+`no authorized source` cue; hover it for one clause per held source. In List
+view the same text fills the queued row's agent cell.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 
@@ -146,13 +176,14 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Page | Concept detail |
 | --- | --- |
 | Build | [Sections, views, the ticket modal, usage, and unknown states](/concepts/build-history). |
-| Units (`/units`, rollback) | [Fleet, tickets, and meters](/concepts/units). |
+| Units | CLI fleet inspection; /units redirects to /. |
+| Executor | A footer on every dashboard page: the Executor's state, latest events and conversation. `/executor` opens it. |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-In the Units table, a unit holding a native question shows “Waiting for your answer” in the blocked tone, elapsed minutes, and a link to its Command.
+A worker holding a native question reads **Waiting for your answer** on its Build card, ticket header, Stream Deck key and `aiur units` output. The hold age appears alongside it; open the linked Command to answer. On the Stream Deck, focus the ticket and use **Open Command**. The waiting state clears when the answer is delivered or the hold is released.
 
 ### Read fleet and build pressure
 
@@ -173,16 +204,102 @@ build gate limits verification; they do not automatically change the agent cap.
 The build-gate scan runs on a reduced cadence and carries the last observation
 forward, so measuring the gate never perturbs a real build acquisition.
 
+### Executor
+
+Every dashboard page ends in an **Executor** footer. On the left it shows the
+Executor's state: `attached`, `idle`, `not attached`, `waiting for session` or
+`ended`. An unknown, stale or unavailable state carries its age (`stale 12m`,
+`unknown · age unknown`) and is never shown as `idle`. On a phone the footer sits
+above the bottom navigation.
+
+The circle button on the right expands the footer into a panel of about 38% of the
+viewport (at most 360px; half the screen on a phone). Press the button again or
+Esc to collapse it. Each browser remembers whether the panel was open.
+
+The panel lists the latest Executor events, then the conversation and its message
+form. **Open full history** opens the complete conversation page, with paging and event
+filters.
+
+Attach with `aiur executor-attach --harness claude` or
+`aiur executor-attach --harness codex`; until then the panel shows that command.
+Before the first hook arrives, it shows **Waiting for the Executor session** and an
+`aiur executor-attach --check` hint for diagnosing attachment and hook failures.
+
+The old `/executor` address opens the footer expanded on Build;
+`/executor?pos=N` opens the full conversation at that recorded position.
+
+Loading, unavailable history, an unreadable transcript and unsupported capture
+stay explicit. Ended or detached sessions keep their recorded history.
+
+A read-only dashboard shows history without a message form. Reasoning stays hidden
+and tool output starts collapsed. See [Conversations](/concepts/conversations)
+for retention and masking.
+
+## Conversations
+
+See [Conversations](/concepts/conversations) for journal storage, retention,
+secret handling, earlier history and jump-point precision.
+
+### Answer a Command
+
+Open Commands from this agent appear beside their anchored conversation entry,
+with a top link that jumps to the card. A Command with no known position is
+pinned above the history and marked **Position unknown**.
+
+The cards use the same
+answer controls as the Commands inbox, including multi-question answers and
+conflict outcomes. Answers recorded elsewhere update the card live; they never
+edit the transcript. Read-only dashboards show cards without answer controls.
+
+### Send a message
+
+On a worker's full conversation page, writable dashboards offer a **Message to
+agent** composer. Its read-only mode indicator shows the effective listener
+mode, or **mode unknown** when it cannot be observed. **Listener unavailable**
+means the specification cannot be used and conversation sends are refused.
+
+The Executor conversation reuses this composer and delivery list. Sending stays
+disabled with a reason when no session is attached, the binding is unreachable,
+or the listener delivery target lacks Executor support. An installed hook alone
+does not establish send support.
+
+Accepted Executor messages show **Waiting until
+the Executor’s next turn** until the matching journal entry arrives; acceptance
+does not wake an idle external session. Pending Executor sends are not retained
+across daemon restarts. The effective mode is read-only.
+
+**Accepted** means the message was accepted for processing. **Queued** means
+the harness queued it (Sync: next boundary), not that the agent read it.
+**Saved** in Async means the agent reads it when it chooses. The local delivery
+item disappears when the matching operator message enters the journal.
+
+**Failed** shows the reason and restores the message when the draft is empty;
+an existing draft is preserved. **Outcome unknown** means delivery cannot be
+confirmed: check the agent before retrying. A send with an unknown outcome keeps
+the draft; sending the same text again reuses its request ID.
+
+Lost receipts or ten minutes without a journal entry also become unknown; held Async messages
+have no ten-minute expiry.
+
+Delivery observations belong to the browser tab and disappear on reconnect.
+The journal is the durable record. Read-only dashboards show a notice in place
+of the composer.
+
 ## Writable controls
 
 | Writable control | Where | Action |
 | --- | --- | --- |
-| Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
-| Fleet capacity | `/units` | Adjust capacity. |
-| Ticket | `/units` Tickets panel | Apply routing labels. |
+| Fleet | Settings cog on Build, Commands, Analytics and Streamdeck | Pause or resume new agent starts. |
+| Unit | Build ticket modal | Read the conversation, message or pause the agent. |
+| Fleet capacity | CLI | Run `aiur set max-agents <n>`. |
+| Ticket | CLI | Queue with `aiur --todo <ticket-id>`. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
+
+**Dictate** on a Command selects Custom response and appends speech without
+recording an answer. Review it, then use the answer button. Revision dictation
+also waits for a reviewed correction and its reason. If another tab answers
+first, the conflict notice keeps your text for review.
 
 Command details include an escalation timeline from recorded facts, with the
 cause, absolute time, and relative age. An unavailable timeline is labeled
@@ -201,7 +318,7 @@ Delivered and in-flight answers show their status and recorded answer. If an ans
 
 **Send correction** records new direction; it does not undo work already done. Stale Commands offer a refresh, and withdrawn Commands explain why the answer is no longer needed.
 
-Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
+Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision remains GUI-only today; the retired ticket-routing preview has no GUI entry.
 
 Disable mutations for an observation-only surface:
 
@@ -212,9 +329,11 @@ observability:
 
 The home ticket modal hides Add to queue when `dashboard_writable` is `false`.
 
-In read-only mode, the `/units` Tickets panel shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
+The legacy Units board, Tickets panel and routing preview have been retired. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
+
+See [Executor voice](/guide/executor-voice) for the **Talk to Executor** entry in Home’s settings menu, provider comparison, receipts, and worker conversation voice controls.
 
 ## Authentication and network exposure
 
@@ -252,6 +371,12 @@ Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DAS
 
 After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
 
+### iPhone Home Screen
+
+Use an HTTPS dashboard URL, sign in with Google or a registered passkey, then in Safari choose **Share → Add to Home Screen**. Open Aiur from its icon. The HttpOnly, SameSite=Lax session cookie survives relaunches until sign-out or expiry; its default lifetime is 30 days, controlled by `dashboard_auth.session_max_age_days`.
+
+For standalone use, disable the browser Basic Auth prompt with `dashboard_auth.browser_basic_auth: false` after confirming cookie sign-in. Basic Auth remains available to CLI and API clients. Home and Reload controls stay visible in standalone mode and appear after a LiveView disconnect.
+
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` for all projects or the repository `.env` for one project.
@@ -268,17 +393,15 @@ Full log combines newest runs that fit its bounded projection with current telem
 
 The Build page usage strip shows API budgets and provider windows or credits. Bars and labels show what remains: full is 100% left, empty is unusable until reset, with warning colours near empty. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
+On desktop, while the navigation is expanded, an experimental compact copy of the same APIS and MODELS lines sits at the bottom of the left navigation; hover a row for its reset and details.
+
 Build cards keep agent pause causes distinct: provider usage limits read `Paused · usage limit` with a reset time when the runtime reports one, CI handoffs read `Waiting for CI`, and `Parked` identifies other non-reserving pauses.
 
 Unknown readings stay marked as unobserved; expired windows and stale readings are identified explicitly. Reset labels refresh every 30 seconds while the tab is visible. Locked sessions show an authentication message without financial values.
 
 ### Read an experiment
 
-Open **Experiments** below Analytics and select an experiment. The shareable
-`/experiments/:id` URL shows its design, windows, hypothesis and registered
-metrics. On a phone, **All experiments** returns to the index. Existing
-experiments remain visible when capture is off; unavailable evidence and store
-errors are shown explicitly.
+Open **Experiments** below Analytics and select an experiment. The shareable `/experiments/:id` URL shows its design, windows, hypothesis and registered metrics. On a phone, **All experiments** returns to the index. Existing experiments remain visible when capture is off; unavailable evidence and store errors are shown explicitly.
 
 Frozen baseline details include the revision, capture time, Aiur version and
 SHA-256 hash. A warning identifies metric packs that changed since the freeze.
@@ -312,3 +435,5 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+Conversation pages and their read-only HTTP routes are in [GUI conversations](/guide/gui-conversations).

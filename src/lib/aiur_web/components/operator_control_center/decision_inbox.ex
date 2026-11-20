@@ -5,13 +5,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPath}
 
+  # Five filters at most. `open` and `resolved` stay reachable by URL: Open shows
+  # the same cards as All, and Resolved Commands live in the history table below.
   @filter_specs [
     {:needs_you, "Needs you"},
     {:with_executor, "With Executor"},
     {:from_executor, "From Executor"},
-    {:open, "Open"},
     {:blocking, "Blocking"},
-    {:resolved, "Resolved"},
     {:all, "All"}
   ]
 
@@ -23,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:history, :list, default: [])
   attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:provider_health, :any, default: :ok)
   attr(:retained_counts, :map, required: true)
@@ -54,11 +55,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           active={@filter == filter}
           blocking={filter == :blocking}
         />
-        <.link
-          patch={DecisionPath.inbox(@filter, if(@query[:requester] == "executor", do: Map.drop(@query, [:requester, :cursor]), else: Map.put(Map.delete(@query, :cursor), :requester, "executor")))}
-          class={["filter-chip", @query[:requester] == "executor" && "is-active"]}
-          aria-current={@query[:requester] == "executor" && "page"}
-        >From Executor</.link>
       </div>
 
       <p :if={@query[:requester] == "executor"} class="empty-state compact" role="status" data-requester-count>
@@ -83,6 +79,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
           live_connected={@live_connected}
+          voice_capabilities={@voice_capabilities}
           filter={@filter}
           query={@query}
         />

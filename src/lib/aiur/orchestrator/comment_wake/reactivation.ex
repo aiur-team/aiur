@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
+  alias Aiur.Orchestrator.CommentWake.ReviewRelay
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
   alias Aiur.Orchestrator.CommentWake.ReworkTransition
   alias Aiur.Orchestrator.Dispatcher
@@ -41,11 +42,19 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
   # `:deactivated` reactivation path (#2814).
   defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
-      not CommentWake.trusted_comment_event?(event) ->
+      not CommentWake.trusted_comment_event?(event) and
+          not ReworkTransition.human_merger_blocking_comment?(event) ->
         state
 
       CommentWake.benign_review_pass_comment?(event) ->
         state
+
+      ReviewRelay.for_running_worker?(running_entry, event) ->
+        ReviewRelay.enqueue(state, issue_number, event)
+
+      ReworkTransition.human_merger_blocking_comment?(event) and
+          DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) == "in-progress" ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
 
       # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
       live_rework_worker?(running_entry) ->

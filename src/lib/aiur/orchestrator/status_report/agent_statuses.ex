@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
@@ -13,6 +15,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.StatusReport.UsagePauseBackends
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.RepoBase
   alias Aiur.Workspace.Ownership.{HoldStatus, Retention}
@@ -32,8 +35,10 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   @doc false
   @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
   def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
-    {statuses, _state} = agent_statuses_raw(state, status_fun)
-    statuses
+    Config.SettingsSnapshot.run(fn ->
+      {statuses, _state} = agent_statuses_raw(state, status_fun)
+      statuses
+    end)
   end
 
   defp agent_statuses_raw(%State{} = state, status_fun) when is_function(status_fun, 1) do
@@ -56,12 +61,14 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   end
 
   defp running_statuses(%State{} = state, %DateTime{} = now, decision_counts) do
+    backends = UsagePauseBackends.for_running(state.running)
+
     Enum.map(state.running, fn {issue_id, entry} ->
-      running_status(state, issue_id, entry, now, decision_counts)
+      running_status(state, issue_id, entry, now, decision_counts, backends)
     end)
   end
 
-  defp running_status(%State{} = state, issue_id, entry, now, decision_counts) do
+  defp running_status(%State{} = state, issue_id, entry, now, decision_counts, backends) do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
     work_state = startup_work_state(entry)
@@ -108,12 +115,15 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
       last_codex_event: Map.get(entry, :last_codex_event),
-      reason: if(work_state == :paused, do: StatusReason.for_pause(pause_reason)),
+      # The skills this worker loaded first, from the session's preload report.
+      skills: get_in(entry, [:session_execution, :skills]),
+      reason: if(work_state == :paused, do: UsagePauseBackends.pause_reason(pause_reason, backends)),
       waiting_reason: waiting_reason,
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
-      open_decision_count_health: open_decision_count_health
+      open_decision_count_health: open_decision_count_health,
+      capacity_reason: capacity_choice(entry)
     }
     |> WaitingReason.attach(state, entry)
   end
@@ -190,6 +200,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # Read it once per snapshot.
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase, decision_counts) do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
+    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       Enum.reject(visible_polled_issues(state), fn {issue_id, _issue} ->
@@ -209,7 +220,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         prewarm_phase,
         max_dispatches,
         Map.get(latch_statuses, issue_id, :none),
-        decision_counts
+        decision_counts,
+        terminal_states
       )
     end)
   end
@@ -220,7 +232,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
          prewarm_phase,
          max_dispatches,
          latch_status,
-         decision_counts
+         decision_counts,
+         terminal_states
        ) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
 
@@ -240,7 +253,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         issue,
         latch_status,
         open_decision_count,
-        System.monotonic_time(:millisecond)
+        System.monotonic_time(:millisecond),
+        terminal_states
       )
 
     waiting_reason = idle_evidence_waiting_reason(idle_evidence, release)
@@ -292,6 +306,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           end
         end),
       waiting_reason: waiting_reason,
+      capacity_reason: capacity_waiting(state, waiting_reason),
       dispatch_latch: idle_evidence.dispatch_latch,
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
@@ -348,8 +363,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   defp idle_reason(_waiting_reason, _identifier, fallback), do: fallback.()
 
   @doc false
-  @spec idle_evidence(State.t(), map(), term(), non_neg_integer(), integer()) :: map()
-  def idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
+  @spec idle_evidence(State.t(), map(), term(), non_neg_integer(), integer(), MapSet.t()) :: map()
+  def idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms, terminal_states) do
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)
     dispatch_hold_reason = Map.get(state.dispatch_hold || %{}, :reason)
     capacity_hold_active? = capacity_hold_active?(state)
@@ -362,7 +377,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.issue_held_by_dependency?(issue, terminal_states),
           open_decision_count,
           queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
@@ -477,6 +492,6 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # pause cause, so the tracker label is normally the whole story. A fleet-wide
   # pause is the one cause that is still knowable, and it explains the stall far
   # better than rendering every such row as an operator pause.
-  defp tracker_pause_cause(%State{globally_paused: true}), do: :global_pause
+  defp tracker_pause_cause(%State{} = s) when effective_paused?(s), do: :global_pause
   defp tracker_pause_cause(_state), do: :label_override
 end

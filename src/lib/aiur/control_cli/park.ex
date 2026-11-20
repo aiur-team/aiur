@@ -7,7 +7,7 @@ defmodule Aiur.ControlCLI.Park do
   @spec run([String.t()]) :: :ok
   def run(targets) do
     guarded("park", fn ->
-      results = Enum.map(targets, fn id -> {id, GenServer.call(Aiur.Orchestrator, {:park_agent, to_string(id)}, 5_000)} end)
+      results = Enum.map(targets, fn id -> {id, GenServer.call(Aiur.Project.whereis(Aiur.Orchestrator), {:park_agent, to_string(id)}, 5_000)} end)
 
       Enum.each(results, fn
         {id, {:ok, :pending}} -> IO.puts("parking ##{id}; tracker marker write pending")

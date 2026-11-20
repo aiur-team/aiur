@@ -36,7 +36,8 @@ defmodule VoiceConverse.Testing.FakeProvider do
   end
 
   @impl true
-  def capabilities, do: %{events: Events.all(), text_only?: false, client_parts: [], manual_truncation: true}
+  def capabilities,
+    do: %{events: Events.all(), text_only?: false, client_parts: [], manual_truncation: true}
 
   @impl true
   def preflight(spec) do
@@ -51,7 +52,9 @@ defmodule VoiceConverse.Testing.FakeProvider do
   @impl true
   def open(%{owner: owner} = spec) when is_pid(owner) do
     notify(spec, :open)
-    if observer = fake_opt(spec, :open_observer), do: send(observer, {:fake_provider, :open_spec, spec})
+
+    if observer = fake_opt(spec, :open_observer),
+      do: send(observer, {:fake_provider, :open_spec, spec})
 
     case fake_opt(spec, :open_error) do
       %Events.Error{} = error ->
@@ -63,6 +66,8 @@ defmodule VoiceConverse.Testing.FakeProvider do
             %{
               owner: owner,
               calls: [],
+              truncate_error: fake_opt(spec, :truncate_error),
+              truncate_result: fake_opt(spec, :truncate_result),
               call_observer: fake_opt(spec, :call_observer),
               tool_result_observer: fake_opt(spec, :tool_result_observer)
             }
@@ -104,7 +109,15 @@ defmodule VoiceConverse.Testing.FakeProvider do
   def announce(ref, text, opts), do: record(ref, {:announce, text, opts})
 
   @impl true
-  def truncate(ref, turn_id, played_until_ms), do: record(ref, {:truncate, turn_id, played_until_ms})
+  def truncate(ref, turn_id, played_until_ms) do
+    record(ref, {:truncate, turn_id, played_until_ms})
+
+    case Agent.get(ref, &{&1.truncate_result, &1.truncate_error}) do
+      {result, _reason} when not is_nil(result) -> result
+      {_result, nil} -> :ok
+      {_result, reason} -> {:error, reason}
+    end
+  end
 
   @impl true
   def close(ref), do: record(ref, :close)
@@ -133,7 +146,9 @@ defmodule VoiceConverse.Testing.FakeProvider do
   @doc "Sends `{:voice_conversation, ref, event}` to the owner. Raises `ArgumentError` for a non-event."
   @spec emit(pid(), Events.t()) :: :ok
   def emit(ref, event) do
-    unless Events.event?(event), do: raise(ArgumentError, "not a VoiceConverse.Events struct: #{inspect(event)}")
+    unless Events.event?(event),
+      do: raise(ArgumentError, "not a VoiceConverse.Events struct: #{inspect(event)}")
+
     Agent.get(ref, fn %{owner: owner} -> send(owner, {:voice_conversation, ref, event}) end)
     :ok
   end
@@ -154,8 +169,11 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   defp fetch_secret(credentials, provider_id) do
     case credentials.fetch(provider_id, :render) do
-      {:ok, secret} -> {:ok, secret}
-      {:error, :missing} -> {:error, Events.Error.new(:provider_auth, "no credential for #{provider_id}")}
+      {:ok, secret} ->
+        {:ok, secret}
+
+      {:error, :missing} ->
+        {:error, Events.Error.new(:provider_auth, "no credential for #{provider_id}")}
     end
   end
 

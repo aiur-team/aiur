@@ -17,6 +17,10 @@ defmodule AiurWeb.VoiceTargetResolver do
   @doc "The Command still takes an answer, at `expected_version` when one is given."
   @callback command(decision_id :: String.t(), expected_version :: pos_integer() | nil) :: :ok | {:error, refusal()}
 
+  @doc "The Command has an answer to revise, at the version the client saw."
+  @callback command_revision(String.t(), pos_integer() | nil) :: :ok | {:error, refusal()}
+  @optional_callbacks command_revision: 2
+
   @spec impl() :: module()
   def impl, do: Application.get_env(:aiur, :voice_target_resolver, __MODULE__.Unbound)
 
@@ -29,5 +33,8 @@ defmodule AiurWeb.VoiceTargetResolver do
 
     @impl true
     def command(_decision_id, _expected_version), do: {:error, :unsupported_target}
+
+    @impl true
+    def command_revision(_decision_id, _expected_version), do: {:error, :unsupported_target}
   end
 end

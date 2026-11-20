@@ -73,6 +73,43 @@ defmodule Aiur.ControlCLI.SettingsTest do
     assert stderr =~ "agent.routing"
   end
 
+  test "a local set_setting with no caller_cwd is refused, a remote-parsed one is not" do
+    capture = fn ->
+      capture_io(:stderr, fn ->
+        out = capture_io(fn -> Aiur.AgentControlCLI.set_setting("agent.max_concurrent_builds", "2", caller_agent_workspace_env: "") end)
+        send(self(), {:out, out})
+      end)
+    end
+
+    stderr = capture.()
+    assert_received {:out, out}
+    assert out =~ "__AIUR_CONTROL_EXIT__:1"
+    assert stderr =~ "caller"
+    assert {:ok, []} = Overrides.list()
+
+    Process.put(:aiur_control_remote_call, true)
+    on_exit(fn -> Process.delete(:aiur_control_remote_call) end)
+    capture_io(fn -> Aiur.AgentControlCLI.set_setting("agent.max_concurrent_builds", "2", caller_agent_workspace_env: "") end)
+    assert {:ok, [_]} = Overrides.list()
+  end
+
+  test "a set_setting with no caller_cwd is still refused when the workspace env is inside the workspace root" do
+    workspace_root = Path.join(Path.dirname(Workflow.workflow_file_path()), "custom-agent-root")
+    Process.put(:aiur_control_remote_call, true)
+    on_exit(fn -> Process.delete(:aiur_control_remote_call) end)
+    :ok = write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert capture_io(fn ->
+                 Aiur.AgentControlCLI.set_setting("agent.max_concurrent_builds", "2", caller_agent_workspace_env: Path.join(workspace_root, "repo/5969"))
+               end) =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "runtime setting changes are blocked inside agent workspaces"
+    assert {:ok, []} = Overrides.list()
+  end
+
   test "configured non-default agent workspaces cannot persist or remove overrides" do
     workspace_root = Path.join(Path.dirname(Workflow.workflow_file_path()), "custom-agent-root")
     :ok = write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)

@@ -26,7 +26,7 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     previous = Application.get_env(:aiur, :workflow_file_path)
     File.mkdir_p!(dir)
     path = Path.join(dir, "config")
-    File.write!(path, "tracker: {kind: memory}\n")
+    File.write!(path, "tracker: {kind: memory}\ndecisions: {native_capture: {codex: false}}\n")
     Workflow.set_workflow_file_path(path)
     key = {Publisher, :tracked_fn}
     tracked = :persistent_term.get(key, nil)
@@ -50,9 +50,9 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     %{ctx: ctx, relay: relay, path: path, store: store}
   end
 
-  test "gate defaults off, rejects invalid values, and reloads through the accessor", %{path: path} do
+  test "gate defaults on, accepts opt-out, rejects invalid values, and reloads", %{path: path} do
     assert {:ok, settings} = Schema.parse(%{})
-    assert settings.decisions.native_capture.codex == false
+    assert settings.decisions.native_capture.codex == true
     assert Config.decisions_native_capture?(:codex) == false
 
     for value <- ["invalid", 123] do
@@ -64,7 +64,7 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     assert Config.decisions_native_capture?(:codex) == true
     File.write!(path, "tracker: {kind: memory}\n")
     assert :ok = Aiur.WorkflowStore.force_reload()
-    assert Config.decisions_native_capture?(:codex) == false
+    assert Config.decisions_native_capture?(:codex) == true
   end
 
   test "gate off preserves the non-interactive frame and stores no Command (compatibility guard)", c do

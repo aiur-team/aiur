@@ -18,6 +18,34 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
     assert out =~ "blocking: true, json: true"
   end
 
+  test "passes --after blockers to the request RPC and the allowlist accepts them" do
+    for flag <- ["--after '5,#6'", "--after='5,#6'"] do
+      {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_command request 'Which build?' #{flag}|, [])
+      assert out =~ ~s|after: Base.decode64!("#{Base.encode64("5,#6")}")|
+    end
+
+    assert {:ok, %{function: :command_request}} = Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.command_request(question: "Q?", after: "5,6")|)
+  end
+
+  test "command cancel sends one pending ID and refuses anything else before RPC" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_command cancel pend_1a2b3c4d|, [])
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.command_cancel([pending_id: "pend_1a2b3c4d"])|
+    assert {:ok, %{function: :command_cancel}} = Aiur.ControlCall.parse(~s|Aiur.AgentControlCLI.command_cancel([pending_id: "pend_1a2b3c4d"])|)
+
+    for args <- ["cancel", "cancel dec_123", "cancel 'pend_1a2b3c4d\"]); x(['", "cancel pend_1a2b3c4d extra"] do
+      {out, 64} = run_sourced_engine("run_control_rpc() { echo RPC_CALLED; }\ncmd_command #{args}", [])
+      assert out =~ "expects one pending ID"
+      refute out =~ "RPC_CALLED"
+    end
+  end
+
+  @tag :tmp_dir
+  test "passes repeatable media and resolves a relative file on the caller's machine", %{tmp_dir: dir} do
+    script = ~s|run_control_rpc() { echo "RPC:$1"; }\ncd "$MEDIA_DIR" && cmd_command request 'Ship?' --media 'shot.png,alt=A, b' --media=https://github.com/a.gif|
+    {out, 0} = run_sourced_engine(script, [{"MEDIA_DIR", dir}])
+    assert out =~ ~s|media: [Base.decode64!("#{Base.encode64(Path.join(dir, "shot.png") <> ",alt=A, b")}"), Base.decode64!("#{Base.encode64("https://github.com/a.gif")}")]|
+  end
+
   @tag :tmp_dir
   test "reads local context and rejects oversized files before RPC", %{tmp_dir: dir} do
     path = Path.join(dir, "context.md")
@@ -32,7 +60,7 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
 
   @tag :tmp_dir
   test "rejects unknown verbs, invalid flags and unreadable context", %{tmp_dir: dir} do
-    for args <- ["unknown", "request", "request 'Ship?' --option", "request 'Ship?' --urgency tomorrow", "request 'Ship?' --context-file '#{dir}/missing'"] do
+    for args <- ["request", "request 'Ship?' --option", "request 'Ship?' --urgency tomorrow", "request 'Ship?' --context-file '#{dir}/missing'"] do
       {out, 64} = run_sourced_engine("run_control_rpc() { echo RPC_CALLED; }\ncmd_command #{args}", [])
       assert out =~ "aiur: command"
       refute out =~ "RPC_CALLED"
@@ -47,5 +75,28 @@ cmd_command request 'Ship $(echo unsafe)?' --option no=Wait --option 'yes=Ship=n
       )
 
     assert out =~ "Aiur.AgentControlCLI.command_request(["
+  end
+
+  test "relayed command answer passes an explicit idempotency key safely" do
+    script = ~S|run_control_rpc() { echo "RPC:$1"; }
+cmd_command dec_0123456789abcdef --option yes --relayed --quote 'Operator chose yes' --idempotency-key retry-1|
+
+    {out, 0} = run_sourced_engine(script, [{"AIUR_AGENT_WORKSPACE", nil}])
+
+    assert out =~ "Aiur.AgentControlCLI.operator_relay_answer(["
+    assert out =~ ~s|idempotency_key: Base.decode64!("#{Base.encode64("retry-1")}")|
+    assert out =~ "caller_cwd: Base.decode64!("
+  end
+
+  test "idempotency key is accepted only for relayed answers" do
+    {out, 64} =
+      run_sourced_engine(
+        ~S|run_control_rpc() { echo RPC_CALLED; }
+cmd_command dec_0123456789abcdef --option yes --idempotency-key retry-1|,
+        []
+      )
+
+    assert out =~ "requires --relayed"
+    refute out =~ "RPC_CALLED"
   end
 end

@@ -6,7 +6,8 @@ from typing import Any
 
 
 ROUTING_PREFIXES = (
-    "agent:", "human:", "model:", "phase:", "complexity:", "build-lane:",
+    "agent:", "human:", "model:", "phase:", "complexity:",
+    "lane:", "build-lane:",
 )
 ROUTING_LABELS = {"build-order"}
 

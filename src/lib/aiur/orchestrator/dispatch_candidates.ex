@@ -16,12 +16,11 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
 
     Enum.sort_by(
       Map.get(groups, :ready, []),
-      &{
-        if(MergePolicy.fixer_ticket?(&1), do: 0, else: 1),
-        QueueSetSlots.sort_key(&1.id, ordering),
-        DispatchPolicy.priority_rank(&1.priority),
-        Hints.sort_key(&1.id)
-      }
+      fn issue ->
+        {member, rank, position} = QueueSetSlots.sort_key(issue.id, ordering)
+
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), member, DispatchPolicy.work_kind_rank(issue), rank, position, DispatchPolicy.priority_rank(issue.priority), Hints.sort_key(issue.id)}
+      end
     ) ++
       Enum.sort_by(optimistic, fn issue ->
         {member, rank, _position} = QueueSetSlots.sort_key(issue.id, ordering)

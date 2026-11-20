@@ -10,6 +10,7 @@ defmodule Aiur.Commands.Routing.Policy do
           | :executor_offline
           | :executor_stalled
           | :authority_human_required
+          | :audience_creator
           | :executor_not_answerable
           | :executor_ack_timeout
           | :executor_answer_timeout
@@ -21,9 +22,14 @@ defmodule Aiur.Commands.Routing.Policy do
   @type config :: %{ack_ms: non_neg_integer(), answer_ms: non_neg_integer(), urgent_factor: number()}
   @type escalation :: :none | {:due, cause(), DateTime.t()} | {:next, DateTime.t()}
 
-  @doc "Whether an outstanding Command is routed to the human. Unknown routing never counts."
+  @doc "Whether an outstanding Command is routed to the human. Unknown routing and Executor-only Commands never count."
   @spec needs_you?(map()) :: boolean()
-  def needs_you?(decision), do: open?(decision) and Map.get(decision, :route_state) in [:with_human, :with_both]
+  def needs_you?(decision),
+    do: open?(decision) and not executor_audience?(decision) and Map.get(decision, :route_state) in [:with_human, :with_both]
+
+  @doc "Whether a worker addressed the Command to the Executor only, so no creator inbox may show it."
+  @spec executor_audience?(map()) :: boolean()
+  def executor_audience?(decision), do: Map.get(decision, :audience) == :executor
 
   @doc "Matches a retained inbox routing filter."
   @spec matches_route?(map(), atom() | nil) :: boolean()
@@ -34,7 +40,8 @@ defmodule Aiur.Commands.Routing.Policy do
   def matches_route?(decision, :resolved), do: not open?(decision)
 
   @spec executor_may_answer?(map()) :: boolean()
-  def executor_may_answer?(decision), do: not Requester.executor?(decision) and DecisionAuthority.executor_answerable?(decision)
+  def executor_may_answer?(decision),
+    do: not Requester.executor?(decision) and (executor_audience?(decision) or DecisionAuthority.executor_answerable?(decision))
 
   @spec deferrable?(map()) :: boolean()
   def deferrable?(decision), do: decision.authority != :human_required and not Requester.executor?(decision)
@@ -52,15 +59,20 @@ defmodule Aiur.Commands.Routing.Policy do
   def route(decision, liveness) do
     cond do
       Requester.kind(decision) == :executor -> human_only(:executor_originated)
+      # Executor-only work waits for an Executor rather than falling back to the creator.
+      executor_audience?(decision) -> %{policy: :executor_first, state: :with_executor, cause: nil}
       liveness == :offline -> human_only(:executor_offline)
       liveness == :stalled -> human_only(:executor_stalled)
       Map.get(decision, :authority) == :human_required -> %{policy: :simultaneous, state: :with_both, cause: :authority_human_required}
+      Map.get(decision, :audience) == :creator -> %{policy: :simultaneous, state: :with_both, cause: :audience_creator}
       DecisionAuthority.executor_answerable?(decision) -> %{policy: :executor_first, state: :with_executor, cause: nil}
       true -> human_only(:executor_not_answerable)
     end
   end
 
   @spec escalation_due(map(), DateTime.t(), config()) :: escalation()
+  def escalation_due(%{audience: :executor}, _now, _config), do: :none
+
   def escalation_due(%{route_state: :with_executor, decision_status: status, answer: nil, routed_at: %DateTime{}} = decision, now, config)
       when status in [:open, :deferred] do
     deadlines = deadlines(decision, config)

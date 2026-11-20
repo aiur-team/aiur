@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.DispatchCohortTest do
       selected_backend: "codex",
       selected_model: "cohort-model",
       labels: ["experiment:x", "model:high"],
-      blocked_by: [%{identifier: "3755"}]
+      blocked_by: [%{identifier: "3755", state: "done"}]
     }
 
     # Stand-in for a runner leaked by an earlier test: its record arrives first.

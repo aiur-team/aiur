@@ -48,7 +48,7 @@ defmodule AiurWeb.DashboardLive.GlobalPauseTest do
                Orchestrator.dashboard_snapshot(orchestrator_name, 100)
 
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
-      {:ok, _view, html} = live(build_conn(), "/units")
+      {:ok, _view, html} = live(build_conn(), "/commands")
 
       assert html =~ "ax-mi aiur-shell__menu-item on"
       assert html =~ ~s(aria-checked="true")
@@ -72,7 +72,7 @@ defmodule AiurWeb.DashboardLive.GlobalPauseTest do
       orchestrator_name = Module.concat(__MODULE__, :ReadOnlyGlobalPauseOrchestrator)
       start_supervised!({GlobalPauseFailureOrchestrator, name: orchestrator_name, report: self()})
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: false)
-      {:ok, view, _html} = live(build_conn(), "/units")
+      {:ok, view, _html} = live(build_conn(), "/commands")
       render_click(view, "toggle-global-pause")
       refute_received {:global_pause_attempt, _, _}
       assert view |> element("#ax-pause") |> render() =~ ~s(aria-checked="false")
@@ -116,7 +116,7 @@ defmodule AiurWeb.DashboardLive.GlobalPauseTest do
       start_supervised!({GlobalPauseFailureOrchestrator, name: orchestrator_name, report: self()})
 
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
-      {:ok, view, _html} = live(build_conn(), "/units")
+      {:ok, view, _html} = live(build_conn(), "/commands")
 
       html = view |> element("#ax-pause") |> render_click()
 

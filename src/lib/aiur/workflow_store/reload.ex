@@ -9,6 +9,7 @@ defmodule Aiur.WorkflowStore.Reload do
   require Logger
 
   alias Aiur.Config.Overrides
+  alias Aiur.Project.Context
   alias Aiur.Signal
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache
@@ -18,11 +19,21 @@ defmodule Aiur.WorkflowStore.Reload do
   @reload_attempts 3
   @reload_retry_delay_ms 50
   @configuration_topic "workflow_store:configuration"
+  @any_configuration_topic "workflow_store:configuration:any"
   @base_branch_changed_topic "system.config.base_branch.changed"
+
+  @doc "Every project's reload (and the single-project one) is also announced here, for machine-level subscribers."
+  @spec any_configuration_topic() :: String.t()
+  def any_configuration_topic, do: @any_configuration_topic
 
   @doc false
   @spec configuration_topic() :: String.t()
-  def configuration_topic, do: @configuration_topic
+  def configuration_topic do
+    case Context.current_id() do
+      nil -> @configuration_topic
+      id -> @configuration_topic <> ":" <> id
+    end
+  end
 
   # Mirrors `load_state/1`'s retry rather than reading once. A caller reaching
   # this path has usually just written the config, and `File.write!/2` is not
@@ -265,11 +276,13 @@ defmodule Aiur.WorkflowStore.Reload do
     broadcast_configuration(state)
     maybe_announce_base_branch_change(previous, state)
     maybe_announce_operator_relay_enablement(previous, state)
+    maybe_announce_reversible_human_required_delegation(previous, state)
     :ok
   end
 
   defp maybe_announce_operator_relay_enablement(previous, current) do
-    if relay_enabled?(current) and not relay_enabled?(previous) do
+    # Boot (previous = nil) is not a change; announcing it would claim a transition that never happened.
+    if previous != nil and relay_enabled?(current) and not relay_enabled?(previous) do
       Signal.alert("system.config.operator_relay.enabled",
         message: "executor.relay_operator_answers enabled: Executors may record quoted operator answers",
         reason: "The operator-answer relay gate changed from disabled to enabled.",
@@ -285,12 +298,35 @@ defmodule Aiur.WorkflowStore.Reload do
     _kind, _reason -> :ok
   end
 
-  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
+  # On by default: only an explicit `false` disables relaying.
+  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => false}}}}), do: false
+  defp relay_enabled?(%{workflow: %{config: config}}) when is_map(config), do: true
   defp relay_enabled?(_state), do: false
+
+  defp maybe_announce_reversible_human_required_delegation(previous, current) do
+    if reversible_human_required_delegation_enabled?(current) and not reversible_human_required_delegation_enabled?(previous) do
+      Signal.alert("system.config.executor.human_required_delegation.enabled",
+        message: "executor.allow_reversible_human_required_answers enabled: Executor may answer reversible human-required engineering Commands",
+        reason: "The operator-delegation setting changed from disabled to enabled; spend, publication, product direction and security decisions remain human-only.",
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp reversible_human_required_delegation_enabled?(%{workflow: %{config: %{"executor" => %{"allow_reversible_human_required_answers" => true}}}}), do: true
+  defp reversible_human_required_delegation_enabled?(_state), do: false
 
   defp broadcast_configuration(%State{generation: generation}) do
     if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, @configuration_topic, {:workflow_config_updated, generation})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, configuration_topic(), {:workflow_config_updated, generation})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @any_configuration_topic, {:workflow_config_updated, generation})
     end
   end
 

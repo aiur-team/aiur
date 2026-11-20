@@ -7,6 +7,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   alias Aiur.Events
   alias Aiur.GitHub.Access
   alias Aiur.LandingWatch.Journal
+  alias Aiur.LandingWatch.QuarantineFixEvidence
   alias Aiur.LandingWatch.QuarantineNightlyResults
   alias Aiur.TestQuarantine
 
@@ -177,9 +178,18 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   defp lift_if_closed(ticket, opts) do
     case issue_state(ticket, opts) do
-      {:ok, "closed"} -> log_result(ticket, lift(ticket, Keyword.put(opts, :lift_reason, "now that the ticket is closed")))
-      {:ok, _open} -> :ok
-      {:error, reason} -> Logger.warning("quarantine ticket state failed ticket=#{ticket} reason=#{inspect(reason)}")
+      {:ok, "closed"} ->
+        case QuarantineFixEvidence.closed_by_fix_pr?(ticket, opts) do
+          {:ok, true} -> log_result(ticket, lift(ticket, Keyword.put(opts, :lift_reason, "now that a non-quarantine fix PR closed the ticket")))
+          {:ok, false} -> :ok
+          {:error, reason} -> Logger.warning("quarantine closing PR lookup failed ticket=#{ticket} reason=#{inspect(reason)}")
+        end
+
+      {:ok, _open} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("quarantine ticket state failed ticket=#{ticket} reason=#{inspect(reason)}")
     end
   end
 
@@ -197,11 +207,15 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   defp list_tickets(contents) do
     for line <- String.split(contents, "\n"),
-        fields when length(fields) in [3, 4] <- [String.split(line, "\t")],
-        "#" <> number <- [Enum.at(fields, 2)],
+        fields <- [String.split(line, "\t")],
+        "#" <> number <- [ticket_field(fields)],
         {ticket, ""} <- [Integer.parse(number)],
         do: ticket
   end
+
+  defp ticket_field(["BrowserSpec", _spec, _title, _line, ticket]), do: ticket
+  defp ticket_field([_module, _name, ticket | _rest]), do: ticket
+  defp ticket_field(_fields), do: nil
 
   defp issue_state(ticket, opts) do
     with {:ok, context} <- context(hd(@list_paths), opts) do
@@ -223,9 +237,9 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   @impl true
-  def handle_info({:event, %{topic: topic}}, opts) do
+  def handle_info({:event, %{topic: topic} = event}, opts) do
     case Regex.run(~r/^ticket\.([1-9][0-9]*)\.pr\.merged$/, topic) do
-      [_, ticket] -> start_lift(String.to_integer(ticket), opts)
+      [_, ticket] -> start_lift(String.to_integer(ticket), event, opts)
       _ -> :ok
     end
 
@@ -251,12 +265,28 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
     end
   end
 
-  defp start_lift(ticket, opts) do
-    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> log_result(ticket, lift(ticket, opts)) end) do
+  defp start_lift(ticket, event, opts) do
+    event_opts = Keyword.put(opts, :repository, Map.get(event, :repository))
+
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> log_result(ticket, lift_after_merge(ticket, Map.get(event, :pr), event_opts)) end) do
       {:ok, _pid} -> :ok
       {:error, reason} -> Logger.warning("quarantine lift task failed to start ticket=#{ticket} reason=#{inspect(reason)}")
     end
   end
+
+  @doc false
+  @spec lift_after_merge(pos_integer(), map() | nil, keyword()) :: :ok | {:ok, :already_claimed} | {:error, term()}
+  def lift_after_merge(ticket, pr, opts \\ [])
+
+  def lift_after_merge(ticket, pr, opts) when is_integer(ticket) and ticket > 0 do
+    case QuarantineFixEvidence.merged_fix?(ticket, pr, opts) do
+      {:ok, true} -> lift(ticket, opts)
+      {:ok, false} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  def lift_after_merge(_ticket, _pr, _opts), do: :ok
 
   defp log_result(ticket, result) do
     case result do
@@ -329,6 +359,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
     case String.split(line, "\t") do
       [_module, _name, ^target] -> true
       [_module, _name, ^target, _expires] -> true
+      ["BrowserSpec", _spec, _title, _line, ^target] -> true
       _ -> false
     end
   end

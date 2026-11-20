@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.ControlCLI.DispatchAccount
   alias Aiur.GitHub.Config
+  alias Aiur.Orchestrator.StatusCLI.AgentActivityText
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
@@ -31,10 +32,16 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         " ",
         agents_activity(agent),
         if(agent[:repl_attach_command], do: " | " <> agent.repl_attach_command, else: ""),
+        skills_suffix(agent),
         WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
   end
+
+  # Which skills the worker loaded first and why. Compact by design: the full
+  # resolution lives in the ticket's dispatch record (logs/agent.ndjson).
+  defp skills_suffix(%{skills: skills}) when is_binary(skills) and skills != "", do: " | " <> truncate(skills, 120)
+  defp skills_suffix(_agent), do: ""
 
   @doc false
   @spec print_idle_count(non_neg_integer()) :: :ok
@@ -123,14 +130,32 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         "(deactivated)"
 
       _ ->
-        activity_values(agent)
-        |> Enum.map(&activity_string/1)
-        |> Enum.find("", &(&1 != ""))
+        agent
+        |> activity_text()
         |> case do
           "" -> "(no activity yet)"
           text -> truncate(text, 80)
         end
     end
+  end
+
+  # An in-process backend (OpenAI-compatible: OpenRouter, DeepSeek, Kimi)
+  # reports activity as normalized events with no app-server `method`, so it
+  # gets its own renderer; every app-server payload keeps the `method` path.
+  defp activity_text(agent) do
+    message = Map.get(agent, :last_codex_message)
+
+    if structured_activity?(message) do
+      generic_activity(agent)
+    else
+      AgentActivityText.describe(message) || generic_activity(agent)
+    end
+  end
+
+  defp generic_activity(agent) do
+    activity_values(agent)
+    |> Enum.map(&activity_string/1)
+    |> Enum.find("", &(&1 != ""))
   end
 
   defp retry_activity(agent) do

@@ -114,7 +114,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
 
       # A conditional reader fetches, recording GitHub's real ETag for the body.
-      ResourceStore.put_resource(key, pull_request(), etag: ~s("github-real"))
+      {:ok, %{data: held_body}} = ResourceStore.fetch(key)
+      ResourceStore.put_resource(key, held_body, etag: ~s("github-real"))
       assert ResourceStore.etag(key) == ~s("github-real")
 
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
@@ -326,7 +327,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     |> Path.join("**/*.ex")
     |> Path.wildcard()
     |> Enum.reject(&(Path.basename(&1) in @writer_files))
-    |> Enum.filter(&Regex.match?(pattern, File.read!(&1)))
+    |> Enum.filter(&Regex.match?(pattern, read_source!(&1)))
     |> Enum.map(&Path.relative_to(&1, @lib_root))
     |> Enum.sort()
   end
@@ -356,5 +357,12 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     snapshot = SnapshotCache.build([], [], [], %{}, %{}, [{ticket_number(), cached}])
     assert [%{landing_state_known?: true, in_merge_queue: true, auto_merge: false}] = snapshot.pull_requests
     refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

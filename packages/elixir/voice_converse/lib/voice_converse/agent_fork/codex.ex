@@ -147,6 +147,7 @@ defmodule VoiceConverse.AgentFork.Codex do
 
   defp notification("turn/completed", %{"turn" => %{"status" => "completed"}}, acc) do
     usage = %{
+      session_id: acc.fork_thread,
       tokens: acc.tokens,
       first_token_ms: acc.first_token_ms,
       duration_ms: System.monotonic_time(:millisecond) - acc.started

@@ -4,6 +4,8 @@
 }
 
 .conversation-drawer-panel {
+  grid-template-rows: auto auto auto auto minmax(8rem, 1fr) auto;
+  overflow-y: auto;
   width: min(560px, 100%);
   max-height: calc(100vh - 2rem);
   height: 100%;

@@ -29,6 +29,25 @@ aiur_build_gate_owner_pgid() {
   return 1
 }
 
+aiur_build_gate_owner_acquired_at() {
+  local owner_path=$1 token=$2 fallback=$3 line prior_token= prior_acquired_at=
+
+  if [[ -f $owner_path ]]; then
+    while IFS= read -r line; do
+      case $line in
+        token=*) prior_token=${line#token=} ;;
+        acquired_at=*) prior_acquired_at=${line#acquired_at=} ;;
+      esac
+    done 2>/dev/null <"$owner_path" || true
+  fi
+
+  if [[ $prior_token == "$token" && $prior_acquired_at =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$prior_acquired_at"
+  else
+    printf '%s\n' "$fallback"
+  fi
+}
+
 aiur_build_gate_process_group_alive() {
   local pgid=$1
 

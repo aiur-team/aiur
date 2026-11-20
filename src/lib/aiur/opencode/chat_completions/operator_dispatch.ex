@@ -26,7 +26,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
     end
   end
 
-  # Listener routing preserves the backend-specific legacy policy until rollout.
+  # Conversation sends follow the effective listener mode.
   @spec send_operator(String.t(), String.t(), String.t()) :: {:ok, term()} | {:error, term()}
   @spec send_operator(String.t(), String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def send_operator(identifier, text, turn_id, message_id \\ nil) do

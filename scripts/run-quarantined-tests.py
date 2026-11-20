@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from datetime import date, timedelta
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,9 @@ DESCRIBE_PATTERN = re.compile(r"^\s*describe\s+" + STRING)
 TEST_PATTERN = re.compile(r"^\s*test\s+" + STRING)
 
 
-def entries(path=LIST):
+def entries(path=LIST, grandfathered=frozenset(), today=None):
+    today = today or date.today()
+    maximum = today + timedelta(days=14)
     result = []
     for number, raw in enumerate(path.read_text().splitlines(), 1):
         line = raw.strip()
@@ -26,8 +29,22 @@ def entries(path=LIST):
         fields = line.split("\t")
         if len(fields) != 4 or not fields[0].startswith(("Aiur.", "AiurWeb.")) or not fields[1] or not re.fullmatch(r"#?[1-9][0-9]*", fields[2]) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", fields[3]):
             raise ValueError(f"invalid quarantine entry at {path}:{number}")
-        result.append(tuple(fields))
+        row = tuple(fields)
+        expiry = date.fromisoformat(fields[3])
+        if expiry > maximum and row not in grandfathered:
+            raise ValueError(f"quarantine expiry exceeds 14 days at {path}:{number}")
+        result.append(row)
     return result
+
+
+def baseline_entries():
+    merge_base = subprocess.run(["git", "merge-base", "HEAD", "origin/main"], cwd=ROOT, capture_output=True, text=True, check=False)
+    refs = ([merge_base.stdout.strip()] if merge_base.returncode == 0 else []) + ["origin/main", "HEAD^"]
+    for ref in refs:
+        result = subprocess.run(["git", "show", f"{ref}:src/test/quarantine.txt"], cwd=ROOT, capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            return frozenset(tuple(line.rstrip().split("\t")) for line in result.stdout.splitlines() if line and not line.startswith("#") and len(line.split("\t")) == 4)
+    raise RuntimeError("cannot read base quarantine list to identify grandfathered expiries")
 
 
 def decode(literal):
@@ -58,7 +75,7 @@ def scan(tests_root=TESTS):
 
 def selectors(tests_root=TESTS, listed=None):
     """Resolve every entry to focused test locations; an entry that is not exactly one test fails."""
-    listed = entries() if listed is None else listed
+    listed = entries(grandfathered=baseline_entries()) if listed is None else listed
     tests = list(scan(tests_root))
     problems = []
     selected = set()
@@ -81,7 +98,7 @@ def selectors(tests_root=TESTS, listed=None):
 
 def main():
     try:
-        selected = selectors()
+        selected = selectors(listed=entries(grandfathered=baseline_entries()))
     except (OSError, ValueError) as error:
         print(f"quarantine selection failed: {error}", file=sys.stderr)
         return 2

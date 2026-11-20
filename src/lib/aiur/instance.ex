@@ -166,12 +166,20 @@ defmodule Aiur.Instance do
     "INSTANCE IGNORE #{rules} owns=[#{owns}] pool=#{Map.get(status, :pool, true)} live=[#{live}] ignored_since_boot=#{status.ignored_since_boot}"
   end
 
-  @doc "Returns dispatch eligibility and the reason when the live ownership roster prevents a decision."
-  @spec eligible?(term(), String.t(), [map()]) ::
+  @doc """
+  Returns dispatch eligibility and the reason when the live ownership roster prevents a decision.
+  A durable ownership `owner` (`{:owner, :self | :other}`) decides before any roster check.
+  """
+  @spec eligible?(term(), String.t(), [map()], {:owner, :self | :other} | :unknown) ::
           :eligible
           | {:ineligible, :peer_owns_ticket | :pool_closed}
           | {:unavailable, :self_missing_from_roster | :self_not_dispatching | :labels_unknown | :invalid_roster}
-  def eligible?(ticket, self, live_instances) when is_binary(self) and is_list(live_instances) do
+  def eligible?(ticket, self, live_instances, owner \\ :unknown)
+
+  def eligible?(_ticket, _self, _live_instances, {:owner, :self}), do: :eligible
+  def eligible?(_ticket, _self, _live_instances, {:owner, :other}), do: {:ineligible, :peer_owns_ticket}
+
+  def eligible?(ticket, self, live_instances, :unknown) when is_binary(self) and is_list(live_instances) do
     labels = ticket_labels(ticket)
     number = number(ticket)
 
@@ -196,7 +204,7 @@ defmodule Aiur.Instance do
     end
   end
 
-  def eligible?(_ticket, _self, _live_instances), do: {:unavailable, :invalid_roster}
+  def eligible?(_ticket, _self, _live_instances, _owner), do: {:unavailable, :invalid_roster}
 
   defp eligible_with_current?(current, live_instances, number, labels, label_rules_active?) do
     current_rules = ownership_metadata(current)

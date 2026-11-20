@@ -9,7 +9,7 @@ defmodule AiurWeb.EndpointSocketsTest do
              {"/voice", AiurWeb.VoiceSocket, websocket: [connect_info: [session: session_options], max_frame_size: 400_000], longpoll: false},
              {"/streamdeck", AiurWeb.StreamdeckSocket, websocket: true, longpoll: false},
              {"/events", AiurWeb.EventsSocket, websocket: true, longpoll: false},
-             {"/live", Phoenix.LiveView.Socket, websocket: [connect_info: [:user_agent, session: session_options]], longpoll: false}
+             {"/live", Phoenix.LiveView.Socket, websocket: [connect_info: [:user_agent, :peer_data, session: session_options]], longpoll: false}
            ]
   end
 end

@@ -5,8 +5,10 @@ defmodule Aiur.HttpServer do
 
   require Logger
 
-  alias Aiur.{Commands, Config, Orchestrator}
+  alias Aiur.{Commands, Config}
   alias Aiur.Config.Paths
+  alias Aiur.Executor.HookConfig
+  alias Aiur.Gateway.Hello
   alias AiurWeb.DashboardAuth.Passkeys
   alias AiurWeb.Endpoint
 
@@ -43,7 +45,7 @@ defmodule Aiur.HttpServer do
   end
 
   defp start_on_port(opts, port) do
-    host = Keyword.get(opts, :host, Config.server_host())
+    host = Keyword.get(opts, :host, test_run_host(Config.server_host()))
     dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
     with {:ok, ip} <- parse_host(host),
@@ -72,6 +74,8 @@ defmodule Aiur.HttpServer do
       other -> other
     end
   end
+
+  defp test_run_host(configured_host), do: if(Config.test_run?(), do: "127.0.0.1", else: configured_host)
 
   defp restore_endpoint_env(endpoint_config, dashboard_pages) do
     restore_env(:aiur, Endpoint, endpoint_config)
@@ -136,18 +140,21 @@ defmodule Aiur.HttpServer do
       server: true,
       http: [ip: ip, port: port],
       url: endpoint_url(public_url, host),
-      orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
+      # Unpinned by default: readers fall back to `Aiur.Orchestrator.server/0`, which follows `AiurWeb.ProjectScope`.
+      orchestrator: Keyword.get(opts, :orchestrator),
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
       browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
       public_bind: not loopback?(ip),
+      gateway_hello: Hello.enabled?(settings.gateway_hello, ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
       decision_store: Keyword.get(opts, :decision_store, Commands.default_store()),
       decision_policy: Keyword.get(opts, :decision_policy),
       secret_key_base: secret_key_base(),
       allowed_hosts: allowed_hosts,
+      dashboard_origins: settings.dashboard_origins,
       check_origin: {AiurWeb.HostAllowlist, :check_origin, [AiurWeb.HostAllowlist.origins(public_url), allow_tailnet_hosts?]},
       allow_tailnet_hosts: allow_tailnet_hosts?,
       session_options: [
@@ -177,11 +184,22 @@ defmodule Aiur.HttpServer do
   end
 
   defp handle_endpoint_start({:ok, _pid} = result, opts, _host, _ip, _port) do
+    publish_executor_hook_url()
     publish_control_url(opts)
     result
   end
 
   defp handle_endpoint_start(other, _opts, _host, _ip, _port), do: other
+
+  defp publish_executor_hook_url do
+    with key when is_binary(key) and key != "" <- System.get_env("AIUR_INSTANCE_KEY"),
+         port when is_integer(port) and port > 0 <- bound_port() do
+      case HookConfig.write_url(port) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("Could not publish Executor hook URL: #{inspect(reason)}")
+      end
+    end
+  end
 
   defp publish_control_url(opts) do
     with socket when is_binary(socket) and socket != "" <- System.get_env("AIUR_TMUX_SOCKET"),
@@ -466,7 +484,8 @@ defmodule Aiur.HttpServer do
   defp endpoint_url(url, fallback_host) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host, port: port} when scheme in ["http", "https"] and is_binary(host) ->
-        options = [host: host, scheme: if(scheme == "https", do: :https, else: :http)]
+        # Phoenix builds a %URI{} from this, so the scheme must stay a string (#7753).
+        options = [host: host, scheme: scheme]
         if is_integer(port), do: Keyword.put(options, :port, port), else: options
 
       _ ->

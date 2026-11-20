@@ -1,7 +1,7 @@
 defmodule Aiur.Config.AgentSettingsTest do
   use Aiur.TestSupport
   alias Aiur.CodingAgent
-  alias Aiur.Config.{RoutingValue, Schema}
+  alias Aiur.Config.{AgentSettings, RoutingValue, Schema}
   alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
   alias Ecto.Changeset
 
@@ -46,6 +46,19 @@ defmodule Aiur.Config.AgentSettingsTest do
     # so resolve_model/2 supplies that backend's own default.
     elsewhere = %Issue{labels: ["complexity:4", "model:codex"]}
     assert CodingAgent.model_for(elsewhere) == nil
+  end
+
+  test "agent_routing_candidates/0 keeps every route per level as a list" do
+    # Usage readers outside the coding agent need the configured routes without
+    # depending on `Aiur.CodingAgent.HeadroomDispatch`, so this accessor merges
+    # the single-route `agent.routing` table with the derived candidate lists.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => "claude:opus"}
+    )
+
+    expected = %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => ["claude:opus"]}
+    assert AgentSettings.agent_routing_candidates() == expected
+    assert Aiur.Config.agent_routing_candidates() == expected
   end
 
   test "the label set the add-agent modal writes keeps the picked model and effort" do

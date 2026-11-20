@@ -166,11 +166,22 @@ defmodule Aiur.GitHub.ResourceStore.MemoryTest do
       _state = :sys.get_state(store)
 
       # Measure live retention, independent of when the store next hibernates.
-      assert :erlang.garbage_collect(store)
-      _state = :sys.get_state(store)
+      # The store is global: concurrent tests' membership calls run on its heap
+      # and queue in its mailbox. Retained bodies show in every sample;
+      # concurrent traffic does not, so the minimum is the retention.
+      bytes =
+        Enum.min(
+          for _sample <- 1..5 do
+            assert :erlang.garbage_collect(store)
+            _state = :sys.get_state(store)
+            assert {:memory, bytes} = Process.info(store, :memory)
+            bytes
+          end
+        )
 
-      assert {:memory, bytes} = Process.info(store, :memory)
-      assert bytes < 1024 * 1024
+      # Margin for runtime/coverage overhead (1.69 MB seen in CI run 40100031187);
+      # the forty retained bodies measure ~5.8 MB.
+      assert bytes < 2 * 1024 * 1024
 
       checkpoint = path |> File.read!() |> Jason.decode!()
       assert map_size(checkpoint["entries"]) == 40

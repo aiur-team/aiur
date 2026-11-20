@@ -10,7 +10,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard do
 
     general =
       case Aiur.Config.settings() do
-        {:ok, settings} -> settings.build_order.general_epics
+        {:ok, settings} -> settings.build_order.lanes
         _ -> []
       end
 

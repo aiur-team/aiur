@@ -86,13 +86,17 @@ defmodule Aiur.Instance.Roster do
       state: if(expired?, do: :stale, else: if(age_ms > stale_after_ms, do: :stale, else: :live)),
       removed?: expired? and expired_age_ms >= retention_ms,
       current?: record.instance_id == Identity.current(),
+      gateway_id: metadata["gateway_id"],
       host_kind: metadata["host_kind"],
       public_url: metadata["public_url"],
       leader?: metadata["leader"],
       agent_count: metadata["agent_count"],
       agent_capacity: metadata["agent_capacity"],
       held_tickets: metadata["held_tickets"],
-      agents: metadata["agents"]
+      agents: metadata["agents"],
+      projects: metadata["projects"],
+      executor_present: metadata["executor_present"],
+      trimmed: metadata["trimmed"]
     }
   end
 

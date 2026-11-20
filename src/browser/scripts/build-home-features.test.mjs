@@ -4,6 +4,9 @@ import { activeFeature, layoutExt, figuresHTML, loadFeatureSpan } from '../../pr
 import { S, ctx, fx, resetState } from '../../priv/static/build-home/state.js';
 import { H } from '../../priv/static/build-home/history.js';
 import { listHTML } from '../../priv/static/build-home/list.js';
+// The subtitle shows the viewer's local date, so pin the viewer's timezone here instead of
+// assuming a negative UTC offset: these date assertions must also pass on a UTC machine.
+process.env.TZ = 'America/Los_Angeles';
 const row = (id, feature, end = null, deps = [], also = []) => ({ id, feature, end, deps, also });
 function setup() {
   resetState(); S.feature = 'f'; S.fmode = 'compact'; S.histFrom = 20;
@@ -41,66 +44,72 @@ test('known figures and sparkline keep exact design coordinates without titles',
   assert.match(html, /10 → 12 <em>\+2<\/em>/); assert.match(html, /points="1.0,20.0 38.0,11.0 75.0,2.0"/); assert.ok(!html.includes('title='));
   assert.match(figuresHTML({ ...s, spark: [12] }, 42), /points="0.0,10.0"/);
 });
-test('feature progress keeps known closed ratios and hatches only the unknown remainder', () => {
+test('feature list rows are table rows of name, bar, merged/total and remaining; registry rows are focusable', () => {
   resetState(); S.list = 'features';
-  const rows = [
-    ['f-part-2', 'part2', 'Wave 1 refactor (part 2/3)', '1', 88, 6, 0, 94],
-    ['f-part-3', 'part3', 'Wave 1 refactor (part 3/3)', '1', 49, 20, 0, 71],
-    ['f-other', 'other', 'Other work', '2', 298, 32, 0, 330],
-    ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
-  ];
-  const epics = Object.fromEntries(rows.map(([key, feature, label]) => [key, { key, feature, label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]));
-  const features = Object.fromEntries(rows.map(([key, feature, label]) => [feature, { label, epics: [key] }]));
-  const progress = {
-    features: Object.fromEntries(rows.map(([key, feature, summary, wave, closed, open, unpublished, total]) => [key, {
-      feature, closed, open, ci_wait: ['part2', 'part3'].includes(feature) ? null : 0,
-      unpublished, total, wave, summary, reason: null
-    }])),
-    observed_at: Date.now(), plan_version: 'v1', extras: 0
-  };
-  const html = listHTML({ features, epics, feature_progress: progress }, S, {}, {}, Date.now());
-  assert.match(html, /435 \/ 495 tickets closed/);
-  assert.match(html, /class="fp-closed" style="width:87\.8787/);
-  assert.match(html, /class="fp-open" style="width:11\.7171/);
-  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
-  assert.match(html, /class="fp-closed" style="width:93\.6170/);
-  assert.match(html, /class="fp-closed" style="width:69\.0140/);
-  assert.match(html, /class="fp-open" style="width:28\.1690/);
-  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
-  assert.ok(!html.includes('Unassigned: 0 / 0'));
-  const emptyRow = html.split('<button type="button" class="fp-row" data-feature="unassigned"')[1].split('</button>')[0];
-  assert.match(emptyRow, /class="fp-bar fp-meter" role="img" aria-label="No tickets to count"/);
-  assert.ok(!emptyRow.includes('fp-unknown'));
-  const unknownFeatures = { unknown: { label: 'Unknown closed count', epics: ['f-bo-6369-core'] } };
-  const unknownEpics = { 'f-bo-6369-core': { key: 'f-bo-6369-core', feature: 'unknown', label: 'Build Order 6369 · Core' } };
-  const unknownProgress = { features: { 'f-bo-6369-core': { feature: 'unknown', closed: null, open: 3, ci_wait: 0, unpublished: 0, total: 10, wave: '3' } } };
-  const unknownHtml = listHTML({ features: unknownFeatures, epics: unknownEpics, feature_progress: unknownProgress }, S, {}, {}, Date.now());
-  const unknownRow = unknownHtml.split('<button type="button" class="fp-row" data-feature="unknown"')[1].split('</button>')[0];
-  assert.match(unknownRow, /class="fp-bar fp-meter unknown"/);
-  assert.match(unknownRow, /class="fp-unknown"/);
-  assert.ok(!unknownRow.includes('fp-closed'));
-  assert.match(unknownRow, /class="fp-open" style="width:30%/);
+  const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }, { key: 'mp-e2', label: 'mp-e2', merged: 2, total: 2 }];
+  const html = listHTML({ features: { pag: { label: 'Pagination' } }, feature_progress: { bars }, repo: { url: 'https://github.com/o/aiur/' } }, S, {}, {}, Date.UTC(2026, 10, 1));
+  assert.match(html, /<div class="lr-cap fp-sum" role="row"><span role="cell">5 of 6 tickets merged - 2026-10-31<\/span><\/div><\/div>$/);
+  assert.ok(!html.includes('data-fsort'));
+  assert.ok(!html.includes('<h1'));
+  // Same card and header row as the Tickets table.
+  assert.match(html, /^<div class="bd-list fp-list" role="table" aria-label="Feature progress" tabindex="-1"><div class="lr lr-h fp-grid" role="row"><span class="fp-name" role="columnheader">Feature<\/span><span class="fp-pg" role="columnheader">Progress<\/span><span class="fp-count" role="columnheader">Merged<\/span><span class="fp-left" role="columnheader">Remaining<\/span><\/div>/);
+  assert.match(html, /<div class="lr fp-grid fp-row fp-go" role="row" data-feature="pag" tabindex="0" aria-label="Focus Pagination feature"><span class="fp-name" role="cell" title="Pagination">Pagination<\/span><span class="fp-pg" role="cell"><span class="fp-bar" role="img" aria-label="3 of 4 merged"><i style="width:75%"><\/i><\/span><\/span><span class="fp-count" role="cell">3\/4<\/span><span class="fp-left" role="cell">1<\/span><\/div>/);
+  assert.match(html, /<div class="lr fp-grid fp-row" role="row" data-feature="mp-e2"><span class="fp-name" role="cell" title="mp-e2">mp-e2<\/span><span class="fp-pg" role="cell"><span class="fp-bar done"/);
+  assert.match(html, /<div class="lr fp-grid fp-row fp-all" role="row"><span class="fp-name" role="cell" title="All features">All features<\/span><span class="fp-pg" role="cell"><span class="fp-bar all" role="img" aria-label="5 of 6 merged">/);
+  S.fsort = 'pct';
+  assert.ok(listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('mp-e2') < listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0).indexOf('"pag"'));
 });
-test('compacted feature progress reads icon, wave, and summary from lane epics', () => {
+test('epic rows carry their own bar and their features follow in the epic order', () => {
   resetState(); S.list = 'features';
-  const payload = {
-    icons: { cpu: '<svg data-icon="cpu-chip"></svg>' },
-    features: { kernel: { key: 'kernel', label: 'Kernel', icon: 'cpu', epics: ['f-kernel-core'] } },
-    epics: { 'f-kernel-core': { key: 'f-kernel-core', feature: 'kernel', label: 'Kernel · core', icon: 'cpu', wave: '0b', summary: 'Scheduler and memory work', hue: 210 } },
-    feature_progress: {
-      features: {
-        'f-kernel-core': { feature: 'kernel', label: 'Kernel · core', closed: 2, open: 1, ci_wait: 0, unpublished: 0, total: 3 }
-      },
-      observed_at: Date.now(),
-      plan_version: 'v1',
-      extras: 0
-    }
-  };
-
-  const rendered = listHTML(payload, S, {}, {}, Date.now());
-  assert.match(rendered, /<h2>Wave 0b<\/h2>/);
-  assert.match(rendered, /data-icon="cpu-chip"/);
-  assert.match(rendered, /Scheduler and memory work/);
+  const bars = [
+    { key: 'pag', label: 'Pagination', merged: 3, total: 4 },
+    { key: 'mp-e2', label: 'Commands', merged: 2, total: 2 },
+    { key: 'loose', label: 'Loose ends', merged: 1, total: 3 }
+  ];
+  const epics = [{ key: 'launch', label: 'Launch', merged: 4, total: 6, features: ['mp-e2', 'pag'] }];
+  const D = { features: { pag: { label: 'Pagination' }, 'mp-e2': { label: 'Commands' } }, feature_progress: { bars, epics } };
+  const html = listHTML(D, S, {}, {}, Date.UTC(2026, 10, 1));
+  // The epic row keeps the shipped row shape: name, bar, merged/total.
+  assert.match(html, /<div class="lr fp-grid fp-row fp-epic-row fp-go" role="row" data-epic="launch" tabindex="0" aria-label="Focus Launch epic features"><span class="fp-name" role="cell" title="Launch">Launch<\/span><span class="fp-pg" role="cell"><span class="fp-bar" role="img" aria-label="4 of 6 merged"><i style="width:66\.6[0-9]*%"><\/i><\/span><\/span><span class="fp-count" role="cell">4\/6<\/span><span class="fp-left" role="cell">2<\/span><\/div>/);
+  // Its features follow it in the epic's order; the feature no epic lists comes last, under "No epic".
+  assert.deepEqual([...html.matchAll(/data-feature="([^"]+)"/g)].map(match => match[1]), ['mp-e2', 'pag', 'loose']);
+  assert.match(html, /<div class="lr fp-grid fp-row fp-noepic-row" role="row"><span class="fp-name" role="cell">No epic<\/span><\/div><div class="lr fp-grid fp-row fp-feat" role="row" data-feature="loose"/);
+  // The flat "All features" total still sums the feature rows and sits after the groups.
+  assert.match(html, /<div class="lr fp-grid fp-row fp-all" role="row">/);
+  assert.ok(html.indexOf('fp-all') > html.indexOf('fp-noepic-row'));
+});
+test('toolbar sorting reorders features inside an epic without moving the epic row', () => {
+  resetState(); S.list = 'features'; S.fsort = 'pct';
+  const bars = [
+    { key: 'low', label: 'Low', merged: 1, total: 4 },
+    { key: 'high', label: 'High', merged: 3, total: 4 },
+    { key: 'other', label: 'Other', merged: 0, total: 2 }
+  ];
+  const epics = [{ key: 'launch', label: 'Launch', merged: 4, total: 8, features: ['low', 'high'] }, { key: 'second', label: 'Second', merged: 0, total: 2, features: ['other'] }];
+  const html = listHTML({ features: {}, feature_progress: { bars, epics } }, S, {}, {}, 0);
+  assert.deepEqual([...html.matchAll(/data-(?:epic|feature)="([^"]+)"/g)].map(match => match[1]), ['launch', 'high', 'low', 'second', 'other']);
+});
+test('a payload without epic rows keeps the flat feature list', () => {
+  resetState(); S.list = 'features';
+  const bars = [{ key: 'pag', label: 'Pagination', merged: 3, total: 4 }];
+  const html = listHTML({ features: {}, feature_progress: { bars } }, S, {}, {}, 0);
+  assert.ok(!html.includes('fp-epic-row'));
+  assert.ok(!html.includes('No epic'));
+  assert.match(html, /<div class="lr fp-grid fp-row" role="row" data-feature="pag">/);
+});
+test('unavailable feature bars render no invented totals', () => {
+  resetState(); S.list = 'features';
+  const html = listHTML({ features: {}, feature_progress: { bars: null } }, S, {}, {}, 0);
+  assert.match(html, /<div class="lr-cap fp-sum" role="row"><span role="cell">Feature progress unavailable - 1969-12-31<\/span><\/div>/);
+  assert.ok(!html.includes('fp-all')); assert.ok(!html.includes('0 of 0'));
+});
+test('feature subtitle uses the viewer local date and keeps sorting outside the list', () => {
+  resetState(); S.list = 'features'; S.view = 'list';
+  const now = Date.UTC(2026, 10, 1, 2);
+  const html = listHTML({ features: {}, feature_progress: { bars: [] } }, S, {}, {}, now);
+  assert.match(html, /tickets merged - 2026-10-31/);
+  assert.ok(!html.includes('data-fsort'));
+  assert.ok(!html.includes('fp-sort'));
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';

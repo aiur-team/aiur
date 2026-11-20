@@ -117,6 +117,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
         "echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
         "echo \"AIUR_RECORD_TEST_TICKET_IDS: ${AIUR_RECORD_TEST_TICKET_IDS:-}\"\n" <>
+        "echo \"AIUR_GATEWAY_MODE: ${AIUR_GATEWAY_MODE:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>

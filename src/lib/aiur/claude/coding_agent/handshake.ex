@@ -8,6 +8,9 @@ defmodule Aiur.Claude.CodingAgent.Handshake do
 
   @minimum_version "1.3.0"
 
+  @spec minimum_version() :: String.t()
+  def minimum_version, do: @minimum_version
+
   @spec start(port() | pid(), Path.t()) :: {:ok, String.t(), map()} | {:error, term()}
   def start(port, workspace) do
     with :ok <- CodingAgent.send_frame(port, Messages.initialize_frame()),

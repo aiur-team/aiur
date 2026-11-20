@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.MembershipLifecycle
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.RetryEngine.Scheduling
@@ -23,7 +24,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   def handle_retry_issue(%State{} = state, issue_id, attempt, metadata, opts \\ []) do
     state = if metadata[:retry_label?], do: sync_retrying_modifier(state, metadata, issue_id, :remove), else: state
 
-    if retry_capacity_available?(state, metadata) and not state.globally_paused do
+    if retry_capacity_available?(state, metadata) and not PauseGuard.paused?(state) do
       start_retry_poll(state, issue_id, attempt, metadata, opts)
     else
       {:noreply, schedule_capacity_retry(state, issue_id, attempt, metadata)}
@@ -79,7 +80,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   end
 
   defp apply_retry_poll_result(current, issue_id, attempt, metadata, opts, {:ok, issue}) do
-    if retry_capacity_available?(current, metadata) and not current.globally_paused do
+    if retry_capacity_available?(current, metadata) and not PauseGuard.paused?(current) do
       {:noreply, next} = handle_retry_issue_lookup(issue, current, issue_id, attempt, metadata, opts)
       next
     else
@@ -182,7 +183,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   def handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts \\ [])
 
   def handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata, opts) do
-    terminal_states = Keyword.get(opts, :terminal_states, DispatchPolicy.terminal_state_set())
+    terminal_states = Keyword.get_lazy(opts, :terminal_states, &DispatchPolicy.terminal_state_set/0)
 
     terminal_retry_funs = terminal_retry_funs(opts)
 
@@ -344,6 +345,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
       next_state =
         dispatch.(state, issue, attempt, metadata[:worker_host],
           prior_work: prior_work?,
+          forced_backend: metadata[:forced_backend],
           rework_head_sha: metadata[:rework_head_sha],
           stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
         )
@@ -393,6 +395,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
         prior_work: metadata[:prior_work] == true,
         worker_host: metadata[:worker_host],
         workspace_path: metadata[:workspace_path],
+        forced_backend: metadata[:forced_backend],
         rework_head_sha: metadata[:rework_head_sha],
         stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
       })

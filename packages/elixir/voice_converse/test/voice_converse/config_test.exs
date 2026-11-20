@@ -14,6 +14,25 @@ defmodule VoiceConverse.ConfigTest do
              Config.new(@base ++ [ask_requires_confirm: :sometimes])
   end
 
+  test "no-transcript provider cleanup requires cleanup_root" do
+    opts = [
+      transcript: :none,
+      provider_cleanup: true,
+      credentials: StaticCredentials,
+      briefing_source: FakeBriefingSource
+    ]
+
+    assert {:error, %{field: :cleanup_root, reason: :missing}} = Config.new(opts)
+
+    assert {:ok, %Config{transcript: :none, cleanup_root: "/tmp/cleanup"}} =
+             Config.new(Keyword.put(opts, :cleanup_root, "/tmp/cleanup"))
+  end
+
+  test "file transcripts reject cleanup_root" do
+    assert {:error, %{field: :cleanup_root, reason: :not_allowed}} =
+             Config.new(Keyword.put(@base, :cleanup_root, "/tmp/cleanup"))
+  end
+
   # The LLM and the cloud disclosure are operator decisions (E6-OQ7) with no default, so an
   # instance boots without them but no session may start until both are set.
   describe "session start without the operator's decisions" do

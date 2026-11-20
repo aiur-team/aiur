@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.Component do
 
   alias Aiur.BuildOrder.{AdHocSource, EpicOverrides, Estimates, Features, GraphProjection, History, PackStatus, ProgressObserver}
 
-  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection | :estimates | :label_backfill
+  @type phase :: :early | :history | :late | :view_state_sweep | :recording | :final | :label_projection | :estimates | :label_backfill | :timeline_cache
 
   @spec child_specs(phase(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
   def child_specs(phase, opts)
@@ -11,6 +11,8 @@ defmodule Aiur.BuildOrder.Component do
   def child_specs(:label_backfill, opts), do: if(Keyword.get(opts, :recording?, true), do: [History.LabelBackfill], else: [])
 
   def child_specs(:estimates, _opts), do: [Estimates]
+
+  def child_specs(:timeline_cache, _opts), do: [Aiur.BuildOrder.TicketTimelineCache]
 
   def child_specs(:early, _opts), do: [{GraphProjection, runtime_config?: true}]
 
@@ -33,4 +35,8 @@ defmodule Aiur.BuildOrder.Component do
   end
 
   def child_specs(:label_projection, opts), do: if(Keyword.get(opts, :recording?, true), do: [Features.LabelProjection], else: [])
+
+  @doc "The Executor listener's bounded feature lookup; a slow registry yields `:unknown` via the caller's exit guard (#7874)."
+  @spec feature_and_epic(pos_integer()) :: {:ok, %{feature: String.t(), epic: String.t() | nil}} | :unknown
+  def feature_and_epic(number), do: Features.feature_and_epic(number, timeout: 500)
 end

@@ -5,6 +5,7 @@
   "kind": "in-app",
   "paths": [
     "src/lib/aiur_web/capability_error.ex",
+    "src/lib/aiur_web/epic_icon.ex",
     "src/lib/aiur_web/kit.ex",
     "src/lib/aiur_web/provider_meter_windows.ex",
     "src/lib/aiur_web/refresh_relay.ex",

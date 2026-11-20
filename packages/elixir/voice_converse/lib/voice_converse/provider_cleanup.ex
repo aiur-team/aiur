@@ -2,7 +2,7 @@ defmodule VoiceConverse.ProviderCleanup do
   @moduledoc """
   Deletes provider-side conversations only after their local transcript is durable.
 
-  The append-only queue is stored beneath `transcript_root`, so a restart resumes unfinished
+  The append-only queue is stored beneath `cleanup_root` (or `transcript_root` for legacy callers), so a restart resumes unfinished
   deletions. Queue operations are synced before they are acknowledged. Callers must invoke
   `enqueue/2` only after the local transcript's `session_ended` record has been fsynced; this
   core owns no transcript writer and therefore cannot verify that host-level receipt. Hosts call
@@ -410,9 +410,9 @@ defmodule VoiceConverse.ProviderCleanup do
   end
 
   defp fetch_root(opts) do
-    case Keyword.get(opts, :transcript_root) do
+    case Keyword.get(opts, :cleanup_root, Keyword.get(opts, :transcript_root)) do
       root when is_binary(root) and root != "" -> {:ok, Path.expand(root)}
-      _otherwise -> {:error, :invalid_transcript_root}
+      _otherwise -> {:error, :invalid_cleanup_root}
     end
   end
 
@@ -424,7 +424,7 @@ defmodule VoiceConverse.ProviderCleanup do
   end
 
   defp queue_path(root) when is_binary(root) and root != "", do: {:ok, Path.join(Path.expand(root), @queue_file)}
-  defp queue_path(_root), do: {:error, :invalid_transcript_root}
+  defp queue_path(_root), do: {:error, :invalid_cleanup_root}
   defp valid_id(id, _field) when is_binary(id) and byte_size(id) > 0, do: :ok
   defp valid_id(_id, field), do: {:error, {:invalid, field}}
   defp due_item(state), do: state |> due_items() |> Enum.min_by(&due_sort_key/1, fn -> nil end)

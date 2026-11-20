@@ -46,6 +46,8 @@ defmodule Aiur.AgentRunner.BeforeRun do
   defp before_run_pause_message(:wip_preservation_failed, _output),
     do: "wip_preservation_failed: uncommitted work could not be saved, so the dirty workspace was kept; agent held pending Executor resume."
 
+  defp before_run_pause_message(:mandatory_skills, message), do: message <> " Agent paused pending Executor resume."
+
   defp before_run_pause_message(:timeout, _output),
     do: "before_run hook timed out; agent paused pending Executor resume."
 

@@ -2,6 +2,7 @@ defmodule Aiur.Application.ChildrenTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Application.Children
   alias Aiur.Executor.StatePaths
 
   describe "child_specs/1 run-shape gating" do
@@ -105,6 +106,20 @@ defmodule Aiur.Application.ChildrenTest do
       assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
       assert Aiur.Orchestrator in mods
       assert Aiur.PRLifecycle.HealthScanner in mods
+    end
+
+    test "repository services default on when the switch is not configured" do
+      previous = Application.fetch_env(:aiur, :repository_services?)
+      Application.delete_env(:aiur, :repository_services?)
+
+      try do
+        specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true)
+        {Aiur.Instance.RepositoryLeader, leader_opts} = Enum.find(specs, &match?({Aiur.Instance.RepositoryLeader, _}, &1))
+
+        assert Keyword.fetch!(leader_opts, :services) == [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch]
+      after
+        with {:ok, value} <- previous, do: Application.put_env(:aiur, :repository_services?, value)
+      end
     end
 
     test "primary instance gives repository global services to the dynamic leader supervisor" do
@@ -439,7 +454,7 @@ defmodule Aiur.Application.ChildrenTest do
       assert {Aiur.Tmux, name: Aiur.Tmux} in specs
       assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
       assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
-      assert {Aiur.DecisionStore, name: Aiur.DecisionStore} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &Children.premise_notifier/1} in specs
       assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 

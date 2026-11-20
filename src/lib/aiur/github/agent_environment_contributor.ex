@@ -26,6 +26,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
       {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
       {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+      {~c"AIUR_GITHUB_FIXER_LABEL", String.to_charlist(Aiur.MergePolicy.current().main_watch.fixer_label)},
       # Single-account mode only: the marker the `gh` guard appends to comment
       # bodies the agent writes, so the daemon can later tell those comments
       # from ones the operator typed under the same login. `false` (unset) on
@@ -39,6 +40,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       # other repository must not have its answers filed under this one.
       {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
       budget_socket_env(),
+      fence_socket_env(),
       {~c"AIUR_GITHUB_BUDGET_ROOT", Access.budget_state_dir() |> String.to_charlist()},
       # #2356: the path to the token file the daemon wrote for the `gh` guard.
       # This is a PATH, not a credential — the raw token lives on disk and the
@@ -66,6 +68,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
 
     "AIUR_REAL_GH=\nexport AIUR_REAL_GH\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
+      "export AIUR_GITHUB_FIXER_LABEL=#{Aiur.Shell.escape(Aiur.MergePolicy.current().main_watch.fixer_label)}\n" <>
       remote_repo_slug_export() <>
       agent_comment_marker_export() <>
       budget_socket_export(opts) <>
@@ -167,11 +170,18 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
     end
   end
 
+  defp fence_socket_env do
+    # Same condition as Aiur.Ownership.enabled?/0, restated because this layer cannot depend on orchestration.
+    if match?({:ok, %{instance: %{ownership: "github"}}}, Aiur.Config.settings()),
+      do: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", AgentBudgetSocket.fence_socket_path() |> String.to_charlist()},
+      else: {~c"AIUR_OWNERSHIP_FENCE_SOCKET", false}
+  end
+
   defp budget_socket_export(opts) do
     if Keyword.get(opts, :local_claude_repl, false) and LeaseStore.configured?() do
       "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n"
     else
       "unset AIUR_GITHUB_BUDGET_SOCKET\n"
-    end
+    end <> "unset AIUR_OWNERSHIP_FENCE_SOCKET\n"
   end
 end

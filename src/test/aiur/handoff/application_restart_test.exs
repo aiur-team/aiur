@@ -61,15 +61,18 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
           raise "#{label}: #{inspect(error)}"
       end
     end
-    boot.("first-boot")
     root = Application.fetch_env!(:aiur, :runtime_state_dir)
+    Application.put_env(:aiur, :log_file, Path.join(root, "first/log/aiur.log"))
+    boot.("first-boot")
     workspace = Path.join(root, "restart-workspace")
     File.mkdir_p!(workspace)
     fifo = Path.join(root, "complete-turn")
     {_, 0} = System.cmd("mkfifo", [fifo])
     provider = Path.join(root, "provider.py")
-    File.write!(provider, "import sys,json\nwith open(sys.argv[1]) as f: f.read()\nprint(json.dumps({'method':'turn/completed','params':{'turn':{'id':'turn-1','status':'completed'}}}),flush=True)\nsys.stdin.read()\n")
+    File.write!(provider, "import sys,json\nwith open(sys.argv[1]) as f: f.read()\nprint(json.dumps({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'Output after restart'}}}),flush=True)\nprint(json.dumps({'method':'turn/completed','params':{'turn':{'id':'turn-1','status':'completed'}}}),flush=True)\nsys.stdin.read()\n")
     issue = %Aiur.Issue{id: "3844", identifier: "3844", title: "restart", state: "in-progress"}
+    :ok = Aiur.IssueLog.attach(issue.identifier)
+    old_log = Aiur.IssueLog.log_path(issue.identifier)
     owner = self()
     {:ok, old_runner} = Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       {:ok, lease} = Aiur.Workspace.Ownership.claim(issue.identifier)
@@ -123,6 +126,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     Code.ensure_loaded!(Aiur.Orchestrator.TelemetryCohort)
     1 = :erlang.trace_pattern({Aiur.Orchestrator.TelemetryCohort, :record_dispatch, 3}, true, [:local])
     :erlang.trace(:new, true, [:call, {:tracer, self()}])
+    Application.put_env(:aiur, :log_file, Path.join(root, "second/log/aiur.log"))
     boot.("second-boot")
     phase.("second-boot-adoption-check")
     after_boot = :sys.get_state(Aiur.Orchestrator)
@@ -148,6 +152,14 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     end
     {:ok, %{thread_id: "restart-thread"}} = Aiur.SessionHandle.load("3844", "codex")
     true = String.contains?(File.read!(Path.join(workspace, "logs/agent.ndjson")), "turn_completed")
+    # A synchronous history call drains the writer after the provider completed.
+    [%{role: :assistant, body: "Output after restart"}] = Aiur.IssueLog.history(issue.identifier)
+    new_log = Aiur.IssueLog.log_path(issue.identifier)
+    false = new_log == old_log
+    true = String.contains?(File.read!(new_log), "[agent] Output after restart")
+    false = String.contains?(File.read!(old_log), "Output after restart")
+    true = File.exists?(Aiur.IssueLog.event_log_path(issue.identifier))
+    {:ok, %{events: [%{"body" => "Output after restart"}]}} = Aiur.IssueLog.read_tail(issue.identifier)
     {:ok, consumed} = Aiur.JsonStore.read(Aiur.Handoff.Record.path() <> ".consumed")
     [%{"status" => "adopted"}] = consumed["outcome"]
     delivered = :erlang.trace_delivered(:all)

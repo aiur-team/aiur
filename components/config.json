@@ -9,10 +9,17 @@
     "src/lib/aiur/config/**",
     "src/lib/aiur/env.ex",
     "src/lib/aiur/env/**",
+    "src/lib/aiur/handoff/protection.ex",
     "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/instance.ex",
     "src/lib/aiur/instance/**",
+    "src/lib/aiur/intent/change.ex",
+    "src/lib/aiur/machine/settings.ex",
+    "src/lib/aiur/machine/settings/**",
+    "src/lib/aiur/machine/yaml.ex",
     "src/lib/aiur/merge_policy.ex",
+    "src/lib/aiur/project.ex",
+    "src/lib/aiur/project/**",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
     "src/lib/aiur/workflow_store/**"
@@ -27,6 +34,7 @@
   "optional": [],
   "owns": {
     "config": [
+      "capacity",
       "compaction",
       "executor",
       "instance",
@@ -54,7 +62,7 @@
     "CFG"
   ],
   "dependency_kind": "required",
-  "summary": "Loads workflow settings and applies the configured rules for a run.",
+  "summary": "Loads workflow and machine settings and applies the configured rules for a run.",
   "status": "core",
   "install": {
     "type": "included"
@@ -63,6 +71,7 @@
     "reference/configuration.md"
   ],
   "config": [
+    "capacity",
     "executor",
     "netlify",
     "usage"

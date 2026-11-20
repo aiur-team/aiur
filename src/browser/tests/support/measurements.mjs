@@ -4,7 +4,7 @@ export async function nextPaint(page) {
   }))
 }
 
-export async function measureBrowserWork(page, { operation, targetSelector = '#graph-content', warmups = 2, repetitions = 4 } = {}) {
+export async function measureBrowserWork(page, { operation, targetSelector = '#fixture-content', warmups = 2, repetitions = 4 } = {}) {
   if (!operation) throw new Error('measurement requires an injected browser-side operation name')
 
   const measurement = await page.evaluate(async ({ operation, targetSelector, warmups, repetitions }) => {

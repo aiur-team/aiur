@@ -57,6 +57,8 @@ defmodule Aiur.GitHub.Issues.Normalize do
       executor_owner: IssueExecutorOwner.from_labels(label_names, prefix),
       queued: queued_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
+      label_descriptions:
+        Map.new(labels, fn label -> {String.downcase(label["name"] || ""), label["description"]} end) |> Map.reject(fn {_name, description} -> not is_binary(description) or description == "" end),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
       updated_at: parse_datetime(gh_issue["updated_at"])

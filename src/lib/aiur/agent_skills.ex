@@ -108,6 +108,7 @@ defmodule Aiur.AgentSkills do
       Remote.remote_shell_assign("workspace", workspace),
       remote_safe_paths_script(locations),
       Enum.map_join(@issue_worker_skills, "\n", &remote_skill_script(&1, locations)),
+      remote_repo_skills_script(locations),
       remote_support_files_script(locations),
       remote_ignore_script(locations)
     ]
@@ -126,6 +127,7 @@ defmodule Aiur.AgentSkills do
 
     Enum.each(locations, &ensure_safe_install_path!(workspace, &1.path))
     Enum.each(@issue_worker_skills, &install_skill(workspace, &1, locations))
+    install_repo_skills(workspace, locations)
     Enum.each(locations, &install_support_files(workspace, &1))
     ignore_generated_skill_locations(workspace, locations)
   rescue
@@ -157,6 +159,87 @@ defmodule Aiur.AgentSkills do
 
     locations
     |> Enum.map_join("\n", &remote_skill_script(&1, skill, writes))
+  end
+
+  # Target repositories own these skill files. Codex needs a discoverable link
+  # for each one, while the source remains canonical in `.claude/skills`.
+  defp install_repo_skills(workspace, locations) do
+    codex_locations = Enum.filter(locations, &(&1.path == ".codex/skills" and Map.get(&1, :link_to) == ".claude/skills"))
+    source = Path.join(workspace, ".claude/skills")
+
+    if codex_locations != [] do
+      source
+      |> safe_repo_skills()
+      |> Enum.each(&link_repo_skill(workspace, &1, codex_locations))
+    end
+  end
+
+  defp safe_repo_skills(source) do
+    case File.lstat(source) do
+      {:ok, %File.Stat{type: :directory}} ->
+        source
+        |> File.ls!()
+        |> Enum.filter(&safe_repo_skill?(Path.join(source, &1)))
+
+      _ ->
+        []
+    end
+  end
+
+  defp safe_repo_skill?(skill_dir) do
+    skill_file = Path.join(skill_dir, "SKILL.md")
+
+    match?({:ok, %File.Stat{type: :directory}}, File.lstat(skill_dir)) and
+      match?({:ok, %File.Stat{type: :regular}}, File.lstat(skill_file)) and
+      safe_skill_tree?(skill_dir)
+  end
+
+  # Repo-owned skill trees are untrusted workspace content. Skip the whole
+  # skill if any node is a symlink, including links that currently resolve
+  # inside the workspace, so Codex sees only regular files in the checked tree.
+  defp safe_skill_tree?(directory) do
+    directory
+    |> File.ls!()
+    |> Enum.all?(fn entry ->
+      case File.lstat(Path.join(directory, entry)) do
+        {:ok, %File.Stat{type: :directory}} -> safe_skill_tree?(Path.join(directory, entry))
+        {:ok, %File.Stat{type: :regular}} -> true
+        _ -> false
+      end
+    end)
+  end
+
+  defp link_repo_skill(workspace, skill, locations) do
+    Enum.each(locations, fn %{path: path, link_to: link_to} ->
+      dest = Path.join([workspace, path, skill])
+      link_skill(dest, relative_link_target(path, link_to, skill))
+    end)
+  end
+
+  defp remote_repo_skills_script(locations) do
+    codex_locations = Enum.filter(locations, &(&1.path == ".codex/skills" and Map.get(&1, :link_to) == ".claude/skills"))
+
+    codex_locations
+    |> Enum.map_join("\n", fn %{path: path, link_to: link_to} ->
+      source = "$workspace/#{link_to}"
+      target_prefix = relative_link_target(path, link_to, "") |> String.trim_trailing("/")
+
+      [
+        "if [ -d \"#{source}\" ]; then",
+        "  find -P \"#{source}\" -mindepth 2 -maxdepth 2 -type f -name SKILL.md -print | while IFS= read -r skill_file; do",
+        "    skill_dir=$(dirname \"$skill_file\")",
+        "    if find -P \"$skill_dir\" -type l -print -quit | grep -q .; then continue; fi",
+        "    skill=$(basename \"$skill_dir\")",
+        "    link=\"$workspace/#{path}/$skill\"",
+        "    if [ ! -e \"$link\" ] && [ ! -L \"$link\" ]; then",
+        "      mkdir -p \"$(dirname \"$link\")\"",
+        "      ln -s \"#{target_prefix}/$skill\" \"$link\"",
+        "    fi",
+        "  done",
+        "fi"
+      ]
+      |> Enum.join("\n")
+    end)
   end
 
   defp remote_skill_script(%{path: path} = location, skill, writes) do

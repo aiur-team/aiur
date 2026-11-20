@@ -256,7 +256,7 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   defp agents_running? do
-    case Aiur.Orchestrator.snapshot(Aiur.Orchestrator, 5_000) do
+    case Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), 5_000) do
       %{running: running} when is_list(running) -> running != []
       _other -> false
     end

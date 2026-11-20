@@ -65,6 +65,23 @@ test('partial obscuring accepts only card-over-lane provenance', () => {
   assert.throws(() => expectAuditClean(boardAudit(partial)))
 })
 
+test('scroller obscuring is exempt only when the node is tagged as scrolled out', () => {
+  const clipped = audit('elmPartiallyObscured')
+  clipped.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-vp'] }]
+  assert.throws(() => expectAuditClean(boardAudit(clipped)))
+  clipped.incomplete[0].nodes[0].any[0].scrolledOut = true
+  expectAuditClean(boardAudit(clipped))
+})
+
+test('obscuring without related nodes is exempt only on a card interior', () => {
+  const input = audit('elmPartiallyObscuring')
+  input.incomplete[0].nodes[0].target = ['div[data-id="1303"] > .bd-in > .bd-title']
+  expectAuditClean(boardAudit(input))
+  for (const target of ['.bd-cx', 'div[data-id="1303"] > .unrelated']) {
+    input.incomplete[0].nodes[0].target = [target]
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+})
 
 test('edge imgNode accepts card interiors and rejects unrelated related nodes', () => {
   const input = audit('imgNode')
@@ -112,8 +129,8 @@ test('lane-count violations including Bugs and positional Pagination targets are
   for (const mode of ['read_only', 'writable']) {
     const cell = { dataset: 'dense', view: 'gantt', theme: 'dark', mode }
     for (const [title, target] of [['Design', 'div[title="Design"] > em'], ['Bugs', 'div[title="Bugs"] > em'],
-      ['Pagination · API — short-lived feature epic', '.temp.bd-lane:nth-child(5) > em'],
-      ['Pagination · UI — short-lived feature epic', '.temp.bd-lane:nth-child(6) > em']]) {
+      ['Pagination · API — short-lived feature lane', '.temp.bd-lane:nth-child(5) > em'],
+      ['Pagination · UI — short-lived feature lane', '.temp.bd-lane:nth-child(6) > em']]) {
       const input = { violations: [{ id: 'color-contrast', nodes: [{ target: [target],
         any: [{ id: 'color-contrast', data: { contrastRatio: 4.43 } }], all: [], none: [] }] }], incomplete: [] }
       const selector = '#bd-lanes > .bd-lane[title="' + title + '"] > em'

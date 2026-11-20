@@ -8,8 +8,19 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   # Flat producer census; kept together to audit system alert classification.
 
   @alerts [
+    {"system.feature_supply_low", "orchestration"},
+    {"system.feature_supply_low.resolved", "orchestration"},
+    {"system.gateway.*.offline", "executor-attention"},
+    {"system.gateway.*.offline.resolved", "executor-attention"},
+    {"system.claude_account.*.usage_probe_failing", "executor-attention"},
+    {"system.claude_account.*.usage_probe_failing.resolved", "executor-attention"},
+    # aiur/intent/sync.ex
+    {"system.intent.clock_skew", "config"},
     # aiur/agent_resource_guard.ex
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
+    # aiur/coding_agent/usage_floor_gate.ex; #7504
+    {"system.agent.usage_floor.*", "harness-adapters"},
+    {"system.agent.usage_floor.*.resolved", "harness-adapters"},
     # aiur/build_gate_hold_monitor.ex
     {"system.build_gate.hold_timeout", "agent-sandbox"},
     # aiur/build_order_funnel_health.ex
@@ -26,14 +37,26 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.ci_readiness.not_ready", "orchestration"},
     # aiur/orchestrator/ci_readiness_gate.ex
     {"system.ci_readiness.unavailable", "orchestration"},
+    # aiur/commands/routing.ex
+    {"system.commands.executor_only_waiting", "commands"},
     # aiur/workflow_store/reload.ex
     {"system.config.base_branch.changed", "config"},
+    {"system.config.executor.human_required_delegation.enabled", "config"},
     # aiur/workflow_store/reload.ex
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
     {"system.config.reload_rejected", "config"},
+    {"system.conversation.subject_index.unreadable", "conversations"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded", "conversations"},
+    # aiur/conversation/journal.ex
+    {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/memory_watchdog.ex
+    {"system.daemon.memory_high", "telemetry"},
+    # aiur/memory_watchdog.ex
+    {"system.daemon.memory_high.resolved", "telemetry"},
     # aiur/commands/request_attributes.ex
     {"system.decision.attributes.append_failed", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
@@ -42,6 +65,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.decision_dispatch.saturated.resolved", "commands"},
     # aiur/agent_runner/decision_lifecycle_failure_alert.ex
     {"system.decision_lifecycle.recording_failed", "agent-runner"},
+    # aiur/disk_watchdog.ex; aiur/disk_full.ex
+    {"system.disk.pressure", "kernel"},
+    # aiur/disk_watchdog.ex
+    {"system.disk.pressure.resolved", "kernel"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.capacity_starved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
@@ -62,6 +89,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.dispatch.prewarm_blocked.resolved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.todo_capacity_exceeded", "orchestration"},
+    # aiur/executor/transcript_format.ex
+    {"system.executor.transcript.drift", "executor-attention"},
     # aiur/executor/takeover_alert.ex
     {"system.executor_takeover.*", "executor-attention"},
     # aiur/experiments/auto/notifier.ex
@@ -98,6 +127,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.instance.ownership_unknown", "config"},
     # aiur/instance/lease_store.ex
     {"system.instance.ownership_unknown.resolved", "config"},
+    # aiur/orchestrator/stale_owner.ex
+    {"system.ownership.stale_agent", "orchestration"},
+    # aiur/intent/store.ex
+    {"system.intent.outbox_full", "config"},
     # aiur/landing_watch.ex
     {"system.main.ci.failed.resolved", "orchestration"},
     # aiur/usage/alerts.ex
@@ -114,6 +147,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
+    # aiur/ownership/projection.ex
+    {"system.ownership.ambiguous", "config"},
     # aiur/landing_watch/pr_rerun.ex
     {"system.pr.ci_recovery.rerun_limit", "orchestration"},
     # aiur/landing_watch/conflict_update.ex
@@ -126,6 +161,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr.landing.merge_group_repeat_failure", "orchestration"},
     # aiur/landing_watch/merge_group_failure_processor.ex
     {"system.pr.landing.merge_group_unclassified", "orchestration"},
+    # aiur/landing_watch/merge_group_failure_processor.ex
+    {"system.pr.landing.runner_degraded", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog.ex
     {"system.pr.landing.merge_queue_recovered", "orchestration"},
     # aiur/landing_watch/merge_queue_watchdog_recovery.ex
@@ -152,8 +189,14 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr_health.stale_unreviewed", "pr-lifecycle"},
     # aiur/pr_lifecycle/health_scanner.ex
     {"system.pr_health.unmergeable_author", "pr-lifecycle"},
+    # aiur/project/watcher.ex
+    {"system.project.boot_failed", "orchestration"},
+    # aiur/project/watcher.ex
+    {"system.project.boot_failed.resolved", "orchestration"},
     # aiur/coding_agent/route_failure.ex
     {"system.provider.auth_rejected.*", "harness-adapters"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"system.provider.credit_limited.*", "harness-adapters"},
     # aiur/application/startup_checks.ex
     {"system.provider.auth_rejected.*.resolved", "control-cli"},
     # aiur/handoff/report.ex
@@ -162,12 +205,20 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.fallback", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable", "orchestration"},
+    # aiur/orchestrator/spend_cap/health.ex
+    {"system.spend_cap.unavailable.resolved", "orchestration"},
     # aiur/orchestrator/event_delivery.ex
     {"system.subscription_store.event_dead_lettered", "orchestration"},
     # aiur/supervision_health.ex
     {"system.supervision.degraded", "telemetry"},
     # aiur/supervision_health.ex
     {"system.supervision.degraded.resolved", "telemetry"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum", "orchestration"},
+    # aiur/toolchain.ex
+    {"system.toolchain.below_minimum.resolved", "orchestration"},
     # aiur/orchestrator/toolchain_preflight.ex
     {"system.toolchain.erlang_missing", "orchestration"},
     # aiur/executor_bindings.ex

@@ -1,0 +1,25 @@
+.agent-voice-choice,
+.agent-voice-settings { position: relative; }
+[data-voice-menu]:not([hidden]),
+.agent-voice-settings[open] .agent-voice-device-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel, var(--bg));
+  box-shadow: 0 4px 16px #0003;
+}
+.agent-voice-choice:has([data-voice-chooser]) [data-voice-menu]:not([hidden]),
+.agent-voice-settings[open] .agent-voice-device-label {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  width: min(280px, 70vw);
+}
+.agent-voice-mode { text-align: left; white-space: normal; }
+.agent-voice-mode span { display: block; font-size: 12px; }
+.agent-voice-mode[aria-disabled="true"] { opacity: .65; cursor: not-allowed; }
+.agent-voice-settings summary { cursor: pointer; }
+[data-voice-cancel][hidden] { display: none; }

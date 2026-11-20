@@ -135,6 +135,9 @@ defmodule VoiceConverse.ConfirmTest do
         %Events.ToolCall{call_id: "propose", name: "propose_instruction", params: %{"text" => "ship it"}}
       )
 
+    # emit/2 has enqueued the ToolCall; this call returns only after the session has handled it.
+    _ = :sys.get_state(session)
+
     assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
     draft_id
   end

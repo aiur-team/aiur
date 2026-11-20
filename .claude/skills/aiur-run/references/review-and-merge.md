@@ -153,12 +153,28 @@ relabel if the ticket has already moved on. A
 the ticket is still there: when CI is pending the daemon moves it to
 `agent:ci-wait` within minutes. Swapping `agent:human-review` for
 `agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
-and dispatch authorization refuses the pair (#5796). When you do relabel, make
-two sequential calls: add the new state label first, then remove the old one.
+and dispatch authorization refuses the pair (#5796). Aiur filters the wake
+against its latest issue projection before delivery, but fails open if that
+projection is unavailable. Re-fetch the live ticket and require its current
+state to remain `human-review` before any label write. Wake fields
+`observed_state` and `observed_updated_at` are emission-time context only. When
+you do relabel, make two sequential calls: add the new state label first, then
+remove the old one.
 `gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
 and is not atomic, so do not combine them.
 
 ## Pull-request review loop
+
+After any PR review, send the findings to the owning worker with
+`aiur message <ticket> "<findings>"`. This is required even when the ticket
+still shows `agent:in-progress`: review comments are not a reliable mid-turn
+message channel. For a comment-only review, start blocking requests with an
+explicit `Blocking:` line so Aiur can route it to rework.
+
+Trusted review submissions, including `COMMENTED` reviews, are relayed to a
+running in-progress worker unless the review is a benign approval or “looks
+good” pass. A plain PR conversation comment is relayed only when its body has
+an explicit blocking line.
 
 Branch freshness is an owning-worker responsibility. A pull request reaches
 review-ready state only when all of these are true:

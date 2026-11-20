@@ -38,7 +38,7 @@ defmodule AiurWeb.DashboardLive.RepositoryLeaderBannerLiveTest do
       if is_nil(previous_endpoint), do: Application.delete_env(:aiur, Endpoint), else: Application.put_env(:aiur, Endpoint, previous_endpoint)
     end)
 
-    {:ok, view, _html} = live(build_conn(), "/units")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     :sys.replace_state(view.pid, fn state ->
       RepositoryLeaderBanner.put_status_fun(leader_status)

@@ -14,6 +14,12 @@ defmodule VoiceConverse.Testing.FakeBriefingSource do
   end
 
   @impl true
+  def brief(%{briefing_agent: agent} = t) do
+    if t[:sleep_ms], do: Process.sleep(t.sleep_ms)
+    if t[:exit], do: exit(:boom)
+    {:ok, Agent.get(agent, & &1)}
+  end
+
   def brief(t) do
     if t[:sleep_ms], do: Process.sleep(t.sleep_ms)
     if t[:exit], do: exit(:boom)
@@ -27,7 +33,10 @@ defmodule VoiceConverse.Testing.FakeBriefingSource do
   def sections(t), do: Map.get(t, :sections, [])
 
   @impl true
-  def subscribe(_t, _pid), do: :unsupported
+  def subscribe(t, pid) do
+    if observer = t[:observer], do: send(observer, {:fake_briefing_source, :subscribe, pid})
+    if t[:subscribe], do: :ok, else: :unsupported
+  end
 
   @impl true
   def alive?(t), do: Map.get(t, :alive, :unknown)

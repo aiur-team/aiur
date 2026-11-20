@@ -90,6 +90,23 @@ reconciliation fields in the shared usage envelope. The deprecated
 | `POINTS/HR` | The rate the caller is running at, extrapolated from the elapsed part of the window rather than a whole hour. `unknown` when too little of the window has elapsed to extrapolate from. |
 | `SOURCE` | `reported` when GitHub priced the call itself through a `rateLimit { cost }` selection in the query, `estimated` when it did not and the call is counted at one point. GraphQL queries are instrumented automatically; mutations and REST calls are counted per request. |
 
+The broker's REST `endpoint_family` follows the API route. Repository endpoints
+use the first resource after `/repos/{owner}/{repo}`; a bare repository read is
+`repository`. Global endpoints use their first path segment, including `/app`,
+`/installation`, `/orgs`, `/user` and `/users`. A URL with no path falls back to
+`rest`.
+
+This makes those admissions visible by endpoint; it does not itself reduce
+quota. Use `aiur github-cost` for code-caller attribution.
+
+### Ownership callers
+
+The ticket ownership refs (`refs/aiur/owners/<ticket>`) add two callers:
+
+- `ownership_ref_read`: single-ref reads and the paged `list_owned` listing, one GraphQL point per page of 100 refs. Never cached, since a cached owner would defeat the compare-and-set.
+- `ownership_ref_write`: the git object REST calls and the `updateRefs` compare-and-set. A write refused with a GraphQL `errors` result or a 422 while the ref is unchanged is retried up to three times, each costing one re-read and one `updateRefs`.
+- Neither caller is a leader-fenced repo-global write.
+
 Below the ranking, one reconciliation line per budget compares the sum of the
 rows against `limit - remaining` on the credential's own window:
 

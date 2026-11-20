@@ -61,8 +61,15 @@ defmodule Aiur.Init.Labels do
   end
 
   defp required_labels(prefix, primary, fallback) do
-    ["flake"] ++ Labels.state_labels(prefix) ++ Labels.reason_modifier_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix, primary, fallback)
+    ["flake"] ++
+      Labels.state_labels(prefix) ++
+      Labels.queued_labels(prefix) ++
+      Labels.reason_modifier_labels(prefix) ++
+      Labels.required_rate_limit_fallback_labels(prefix, primary, fallback) ++
+      priority_labels()
   end
+
+  defp priority_labels, do: Enum.map(1..3, &"priority:#{&1}")
 
   # Stage 2 — optional complexity labels.
   defp maybe_create_complexity_labels(io, deps, tracker, existing) do

@@ -54,6 +54,12 @@ Browser smoke runs on **nine shards**. Shard balancing uses the recorded CI
 timings in `src/browser/scripts/browser-smoke-durations.mjs`, and
 `scripts/check-browser-smoke-shards.mjs` keeps each shard under 75% of its budget.
 
+When a browser shard fails, download its `browser-failure-traces` artifact from
+the GitHub Actions run. It contains Playwright `trace.zip` files for failed
+tests and is retained for 14 days; passing shards add no such artifact. Traces
+can contain committed browser fixture credentials and cookies, so browser
+spec contexts must never use real credentials.
+
 The motion suite checks product behavior and deterministic browser helpers. It
 does not compare numeric motion records with the design.
 

@@ -6,6 +6,7 @@ defmodule Aiur.PromptBuilder do
   require Logger
 
   alias Aiur.AgentRunner.{MergePolicyPrompt, OptimisticPrompt}
+  alias Aiur.AgentSkills.Preload
   alias Aiur.{CodingAgent, Config, ExternalContent, MergePolicy, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
@@ -15,6 +16,20 @@ defmodule Aiur.PromptBuilder do
 
   @spec build_prompt(Aiur.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
+    {prompt, _preload} = build_prompt_with_skills(issue, opts)
+    prompt
+  end
+
+  @doc """
+  Build the cold-start prompt and the skill preload it was built from.
+
+  The preload is returned so the caller can record it in the ticket's dispatch
+  record without resolving the workspace a second time. It is `nil` when no
+  workspace is known, because "no workspace" is not the same fact as "no skills
+  installed" and must not render as a missing-skill warning.
+  """
+  @spec build_prompt_with_skills(Aiur.Issue.t(), keyword()) :: {String.t(), Aiur.AgentSkills.Preload.t() | nil}
+  def build_prompt_with_skills(issue, opts \\ []) do
     template =
       Workflow.current()
       |> prompt_template!()
@@ -32,8 +47,42 @@ defmodule Aiur.PromptBuilder do
       |> IO.iodata_to_binary()
       |> ensure_utf8()
 
-    shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> OptimisticPrompt.render(issue.optimistic_start) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
+    preload = skill_preload(issue, opts)
+
+    prompt =
+      shared_prompt_prefix() <>
+        skills_block(preload) <>
+        integration_branch_prompt(issue) <>
+        OptimisticPrompt.render(issue.optimistic_start) <>
+        merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
+
+    {prompt, preload}
+  end
+
+  # The skill block sits right after the shared instructions and before the
+  # workflow template, so the worker reads which skills fit its ticket first.
+  @doc false
+  @spec skills_block(Preload.t() | nil) :: String.t()
+  def skills_block(nil), do: ""
+
+  def skills_block(%Preload{} = preload) do
+    case Preload.prompt_block(preload) do
+      "" -> ""
+      block -> block <> "\n"
+    end
+  end
+
+  defp skill_preload(issue, opts) do
+    case Keyword.get(opts, :skill_preload) do
+      %Preload{} = preload ->
+        preload
+
+      _unset ->
+        case Keyword.get(opts, :workspace) do
+          workspace when is_binary(workspace) -> Preload.resolve(issue, workspace)
+          _no_workspace -> nil
+        end
+    end
   end
 
   @doc false

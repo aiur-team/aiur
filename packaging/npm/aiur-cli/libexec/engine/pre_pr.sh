@@ -236,6 +236,13 @@ body, head_count = re.subn(r"(?m)^Tested head:.*$", "Tested head: " + head, body
 body, base_count = re.subn(r"(?m)^Base:.*$", "Base: " + base_ref + " @ " + base_sha, body)
 if head_count != 1 or base_count != 1:
     raise SystemExit("PR body must contain exactly one Tested head: and Base: line")
+# #6143: a note between the closing backtick and -> fails check-pr-body; move it after the result.
+def bullet(match):
+    note = match.group(2) if match.group(2).startswith("(") and match.group(2).endswith(")") else "(" + match.group(2) + ")"
+    return "- `" + match.group(1) + "` -> " + match.group(3) + " " + note
+def local_tests(section):
+    return re.sub(r"(?m)^- `(\S[^`]*)` +((?!->)\S.*?) +-> +(\S.*)$", bullet, section.group(0))
+body = re.sub(r"(?ms)^#{2,6} Local tests\s*\n.*?(?=^#{1,6} |\Z)", local_tests, body)
 pathlib.Path(path.parent, "body.md").write_text(body, encoding="utf-8")
 PY
   then

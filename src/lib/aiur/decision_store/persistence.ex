@@ -244,7 +244,7 @@ defmodule Aiur.DecisionStore.Persistence do
     end
 
     if event.type == :decision_deferred do
-      Requests.notify_deferred_executor(decision)
+      Requests.notify_deferred_executor(decision, Map.get(event.data, :note))
     end
 
     if event.type in [:answer_recorded, :decision_dismissed, :decision_expired, :decision_mooted] do

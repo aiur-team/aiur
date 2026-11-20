@@ -28,7 +28,7 @@ defmodule Aiur.AgentRunner.HistoryBackfillIntegrationTest do
     alias Aiur.BuildOrder.History.Export
     name = Module.concat(__MODULE__, "Epics#{System.unique_integer([:positive])}")
     general = [%{key: "bugs", label: "Bugs", labels: ["bug"]}]
-    start_supervised!({EpicOverrides, name: name, repository: "acme/widgets", state_dir: Path.join(c.dir, "epics"), settings_fun: fn -> {:ok, %{build_order: %{general_epics: general}}} end})
+    start_supervised!({EpicOverrides, name: name, repository: "acme/widgets", state_dir: Path.join(c.dir, "epics"), settings_fun: fn -> {:ok, %{build_order: %{lanes: general}}} end})
     assert {:ok, _} = F.observe(c, 12, [])
     assert {:ok, _} = F.observe(c, 13, ["bug"])
     assert :ok = History.mark_complete(server: c.history)

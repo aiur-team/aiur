@@ -12,7 +12,7 @@ defmodule Aiur.AgentRunner.AsyncMessagePrompt do
     ## Async operator messages
 
     Messages from the operator are held rather than shown automatically.
-    Call `aiur_read_messages` at natural pauses and before finishing.#{if is_integer(count) and count > 0, do: " #{count} unread", else: ""}
+    Call `aiur_read_messages` at natural pauses and before finishing. Before concluding that no further work remains or handing back, read and act on every pending operator message.#{if is_integer(count) and count > 0, do: " #{count} unread", else: ""}
     """
   end
 

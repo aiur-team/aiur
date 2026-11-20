@@ -196,6 +196,13 @@ actually enter or leave the phase, not retroactively:
 - `phase.work.start` / `phase.work.end` when using `ce-work`
 - `phase.review.start` / `phase.review.end` when using `ce-review`
 
+For every implementation turn, emit `phase.work.start` when implementation
+begins and `phase.work.end` when implementation is complete (tests may still be
+pending). Keep progress reports current as work advances and at Executor
+check-ins; use the shared `progress` / `progress.checkin` protocol for the
+10-point estimate. These persisted milestones drive the ticket conversation's
+stage dividers, so do not substitute a guessed stage or label.
+
 Aiur automatically scopes every agent-emitted name under
 `ticket.<your-issue>.agent.`, so you pass the bare phase name and the event bus
 does the rest. Alerts and events share one topic space: an `emit_alert` name is

@@ -117,7 +117,7 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     refute_received {:adapter_marker, _action, "7", _label}
   end
 
-  test "clearing transient runtime reasons preserves dependency blocker and stale body marker" do
+  test "clearing transient runtime reasons preserves dependency blocker and body-fix marker" do
     labels = Labels.reason_modifier_labels("agent")
     Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "done", labels: labels}])
 

@@ -1,5 +1,6 @@
 defmodule Aiur.LandingWatch.MergeGroupRequeue do
   @moduledoc "Safely requeues approved PRs after non-PR merge-group failures."
+  alias Aiur.Events
   alias Aiur.GitHub.{Access, Client}
   alias Aiur.LandingWatch.{Attribution, Classifier, Journal, Observer, TicketLookup}
   alias Aiur.PrMerge.Queue
@@ -84,6 +85,8 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
   defp confirm_requeue(pr, entry, number, run, reason, identity, opts) do
     case Journal.mark_landed(pr.number, pr.head, entry, opts) do
       :ok ->
+        publish_ticket_requeue(pr, run, reason, opts)
+
         case comment_requeue(pr, run, reason, opts) do
           :ok -> {:cont, :ok}
           {:error, _} = error -> {:halt, error}
@@ -92,6 +95,27 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
       {:error, _} = error ->
         release_claim(number, pr.head, identity, opts, error)
     end
+  end
+
+  defp publish_ticket_requeue(pr, run, reason, opts) do
+    with ticket when is_binary(ticket) <- Aiur.TicketBranch.ticket_id(get_in(pr.rest || %{}, ["head", "ref"])),
+         identity when not is_nil(identity) <- ticket_identity(ticket, opts) do
+      Events.publish(
+        "ticket.#{ticket}.ci.merge_group.requeued",
+        %{message: "Merge-group run ##{run["id"]} requeued PR ##{pr.number}: #{reason}.", pr_number: pr.number, run_id: run["id"]},
+        issue_number: ticket,
+        identity: identity,
+        bypass_contamination: true
+      )
+    else
+      _ -> :ok
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp ticket_identity(ticket, opts) do
+    Keyword.get(opts, :ticket_identity_fun, &Aiur.Orchestrator.tracker_identity/1).(ticket)
   end
 
   defp release_claim(number, head, identity, opts, result) do

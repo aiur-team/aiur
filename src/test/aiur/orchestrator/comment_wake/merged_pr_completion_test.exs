@@ -3,8 +3,31 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
 
+  alias Aiur.GitHub.Labels
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
+
+  defmodule TerminalLabelTracker do
+    def update_issue_state(id, "done", opts) do
+      send(self(), {:terminal_write, id, opts})
+      :ok
+    end
+
+    def add_label(_id, _label), do: :ok
+    def remove_label(_id, _label), do: :ok
+  end
+
+  defmodule LifecycleLabelTracker do
+    def update_issue_state(id, state, opts) do
+      labels = Keyword.get(opts, :test_labels, ["agent:rework", "agent:ci-wait", "agent:human-review"])
+      clear = Keyword.get(opts, :clear_terminal_state_labels, [])
+      label = "agent:#{state}"
+      Process.put({__MODULE__, id}, Enum.uniq([label | Enum.reject(labels, &(&1 in clear))]))
+      :ok
+    end
+
+    def labels(id), do: Process.get({__MODULE__, id})
+  end
 
   defp base_state do
     %State{
@@ -35,6 +58,74 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   end
 
   describe "mark_pr_merged_issue_done/2" do
+    test "merged closing PR clears merge markers and does not alert on terminal success" do
+      issue = %Issue{id: "closed-42", identifier: "42", state: "human-review", labels: ["agent:merge-queued"], tracker_identity: tracker_identity("42")}
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(base_state(), "42",
+          pr_body: "Closes #42",
+          fetch_issue_states_fun: fn ["42"] -> {:ok, [issue]} end,
+          tracker: TerminalLabelTracker,
+          update_issue_state_fun: fn id, target ->
+            MergeStateWriter.write_if_current(id, target,
+              fetch_issue_states_fun: fn ["42"] -> {:ok, [issue]} end,
+              tracker: TerminalLabelTracker
+            )
+          end,
+          emit_alert_fun: fn name, _opts -> send(parent, {:alert, name}) end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert result == base_state()
+      assert_received {:terminal_write, "42", opts}
+      assert Keyword.fetch!(opts, :clear_terminal_state_labels) == (Labels.state_labels("agent") -- ["agent:done"]) ++ ["agent:merge-queued", "agent:body-fix"]
+      refute_received {:alert, "ticket.42.agent.attention.merge_terminal_write_failed"}
+    end
+
+    test "normal merge writer clears every stale lifecycle state before terminalizing" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent"
+      )
+
+      issue = %Issue{
+        id: "7386",
+        identifier: "7386",
+        state: "rework",
+        labels: ["agent:rework", "agent:ci-wait", "agent:human-review"]
+      }
+
+      assert :ok =
+               MergeStateWriter.write_if_current("7386", "done",
+                 fetch_issue_states_fun: fn ["7386"] -> {:ok, [issue]} end,
+                 tracker: LifecycleLabelTracker,
+                 test_labels: issue.labels
+               )
+
+      assert LifecycleLabelTracker.labels("7386") == ["agent:done"]
+    end
+
+    test "merged ticket reconciler clears every stale lifecycle state before terminalizing" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent"
+      )
+
+      assert :ok =
+               MergeStateWriter.write_reconciler_transition(
+                 "7386",
+                 "done",
+                 "rework",
+                 tracker: LifecycleLabelTracker,
+                 test_labels: ["agent:rework", "agent:ci-wait", "agent:human-review"]
+               )
+
+      assert LifecycleLabelTracker.labels("7386") == ["agent:done"]
+    end
+
     test "skips terminal writes when the fetched issue belongs to another GitHub label prefix" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

@@ -18,14 +18,12 @@ defmodule Aiur.Listener.CapabilityProvider do
   @spec capabilities(Aiur.Capabilities.Provider.context(), keyword()) :: map()
   def capabilities(_context, opts) do
     status = Keyword.get(opts, :spec_status_fun, &SpecStatus.read/0).()
-    flag = Application.get_env(:aiur, :listener_send_routing, :legacy)
 
     entry =
       cond do
         status == {:error, :not_installed} -> %{state: :unavailable, reason: :not_installed}
         status == {:error, :spec_invalid} -> %{state: :unavailable, reason: :spec_invalid}
         status != :ok -> @unknown
-        flag != :listener -> %{state: :unavailable, reason: :disabled}
         true -> %{state: :available, version: @spec_major}
       end
 

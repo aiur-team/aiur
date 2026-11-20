@@ -16,8 +16,8 @@
     const joined = new Promise((resolve, reject) => {
       channel.join()
         .receive("ok", resolve)
-        .receive("error", (reason) => reject(new Error(reason?.reason || "Speech-to-text could not start.")))
-        .receive("timeout", () => reject(new Error("Speech-to-text connection timed out.")));
+        .receive("error", (reason) => reject(Object.assign(new Error(reason?.reason || "Speech-to-text could not start."), { reason_code: reason?.reason_code || "unknown" })))
+        .receive("timeout", () => reject(Object.assign(new Error("Speech-to-text connection timed out."), { reason_code: "transport_lost" })));
     });
 
     return {

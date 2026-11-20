@@ -2,18 +2,25 @@ defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
   alias Aiur.{Commands, ExecutorCommandAck, ExecutorCommandAttention}
+  alias Aiur.Commands.CLIAnswers
 
   @default_executor_id "aiur-cli"
 
   @spec ack(keyword(), keyword()) :: 0 | 1 | 64
   def ack(params, deps \\ []), do: ExecutorCommandAck.ack(params, deps)
 
+  @spec claim(keyword(), keyword()) :: 0 | 1 | 64
+  def claim(params, deps \\ []), do: Aiur.ExecutorCommandClaim.claim(params, deps)
+
+  @spec release(keyword(), keyword()) :: 0 | 1 | 64
+  def release(params, deps \\ []), do: Aiur.ExecutorCommandClaim.release(params, deps)
+
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ [])
 
   def answer(params, deps) when is_list(params) and is_list(deps) do
-    with {:ok, normalized} <- normalize_answer(params),
-         {:ok, result} <- call_answer(normalized, deps) do
+    with {:ok, normalized} <- normalize_answer(params, deps),
+         {:ok, result} <- call_answer(normalized, deps) |> CLIAnswers.name_unanswered(normalized.decision_id, deps) do
       ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
@@ -108,13 +115,13 @@ defmodule Aiur.ExecutorCommandCLI do
   def escalation_resolution_topic(decision_id, ticket_id),
     do: escalation_topic(decision_id, ticket_id) <> ".resolved"
 
-  defp normalize_answer(params) do
+  defp normalize_answer(params, deps) do
     with {:ok, decision_id} <- present(params, :decision_id),
          {:ok, expected_version} <- positive_integer(params, :expected_version),
          {:ok, rationale} <- present(params, :rationale),
          {:ok, idempotency_key} <- present(params, :idempotency_key),
          {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id),
-         {:ok, answer} <- one_answer(params) do
+         {:ok, answer} <- answer_payload(params, decision_id, deps) do
       {:ok,
        %{
          decision_id: decision_id,
@@ -148,6 +155,8 @@ defmodule Aiur.ExecutorCommandCLI do
          {:ok, expected_version} <- positive_integer(params, :expected_version),
          {:ok, reason_class} <- present(params, :reason_class),
          {:ok, reason} <- optional_present(params, :reason, nil),
+         {:ok, idempotency_key} <- optional_present(params, :idempotency_key, nil),
+         {:ok, rationale} <- optional_present(params, :rationale, nil),
          {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id) do
       {:ok,
        %{
@@ -155,8 +164,27 @@ defmodule Aiur.ExecutorCommandCLI do
          expected_version: expected_version,
          reason_class: reason_class,
          reason: reason,
+         idempotency_key: idempotency_key,
+         rationale: rationale,
          executor_id: executor_id
        }}
+    end
+  end
+
+  @doc false
+  # Per-question flags resolve against the Command's stored questions; the
+  # legacy single answer is passed through unchanged.
+  @spec answer_payload(keyword(), String.t(), keyword()) :: {:ok, map()} | {:usage, String.t()} | {:error, term()}
+  def answer_payload(params, decision_id, deps) do
+    cond do
+      not CLIAnswers.requested?(params) ->
+        one_answer(params)
+
+      trimmed(Keyword.get(params, :option_id)) || trimmed(Keyword.get(params, :custom_response)) ->
+        {:usage, "answer takes --answer/--answer-text/--answers-file or --option/--custom-response, not both"}
+
+      true ->
+        with {:ok, decision} <- CLIAnswers.fetch_decision(decision_id, deps), do: CLIAnswers.encode(params, decision.questions)
     end
   end
 
@@ -181,7 +209,7 @@ defmodule Aiur.ExecutorCommandCLI do
     answer_fun =
       if normalized.supersede do
         Keyword.get(deps, :supersede_fun, fn decision_id, answer_payload, opts, store ->
-          Commands.supersede(decision_id, answer_payload, opts, store)
+          Commands.override(decision_id, answer_payload, opts, store)
         end)
       else
         Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->
@@ -217,11 +245,14 @@ defmodule Aiur.ExecutorCommandCLI do
   end
 
   defp call_mooting(normalized, deps) do
-    payload = %{
-      expected_version: normalized.expected_version,
-      reason_class: normalized.reason_class,
-      reason: normalized.reason
-    }
+    optional = Map.reject(%{idempotency_key: normalized.idempotency_key, rationale: normalized.rationale}, &is_nil(elem(&1, 1)))
+
+    payload =
+      Map.merge(optional, %{
+        expected_version: normalized.expected_version,
+        reason_class: normalized.reason_class,
+        reason: normalized.reason
+      })
 
     moot_fun =
       Keyword.get(deps, :moot_fun, fn decision_id, moot_payload, opts, store ->
@@ -399,6 +430,11 @@ defmodule Aiur.ExecutorCommandCLI do
     1
   end
 
+  defp command_error("moot", {:conflict, {:idempotency_conflict, _id}}, deps) do
+    write_error(deps, "aiur: cannot moot Command: --idempotency-key was already used for a different moot; reuse it only to retry the same moot")
+    1
+  end
+
   defp command_error("moot", {:moot_invalid, {:reason_class, :missing}}, deps) do
     write_error(deps, "aiur: cannot moot Command: --reason-class is required (e.g. ticket_closed, origin_agent_gone)")
     1
@@ -406,6 +442,11 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error("moot", {:moot_invalid, {field, reason}}, deps) do
     write_error(deps, "aiur: cannot moot Command: --#{field} is #{invalid_detail(reason)}; correct the flag and retry")
+    1
+  end
+
+  defp command_error(_action, {:claimed, executor, expires_at}, deps) do
+    write_error(deps, "aiur: Command is claimed by #{executor} until #{DateTime.to_iso8601(expires_at)}")
     1
   end
 

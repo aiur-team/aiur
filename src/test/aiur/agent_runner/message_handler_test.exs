@@ -3,10 +3,22 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.{AgentPubSub, Issue, LiveConversation, TrackerIdentity}
-  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.{AgentPubSub, AgentRunner.MessageHandler, Issue, IssueLog, LiveConversation, TrackerIdentity}
+  alias Aiur.IssueLog.Writers
 
   describe "build/6" do
+    test "persists command executions as safe ticket timeline markers" do
+      identifier = Integer.to_string(System.unique_integer([:positive]))
+      issue = %Issue{id: "gid-cmd", identifier: identifier, tracker_identity: tracker_identity(identifier)}
+      handler = MessageHandler.build(nil, issue, nil, nil, "codex")
+      handler.(%{event: :tool_call, payload: %{id: "call-1", name: "exec_command", arguments: %{command: "mix test --max-cases 4"}}})
+      [{writer, _}] = Registry.lookup(IssueLog.Registry, Writers.writer_key(tracker_identity(identifier)))
+      :sys.get_state(writer)
+
+      assert {:ok, [%{kind: "command", topic: "ticket." <> ^identifier <> ".agent.command", summary: "mix test --max-cases 4"}]} =
+               IssueLog.event_history(tracker_identity(identifier), kinds: [:command], limit: 10)
+    end
+
     test "returns a closure that forwards codex_worker_update to recipient" do
       issue = %Issue{id: "gid-mh-01", identifier: "MH-01"}
       handler = MessageHandler.build(self(), issue, nil, nil, "codex")

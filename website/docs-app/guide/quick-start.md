@@ -93,6 +93,7 @@ Continue with the [GUI](/guide/gui) guide.
 | `aiur watch` | Show a one-shot board of tickets, state, and what each agent is doing; add `--interval <secs>` to refresh continuously. |
 | `aiur pause <ids…>` / `aiur pause --all` | Cooperatively pause agents by issue id. |
 | `aiur resume <ids…>` / `aiur resume --all` | Resume paused agents by issue id. |
+| `aiur redispatch <ids…> [--backend <backend>]` | Restart a live ticket on current routing or pin it to an exact configured backend name, keeping its workspace, branch, PR, and workpad. The old session stops immediately, so save important output into the workspace first; unsaved output held only in that session is lost. |
 | `aiur stop` | Stop this instance's session (BEAM + tmux). |
 | `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
@@ -101,6 +102,16 @@ Continue with the [GUI](/guide/gui) guide.
 | `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.
+
+After any pull request review, send its findings to the ticket's worker with
+`aiur message <ticket> "<findings>"`, including when the worker is still
+`agent:in-progress`. For a comment-only review to trigger rework, begin the
+request with an explicit `Blocking:` line.
+
+Trusted review submissions, including `COMMENTED` reviews, are relayed to a
+running in-progress worker unless they are benign approval or “looks good”
+passes. Plain PR conversation comments are relayed only when their body has an
+explicit blocking line.
 
 ## Running two daemons against one repository
 

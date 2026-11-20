@@ -1,5 +1,7 @@
 # How a ticket flows
 
+For a visual happy-path timeline, see [Ticket lifecycle timeline](/concepts/lifecycle). This page remains the label and lifecycle reference.
+
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at
@@ -40,12 +42,12 @@ never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:2
 
 ### Markers are not states
 
-**`agent:paused` is not a state label.** Five suffixes are **markers**,
+**`agent:paused` is not a state label.** Six suffixes are **markers**,
 deliberately kept out of the state machine so the orchestrator never treats
-them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
+them as dispatch states (`src/lib/aiur/github/labels.ex`):
 
 ```text
-watch  paused  parked  queued  rate-limit-fallback
+watch  paused  parked  queued  rate-limit-fallback  premise-changed
 ```
 | Marker | Meaning |
 | --- | --- |
@@ -54,6 +56,7 @@ watch  paused  parked  queued  rate-limit-fallback
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
 | `agent:queued` | Build queue membership; does not authorize or trigger dispatch. Before downgrading to a release without this marker, run `aiur queue clear --remove-markers --yes` and wait for success. It keeps `agent:todo`; budget-held writes resume on retry. Older releases can misread the marker as a conflicting state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
+| `agent:premise-changed` | A decision listed on the ticket's `Premises:` line was revised, superseded or mooted. Aiur sets it on open tickets and wakes the Executor with the old and new answer; the Executor removes it after reviewing the ticket. |
 
 Markers **survive state swaps** (`GitHub.IssueState`): they overlay a state
 rather than replacing it.
@@ -85,8 +88,11 @@ leaves the state unchanged when no PR head moved.
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
-push starts fresh checks. A rework handback without a push leaves those runs
-cancelled, and CI recovery raises an attention for that head.
+push starts fresh checks.
+
+A rework handback without a push leaves those runs cancelled: an approved head's
+runs are rerun once so auto-merge can queue, and otherwise CI recovery raises an
+attention for that head.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved
@@ -157,12 +163,12 @@ state, or `todo` if only a released claim survives. Parked or untriaged tickets
 without it are alerted and left alone. An open workflow ticket with no live
 agent or scheduled claim is re-queued and alerted.
 
-Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
+Agents use `aiur_set_lane` for local lane overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
 marks an unconfirmed guess.
 
 `aiur_history_export` gives only `history-backfill`
-tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [epic commands](../reference/cli.md#build-history-epic-commands).
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [lane commands](../reference/build-history-commands#lanes).
 
 ### Model labels
 

@@ -27,6 +27,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
 
+  @doc "Retains a freshly fetched ticket for a targeted resume."
+  @spec remember_issue(State.t(), Issue.t()) :: State.t()
+  def remember_issue(state, issue), do: put_in(state.last_polled_issues[issue.id], issue)
+
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
     sync_polled_issue_state(

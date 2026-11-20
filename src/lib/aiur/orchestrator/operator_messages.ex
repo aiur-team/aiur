@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   Queues and routes Executor messages and event digests to running agents. All functions execute inside the orchestrator GenServer process.
   """
   alias Aiur.{AgentQueueStore, TrackerIdentity}
+  alias Aiur.AgentQueueStore.Correlation
 
   alias Aiur.Orchestrator.State
 
@@ -14,7 +15,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
   def send_operator_message(issue_identifier, payload),
-    do: send_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+    do: send_operator_message(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, payload)
 
   @spec send_operator_message(GenServer.server(), String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
@@ -44,7 +45,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
           | {:error, term()}
   def send_correlated_operator_message(issue_identifier, payload),
-    do: send_correlated_operator_message(Aiur.Orchestrator, issue_identifier, payload)
+    do: send_correlated_operator_message(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, payload)
 
   @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
@@ -56,7 +57,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     |> control_api_call({:send_correlated_operator_message, issue_identifier, payload}, timeout)
     |> reconcile_send_timeout(
       server,
-      {:action_id, Enqueue.payload_key(payload, :action_id)},
+      {:action_id, Correlation.delivery_key(Enqueue.payload_key(payload, :action_id), Map.get(payload, :correlation))},
       timeout,
       &{:ok, %{status: :duplicate, item: &1}}
     )
@@ -111,7 +112,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(issue_identifier),
-    do: control_capabilities(Aiur.Orchestrator, issue_identifier)
+    do: control_capabilities(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec control_capabilities(GenServer.server(), String.t()) ::
           {:ok, map()} | {:error, term()}

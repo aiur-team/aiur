@@ -53,6 +53,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       production default), the ticker resolves it via
       `Aiur.Tracker.project_identity/0` on every tick so config edits
       are picked up without a restart.
+    * `:identity_fun` — optional identity lookup override for tests.
     * `:start_paused?` — when `true`, the first tick is not scheduled.
       Tests drive `:tick` manually.
   """
@@ -70,6 +71,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       ref_pattern: Keyword.get(opts, :ref_pattern, @default_ref_pattern),
       ls_remote_fun: Keyword.get(opts, :ls_remote_fun, &default_ls_remote/2),
       publisher: Keyword.get(opts, :publisher),
+      identity_fun: Keyword.get(opts, :identity_fun, &trusted_identity/1),
       compare_opts: Keyword.take(opts, [:request_fun, :token, :task_supervisor]),
       repo: Keyword.get(opts, :repo),
       refs: %{},
@@ -184,7 +186,7 @@ defmodule Aiur.Events.LsRemoteTicker do
           repo: repo
         }
 
-        do_publish(state, topic, payload, issue_number: id)
+        do_publish(state, topic, payload, issue_number: id, identity: state.identity_fun.(id))
         BranchRewriteClassifier.maybe_publish(id, payload, &do_publish(state, &1, &2, &3), state.compare_opts)
 
       {:system, topic} ->
@@ -223,4 +225,10 @@ defmodule Aiur.Events.LsRemoteTicker do
   # and returns `nil` cleanly when no adapter is loaded. `nil` still
   # publishes; the payload just has no repo identity for renderers.
   defp resolve_repo, do: Aiur.Tracker.project_identity()
+
+  defp trusted_identity(id) do
+    Aiur.Orchestrator.tracker_identity(id)
+  catch
+    :exit, _ -> nil
+  end
 end

@@ -58,6 +58,24 @@
             "string",
             "null"
           ]
+        },
+        "capacity_reason": {
+          "description": "Why the capacity policy chose this worker's source, with the reading taken at dispatch; null without a dispatch record.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skill_preload": {
+          "description": "Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/skillPreload"
+            }
+          ]
         }
       },
       "required": [
@@ -66,6 +84,63 @@
         "session_id",
         "provider_pid",
         "adopted_from"
+      ]
+    },
+    "skillPreload": {
+      "title": "AgentsSkillPreload",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "mapped": {
+          "description": "Mapped skills inlined into the prompt, with the reason each was mapped.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "reason"
+            ]
+          }
+        },
+        "over_budget": {
+          "description": "Whether the inlined mapped skills exceed max_bytes. Mapped skills are never truncated, so an over-budget set is still inlined whole.",
+          "type": "boolean"
+        },
+        "missing": {
+          "description": "Mapped skills that are not installed in the workspace.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bytes": {
+          "description": "Bytes of skill text inlined into the prompt.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_bytes": {
+          "description": "The agent.skills.preload_max_bytes budget in bytes.",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mapped",
+        "over_budget",
+        "missing",
+        "bytes",
+        "max_bytes"
       ]
     }
   }

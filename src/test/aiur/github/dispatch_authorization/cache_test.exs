@@ -9,7 +9,11 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
   alias Aiur.GitHub.ReadCache
 
   setup do
+    cache_snapshot = DispatchAuthorization.cache_snapshot_for_test()
     DispatchAuthorization.clear_cache()
+
+    on_exit(fn -> DispatchAuthorization.restore_cache_for_test(cache_snapshot) end)
+
     :ok
   end
 
@@ -39,7 +43,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
     assert Agent.get(counter, & &1) == 1
   end
 
-  test "a label event indexed after issue creation authorizes on the next poll without an issue update" do
+  test "a missing label event is retried after a one-minute deferral cooldown without an issue update" do
     ReadCache.reset()
     on_exit(&ReadCache.reset/0)
     counter = start_supervised!({Agent, fn -> 0 end})
@@ -65,23 +69,137 @@ defmodule Aiur.GitHub.DispatchAuthorization.CacheTest do
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
         allowed_users: ["trusted"],
         token: "test-token",
-        request_fun: request_fun
+        request_fun: request_fun,
+        authorization_now_ms: 1_000
       )
 
     refute first.dispatch_authorized?
     assert first.dispatch_authorization == :deferred
-    assert_receive {:timeline_poll, 0}, 1000
+    receive_barrier({:timeline_poll, 0})
 
     second =
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
         allowed_users: ["trusted"],
         token: "test-token",
-        request_fun: request_fun
+        request_fun: request_fun,
+        authorization_now_ms: 1_001
       )
 
-    assert second.dispatch_authorized?
-    assert second.dispatch_authorization == :authorized
-    assert_receive {:timeline_poll, 1}, 1000
+    refute second.dispatch_authorized?
+    assert second.dispatch_authorization == :deferred
+    refute_received {:timeline_poll, 1}
+
+    third =
+      DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun,
+        authorization_now_ms: 61_001
+      )
+
+    assert third.dispatch_authorized?
+    assert third.dispatch_authorization == :authorized
+    receive_barrier({:timeline_poll, 1})
+    assert Agent.get(counter, & &1) == 2
+  end
+
+  test "a verified decision for another ticket preserves the deferred ticket cooldown" do
+    ReadCache.reset()
+    on_exit(&ReadCache.reset/0)
+    counter = start_supervised!({Agent, fn -> %{} end})
+    parent = self()
+
+    request_fun = fn request ->
+      ReadCache.through(request, fn ->
+        issue_number = Regex.run(~r{/issues/(\d+)/timeline}, request.url, capture: :all_but_first) |> hd()
+
+        call_number =
+          Agent.get_and_update(counter, fn calls ->
+            previous = Map.get(calls, issue_number, 0)
+            {previous, Map.put(calls, issue_number, previous + 1)}
+          end)
+
+        send(parent, {:timeline_poll, issue_number, call_number})
+
+        events =
+          if issue_number == "53160042" and call_number == 0 do
+            []
+          else
+            [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:01Z")]
+          end
+
+        {:ok, %{status: 200, body: events}}
+      end)
+    end
+
+    deferred_issue = issue(id: "53160042", identifier: "5316-42")
+
+    deferred =
+      DispatchAuthorization.authorize(deferred_issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun,
+        authorization_now_ms: 1_000
+      )
+
+    assert deferred.dispatch_authorization == :deferred
+    receive_barrier({:timeline_poll, "53160042", 0})
+
+    verified =
+      DispatchAuthorization.authorize(issue(id: "53160043", identifier: "5316-43"), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun,
+        authorization_now_ms: 1_001
+      )
+
+    assert verified.dispatch_authorized?
+    receive_barrier({:timeline_poll, "53160043", 0})
+
+    still_deferred =
+      DispatchAuthorization.authorize(deferred_issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun,
+        authorization_now_ms: 1_002
+      )
+
+    assert still_deferred.dispatch_authorization == :deferred
+    refute_received {:timeline_poll, "53160042", 1}
+    assert Agent.get(counter, & &1) == %{"53160042" => 1, "53160043" => 1}
+  end
+
+  test "an issue update bypasses an unexpired deferral cooldown" do
+    ReadCache.reset()
+    on_exit(&ReadCache.reset/0)
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn request ->
+      ReadCache.through(request, fn ->
+        call_number = Agent.get_and_update(counter, fn count -> {count, count + 1} end)
+        events = if call_number == 0, do: [], else: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:01Z")]
+        {:ok, %{status: 200, body: events}}
+      end)
+    end
+
+    original = issue(id: "53160044", identifier: "5316-44")
+    updated = %{original | updated_at: ~U[2026-01-02 00:00:00Z]}
+
+    assert DispatchAuthorization.authorize(original, "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun,
+             authorization_now_ms: 1_000
+           ).dispatch_authorization == :deferred
+
+    assert DispatchAuthorization.authorize(updated, "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun,
+             authorization_now_ms: 1_001
+           ).dispatch_authorized?
+
+    assert Agent.get(counter, & &1) == 2
   end
 
   test "does not reuse a cached decision after an issue update" do

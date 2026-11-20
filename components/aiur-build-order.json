@@ -1,0 +1,37 @@
+{
+  "id": "aiur-build-order",
+  "name": "Build Order renderer",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "packages/aiur-build-order/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "Published ESM only: the package exports JavaScript, not an Elixir facade",
+  "requires": [],
+  "optional": [
+    "aiur-style"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Renders a published build-order.v1 document as a review page, an SVG graph or an element.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/build-orders.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
+}

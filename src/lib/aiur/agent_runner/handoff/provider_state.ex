@@ -38,7 +38,7 @@ defmodule Aiur.AgentRunner.Handoff.ProviderState do
   end
 
   defp callbacks(%{on_success: %{handoff_item: item, handoff_issue: issue}}, opts) do
-    orchestrator = Keyword.get(opts, :handoff_orchestrator, Aiur.Orchestrator)
+    orchestrator = Keyword.get(opts, :handoff_orchestrator, Aiur.Project.whereis(Aiur.Orchestrator))
 
     %{
       on_success: fn metadata ->

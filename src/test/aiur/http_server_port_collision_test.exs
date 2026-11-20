@@ -136,17 +136,11 @@ defmodule Aiur.HttpServerPortCollisionTest do
       ]
 
       capture_log(fn ->
-        assert {:ok, supervisor} = Supervisor.start_link(specs, strategy: :one_for_one)
-
-        on_exit(fn ->
-          if Process.alive?(supervisor) do
-            try do
-              Supervisor.stop(supervisor)
-            catch
-              :exit, _reason -> :ok
-            end
-          end
-        end)
+        supervisor =
+          start_supervised!(%{
+            id: make_ref(),
+            start: {Supervisor, :start_link, [specs, [strategy: :one_for_one]]}
+          })
 
         assert {:ok, health} =
                  SupervisionHealth.start_link(

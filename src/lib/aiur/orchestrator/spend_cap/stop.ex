@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.SpendCap.Stop do
   alias Aiur.TrackerIdentity
 
   @spec request(TrackerIdentity.t(), GenServer.server()) :: :ok | {:error, term()}
-  def request(%TrackerIdentity{} = identity, server \\ Aiur.Orchestrator) do
+  def request(%TrackerIdentity{} = identity, server \\ Aiur.Project.whereis(Aiur.Orchestrator)) do
     GenServer.call(server, {:spend_cap_exhausted, identity}, 5_000)
   catch
     :exit, reason -> {:error, reason}

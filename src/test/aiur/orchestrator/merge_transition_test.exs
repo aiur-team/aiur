@@ -389,6 +389,21 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     assert log =~ "reason=permission"
   end
 
+  test "terminal write alert names the attempted target state" do
+    log =
+      capture_log(fn ->
+        merge(
+          %{"state" => "open", "labels" => []},
+          fn state, _id -> state end,
+          target_state: "rework",
+          update_issue_state_fun: fn _id, _target -> {:error, :permission} end,
+          merge_terminal_write_sleep_fun: fn _ -> :ok end
+        )
+      end)
+
+    assert log =~ "could not transition ticket 3778 to rework"
+  end
+
   test "transient terminal write retries stop at the configured attempt limit" do
     attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
     parent = self()

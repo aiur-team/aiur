@@ -24,6 +24,7 @@ defmodule Aiur.AgentResourceGuard do
 
   alias Aiur.AgentResourceGuard.Attention
   alias Aiur.AgentResourceGuard.BusyLoop
+  alias Aiur.AgentResourceGuard.ProcStat
   alias Aiur.AgentResourceGuard.RunawayGroups
   alias Aiur.ProcessTree
   require Logger
@@ -138,7 +139,8 @@ defmodule Aiur.AgentResourceGuard do
 
       for {pid, %{ppid: ppid, sid: sid}} <- procs,
           ppid == 1 or match?(%{comm: "systemd"}, procs[ppid]) or (sid > 0 and not is_map_key(procs, sid)),
-          {:ok, cwd} <- [File.read_link(Path.join([proc_dir, Integer.to_string(pid), "cwd"]))],
+          {:ok, cwd} <- [:prim_file.read_link(Path.join([proc_dir, Integer.to_string(pid), "cwd"]))],
+          cwd = to_string(cwd),
           String.starts_with?(cwd, root <> "/") do
         %{pid: pid, cwd: cwd}
       end
@@ -171,10 +173,10 @@ defmodule Aiur.AgentResourceGuard do
         for entry <- entries,
             {pid, ""} <- [Integer.parse(entry)],
             proc_entry = Path.join(proc_dir, entry),
-            {:ok, "bash\n"} <- [File.read(Path.join(proc_entry, "comm"))],
+            {:ok, "bash\n"} <- [:prim_file.read_file(Path.join(proc_entry, "comm"))],
             # Identity is captured before argv is read, so a recycled pid fails the reap.
             {:ok, identity} <- [identity_fun.(pid)],
-            {:ok, cmdline} <- [File.read(Path.join(proc_entry, "cmdline"))],
+            {:ok, cmdline} <- [:prim_file.read_file(Path.join(proc_entry, "cmdline"))],
             lock_path = holder_lock_path(cmdline),
             is_binary(lock_path),
             not File.exists?(lock_path) do
@@ -382,18 +384,11 @@ defmodule Aiur.AgentResourceGuard do
     end
   end
 
-  defp proc_stat(proc_dir, pid) do
-    with {:ok, stat} <- File.read(Path.join([proc_dir, Integer.to_string(pid), "stat"])),
-         [_, comm, ppid, sid] <- Regex.run(~r/\((.*)\) \S (\d+) \d+ (\d+) /s, stat) do
-      %{comm: comm, ppid: String.to_integer(ppid), sid: String.to_integer(sid)}
-    else
-      _ -> nil
-    end
-  end
+  defp proc_stat(proc_dir, pid), do: ProcStat.read(proc_dir, pid)
 
   defp proc_cwd(pid) do
-    case File.read_link(Path.join(["/proc", Integer.to_string(pid), "cwd"])) do
-      {:ok, cwd} -> cwd
+    case :prim_file.read_link(Path.join(["/proc", Integer.to_string(pid), "cwd"])) do
+      {:ok, cwd} -> to_string(cwd)
       _ -> nil
     end
   end
@@ -430,10 +425,10 @@ defmodule Aiur.AgentResourceGuard do
   defp proc_info(pid) when is_integer(pid) and pid > 0 do
     proc_entry = Path.join("/proc", Integer.to_string(pid))
 
-    case File.read(Path.join(proc_entry, "comm")) do
+    case :prim_file.read_file(Path.join(proc_entry, "comm")) do
       {:ok, comm} ->
         cmdline =
-          case File.read(Path.join(proc_entry, "cmdline")) do
+          case :prim_file.read_file(Path.join(proc_entry, "cmdline")) do
             {:ok, raw} -> raw |> String.replace(<<0>>, " ") |> String.trim()
             _ -> ""
           end

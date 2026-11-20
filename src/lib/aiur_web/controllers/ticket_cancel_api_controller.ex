@@ -7,6 +7,8 @@ defmodule AiurWeb.TicketCancelApiController do
   alias AiurWeb.EndpointConfig
   alias Plug.Conn
 
+  plug(AiurWeb.ProjectScope, :required when action == :cancel)
+
   @non_exit_statuses ["still_running", "kill_failed", "generation_changed"]
 
   @spec cancel(Conn.t(), map()) :: Conn.t()
@@ -60,5 +62,5 @@ defmodule AiurWeb.TicketCancelApiController do
     |> json(%{error: %{code: code, message: message}})
   end
 
-  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator
+  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server()
 end

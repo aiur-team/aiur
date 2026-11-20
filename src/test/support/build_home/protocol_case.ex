@@ -31,7 +31,7 @@ defmodule Aiur.TestSupport.BuildHome.ProtocolCase do
 
     defp result(:invalid, opts) do
       {:ok, data} = FixtureSource.snapshot(opts)
-      {:ok, put_in(data, ["sections", "now", Access.at(0), "pct"], "sensitive-source-value")}
+      {:ok, put_in(data, ["sections", "plan", Access.at(0), "wave"], 0)}
     end
 
     defp result(:retrying, opts) do

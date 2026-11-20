@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async () => {
     window.layout = await import('/build-home/layout.js')
     window.sources = Object.fromEntries(['history', 'queue', 'index'].map(k => [k, { state: 'ok' }]))
-    window.state = { view: 'graph', span: 1, histFrom: 0, feature: null, fmode: 'focus', f: { epic: [] }, flow: false, K: 2 }
+    window.state = { view: 'graph', span: 1, histFrom: 0, feature: null, fmode: 'focus', f: { lane: [] }, flow: false, K: 2 }
     window.dims = { vpW: 990, vpH: 386, gut: 84 }
     window.data = (n = 0) => ({ hist: Array.from({ length: n }, (_, i) => ({ id: `h${i}`, epic: 'a', end: Date.parse('2026-11-01T12:00:00-08:00') + i })), now: [], plan: [], nq: [] })
     window.run = (D, st = {}, src = sources, dm = dims, ext) => layout.computeLayout(D, { ...state, ...st }, dm, src, ext)
@@ -22,7 +22,7 @@ test('lane count follows the packed day columns (#4769)', async ({ page }) => {
     D.hist = [...'abcdefghijkl'].map((epic, i) => ({ id: 'h' + i, epic, end: day + i })).concat(['a', 'm', 'n'].map((epic, i) => ({ id: 'g' + i, epic, end: day + 864e5 + i })))
     D.plan = [{ epic: 'x' }, { epic: 'a' }]
     const L = run(D), fwd = layout.fwdLanes(D, state), all = L.secs.hist.h + 1000
-    return [layout.laneMax(L, new Set(), 1), layout.laneMax(L, new Set(), all), layout.laneMax(L, fwd, all), [...layout.fwdLanes(D, { f: { epic: ['x'] } })],
+    return [layout.laneMax(L, new Set(), 1), layout.laneMax(L, new Set(), all), layout.laneMax(L, fwd, all), [...layout.fwdLanes(D, { f: { lane: ['x'] } })],
       layout.crowded({ vpW: 1440, gut: 84 }, 18), layout.crowded({ vpW: 1440, gut: 84 }, 17)]
   })).toEqual([12, 14, 15, ['x'], true, false])
 })
@@ -63,7 +63,7 @@ for (const zone of ['America/Los_Angeles', 'UTC']) test(`day labels follow the b
     const actual = await page.evaluate(async () => {
       const { computeLayout } = await import('/build-home/layout.js')
       const hist = ['2026-10-31T23:30:00-07:00', '2026-11-01T00:30:00-07:00', '2026-11-01T01:30:00-07:00', '2026-11-01T01:30:00-08:00', '2026-11-01T23:30:00-08:00'].map((end, id) => ({ id, epic: 'a', end: Date.parse(end) }))
-      return computeLayout({ hist, now: [], plan: [], nq: [] }, { span: 1, f: { epic: [] }, flow: false, K: 2 }, { vpH: 700 }, {}).secs.hist.labels
+      return computeLayout({ hist, now: [], plan: [], nq: [] }, { span: 1, f: { lane: [] }, flow: false, K: 2 }, { vpH: 700 }, {}).secs.hist.labels
     })
     const pitch = 9.4 * 13 + 14
     expect(actual).toEqual(zone === 'UTC' ? [{ y: 40, day: 'Nov 1', t: 'Sun', line: false }, { y: 40 + 4 * pitch, day: 'Nov 2', t: 'Mon', line: true }] : [{ y: 40, day: 'Oct 31', t: 'Sat', line: false }, { y: 40 + pitch, day: 'Nov 1', t: 'Sun', line: true }])

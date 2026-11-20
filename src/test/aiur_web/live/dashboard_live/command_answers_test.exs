@@ -16,7 +16,7 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
 
   @endpoint AiurWeb.Endpoint
 
-  test "malformed filter and agent-log events do not crash the dashboard" do
+  test "malformed Command filter events do not crash the dashboard" do
     orchestrator_name = Module.concat(__MODULE__, :MalformedEventOrchestrator)
     start_counting_orchestrator(orchestrator_name)
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
@@ -24,7 +24,6 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Commands inbox"
-    assert render_hook(view, "show-agent-log", %{}) =~ "Commands inbox"
     assert Process.alive?(view.pid)
   end
 
@@ -247,7 +246,7 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 
-  test "dismissing a Command notifies a live agent to use its judgement, and skips a gone one" do
+  test "dismissing a Command notifies a live agent and queues guidance for a gone agent's next worker" do
     orchestrator_name = Module.concat(__MODULE__, :DismissNotifyOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DismissNotifyDecisionStore)
     orchestrator = start_queue_orchestrator(orchestrator_name, "987")
@@ -321,7 +320,67 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
 
     assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
     assert gone_dismissed.decision_status == :dismissed
-    assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+    assert {:ok, queued_item} = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+    assert queued_item.body.text =~ "dismissed by the operator"
+    assert queued_item.body.text =~ "Use your judgement"
+  end
+
+  test "the operator can dismiss an open blocking Command from the Commands list" do
+    orchestrator_name = Module.concat(__MODULE__, :BlockingDismissOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :BlockingDismissStore)
+    start_queue_orchestrator(orchestrator_name, "987")
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+    # Agent-filed and blocking, with no legacy attention: the shape every "Needs you" card has.
+    decision = request_queue_decision(store, "dashboard-dismiss-blocking", "987")
+    assert decision.blocking and is_nil(decision.legacy_attention)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/commands")
+    card = "#decision-#{decision.decision_id}"
+    assert has_element?(view, card)
+
+    view |> element("#{card} button[aria-label=\"Dismiss blocker\"]") |> render_click()
+
+    assert {:ok, dismissed} = DecisionStore.get(decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+    assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
+    assert %DecisionEvent{data: %{actor: %{kind: :operator}}} = Enum.find(audit, &match?(%DecisionEvent{type: :decision_dismissed}, &1))
+
+    {:ok, reloaded, _html} = live(build_conn(), "/commands")
+    refute has_element?(reloaded, card)
+  end
+
+  # Regression guard: already true on main; keeps a refused dismiss from turning silent.
+  test "a refused dismiss shows its reason on the card" do
+    orchestrator_name = Module.concat(__MODULE__, :RefusedDismissOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :RefusedDismissStore)
+    start_queue_orchestrator(orchestrator_name, "987")
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+    decision = request_queue_decision(store, "dashboard-dismiss-refused", "987")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/commands")
+    # The store degrades to read-only after the card rendered, so the write is refused.
+    :sys.replace_state(store, &%{&1 | writable?: false})
+
+    view |> element("#decision-#{decision.decision_id} button[aria-label=\"Dismiss blocker\"]") |> render_click()
+
+    assert has_element?(view, "#decision-#{decision.decision_id} [role=alert]", "Command storage is read-only or unavailable.")
+    assert {:ok, %{decision_status: :open}} = DecisionStore.get(decision.decision_id, store)
   end
 
   test "a deferred detail command remains answerable" do

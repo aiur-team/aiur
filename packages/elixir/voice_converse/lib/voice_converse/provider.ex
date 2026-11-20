@@ -9,6 +9,10 @@ defmodule VoiceConverse.Provider do
   Credentials: `spec.credentials` is `{credentials_module, provider_id}`. The adapter calls
   `credentials_module.fetch(provider_id, :connect)` while connecting and keeps the secret in
   neither the spec nor its state.
+
+  `spec.agent_id` is the hosted provider agent a `family: :hosted_agent` adapter talks through,
+  filled from `VoiceConverse.Config.agent_id`. It is an account-visible identifier, not a
+  credential, and such an adapter refuses to open without one.
   """
 
   alias VoiceConverse.Events
@@ -27,6 +31,7 @@ defmodule VoiceConverse.Provider do
           required(:audio_out) => Events.AgentAudio.format(),
           optional(:voice_id) => String.t(),
           optional(:llm) => String.t(),
+          optional(:agent_id) => String.t(),
           optional(atom()) => term()
         }
 
@@ -75,7 +80,8 @@ defmodule VoiceConverse.Provider do
   @callback announce(ref(), text :: String.t(), opts :: [when: :idle | :now]) :: :ok
 
   @doc "Tells the provider how much of a turn was heard; only for `manual_truncation: true`."
-  @callback truncate(ref(), turn_id :: term(), played_until_ms :: non_neg_integer()) :: :ok
+  @callback truncate(ref(), turn_id :: term(), played_until_ms :: non_neg_integer()) ::
+              :ok | {:error, term()}
   @callback close(ref()) :: :ok
 
   @typedoc """

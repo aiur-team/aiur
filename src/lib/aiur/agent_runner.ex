@@ -7,7 +7,8 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
-  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.AgentRunner.McpSocketFailure
+  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, SkillGate, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Config.HostedAuthPolicy
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -23,12 +24,7 @@ defmodule Aiur.AgentRunner do
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
     lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
 
-    lease =
-      if is_binary(issue.pr_head_ref),
-        do: :disabled,
-        else: lease_watch.(issue)
-
-    case lease do
+    case lease_watch.(issue) do
       result when result in [:ok, :disabled] ->
         run_with_ticket_lease(issue, codex_update_recipient, opts)
 
@@ -71,14 +67,13 @@ defmodule Aiur.AgentRunner do
     end
   end
 
-  # A local budget hold (for example on the workspace auth preflight) exits
-  # with the structured reason instead of raising: a raise hides it inside a
-  # message string, so the retry engine booked a consuming failure retry and
-  # repeated holds exhausted into `agent:error` (#4679). With the raw reason,
-  # `RetryEngine.AgentDown` schedules a non-consuming retry after `reset_at`.
+  # A local budget hold exits with its structured reason so AgentDown can defer
+  # the retry without consuming attempts (#4679).
   @doc false
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
+    McpSocketFailure.exit_if_launch_failure(reason)
+
     cond do
       match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
         {:ok, refusal} = HostedAuthPolicy.refusal(reason)
@@ -303,6 +298,13 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_owned_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    case SkillGate.check(issue, workspace, worker_host: worker_host) do
+      :ok -> run_activated_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+      {:blocked, message} -> {:before_run_failed, :mandatory_skills, message, :mandatory_skills}
+    end
+  end
+
+  defp run_activated_session(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
     case Ownership.activate(ownership) do
       {:ok, active_ownership} ->
         WorkspaceGuard.record_setup_end(issue, opts, :success, nil)
@@ -470,11 +472,13 @@ defmodule Aiur.AgentRunner do
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
-  defp maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
+  @doc false
+  @spec maybe_attach_issue_log(term()) :: :ok
+  def maybe_attach_issue_log(%Issue{tracker_identity: %Aiur.TrackerIdentity{} = identity}), do: IssueLog.attach(identity)
+  def maybe_attach_issue_log(%Issue{identifier: identifier}) when is_binary(identifier), do: IssueLog.attach(identifier)
   # No bare-map clause: `run/3` calls `CodingAgent.backend_for/1` first, which
   # constrains the argument to `%Issue{}`, so a plain map never reaches here.
-  defp maybe_attach_issue_log(_), do: :ok
+  def maybe_attach_issue_log(_), do: :ok
 
   @doc false
   @spec write_pause_log(Path.t() | nil, worker_host()) :: :ok

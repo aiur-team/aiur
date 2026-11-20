@@ -5,7 +5,7 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type StatusContract = AgentsStatus | FleetStatus | TicketStatus | TicketCancel | TicketUsage | TicketProgress;
+export type StatusContract = FleetStatus | TicketStatus | TicketCancel | TicketUsage | TicketProgress;
 export type FleetStatus = {
   contract: "aiur.status";
   contract_version: 1;
@@ -98,21 +98,6 @@ export type TicketProgressValue = (
   [k: string]: unknown;
 };
 
-export interface AgentsStatus {
-  contract: "aiur.agents";
-  contract_version: 1;
-  running: AgentsStatusEntry[];
-  [k: string]: unknown;
-}
-export interface AgentsStatusEntry {
-  identifier: string;
-  issue_id: string;
-  session_id: string | null;
-  provider_pid: string | null;
-  codex_app_server_pid?: number | null;
-  adopted_from: string | null;
-  [k: string]: unknown;
-}
 export interface FleetStatusCounts {
   running: number;
   retrying: number;
@@ -154,6 +139,10 @@ export interface FleetRunningAgent {
   review?: string;
   ci?: FleetCiStatus | null;
   waiting_reason?: string | null;
+  /**
+   * Why the capacity policy chose this ticket's source, with the reading taken at dispatch.
+   */
+  capacity_reason?: string | null;
   work_state?: string | null;
   [k: string]: unknown;
 }
@@ -205,6 +194,10 @@ export interface FleetIdleAgent {
   tracker_paused: boolean;
   queue_depth: number;
   waiting_reason: string;
+  /**
+   * Why no capacity source is authorized for this queued ticket: one clause per source.
+   */
+  capacity_reason?: string | null;
   waiting?: {
     [k: string]: unknown;
   } | null;

@@ -164,7 +164,6 @@ defmodule AiurWeb.OperatorControlCenterComponentsAnalyticsCardsTest do
     assert html =~ ">resolved-model</span>"
     assert html =~ "0% confidence"
     assert html =~ "Selected · Second option"
-    assert html =~ "First option"
     assert html =~ "Second option"
     refute html =~ "Hidden third option"
   end

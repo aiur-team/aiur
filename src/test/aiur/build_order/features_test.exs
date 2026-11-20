@@ -2,9 +2,41 @@ defmodule Aiur.BuildOrder.FeaturesTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.{Features, ProviderHealth}
+  alias Aiur.BuildOrder.Features.FeatureData
 
   @now ~U[2026-10-08 10:00:00Z]
   @hues [175, 55, 285, 128, 232, 18, 330, 80, 250, 150, 272]
+
+  test "epic colors follow the palette and preserve prior assignments when extended" do
+    epics = Enum.map(1..10, &%{key: "e#{&1}", label: "Epic #{&1}"})
+    first_nine = FeatureData.assign_epic_colors(Enum.take(epics, 9))
+    ten = FeatureData.assign_epic_colors(epics)
+    all_21 = FeatureData.assign_epic_colors(Enum.map(1..21, &%{key: "palette-#{&1}", label: "Palette #{&1}"}))
+    assert Enum.map(first_nine, & &1.color) == ~w(red green yellow blue purple aqua orange bright-red bright-green)
+    assert length(Enum.uniq(Enum.map(first_nine, & &1.color))) == 9
+    assert length(Enum.uniq(Enum.map(all_21, & &1.color))) == 21
+    assert Enum.take(ten, 9) == first_nine
+  end
+
+  test "numeric overrides reserve a matching palette hue for later automatic colors" do
+    epics = [%{key: "explicit", label: "Explicit", hue: 8}, %{key: "automatic", label: "Automatic"}]
+    [explicit, automatic] = FeatureData.assign_epic_colors(epics)
+    assert explicit.hue == 8
+    assert automatic.color == "green"
+    refute automatic.hue == explicit.hue
+  end
+
+  test "stored epic colors do not change when another epic is added", %{pid: pid, meta: meta} do
+    epics = Enum.map(1..9, &%{key: "epic-#{&1}", label: "Epic #{&1}"})
+    assert {:ok, _} = Features.create("palette", %{label: "Palette", epics: epics}, meta)
+    assert {:ok, before} = Features.snapshot(server: pid)
+    assert {:ok, _} = Features.add_epic("palette", %{key: "epic-10", label: "Epic 10"}, meta)
+    assert {:ok, after_add} = Features.snapshot(server: pid)
+    old_epics = before.features["palette"].epics
+    new_epics = after_add.features["palette"].epics
+    assert Enum.take(new_epics, 9) == old_epics
+    assert List.last(new_epics).color == "bright-orange"
+  end
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("features")
@@ -228,7 +260,7 @@ defmodule Aiur.BuildOrder.FeaturesTest do
     assert {:ok, owner} = Features.owner(1, server: pid)
     assert {:ok, _} = Features.update_feature("a", %{epics: [%{key: "f-a", label: "A · core"}]}, m)
     assert {:ok, snapshot} = Features.snapshot(server: pid)
-    assert snapshot.features["a"].epics == [%{key: "f-a", label: "A · core"}]
+    assert Map.take(hd(snapshot.features["a"].epics), [:key, :label]) == %{key: "f-a", label: "A · core"}
     assert {:ok, ^owner} = Features.owner(1, server: pid)
     assert {:error, {:unknown_epic, "f-x"}} = Features.update_feature("a", %{epics: [%{key: "f-x", label: "X"}]}, m)
   end

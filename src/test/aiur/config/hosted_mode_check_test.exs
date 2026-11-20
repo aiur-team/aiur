@@ -150,6 +150,7 @@ defmodule Aiur.Orchestrator.HostedModeCheckTest do
         nil,
         safe_opts() ++
           [
+            dependency_checked: true,
             hosted_mode_settings: settings("hosted"),
             runner: fn _, _, _ -> flunk("hosted model:remote dispatch must not start") end
           ]
@@ -179,6 +180,7 @@ defmodule Aiur.Orchestrator.HostedModeCheckTest do
         nil,
         opts ++
           [
+            dependency_checked: true,
             hosted_mode_settings: settings("hosted"),
             runner: fn _, _, _ -> flunk("hosted model:claude-repl dispatch must not start") end
           ]

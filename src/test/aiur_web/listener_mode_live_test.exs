@@ -5,10 +5,11 @@ defmodule AiurWeb.ListenerModeLiveTest do
   import AiurWeb.DashboardLiveSupport
   import AiurWeb.DashboardLiveSupport.Processes
   import AiurWeb.DashboardLiveSupport.UnitFixtures
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.DashboardLiveSupport.OrchestratorStubs.CountingOrchestrator
   @endpoint AiurWeb.Endpoint
 
-  test "Units and drawer consume the projected listener facts and hide legacy selector" do
+  test "voice picker and drawer consume the projected listener facts and hide unavailable selector" do
     identity = units_identity()
     handle = conversation_handle_value("l")
     name = Module.concat(__MODULE__, :SnapshotServer)
@@ -20,7 +21,7 @@ defmodule AiurWeb.ListenerModeLiveTest do
       effective: :sync,
       effective_reason: :pull_tool_unavailable,
       version: 3,
-      routing: :legacy,
+      routing: :unavailable,
       observed_at: now,
       unread_count: 2,
       oldest_unread_at: DateTime.add(now, -120)
@@ -31,7 +32,6 @@ defmodule AiurWeb.ListenerModeLiveTest do
     replace_counting_snapshot(orchestrator, %{snapshot | running: [Map.put(running, :listener, listener)]})
 
     start_test_endpoint(
-      orchestrator: name,
       snapshot_timeout_ms: 100,
       control_center_cache: false,
       units_membership_fun: fn -> units_membership(identity) end,
@@ -41,12 +41,14 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
 
-    {:ok, view, html} = live(build_conn(), "/units")
+    EndpointStubs.put(orchestrator: name)
+
+    {:ok, view, html} = live(build_conn(), "/voice")
     refute html =~ ~s(data-requested-mode="async")
     refute html =~ ~s(data-unread-count="2")
     view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
-    assert has_element?(view, "#units-conversation-drawer [data-effective-mode=sync]")
-    refute has_element?(view, "#units-conversation-drawer select[name=mode]")
+    assert has_element?(view, "#voice-conversation-drawer [data-effective-mode=sync]")
+    refute has_element?(view, "#voice-conversation-drawer select[name=mode]")
     html = render(view)
     assert html =~ "oldest 12"
     assert html =~ "On-demand reading unavailable"
@@ -76,7 +78,6 @@ defmodule AiurWeb.ListenerModeLiveTest do
     stop_supervised!(CountingOrchestrator)
 
     start_test_endpoint(
-      orchestrator: name,
       snapshot_timeout_ms: 100,
       dashboard_writable: true,
       control_center_cache: false,
@@ -87,11 +88,13 @@ defmodule AiurWeb.ListenerModeLiveTest do
       live_conversation_unsubscribe_fun: fn _ -> :ok end
     )
 
-    {:ok, view, _html} = live(build_conn(), "/units")
+    EndpointStubs.put(orchestrator: name)
+
+    {:ok, view, _html} = live(build_conn(), "/voice")
     html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
     assert :sys.get_state(view.pid).socket.assigns.conversation_row.listener.freshness == :stale
     assert html =~ ~r/Stale · [1-9][0-9]*s ago/
     assert html =~ DateTime.to_iso8601(observed_at)
-    assert has_element?(view, "#units-conversation-drawer select[name=mode][disabled]")
+    assert has_element?(view, "#voice-conversation-drawer select[name=mode][disabled]")
   end
 end

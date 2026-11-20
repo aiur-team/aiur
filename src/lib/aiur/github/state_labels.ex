@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.StateLabels do
 
   @known_states ~w(todo in-progress rework ci-wait human-review error done cancelled canceled budget-exhausted merging)
 
+  @spec known_states() :: [String.t()]
+  def known_states, do: @known_states
+
   @spec foreign_candidate_state_label?([String.t()], String.t(), MapSet.t()) :: boolean()
   def foreign_candidate_state_label?(labels, prefix, active_states) do
     states = MapSet.union(active_states, MapSet.new(@known_states))

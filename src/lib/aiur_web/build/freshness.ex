@@ -36,7 +36,7 @@ defmodule AiurWeb.Build.Freshness do
 
   @spec read_daemon(keyword()) :: map()
   def read_daemon(opts \\ []) do
-    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator.server() end)
     timeout = Keyword.get_lazy(opts, :timeout, &snapshot_tolerance_ms/0)
     daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
   end
@@ -59,7 +59,7 @@ defmodule AiurWeb.Build.Freshness do
   @doc "Reads the current fleet rows through the nonblocking orchestrator read model."
   @spec read_running_rows(keyword()) :: {:ok, %{statuses: [map()], running: [map()]}} | {:error, :timeout | :unavailable}
   def read_running_rows(opts \\ []) do
-    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
+    orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator.server() end)
     timeout = Keyword.get(opts, :fleet_timeout, 1_000)
 
     case Orchestrator.fleet_view(orchestrator, timeout, fleet_rows?: true) do

@@ -251,6 +251,7 @@ defmodule Aiur.GitHub.IssueState do
         current_issue_body,
         context.prefix,
         exclude: [new_label],
+        force_remove: Keyword.get(context.opts, :clear_terminal_state_labels, []),
         clear_terminal_state_overrides: Keyword.get(context.opts, :clear_terminal_state_overrides, false),
         on_labels: fn labels ->
           StateWriteCoordinator.verify_state_labels(context, new_label, labels, fn label ->

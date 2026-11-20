@@ -6,6 +6,15 @@ defmodule Aiur.Instance.Roster.Presentation do
   def leader_label(false), do: "no"
   def leader_label(_), do: "unknown"
 
+  @spec executor(boolean() | nil) :: String.t()
+  def executor(true), do: "present"
+  def executor(false), do: "absent"
+  def executor(_), do: "unknown"
+
+  @spec projects([map()] | nil) :: String.t()
+  def projects(rows) when is_list(rows), do: Enum.map_join(rows, ",", &"#{&1["repo"]}:#{&1["running"]}")
+  def projects(_), do: "unknown"
+
   @spec count(integer() | term()) :: String.t()
   def count(value) when is_integer(value), do: Integer.to_string(value)
   def count(_), do: "unknown"

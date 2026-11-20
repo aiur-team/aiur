@@ -1,5 +1,5 @@
 defmodule Aiur.Orchestrator.State do
-  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`."
+  @moduledoc "Runtime state for the orchestrator polling loop. Field owners: `Aiur.Orchestrator.State.Owners`. Queue restore failures recover to an empty queue so they cannot prevent daemon boot."
   alias Aiur.{AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.ControlLifecycle
 
@@ -86,6 +86,10 @@ defmodule Aiur.Orchestrator.State do
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             optional(:broker_fast_retry_pending?) => boolean(),
+            optional(:ci_wait_draft_since) => %{optional(String.t()) => integer()},
+            optional(:ci_wait_draft_alerts | :ci_wait_draft_recovered | :ci_wait_draft_comments) => MapSet.t(),
+            optional(:ci_wait_draft_pending_alerts) => map(),
+            optional(:draft_stall_alerts) => MapSet.t(),
             approved_heads: map(),
             passed_heads: map(),
             test_failure_heads: map(),
@@ -111,6 +115,7 @@ defmodule Aiur.Orchestrator.State do
           dispatch_capacity_constraints: [map()],
           dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
+          feature_supply: map(),
           dispatch_capacity_sample: %{
             optional(
               :cpu_pressure
@@ -195,6 +200,8 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          fleet_paused: boolean(),
+          gateway_paused: boolean(),
           # Ticket identifiers with an open blocking Command, read once per
           # dispatch cycle from `DecisionStore.blocked_ticket_ids/1`. `nil`
           # means "never computed this cycle" (treated as no gate); a `MapSet`
@@ -271,6 +278,7 @@ defmodule Aiur.Orchestrator.State do
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
+    # Lifecycle.init/2 rehydrates durable next-worker messages before dispatch.
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     terminal_verification_attempts: %{},
@@ -302,6 +310,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
     dispatch_declines: %{},
+    feature_supply: %{},
     dispatch_capacity_sample: %{
       load: :unavailable,
       load_threshold: nil,
@@ -349,6 +358,8 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    fleet_paused: false,
+    gateway_paused: false,
     blocked_ticket_ids: nil,
     global_pause: %{paused_at: nil, source: nil},
     # Reconciled merge receipts prevent retained records from closing a reopened ticket.
@@ -424,6 +435,8 @@ defmodule Aiur.Orchestrator.State do
   defdelegate completed_provenance?(entry), to: __MODULE__.RunningEntries
   @spec deactivated_running_entry?(term()) :: boolean()
   defdelegate deactivated_running_entry?(entry), to: __MODULE__.RunningEntries
+  @spec control_map(term()) :: map()
+  defdelegate control_map(entry), to: __MODULE__.RunningEntries
   @spec find_running_key_by_identifier(map(), String.t()) :: term() | nil
   defdelegate find_running_key_by_identifier(running, identifier), to: __MODULE__.RunningEntries
   @spec apply_pause_runtime_clock(map(), atom(), atom(), term()) :: map()

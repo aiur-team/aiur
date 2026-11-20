@@ -22,6 +22,7 @@ let pendingLive;
 onReset(() => { pendingLive = { changed: new Set(), removed: new Set(), dirty: false }; });
 
 export function viewport() {
+    if (S.view === 'build-order') return buildOrderViewport();
     ctx.vp.innerHTML =
       '<div class="bd-content" id="bd-content">' +
         '<div class="bd-lanes" id="bd-lanes"><span class="bd-lane-g">' + (S.view === "gantt" ? "Time" : "Order") + "</span></div>" +
@@ -55,6 +56,16 @@ export function viewport() {
     });
   }
 
+// The Build order view is rendered by the aiur-build-order package, not by this
+// board: no geometry, no cards and no edges survive a switch to it.
+export function buildOrderViewport() {
+  ctx.content = null; ctx.lanesEl = null; ctx.guidesEl = null; ctx.svg = null; ctx.bandEl = null;
+  ctx.L = null; ctx.lt = null; ctx.lockId = null;
+  ctx.R.clear(); ctx.RL.clear(); ctx.laneEls.clear(); ctx.guideEls.clear();
+  ctx.cols = []; ctx.colMap = {}; ctx.bandMap = {};
+  if (!ctx.vp.querySelector('#bd-bo')) ctx.vp.innerHTML = '<div class="bd-bo" id="bd-bo" style="padding:16px"></div>';
+}
+
 function noanim(el) {
   el.classList.add('noanim');
   ctx.life.frame(el, () => ctx.life.frame(el, () => el.classList.remove('noanim')));
@@ -66,6 +77,7 @@ function restoreFocus(id) {
   (card || ctx.vp).focus({ preventScroll: true });
 }
 function relayoutImpl({ live = false } = {}) {
+  if (S.view === 'build-order') return fx.mountBuildOrder();
   if (S.loading) return fx.renderLoading();
   setLastKey(layoutKey(S));
   syncStates();
@@ -78,17 +90,15 @@ function relayoutImpl({ live = false } = {}) {
   Object.assign(S, measureFlow(ctx.D, dims));
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
-  const previousDetail = ctx.L?.det;
   ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
   if (!S.flow && !activeFeature() && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
-  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
   for (const [uid, el] of ctx.RL) {
@@ -158,7 +168,7 @@ function renderSection(s, keep, keepL, focused) {
   return created;
 }
 function updateImpl(force) {
-  if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
+  if (!ctx.L || !ctx.content || S.loading || S.view === 'list' || S.view === 'build-order') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;

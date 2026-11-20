@@ -13,10 +13,9 @@ defmodule Aiur.AgentRunner.HandoffActorAttributionTest do
     # Shutdown tests leave the daemon registry draining; own a fresh real registry.
     original = Process.whereis(ProcessReaper)
     if original, do: Process.unregister(ProcessReaper)
-    reaper = start_supervised!(ProcessReaper)
+    start_supervised!(ProcessReaper)
 
     on_exit(fn ->
-      if Process.alive?(reaper), do: GenServer.stop(reaper)
       if original && Process.alive?(original), do: Process.register(original, ProcessReaper)
       Application.put_env(:aiur, :process_reaper_registrations, previous)
     end)

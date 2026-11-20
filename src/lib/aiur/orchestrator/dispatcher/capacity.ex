@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   require Logger
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.{Config, SystemCgroup}
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
@@ -196,7 +198,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       load_threshold: Map.get(sample, :load_threshold, Config.max_load_average()),
       target: Map.get(sample, :target, Config.target_load_average()),
       provider_backends: DispatchPolicy.read_provider_backends(),
-      github_quota: DispatchPolicy.read_github_quota()
+      github_quota: DispatchPolicy.read_github_quota(),
+      disk_status: Aiur.DiskWatchdog.current()
     })
   end
 
@@ -223,7 +226,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   # signal). Runs inside the orchestrator GenServer process, so no concurrent
   # dispatch can interleave between this check and the subsequent spawn.
   @spec auto_resume_admission(State.t()) :: :dispatch | {:hold, atom()}
-  def auto_resume_admission(%State{globally_paused: true}),
+  def auto_resume_admission(%State{} = s) when effective_paused?(s),
     do: {:hold, :global_pause}
 
   def auto_resume_admission(%State{} = state) do
@@ -381,6 +384,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       :measured,
       :detail,
       :threshold,
+      :capacity,
       :reclaimable_cpu_percent,
       :reclaimable_cpu_threshold
     ])
@@ -399,6 +403,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         "threshold_mb=#{threshold_mb}"
     )
   end
+
+  defp log_admission_hold(%{signal: :disk, measured: used_percent, threshold: threshold, detail: detail}),
+    do: Logger.warning("aiur_perf disk_hold used_percent=#{used_percent} threshold=#{threshold} #{detail}")
 
   defp log_admission_hold(%{signal: :file_descriptors, measured: sample}) do
     log_fd_hold(sample)

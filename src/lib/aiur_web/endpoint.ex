@@ -86,6 +86,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
+  plug(AiurWeb.ProjectScope)
   plug(AiurWeb.Router)
 
   @doc false

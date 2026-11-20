@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
 
   require Logger
 
-  alias Aiur.AlertFeed
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -15,6 +14,8 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.Dispatcher.CapacityConstraints
   alias Aiur.Orchestrator.DispatchOutcome
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Signal
@@ -61,6 +62,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # An answer may arrive during the tracker fetch; admission must read the current local hold.
     state = Candidates.refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, Commands.default_store()))
+    state = MachineGrant.report_demand(state, issues)
 
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
@@ -158,7 +160,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   def clear_prewarm_blocked_alert(%State{} = state, phase) do
     active? =
       state.prewarm_blocked_alert_active or
-        AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
+        AttentionSnapshot.active_system_attention?("system.dispatch.prewarm_blocked")
 
     if active? do
       case Signal.alert("system.dispatch.prewarm_blocked.resolved",
@@ -250,7 +252,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   def clear_tracker_preflight_alert(%State{} = state) do
     active? =
       not is_nil(state.tracker_preflight_alert_signature) or
-        AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
+        AttentionSnapshot.active_system_attention?("system.tracker.auth_preflight_failed")
 
     if active? do
       case Signal.alert("system.tracker.auth_preflight_failed.resolved",

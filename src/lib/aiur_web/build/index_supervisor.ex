@@ -13,7 +13,8 @@ defmodule AiurWeb.Build.IndexSupervisor do
 
   @impl true
   def init(opts) do
-    index_opts = Keyword.put_new(opts, :idle_without_subscribers?, true)
+    # Inside a project tree the index registers under that project, so its reads resolve the project's servers.
+    index_opts = opts |> Keyword.put_new(:idle_without_subscribers?, true) |> Keyword.put_new(:name, Aiur.Project.name(Index))
 
     Supervisor.init([{Index, index_opts}],
       strategy: :one_for_one,

@@ -18,6 +18,18 @@ spec.loader.exec_module(audit)
 class AuditPolicyTest(unittest.TestCase):
     CLEAN = audit.NO_ADVISORIES
 
+    def test_current_critical_always_fails(self):
+        finding = ("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL")
+        allowed = {"EEF-CRITICAL": {"reason": "temporary exception", "expires": "2026-11-20", "accept_high": True}}
+        expected = ["assent 0.3.1: CRITICAL advisory EEF-CRITICAL cannot be allow-listed"]
+
+        self.assertEqual(audit.evaluate({finding}, {finding}, {}), expected)
+        self.assertEqual(audit.evaluate({finding}, {finding}, allowed), expected)
+
+    def test_fixed_base_critical_does_not_fail_candidate(self):
+        base = {("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL")}
+        self.assertEqual(audit.evaluate(base, set(), {}), [])
+
     def test_current_high_fails_even_when_present_on_base(self):
         finding = ("bandit", "1.12.5", "EEF-HIGH", "HIGH")
         self.assertEqual(audit.evaluate({finding}, {finding}, {}), ["bandit 1.12.5: unallowlisted HIGH advisory EEF-HIGH"])
@@ -214,13 +226,22 @@ class AuditPolicyTest(unittest.TestCase):
     def test_parser_extracts_severity_and_id(self):
         output = (
             "Advisories:\n"
+            "  assent 0.3.1 - EEF-CRITICAL (CRITICAL)\n"
+            "    https://osv.dev/vulnerability/EEF-CRITICAL\n"
             "  bandit 1.12.5 - EEF-HIGH (HIGH)\n"
             "    https://osv.dev/vulnerability/EEF-HIGH\n"
             "  decimal 3.1.1 - EEF-MEDIUM (MEDIUM)\n"
             "    https://osv.dev/vulnerability/EEF-MEDIUM\n"
             "Found packages with security advisories\n"
         )
-        self.assertEqual(audit.parse_findings(output), {("bandit", "1.12.5", "EEF-HIGH", "HIGH"), ("decimal", "3.1.1", "EEF-MEDIUM", "MEDIUM")})
+        self.assertEqual(
+            audit.parse_audit_output(output, "fixture"),
+            {
+                ("assent", "0.3.1", "EEF-CRITICAL", "CRITICAL"),
+                ("bandit", "1.12.5", "EEF-HIGH", "HIGH"),
+                ("decimal", "3.1.1", "EEF-MEDIUM", "MEDIUM"),
+            },
+        )
 
 
 if __name__ == "__main__":

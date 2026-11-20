@@ -43,6 +43,9 @@ defmodule Aiur.Commands.Routing.Sweep do
     end
   end
 
+  # No escalation of any kind moves an Executor-only Command toward the creator.
+  defp escalate(%{audience: :executor} = decision, _history, _liveness, _now, _config, _store), do: {:ok, decision}
+
   defp escalate(%{route_state: :with_executor} = decision, history, liveness, now, config, store) do
     cause =
       cond do

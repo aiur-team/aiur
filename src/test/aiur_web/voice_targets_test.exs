@@ -125,6 +125,16 @@ defmodule AiurWeb.VoiceTargetsTest do
     end
   end
 
+  test "a revision target needs an answered Command at the expected version" do
+    answered = %{decision(:resolved, 4) | answer: %{custom_response: "Original direction"}}
+    store(%{"answered" => answered, "unanswered" => decision(:open, 4)})
+    assert :ok = VoiceTargets.validate(command("answered", 4), "command_revision")
+    assert :ok = VoiceTargets.validate(command("answered", nil), "command_revision")
+    assert {:error, %{reason_code: "target_stale"}} = VoiceTargets.validate(command("unanswered", 4), "command_revision")
+    assert {:error, %{reason_code: "target_stale"}} = VoiceTargets.validate(command("answered", 3), "command_revision")
+    assert {:error, %{reason_code: "target_not_found"}} = VoiceTargets.validate(command("missing", 4), "command_revision")
+  end
+
   # A malformed store reply must still refuse with a code, not crash the join.
   test "a malformed store reply is unknown" do
     store(%{"d1" => :not_a_decision})
@@ -157,11 +167,6 @@ defmodule AiurWeb.VoiceTargetsTest do
     assert VoiceTargetResolver.impl() == VoiceTargetResolver.Unbound
     assert {:error, %{reason_code: "unsupported_target"}} = VoiceTargets.validate(@worker, "agent_composer")
     assert {:error, %{reason_code: "unsupported_target"}} = VoiceTargets.validate(command("d1", nil), "command_response")
-  end
-
-  test "an executor target is unsupported in this build" do
-    assert {:error, %{reason_code: "unsupported_target"}} =
-             VoiceTargets.validate(%{kind: :executor, instance_id: nil}, "executor_composer")
   end
 
   test "a surface that does not own the target kind is invalid" do

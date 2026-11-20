@@ -48,7 +48,7 @@ defmodule AiurWeb.BuildOrder.PlanningPackResultsTest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    result = UnfiledRows.build(%{filed_numbers: MapSet.new(), done_numbers: MapSet.new(), max_wave: 0, max_ord: -1, epics: MapSet.new(), now: 1})
+    result = UnfiledRows.build(%{filed_numbers: MapSet.new(), done_numbers: MapSet.new(), max_wave: 0, max_ord: -1, lanes: MapSet.new(), now: 1})
     assert length(result.rows) == 2
     assert Enum.all?(result.rows, &(&1.src.path == "builds/demo/build-order.json"))
     refute Jason.encode!(result) =~ root

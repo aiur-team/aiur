@@ -56,6 +56,49 @@ defmodule Aiur.ScriptsQueueTest do
     end
   end
 
+  test "feature entries are encoded and cannot be combined with ticket IDs" do
+    assert {output, 0} = command(["add", "--feature", "combat", "--queue", "wave", "--rank", "0"])
+    assert output =~ "verb: :add"
+    assert output =~ "feature: Base.decode64!"
+    assert output =~ "rank: 0"
+
+    # A feature set needs no name to take a creation rank.
+    assert {output, 0} = command(["add", "--feature", "combat", "--rank", "2"])
+    assert output =~ "feature: Base.decode64!"
+    assert output =~ "rank: 2"
+    assert {_, 64} = command(["add", "1", "--rank", "0"])
+
+    for args <- [
+          ["add", "--feature", "combat", "1"],
+          ["add", "--feature", "combat", "--after", "9"],
+          ["add", "--feature", "combat", "--at", "0"],
+          ["add", "--feature", "combat", "--build-order", "9"],
+          ["add", "--feature"]
+        ] do
+      assert {output, 64} = command(args)
+      refute output =~ "RPC:"
+    end
+  end
+
+  test "epic entries are encoded and cannot be combined with other targets" do
+    assert {output, 0} = command(["add", "--epic", "world", "--queue", "wave", "--rank", "0"])
+    assert output =~ "epic: Base.decode64!"
+    assert output =~ "rank: 0"
+    assert {output, 0} = command(["add", "--epic", "world"])
+    assert output =~ "epic: Base.decode64!"
+
+    for args <- [
+          ["add", "--epic", "world", "1"],
+          ["add", "--epic", "world", "--at", "0"],
+          ["add", "--epic", "world", "--feature", "combat"],
+          ["add", "--epic", "world", "--build-order", "9"],
+          ["add", "--epic"]
+        ] do
+      assert {output, 64} = command(args)
+      refute output =~ "RPC:"
+    end
+  end
+
   test "a failed or timed-out RPC exits non-zero" do
     assert {_, 1} = command(["add", "1"], [{"TEST_QUEUE_RPC_STATUS", "1"}])
     assert {output, 124} = command(["remove", "1"], [{"TEST_QUEUE_RPC_STATUS", "124"}])
@@ -83,7 +126,7 @@ defmodule Aiur.ScriptsQueueTest do
 
   defp command(args, overrides \\ []) do
     script =
-      "source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; return ${TEST_QUEUE_RPC_STATUS:-0}; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
+      "source \"$(dirname \"$1\")/engine/project.sh\"; source \"$1\"; shift; PWD=${TEST_QUEUE_PWD:-$PWD}; run_control_rpc() { echo \"RPC:$1 TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}\"; return ${TEST_QUEUE_RPC_STATUS:-0}; }; todo_rpc_seconds() { echo $((15 + 3 * $1)); }; cmd_queue \"$@\""
 
     env =
       [{"AIUR_AGENT_WORKSPACE", ""}, {"AIUR_PROJECT_ROOT", ""}, {"AIUR_REPO_ROOT", ""}, {"TEST_QUEUE_RPC_STATUS", nil}, {"PWD", "/tmp"}, {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", nil}]

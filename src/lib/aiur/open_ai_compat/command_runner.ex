@@ -10,6 +10,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   @inherited_env_names ~w(LANG LC_ALL TERM)
   @system_roots ~w(/usr)
   @system_files ~w(
+    /etc/alternatives
     /etc/ca-certificates
     /etc/gitconfig
     /etc/group
@@ -28,7 +29,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     case Keyword.get(opts, :sandbox_executable, System.find_executable("bwrap")) do
       executable when is_binary(executable) ->
         case ensure_budget_state() do
-          :ok -> run_sandboxed(executable, workspace, command, runner)
+          :ok -> run_sandboxed(executable, workspace, command, runner, Keyword.get(opts, :command_sandbox))
           {:error, _reason} -> failure("shared GitHub budget state unavailable")
         end
 
@@ -37,7 +38,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     end
   end
 
-  defp run_sandboxed(executable, workspace, command, runner) do
+  defp run_sandboxed(executable, workspace, command, runner, sandbox) do
     real_gh = AgentGitHubGuard.real_gh()
 
     args =
@@ -45,10 +46,10 @@ defmodule Aiur.OpenAICompat.CommandRunner do
         "--die-with-parent",
         "--unshare-all",
         "--share-net",
-        environment_args(workspace, real_gh),
+        environment_args(workspace, real_gh, sandbox),
         "--tmpfs",
         "/tmp",
-        base_filesystem_args(workspace, real_gh),
+        base_filesystem_args(workspace, real_gh, sandbox),
         "--bind",
         workspace,
         workspace,
@@ -77,13 +78,13 @@ defmodule Aiur.OpenAICompat.CommandRunner do
 
   defp failure(message), do: %{"success" => false, "output" => message, "exit_code" => nil}
 
-  defp environment_args(workspace, real_gh) do
+  defp environment_args(workspace, real_gh, sandbox) do
     command_env =
       [
         {"HOME", workspace},
         {"TMPDIR", "/tmp"},
         {"MISE_DATA_DIR", "/opt/aiur-mise"},
-        {"PATH", guarded_path(workspace)}
+        {"PATH", guarded_path(workspace, sandbox)}
       ] ++ agent_environment(workspace, real_gh)
 
     inherited =
@@ -98,7 +99,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     ["--clearenv" | Enum.flat_map(command_env ++ inherited, fn {name, value} -> ["--setenv", name, value] end)]
   end
 
-  defp base_filesystem_args(workspace, real_gh) do
+  defp base_filesystem_args(workspace, real_gh, sandbox) do
     [
       parent_directory_args(workspace),
       "--dir",
@@ -112,6 +113,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
       mise_mount_args(),
       build_gate_mount_args(),
       budget_mount_args(),
+      configured_bind_args(sandbox),
       gh_overlay_args(workspace, real_gh),
       system_link_args(),
       "--proc",
@@ -120,6 +122,24 @@ defmodule Aiur.OpenAICompat.CommandRunner do
       "/dev"
     ]
   end
+
+  # Operator-configured mounts (`command_sandbox`). `path` entries are bound
+  # read-only too, so an entry on PATH is reachable. Missing paths are skipped.
+  defp configured_bind_args(sandbox) do
+    [
+      Enum.map(sandbox_paths(sandbox, "read_only_binds") ++ sandbox_paths(sandbox, "path"), &bind_if_present(&1, :read_only)),
+      Enum.map(sandbox_paths(sandbox, "writable_binds"), &bind_if_present(&1, :writable))
+    ]
+  end
+
+  defp sandbox_paths(%{} = sandbox, key) do
+    case Map.get(sandbox, key) do
+      paths when is_list(paths) -> Enum.filter(paths, &is_binary/1)
+      _ -> []
+    end
+  end
+
+  defp sandbox_paths(_sandbox, _key), do: []
 
   defp parent_directory_args(workspace) do
     workspace
@@ -218,7 +238,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     if Access.budget_enabled?(), do: Access.ensure_budget_state_dir(), else: :ok
   end
 
-  defp sandbox_path do
+  defp sandbox_path(sandbox) do
     install_prefix = Path.join(mise_data_dir(), "installs")
 
     System.get_env("PATH", "")
@@ -231,13 +251,14 @@ defmodule Aiur.OpenAICompat.CommandRunner do
         true -> []
       end
     end)
+    |> Kernel.++(sandbox_paths(sandbox, "path"))
     |> Kernel.++(["/usr/local/bin", "/usr/bin", "/bin"])
     |> Enum.uniq()
     |> Enum.join(":")
   end
 
-  defp guarded_path(workspace) do
-    [AgentBuildGuard.bin_dir(workspace), AgentGitHubGuard.bin_dir(workspace), sandbox_path()]
+  defp guarded_path(workspace, sandbox) do
+    [AgentBuildGuard.bin_dir(workspace), AgentGitHubGuard.bin_dir(workspace), sandbox_path(sandbox)]
     |> Enum.join(":")
   end
 

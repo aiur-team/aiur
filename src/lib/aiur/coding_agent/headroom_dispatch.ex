@@ -38,6 +38,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   alias Aiur.Accounts
   alias Aiur.Accounts.{Headroom, UsageReadings}
   alias Aiur.{CodexProber, CodingAgent, Config, Issue, ModelAvailability}
+  alias Aiur.CodingAgent.{CapacityGate, UsageFloorGate}
   alias Aiur.Config.RoutingValue
 
   @policy "headroom"
@@ -53,7 +54,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   `eligible` applies the caller's route gates to a list of routes. Returns the
   issue with `selected_backend`, `selected_model`, `selected_account` and
   `dispatch_selection` set, or `{:all_limited, routes}` when every candidate
-  is exhausted. A pinned backend is never refused here.
+  is exhausted or held. A pin waits only when the capacity policy holds every account.
   """
   @spec select(Issue.t(), ([String.t()] -> [String.t()]), keyword()) :: {:ok, Issue.t()} | {:all_limited, [String.t()]}
   def select(%Issue{} = issue, eligible, opts \\ []) when is_function(eligible, 1) do
@@ -156,29 +157,64 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
       end
 
     candidates = routes |> order_by_priority(opts) |> Enum.flat_map(&expand(&1, &1, opts))
+    readings = readings(candidates, opts)
+    # The capacity policy holds or defers a candidate; the rest keep their score (#7504, #7889).
+    %{allowed: allowed, floor_held: held, entries: entries} = CapacityGate.evaluate(candidates, readings, opts)
+    UsageFloorGate.record(held, Enum.map(candidates, &UsageFloorGate.label/1), opts)
 
-    case Headroom.select(candidates, readings(candidates, opts)) do
+    case select_by_backend(allowed, readings) do
       {:ok, chosen, ranked} ->
-        {:ok, apply_choice(issue, chosen, ranked, false)}
+        {:ok, apply_choice(issue, chosen, ranked, false, opts, entries)}
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
-        {:all_limited, ranked |> Enum.map(& &1.candidate.route) |> Enum.uniq()}
+        {:all_limited, limited_routes(ranked, Enum.reject(entries, &(&1.verdict == :allow)), routes)}
     end
   end
 
-  # A pin keeps its backend and model. Headroom only picks the account, and a
-  # pin whose accounts are all exhausted still dispatches, as a pin did before.
+  # A claim parks on every route considered, exhausted and held together; when
+  # nothing was ranked or held, the route list itself.
+  defp limited_routes(ranked, held, routes) do
+    combined = Enum.map(held, & &1.candidate.route) ++ Enum.map(ranked, & &1.candidate.route)
+
+    case Enum.uniq(combined) do
+      [] -> routes
+      considered -> considered
+    end
+  end
+
+  # A pin keeps its backend and model; headroom picks the account. It waits when hard
+  # limits or the reserve hold every account, but dispatches when only exhausted (#7889).
   defp select_pinned_account(issue, backend, opts) do
     candidates = expand(backend, nil, opts)
+    readings = readings(candidates, opts)
+    %{allowed: allowed, entries: entries} = CapacityGate.evaluate(candidates, readings, Keyword.put(opts, :pinned, true))
 
-    case Headroom.select(candidates, readings(candidates, opts)) do
+    case Headroom.select(allowed, readings) do
+      _held when allowed == [] ->
+        {:all_limited, [backend]}
+
       {:ok, chosen, ranked} ->
-        {:ok, apply_choice(issue, chosen, ranked, true)}
+        {:ok, apply_choice(issue, chosen, ranked, true, opts, entries)}
 
       {:error, :all_exhausted, ranked} ->
         log(issue, nil, ranked)
-        {:ok, %{issue | selected_account: nil, dispatch_selection: selection(nil, ranked, true)}}
+        {:ok, %{issue | selected_account: nil, dispatch_selection: selection(nil, ranked, true, entries)}}
+    end
+  end
+
+  # Backend order is the preference; headroom picks its account; exhausted backends fall through.
+  defp select_by_backend(candidates, readings) do
+    ranked =
+      candidates
+      |> Enum.chunk_by(& &1.backend)
+      |> Enum.flat_map(&Headroom.rank(&1, readings))
+      |> Enum.with_index()
+      |> Enum.map(fn {candidate, index} -> %{candidate | index: index} end)
+
+    case Enum.find(ranked, &(&1.status != :exhausted)) do
+      nil -> {:error, :all_exhausted, ranked}
+      chosen -> {:ok, chosen, ranked}
     end
   end
 
@@ -190,26 +226,34 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp pinned_backend(issue, opts), do: CodingAgent.override_backend(issue, opts)
 
-  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?) do
+  defp apply_choice(issue, %{candidate: candidate} = chosen, ranked, pinned?, opts, entries) do
     log(issue, chosen, ranked)
-    issue = %{issue | selected_account: candidate.account, dispatch_selection: selection(chosen, ranked, pinned?)}
+
+    if chosen.status == :unknown do
+      UsageReadings.mark_explored(account_backend(candidate.backend), candidate.account || "default", Keyword.get(opts, :now, DateTime.utc_now()))
+    end
+
+    issue = %{issue | selected_account: candidate.account, dispatch_selection: selection(chosen, ranked, pinned?, entries)}
 
     if pinned?,
       do: issue,
       else: %{issue | selected_backend: candidate.backend, selected_model: RoutingValue.routing_model(candidate.route)}
   end
 
-  defp selection(chosen, ranked, pinned?) do
+  # Held and deferred candidates follow the ranking with their reason (#7504, #7889).
+  defp selection(chosen, ranked, pinned?, entries) do
     candidate = if chosen, do: chosen.candidate, else: %{}
+    {floor, other} = CapacityGate.unchosen(entries)
 
     %{
-      policy: @policy,
+      policy: "capacity/v1",
       pinned: pinned?,
       backend: candidate[:backend],
       account: candidate[:account],
       route: candidate[:route],
-      summary: Headroom.summary(chosen, ranked),
-      candidates: Enum.map(ranked, &candidate_view/1)
+      chosen: chosen && %{route: candidate.route, account: candidate.account, reason: CapacityGate.chosen_reason(candidate, entries, pinned?)},
+      summary: Headroom.summary(chosen, ranked) <> UsageFloorGate.held_summary(floor) <> CapacityGate.summary(other),
+      candidates: Enum.map(ranked, &CapacityGate.with_verdict(candidate_view(&1), &1.candidate, entries)) ++ CapacityGate.views(floor, other)
     }
   end
 
@@ -232,7 +276,14 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     Logger.info("headroom_dispatch issue_identifier=#{issue.identifier} " <> Headroom.summary(chosen, ranked))
   end
 
-  defp expand(backend_or_route, route, opts) do
+  @doc """
+  Every account a route can reach, as `%{backend:, account:, route:}` candidates.
+
+  `backend_or_route` names the backend to expand; `route` is carried through
+  untouched so a selected candidate keeps the route string that produced it.
+  """
+  @spec expand(String.t(), String.t() | nil, keyword()) :: [map()]
+  def expand(backend_or_route, route, opts \\ []) do
     backend = RoutingValue.routing_backend(backend_or_route)
     Enum.map(account_names(backend, opts), &%{backend: backend, account: &1, route: route})
   end
@@ -267,7 +318,15 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     end
   end
 
-  defp readings(candidates, opts) do
+  @doc """
+  One reading per candidate, keyed by `candidate_key/1`.
+
+  Sources are the availability ledger, the daemon's polled per-account meters,
+  and the ledger's usage windows for a backend with one account. Unknown
+  candidates keep a `nil` reading.
+  """
+  @spec readings([map()], keyword()) :: %{optional({String.t(), String.t() | nil}) => Headroom.reading()}
+  def readings(candidates, opts) when is_list(candidates) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     state = ledger_state(opts)
     opts = Keyword.put(opts, :max_reading_age_seconds, max_reading_age_seconds(opts))
@@ -276,7 +335,10 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     per_backend = candidates |> Enum.uniq_by(&{&1.backend, &1.account}) |> Enum.frequencies_by(& &1.backend)
 
     Map.new(candidates, fn candidate ->
-      {Headroom.key(candidate), reading(candidate, state, meters, per_backend, now, opts)}
+      reading = reading(candidate, state, meters, per_backend, now, opts)
+      explored = UsageReadings.recently_explored?(account_backend(candidate.backend), candidate.account || "default", now)
+      reading = if explored, do: Map.put(reading || %{}, :explored, true), else: reading
+      {Headroom.key(candidate), reading}
     end)
   end
 
@@ -312,7 +374,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp with_age(reading, %DateTime{} = observed_at, now, opts) do
     age = max(DateTime.diff(now, observed_at, :second), 0)
-    reading = Map.put(reading, :age_seconds, age)
+    reading = Map.merge(reading, %{age_seconds: age, observed_at: observed_at})
     if age > max_reading_age_seconds(opts), do: Map.put(reading, :stale, true), else: reading
   end
 

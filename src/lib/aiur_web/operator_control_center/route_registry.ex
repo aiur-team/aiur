@@ -25,6 +25,18 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:decisions, :decision]
     },
     %{
+      id: :voice,
+      label: "Voice",
+      icon: "",
+      description: "Executor conversation and worker voice controls.",
+      path: "/voice",
+      type: :live,
+      owner: :dashboard,
+      availability: :available,
+      nav?: false,
+      active_actions: [:voice]
+    },
+    %{
       id: :analytics,
       label: "Analytics",
       icon: "↗",
@@ -34,6 +46,30 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       owner: :analytics,
       availability: :available,
       active_actions: [:analytics]
+    },
+    %{
+      id: :projects,
+      label: "Projects",
+      icon: "▤",
+      description: "Every project across reachable gateways.",
+      path: "/projects",
+      type: :live,
+      owner: :projects,
+      availability: :available,
+      nav?: false,
+      active_actions: [:projects]
+    },
+    %{
+      id: :gateways,
+      label: "Gateways",
+      icon: "▥",
+      description: "Each gateway's agents, projects, capacity and pause controls.",
+      path: "/gateways",
+      type: :live,
+      owner: :gateways,
+      availability: :available,
+      nav?: false,
+      active_actions: [:gateways]
     },
     %{
       id: :instances,
@@ -72,20 +108,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
     }
   ]
 
-  @hidden_routes [
-    %{
-      id: :units,
-      label: "Units",
-      icon: "◫",
-      description: "",
-      path: "/units",
-      type: :live,
-      owner: :dashboard,
-      availability: :available,
-      active_actions: [:index]
-    }
-  ]
-
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
     Enum.filter(@routes, &(Map.get(&1, :nav?, true) and resolve_runtime_availability(&1, analytics)))
@@ -101,7 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec current_route(atom() | nil) :: map()
   def current_route(action) do
-    Enum.find(@routes ++ @hidden_routes, &active?(&1, action)) || hd(@routes)
+    Enum.find(@routes, &active?(&1, action)) || hd(@routes)
   end
 
   @spec active?(map(), atom() | nil) :: boolean()

@@ -20,8 +20,8 @@ SKILL_MOUNTS = ('.codex/skills', '.agents/skills')
 CLAUDE_SKILLS = '.claude/skills'
 SKILL_PATHS = (CLAUDE_SKILLS, *SKILL_MOUNTS)
 VENDORED_DIRS = {'vendor', 'vendored', 'third_party'}
-# Imported Claude Design reference, retained byte-for-byte as vendored source.
-VENDORED_PATHS = {'src/test/fixtures/build_home/design-source'}
+# Imported design and Khala contract retained byte-for-byte as vendored source.
+VENDORED_PATHS = {'src/test/fixtures/build_home/design-source', 'src/priv/listener_spec/v1'}
 
 
 def line_count_exempt(path):

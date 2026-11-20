@@ -2,9 +2,8 @@ import config from './playwright.config.mjs'
 
 export default {
   ...config,
-  // Match the motion suite's capture setup; failures retain screenshots and
-  // numeric diagnostics. Use --trace on for a focused reproduction.
-  use: { ...config.use, trace: 'off' },
+  // Match the motion suite's capture setup while retaining failure traces.
+  use: { ...config.use, trace: 'retain-on-failure' },
   projects: [
     { name: 'gantt', testMatch: 'build-home-gantt.browser.spec.mjs' },
     {

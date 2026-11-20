@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert body["query"] =~ "checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } }"
       assert body["query"] =~ "mergeQueueEntry { id state }"
       assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
-      assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
+      assert body["query"] =~ "reviews(last: 100) { nodes { state body commit { oid } } }"
       assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: [OPEN, CLOSED], orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).

@@ -261,7 +261,7 @@
 }
 
 /* C:891 */ .ax-ln.t {
-  grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch);
+  grid-template-columns: minmax(3.4em, max-content) 10ch minmax(0, 1fr) var(--rsw, 12.5ch);
 }
 
 .ax-pc {

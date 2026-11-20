@@ -59,8 +59,9 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def normalize_data(:decision_deferred, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
-    with {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)) do
-      {:ok, %{actor: actor}}
+    with {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)),
+         {:ok, note} <- Validation.bounded_optional(Validation.get(raw, :note), @detail_max, :note) do
+      {:ok, if(note, do: %{actor: actor, note: note}, else: %{actor: actor})}
     end
   end
 
@@ -92,8 +93,10 @@ defmodule Aiur.DecisionEvent.Codec do
   def normalize_data(:decision_mooted, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, reason_class} <- Validation.bounded_required(Validation.get(raw, :reason_class), @reason_max, :reason_class),
          {:ok, detail} <- Validation.bounded_optional(Validation.get(raw, :detail), @detail_max, :detail),
+         {:ok, idempotency_id} <- Validation.bounded_optional(Validation.get(raw, :idempotency_id), @reason_max, :idempotency_id),
+         {:ok, rationale} <- Validation.bounded_optional(Validation.get(raw, :rationale), @detail_max, :rationale),
          {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)) do
-      {:ok, %{reason_class: reason_class, detail: detail, actor: actor}}
+      {:ok, %{reason_class: reason_class, detail: detail, idempotency_id: idempotency_id, rationale: rationale, actor: actor}}
     end
   end
 
@@ -229,6 +232,7 @@ defmodule Aiur.DecisionEvent.Codec do
         active_action_id: nil,
         revision_sequence: 0,
         revisions: [],
+        overrides: [],
         revision_result: nil,
         revision_outcomes: %{},
         revision_follow_ups: %{},
@@ -250,7 +254,7 @@ defmodule Aiur.DecisionEvent.Codec do
 
   # Routing is projected from facts and must never alter frozen request hash material.
   defp request_json(decision) do
-    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at))
+    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at executor_claim))
   end
 
   defp normalize_actor(actor) when is_map(actor) do
@@ -320,7 +324,8 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def data_to_json_safe(:decision_deferred, data) do
-    %{"actor" => ActorSource.to_json_safe(data.actor)}
+    base = %{"actor" => ActorSource.to_json_safe(data.actor)}
+    if Map.get(data, :note), do: Map.put(base, "note", data.note), else: base
   end
 
   def data_to_json_safe(:executor_escalated, data) do
@@ -340,15 +345,10 @@ defmodule Aiur.DecisionEvent.Codec do
   end
 
   def data_to_json_safe(:decision_mooted, data) do
-    base = %{
-      "reason_class" => data.reason_class,
-      "actor" => ActorSource.to_json_safe(data.actor)
-    }
-
-    case data.detail do
-      nil -> base
-      detail -> Map.put(base, "detail", detail)
-    end
+    %{"reason_class" => data.reason_class, "actor" => ActorSource.to_json_safe(data.actor)}
+    |> put_present("detail", data.detail)
+    |> put_present("idempotency_id", Map.get(data, :idempotency_id))
+    |> put_present("rationale", Map.get(data, :rationale))
   end
 
   def data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),
@@ -398,4 +398,7 @@ defmodule Aiur.DecisionEvent.Codec do
       "detail" => data.detail
     }
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 end

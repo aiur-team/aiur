@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlertsTest do
     # Publication sends from this process; the listener barrier waits for both deliveries and synchronous enqueue.
     :sys.get_state(listener)
 
-    assert {:ok, [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review", "pr_number" => 3019, "head_sha" => ^sha}]} =
+    assert {:ok, [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review", "pr_number" => 3019, "head_sha" => ^sha, "observed_state" => "human-review"}]} =
              ExecutorWakeInbox.wait(0)
 
     assert [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review"}] = ExecutorWakeInbox.pending()

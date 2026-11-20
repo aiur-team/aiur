@@ -10,8 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
   attr(:title, :string, default: nil)
-  attr(:back_path, :string, default: nil)
-  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -26,7 +24,10 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   attr(:global_pause_error, :string, default: nil)
   attr(:pause_state, :map, default: nil)
   # Notices precede page content.
+  slot(:status)
   slot(:banner)
+  # Desktop-only block pinned under the nav links (#7763); it scrolls inside itself.
+  slot(:sidebar)
   slot(:inner_block, required: true)
 
   # Legacy classes remain hook/feature-selector aliases; aiur-style owns the chrome.
@@ -49,24 +50,32 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               <.pause_item globally_paused={@pause_state.globally_paused} writable={@pause_state.writable} />
               <.theme_item />
               <.palette_button />
+              <a href="/voice" class="ax-mi aiur-shell__menu-item" role="menuitem"><span>Talk to Executor</span></a>
             </div>
           </div>
         </div>
         <div class="ax-title aiur-page__header" id="ax-title">
-          <.link :if={@back_path} patch={@back_path} class="ax-back aiur-page__back" aria-label={@back_label}>
-            <span aria-hidden="true">{nav_icon(@route.id)}</span>
-          </.link>
           <b id="route-title" role="heading" aria-level="1">{@title || @route.label}</b>
           <span class="status-badge status-badge-offline brand-live"><span class="status-badge-dot"></span>Offline</span>
         </div>
+        {render_slot(@status)}
         <span class={["ax-paused aiur-shell__paused", @pause_state.globally_paused == true && "show"]} id="ax-paused">New starts paused</span>
       </header>
+      <nav class="standalone-recovery" data-dashboard-recovery aria-label="Dashboard recovery" hidden>
+        <a href="/" aria-label="Home">Home</a>
+        <button type="button" data-recovery-reload>Reload</button>
+      </nav>
       <div class="app-layout aiur-shell__body">
         <aside class="sidenav aiur-shell__sidebar">
           <div class="ax-drag aiur-shell__drag" id="ax-drag" phx-hook="NavToggle" data-nav-collapsed={to_string(@nav_collapsed)}
             role="separator" aria-orientation="vertical" aria-label="Drag to resize navigation" title="Drag to resize"
             tabindex="0" aria-controls="ax-nav" aria-valuemin="60" aria-valuemax="188" aria-valuenow={if @nav_collapsed, do: 60, else: 188}></div>
-          <.navigation routes={@routes} current_route={@route} nav_counts={@nav_counts} />
+          <%!-- The rail exists only with a sidebar so every other page keeps its DOM (and home.css cannot reach it). --%>
+          <div :if={@sidebar != []} class="aiur-shell__rail has-meters">
+            <.navigation routes={@routes} current_route={@route} nav_counts={@nav_counts} />
+            <div class="aiur-shell__meters">{render_slot(@sidebar)}</div>
+          </div>
+          <.navigation :if={@sidebar == []} routes={@routes} current_route={@route} nav_counts={@nav_counts} />
         </aside>
         <section class="dashboard-shell aiur-page" aria-labelledby="route-title">
           <div :if={@pause_state.global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
@@ -165,7 +174,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :patch}
       patch={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>
@@ -175,7 +184,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     <.link
       :if={@available and RouteRegistry.live?(@route) and @navigation_mode == :navigate}
       navigate={@route.path}
-      class={["snav aiur-shell__item", @active && "is-active"]}
+      class={["snav aiur-shell__item", @active && "is-active", Map.get(@route, :phone_secondary?, false) && "aiur-shell__item--phone-secondary"]}
       aria-current={if @active, do: "page"}
     >
       <span class="snav-ic aiur-shell__icon" aria-hidden="true">{nav_icon(@route.id)}</span>

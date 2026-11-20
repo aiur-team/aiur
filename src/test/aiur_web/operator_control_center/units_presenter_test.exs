@@ -3,13 +3,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
-  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
 
   import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
 
   test "unpublished daemon snapshot renders Units as loading without zero counts" do
-    catalog = UnitsPresenter.load(%{daemon_starting?: true}, membership_fun: fn -> raise "must not read yet" end)
+    catalog =
+      UnitsPresenter.load(
+        %{daemon_starting?: true},
+        membership_fun: fn -> raise "must not read yet" end,
+        startup_elapsed_ms_fun: fn -> 0 end
+      )
+
     view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
 
     assert view.status == :loading
@@ -17,7 +22,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.total_count == nil
     assert view.count_status == :loading
     assert Enum.all?(Map.values(view.counts), &is_nil/1)
-    assert UnitsPanel.units_count_label(view) == "loading units…"
     assert UnitsPresenter.announcement(view) =~ "Loading Units"
   end
 
@@ -186,6 +190,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.count_status == :unavailable
     assert is_nil(view.total_count)
     assert catalog.message == "Fleet data is unavailable."
+  end
+
+  test "startup elapsed time can be isolated from the BEAM clock" do
+    catalog =
+      UnitsPresenter.load(
+        %{daemon_starting?: true},
+        startup_elapsed_ms_fun: fn -> 600_000 end
+      )
+
+    assert catalog.status == :unavailable
   end
 
   test "a fleet catalog with no successful view is marked loading during startup" do

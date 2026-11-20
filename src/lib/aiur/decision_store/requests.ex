@@ -160,6 +160,7 @@ defmodule Aiur.DecisionStore.Requests do
   def handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
          {:ok, opts} <- RequestAttributes.normalize_opts(opts),
+         {:ok, opts} <- RequestAttributes.put_tags(opts, payload),
          {:ok, decision} <- DecisionValidation.normalize(payload, opts),
          :ok <- SuggestedResponses.validate(decision, opts) do
       decision
@@ -336,9 +337,9 @@ defmodule Aiur.DecisionStore.Requests do
       Enum.each(decisions, &Audit.schedule_executor_request_retry(&1, state, 0))
   end
 
-  @spec notify_deferred_executor(term()) :: term()
-  def notify_deferred_executor(decision) do
-    case ExecutorEvents.publish_deferred(decision) do
+  @spec notify_deferred_executor(term(), String.t() | nil) :: term()
+  def notify_deferred_executor(decision, note \\ nil) do
+    case ExecutorEvents.publish_deferred(decision, note: note) do
       {:ok, _id, _subscribers} -> :ok
       {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_notification_failed reason=#{inspect(reason)}")
     end
@@ -351,6 +352,8 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:escalated), do: "escalated"
   def lifecycle_slug(:human_needed), do: "human-needed"
   def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
+  def lifecycle_slug(:executor_claimed), do: "executor-claimed"
+  def lifecycle_slug(:executor_claim_released), do: "executor-claim-released"
   def lifecycle_slug(:native_released), do: "native-released"
   def lifecycle_slug(:request_attributed), do: "request-attributed"
   def lifecycle_slug(:requester_notified), do: "requester-notified"
@@ -378,5 +381,16 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:consumed), do: "consumed"
   def lifecycle_slug(:failed), do: "failed"
   def lifecycle_slug(:acknowledged), do: "acknowledged"
+  def lifecycle_slug(:override_successor_ticket), do: "override-successor-ticket"
+  def lifecycle_slug(:override_corrective_ticket), do: "override-corrective-ticket"
+  def lifecycle_slug(:override_corrective_implemented), do: "override-corrective-implemented"
+  def lifecycle_slug(:override_corrective_failed), do: "override-corrective-failed"
+  def lifecycle_slug(:override_corrective_closed), do: "override-corrective-closed"
+  def lifecycle_slug(:override_corrective_recovered), do: "override-corrective-recovered"
+  def lifecycle_slug(:override_resume_state), do: "override-resume-state"
+  def lifecycle_slug(:override_prompt_delivered), do: "override-prompt-delivered"
+  def lifecycle_slug(:override_merge_settled), do: "override-merge-settled"
+  def lifecycle_slug(:override_worker_handoff), do: "override-worker-handoff"
+  def lifecycle_slug(:override_implemented), do: "override-implemented"
   def lifecycle_slug(:resolved), do: "resolved"
 end

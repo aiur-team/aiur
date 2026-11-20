@@ -52,7 +52,7 @@ defmodule Aiur.DecisionStore.Reads do
   @doc "Returns whether an optional agent question explains a ticket's self-pause."
   @spec nonblocking_question_pause?(String.t(), GenServer.server(), timeout()) ::
           {:ok, boolean()} | {:error, :store_unavailable}
-  def nonblocking_question_pause?(ticket_identifier, server \\ Aiur.DecisionStore, timeout \\ 100)
+  def nonblocking_question_pause?(ticket_identifier, server \\ Aiur.DecisionStore, timeout \\ 1_000)
       when is_binary(ticket_identifier) do
     GenServer.call(server, {:nonblocking_question_pause, ticket_identifier}, timeout)
   catch

@@ -58,11 +58,6 @@ for (const { label, width, isMobile } of composedViewports) {
       // Standalone region fixtures are not linked from the shell nav; visit each
       // directly within the same authenticated session and assert its landmark
       // plus its accessible live-status region survives.
-      await page.goto('/units-fixture')
-      await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
-      await expect(page.locator('#units-status')).toHaveAttribute('aria-atomic', 'true')
-      await assertNoDocumentOverflow(page)
-
       await page.goto('/provider-meters')
       await expect(page.locator('[data-provider-meters-fixture="true"]')).toBeVisible()
       await expect(page.locator('#provider-meters-status')).toHaveAttribute('aria-live', 'polite')

@@ -101,6 +101,15 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     end
   end
 
+  test "configured fixer label reaches local and remote guards", context do
+    write_workflow_file!(context.workflow_file, tracker_kind: "github", tracker_repo: "owner/name")
+    write_workflow_file_atomic!(context.workflow_file, File.read!(context.workflow_file) <> "\nmerge_policy:\n  main_watch:\n    fixer_label: repair-main\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    assert snapshot(AgentEnvironment, :port, context)["AIUR_GITHUB_FIXER_LABEL"] == "repair-main"
+    assert shell_env(AgentEnvironment, context)["AIUR_GITHUB_FIXER_LABEL"] == "repair-main"
+  end
+
   test "contributors cannot reintroduce scrubbed credentials on either launch path", context do
     Application.put_env(:aiur, :agent_environment_contributors, [UnsafeContributor])
     port = AgentEnvironment.workspace_env(context.workspace) |> Map.new()
@@ -226,6 +235,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
 
       {name, value} ->
         normalized = normalize_value(value, replacements)
+        normalized = if name == "AIUR_MCP_SOCKET_DIR", do: "<mcp-socket>", else: normalized
         # Main may publish the same build hook into its trusted, content-addressed directory.
         normalized = Regex.replace(~r"<root>/build-gate\.hooks/[a-f0-9]{64}/build_gate\.bash", normalized, "<priv>/build_gate.bash")
         {name, Regex.replace(~r"<root>/build-gate/\.agent-shell-hooks/[a-f0-9]{64}/agent_shell_environment\.bash", normalized, "<priv>/agent_shell_environment.bash")}

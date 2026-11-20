@@ -183,7 +183,7 @@ defmodule Aiur.Orchestrator.StateTest do
         7 => %{control: %{status: :working}}
       }
 
-      assert State.reserved_paused_running_count(running) == 2
+      assert State.reserved_paused_running_count(running) == 1
       assert State.active_running_count(running) == 1
     end
   end

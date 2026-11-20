@@ -56,10 +56,12 @@ defmodule Aiur.Orchestrator.GlobalPauseGuardTest do
       state = base_state(globally_paused: true, running: %{})
 
       assert {:reply, true, ^state} = GlobalPause.globally_paused_call(state)
-      assert GlobalPause.global_pause_status(state) == %{globally_paused: true, paused_at: nil, source: nil}
+
+      assert GlobalPause.global_pause_status(state) ==
+               %{globally_paused: true, paused_at: nil, source: nil, fleet_paused: false, pause_scope: :local}
 
       assert GlobalPause.global_pause_status(%{state | globally_paused: false}) ==
-               %{globally_paused: false, paused_at: nil, source: nil}
+               %{globally_paused: false, paused_at: nil, source: nil, fleet_paused: false, pause_scope: :none}
     end
 
     test "persists the global pause and provenance across orchestrator restart" do

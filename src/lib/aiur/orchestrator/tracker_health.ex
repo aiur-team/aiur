@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.ToolchainPreflight
   alias Aiur.PollCadence
@@ -251,7 +252,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     State.active_running_count(state.running) == 0 and
       state.poll_cycles_completed > 0 and
       state.candidate_snapshot_fresh? == true and
-      (state.globally_paused == true or not queued_dispatch_demand?(state))
+      (PauseGuard.paused?(state) or not queued_dispatch_demand?(state))
   end
 
   # Reuses the same dispatch-eligibility scan as the capacity snapshot so the

@@ -9,7 +9,8 @@ defmodule Aiur.DecisionAnswer do
   part of `content_hash`, so an identical retry compares equal.
   """
 
-  alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.{ActorSource, Media}
+  alias Aiur.DecisionAnswer.Feedback
   alias Aiur.{DecisionDelegation, DecisionValidation, SecretRedactor}
 
   @identity_max 200
@@ -27,10 +28,13 @@ defmodule Aiur.DecisionAnswer do
           selected_option_id: String.t() | nil,
           custom_response: String.t() | nil,
           rationale: String.t() | nil,
+          rejected: boolean(),
           supervisor_basis: DecisionDelegation.basis() | nil,
           operator_quote: String.t() | nil,
           relayed_by: String.t() | nil,
           actor: actor(),
+          media: [Media.item()],
+          feedback: [Feedback.entry()],
           accepted_at: DateTime.t(),
           content_hash: String.t(),
           ticket_comment_pending?: boolean()
@@ -49,7 +53,10 @@ defmodule Aiur.DecisionAnswer do
               [
                 selected_option_id: nil,
                 custom_response: nil,
+                media: [],
+                feedback: [],
                 rationale: nil,
+                rejected: false,
                 supervisor_basis: nil,
                 operator_quote: nil,
                 relayed_by: nil,
@@ -73,6 +80,10 @@ defmodule Aiur.DecisionAnswer do
          :ok <- validate_response(selected_option_id, custom_response),
          :ok <- validate_option(selected_option_id, options, Keyword.get(opts, :allow_unchecked_option, false)),
          {:ok, rationale} <- optional_string(payload, :rationale, @rationale_max),
+         {:ok, media} <- answer_media(payload, opts),
+         {:ok, feedback} <-
+           Feedback.normalize(get(payload, :feedback), options, Keyword.get(opts, :allow_unchecked_option, false)),
+         {:ok, rejected} <- rejected_flag(payload),
          {:ok, actor} <- normalize_actor(Keyword.fetch!(opts, :actor)),
          {:ok, relay} <- normalize_relay(payload, actor),
          {:ok, supervisor_basis} <- normalize_supervisor_basis(actor, opts),
@@ -91,6 +102,9 @@ defmodule Aiur.DecisionAnswer do
           rationale: rationale,
           actor: actor
         }
+        |> maybe_put_media(media)
+        |> maybe_put_feedback(feedback)
+        |> maybe_put_rejected(rejected)
         |> Map.merge(relay)
         |> maybe_put_supervisor_basis(supervisor_basis)
 
@@ -99,6 +113,9 @@ defmodule Aiur.DecisionAnswer do
          __MODULE__,
          Map.merge(content, %{
            accepted_at: now,
+           media: media,
+           feedback: feedback,
+           rejected: rejected,
            content_hash: content_hash(content),
            ticket_comment_pending?: ticket_comment_pending?
          })
@@ -133,7 +150,10 @@ defmodule Aiur.DecisionAnswer do
                "custom_response" => Map.get(raw, "custom_response"),
                "rationale" => Map.get(raw, "rationale"),
                "operator_quote" => Map.get(raw, "operator_quote"),
-               "relayed_by" => Map.get(raw, "relayed_by")
+               "relayed_by" => Map.get(raw, "relayed_by"),
+               "media" => Map.get(raw, "media"),
+               "feedback" => Map.get(raw, "feedback"),
+               "rejected" => Map.get(raw, "rejected")
              },
              decision_id: decision_id,
              decision_version: decision_version,
@@ -142,7 +162,8 @@ defmodule Aiur.DecisionAnswer do
              allow_unchecked_option: true,
              supervisor_basis: Map.get(raw, "supervisor_basis"),
              ticket_comment_pending?: Map.get(raw, "ticket_comment_pending", false),
-             allow_legacy_supervisor_basis: not Map.has_key?(raw, "supervisor_basis")
+             allow_legacy_supervisor_basis: not Map.has_key?(raw, "supervisor_basis"),
+             allow_unchecked_media: true
            ),
          :ok <- compare_persisted(answer.action_id, persisted_action_id, :action_id_mismatch),
          :ok <- compare_persisted(answer.content_hash, persisted_hash, :answer_content_hash_mismatch) do
@@ -156,6 +177,7 @@ defmodule Aiur.DecisionAnswer do
   @spec to_json_safe(t()) :: map()
   def to_json_safe(%__MODULE__{} = answer) do
     answer_json_safe(answer)
+    |> maybe_put_feedback_json(answer.feedback)
     |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
   end
 
@@ -168,6 +190,9 @@ defmodule Aiur.DecisionAnswer do
   def to_event_json_safe(%__MODULE__{} = answer) do
     answer
     |> answer_json_safe()
+    # Text-only answers keep the pre-media wire shape so older builds still verify them (#7577).
+    |> then(&if(answer.media == [], do: Map.delete(&1, "media"), else: &1))
+    |> maybe_put_feedback_json(answer.feedback)
     |> maybe_put_ticket_comment_pending(answer.ticket_comment_pending?)
     |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
   end
@@ -184,11 +209,13 @@ defmodule Aiur.DecisionAnswer do
       "selected_option_id" => answer.selected_option_id,
       "custom_response" => answer.custom_response,
       "rationale" => answer.rationale,
+      "media" => Media.to_json_safe(answer.media),
       "actor" => ActorSource.to_json_safe(answer.actor),
       "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
       "content_hash" => answer.content_hash
     }
     |> maybe_put_relay_json(answer)
+    |> maybe_put_rejected_json(answer.rejected)
   end
 
   defp validate_ticket_comment_pending(value) when is_boolean(value), do: :ok
@@ -383,6 +410,39 @@ defmodule Aiur.DecisionAnswer do
   end
 
   defp get(payload, key), do: Map.get(payload, key, Map.get(payload, Atom.to_string(key)))
+
+  # A persisted answer replays through this same validator with the already
+  # resolved items, so it never needs (and never trusts) a Command index.
+  defp answer_media(payload, opts) do
+    index = if Keyword.get(opts, :allow_unchecked_media, false), do: nil, else: Keyword.get(opts, :command_media)
+    Media.normalize_answer(get(payload, :media), index, Keyword.get(opts, :safe_roots) || DecisionValidation.safe_roots())
+  end
+
+  # A rejection is an answer whose `custom_response` is the verbatim reason.
+  # The flag is only written when true, so ordinary answers keep their wire shape and hash.
+  defp rejected_flag(payload) do
+    case get(payload, :rejected) do
+      value when value in [nil, false] -> {:ok, false}
+      true -> {:ok, true}
+      _other -> {:error, {:rejected, :invalid_type}}
+    end
+  end
+
+  defp maybe_put_rejected(content, true), do: Map.put(content, :rejected, true)
+  defp maybe_put_rejected(content, false), do: content
+
+  defp maybe_put_rejected_json(json, true), do: Map.put(json, "rejected", true)
+  defp maybe_put_rejected_json(json, _false), do: json
+
+  defp maybe_put_media(content, []), do: content
+  defp maybe_put_media(content, media), do: Map.put(content, :media, media)
+
+  # Text-only answers keep the pre-feedback wire shape and content hash.
+  defp maybe_put_feedback(content, []), do: content
+  defp maybe_put_feedback(content, feedback), do: Map.put(content, :feedback, feedback)
+
+  defp maybe_put_feedback_json(json, []), do: json
+  defp maybe_put_feedback_json(json, feedback), do: Map.put(json, "feedback", feedback)
 
   defp maybe_put_supervisor_basis(content, nil), do: content
   defp maybe_put_supervisor_basis(content, basis), do: Map.put(content, :supervisor_basis, basis)

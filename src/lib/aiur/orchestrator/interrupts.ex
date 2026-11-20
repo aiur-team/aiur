@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.Interrupts do
 
   @spec interrupt_agent(String.t()) :: :ok | {:error, term()}
   def interrupt_agent(issue_identifier),
-    do: interrupt_agent(Aiur.Orchestrator, issue_identifier)
+    do: interrupt_agent(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec interrupt_agent(GenServer.server(), String.t()) :: :ok | {:error, term()}
   def interrupt_agent(server, issue_identifier),
@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   @spec pane_interrupt(String.t()) ::
           {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt(issue_identifier),
-    do: pane_interrupt(Aiur.Orchestrator, issue_identifier)
+    do: pane_interrupt(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec pane_interrupt(GenServer.server(), String.t()) ::
           {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.Interrupts do
   @spec pane_interrupt_by_pane_id(String.t()) ::
           {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}
   def pane_interrupt_by_pane_id(pane_id),
-    do: pane_interrupt_by_pane_id(Aiur.Orchestrator, pane_id)
+    do: pane_interrupt_by_pane_id(Aiur.Project.whereis(Aiur.Orchestrator), pane_id)
 
   @spec pane_interrupt_by_pane_id(GenServer.server(), String.t()) ::
           {:ok, :interrupted | :pause_requested | :paused | :close_pane | :send_interrupt} | {:error, term()}

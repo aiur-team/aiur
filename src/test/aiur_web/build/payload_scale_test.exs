@@ -24,7 +24,9 @@ defmodule AiurWeb.Build.PayloadScaleTest do
   # densest day 16,501 B, nq300 178,073 B. Rebased on 31 x 660 B and 300 x 655 B.
   @day_budget 20_480
   @month_budget 524_288
-  @nq300_budget 196_608
+  # The general-epic progress block adds 278 B to the 300-row not-queued payload.
+  # Feature bars (#7448) add a fixed 135 B for the six dense features: 197,255 B measured 2026-11-01.
+  @nq300_budget 197_632
   @conversation_budget 49_152
   @capped_conversation_budget 1_048_576
 

@@ -3,10 +3,10 @@ defmodule Aiur.BuildOrder.Index.PackRows do
   alias Aiur.BuildOrder.Index
 
   @spec read(term(), map(), map()) :: term()
-  def read(reader, all, epics) when is_function(reader, 1),
-    do: Index.safe_read(:packs, fn -> reader.(%{all: all, epics: epics}) end)
+  def read(reader, all, lanes) when is_function(reader, 1),
+    do: Index.safe_read(:packs, fn -> reader.(%{all: all, lanes: lanes}) end)
 
-  def read(part, _all, _epics), do: part
+  def read(part, _all, _lanes), do: part
 
   @spec merge(map(), term()) :: map()
   def merge(all, %{rows: rows, aliases: aliases}) do

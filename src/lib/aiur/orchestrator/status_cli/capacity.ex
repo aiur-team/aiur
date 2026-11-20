@@ -18,9 +18,24 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
     binding = capacity_binding(capacity, polling)
     resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
     IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
+    print_envelope_status(capacity)
   end
 
   def print_capacity_status(_capacity, _polling), do: :ok
+
+  defp print_envelope_status(%{envelope_last_change_reason: reason, envelope_hold_reason: hold} = capacity) when is_binary(hold) do
+    changed = envelope_change_age(capacity[:envelope_last_change_at_ms])
+    IO.puts("AIMD envelope=#{capacity[:effective]} last_change=#{changed} reason=#{reason || "unchanged"} holding=#{hold}")
+  end
+
+  defp print_envelope_status(_capacity), do: :ok
+
+  defp envelope_change_age(timestamp) when is_integer(timestamp) do
+    age = max(div(System.monotonic_time(:millisecond) - timestamp, 1_000), 0)
+    "#{age}s ago"
+  end
+
+  defp envelope_change_age(_timestamp), do: "unknown"
 
   @doc false
   @spec local_load_sample() :: term()
@@ -97,6 +112,9 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
 
   defp admission_detail(%{signal: :cpu_pressure, measured: pressure, threshold: threshold}),
     do: "CPU PSI some avg60=#{pressure}% threshold=#{threshold}%"
+
+  defp admission_detail(%{signal: :disk, measured: used, threshold: threshold, detail: detail}),
+    do: "disk used=#{used}% threshold=#{threshold}% #{detail}"
 
   defp admission_detail(%{signal: :memory, measured: memory, threshold: threshold}),
     do: "free memory=#{memory}MB threshold=#{threshold}MB"

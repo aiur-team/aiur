@@ -43,12 +43,16 @@ defmodule VoiceConverse.ProvidersTest do
   end
 
   test "text_only policy falls back to text_only" do
-    config = config(%{anthropic: "anthropic-secret"}, preference: [:openai_live], on_missing_credential: :text_only)
+    config =
+      config(%{anthropic: "anthropic-secret"},
+        preference: [:openai_live, :text_only],
+        on_missing_credential: :text_only
+      )
 
     assert {:ok, %{id: :text_only}, skipped: [{:openai_live, {:missing_credential, :openai}}]} =
              Providers.resolve(config)
 
-    missing_key_config = config(%{}, preference: [:openai_live], on_missing_credential: :text_only)
+    missing_key_config = config(%{}, preference: [:openai_live, :text_only], on_missing_credential: :text_only)
 
     assert {:error, :no_usable_option, skipped} = Providers.resolve(missing_key_config)
     assert {:text_only, {:missing_credential, :anthropic}} in skipped

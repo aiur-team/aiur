@@ -7,7 +7,7 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   @files ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24)
   # In-memory scale sets derived from dense (MP-E8-C12-T06); no committed 10,000-row file.
-  @scaled ~w(scale10k nq300 nq1000 agents20)
+  @scaled ~w(scale10k nq300 nq1000 agents20 crowded)
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   def datasets, do: @files ++ @scaled ++ ~w(degraded unavailable hold unfiled unfiled_unavailable)
@@ -21,8 +21,9 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
   def read(financial, _opts \\ [])
   def read(:locked, _opts), do: Read.locked_usage()
 
-  def read({:ok, _context}, _opts) do
-    result = if dataset([]) in (@files ++ @scaled ++ ~w(degraded unfiled unfiled_unavailable)), do: full([]), else: {:error, :fixture_unavailable}
+  def read({:ok, _context}, opts) do
+    dataset = Keyword.get(opts, :dataset, Application.get_env(:aiur, :build_fixture_dataset, "live"))
+    result = if dataset in (@files ++ @scaled ++ ~w(degraded unfiled unfiled_unavailable)), do: full(Keyword.put(opts, :dataset, dataset)), else: {:error, :fixture_unavailable}
 
     case result do
       {:ok, data} -> data["usage"]
@@ -135,7 +136,9 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
     with {:ok, body} <- File.read(path), {:ok, json} <- Jason.decode(body) do
       data = if(dataset == "hostile", do: json["snapshot"], else: json)
-      {:ok, Map.put_new(data, "feature_progress", %{"features" => %{}, "observed_at" => nil, "plan_version" => nil, "extras" => 0, "reason" => nil})}
+      data = Map.put_new(data, "feature_progress", %{"features" => %{}, "observed_at" => nil, "plan_version" => nil, "extras" => 0, "reason" => nil})
+      data = Map.put_new(data, "lane_progress", unknown_lane_progress(data))
+      {:ok, Map.put_new(data, "lane_progress_meta", %{"unmatched" => nil, "observed_at" => nil, "reason" => "fixture membership unavailable"})}
     else
       _error -> {:error, {:fixture_missing, path}}
     end
@@ -159,10 +162,20 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
 
   defp load(_dataset, _dir), do: {:error, :unknown_dataset}
 
+  defp unknown_lane_progress(data) do
+    Map.new(data["lanes"] || %{}, fn {key, lane} ->
+      value = if lane["general"], do: %{"closed" => nil, "open" => nil, "total" => nil, "observed_at" => nil, "reason" => "fixture counts unavailable"}, else: nil
+      {key, value}
+    end)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
   defp scale("scale10k", dense), do: Scale.dataset(dense, 10_000)
   defp scale("nq300", dense), do: Scale.with_nq(dense, 300)
   defp scale("nq1000", dense), do: Scale.with_nq(dense, 1_000)
   defp scale("agents20", dense), do: dense |> Scale.dataset(10_000) |> Scale.with_active(20)
+  defp scale("crowded", dense), do: Scale.crowded(dense)
 
   defp page(data, before, zone, days, opts) do
     rows = data["sections"]["hist"]

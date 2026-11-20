@@ -4,6 +4,11 @@ if [ "$agent_guard" -eq 1 ] && merge_or_approve_command "$@"; then
   exit 77
 fi
 
+if [ "$agent_guard" -eq 1 ] && state_label_write "$@"; then
+  printf '%s\n' 'aiur: agents cannot write agent:ci-wait or agent:human-review labels; use aiur_set_ticket_state, which checks the PR body' >&2
+  exit 77
+fi
+
 if update_branch_handoff "$@"; then exit 77; fi
 
 if [ "$agent_guard" -eq 1 ] && undecidable_agent_command "$@"; then

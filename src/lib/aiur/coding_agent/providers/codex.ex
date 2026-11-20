@@ -27,6 +27,9 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       can_interrupt: true,
       safe_checkpoints: [:notification, :tool_result],
       control_application_confirmation: :confirmed,
+      # A daemon restart hands this app-server's live provider process to the
+      # successor daemon over its relay port. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :relay,
       remote_control: false,
       # The codex app-server can rejoin a prior thread across an aiur restart
       # via `thread/resume` against its on-disk rollout, so a respawned

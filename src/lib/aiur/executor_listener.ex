@@ -15,6 +15,7 @@ defmodule Aiur.ExecutorListener do
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
+  alias Aiur.Gateway.Identity
   alias Aiur.Signal
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
@@ -73,6 +74,7 @@ defmodule Aiur.ExecutorListener do
       health: current_health,
       inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox),
       decision_store: Keyword.get(opts, :decision_store, Aiur.Commands.default_store()),
+      feature_lookup: Keyword.get(opts, :feature_lookup),
       escalation_interval_ms: Keyword.get(opts, :escalation_interval_ms, @escalation_interval_ms),
       escalation_opts: escalation_opts(Keyword.get(opts, :escalation, []), Keyword.get(opts, :inbox, ExecutorWakeInbox)),
       escalations: %{}
@@ -80,7 +82,7 @@ defmodule Aiur.ExecutorListener do
 
     state =
       if "executor.#" in patterns and bound?("executor.#") do
-        replay_and_deliver("executor.#", state)
+        replay_and_deliver(state)
       else
         state
       end
@@ -103,7 +105,7 @@ defmodule Aiur.ExecutorListener do
 
     state =
       if (executor_missing? or state.delivery_failed?) and "executor.#" in state.patterns and bound?("executor.#") do
-        replay_and_deliver("executor.#", %{state | watermark: read_watermark()})
+        replay_and_deliver(%{state | watermark: read_watermark()})
       else
         state
       end
@@ -169,8 +171,8 @@ defmodule Aiur.ExecutorListener do
   # Replay threads the caller's state through every event and returns it, so a
   # watermark advanced during replay survives (#2039). Folding over a throwaway
   # state instead would re-deliver the whole replayed range on the next restart.
-  defp replay_and_deliver(pattern, state) do
-    case ExecutorEvents.replay([pattern], state.watermark) do
+  defp replay_and_deliver(state) do
+    case ExecutorEvents.replay(Enum.filter(["executor.#", "system.newsletter.ready"], &(&1 in state.patterns)), state.watermark) do
       {:ok, events} ->
         Enum.reduce_while(events, %{state | delivery_failed?: false}, &replay_event/2)
 
@@ -188,9 +190,9 @@ defmodule Aiur.ExecutorListener do
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        :ok = deliver(event, state.inbox, state.decision_store)
+        :ok = deliver(event, state)
 
-        if executor_topic?(event) do
+        if journaled_topic?(event) do
           :ok = advance_watermark(event_id(event))
           %{state | watermark: event_id(event)}
         else
@@ -199,11 +201,11 @@ defmodule Aiur.ExecutorListener do
       rescue
         error ->
           log_delivery_failure(event, error)
-          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
+          %{state | delivery_failed?: state.delivery_failed? or journaled_topic?(event)}
       catch
         kind, reason ->
           log_delivery_failure(event, {kind, reason})
-          %{state | delivery_failed?: state.delivery_failed? or executor_topic?(event)}
+          %{state | delivery_failed?: state.delivery_failed? or journaled_topic?(event)}
       end
     else
       state
@@ -214,20 +216,20 @@ defmodule Aiur.ExecutorListener do
     case {event_topic(event), event_id(event)} do
       {topic, id} when is_binary(topic) and is_integer(id) ->
         Enum.any?(state.patterns, &Events.matches?(&1, topic)) and
-          (not String.starts_with?(topic, "executor.") or (not state.delivery_failed? and id > (state.watermark || 0)))
+          (not ExecutorEvents.journaled_topic?(topic) or (not state.delivery_failed? and id > (state.watermark || 0)))
 
       _ ->
         false
     end
   end
 
-  defp deliver(event, inbox, store) do
+  defp deliver(event, %{inbox: inbox} = state) do
     cond do
-      executor_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
+      journaled_topic?(event) and Aiur.Instance.skip?(value(event, :issue_identifier), nil, :executor_event) ->
         :ok
 
-      executor_topic?(event) ->
-        deliver_executor_event(event, inbox, store)
+      journaled_topic?(event) ->
+        deliver_executor_event(event, inbox, state)
 
       true ->
         case ExecutorWakeProjection.project(event) do
@@ -237,23 +239,40 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver_executor_event(%{topic: "executor.decision.answered"} = event, inbox, store),
-    do: deliver_answer(event, inbox, store)
+  defp deliver_executor_event(%{topic: "executor.decision.answered"} = event, inbox, state),
+    do: deliver_answer(event, inbox, state)
 
-  defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, store),
-    do: deliver_answer(event, inbox, store)
+  defp deliver_executor_event(%{"topic" => "executor.decision.answered"} = event, inbox, state),
+    do: deliver_answer(event, inbox, state)
 
-  defp deliver_executor_event(event, inbox, _store) do
+  defp deliver_executor_event(%{topic: "executor.voice.session_ended"} = event, inbox, _state),
+    do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(%{"topic" => "executor.voice.session_ended"} = event, inbox, _state),
+    do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(%{topic: "system.newsletter.ready"} = event, inbox, _state), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "system.newsletter.ready"} = event, inbox, _state), do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(%{topic: "executor.newsletter.failed"} = event, inbox, _state), do: deliver_projection(event, inbox)
+  defp deliver_executor_event(%{"topic" => "executor.newsletter.failed"} = event, inbox, _state), do: deliver_projection(event, inbox)
+
+  defp deliver_executor_event(event, inbox, _state) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
     if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
     wake_blocking_decision(event, inbox)
   end
 
-  defp deliver_answer(event, inbox, store) do
+  defp deliver_projection(event, inbox) do
+    {:ok, record} = ExecutorWakeProjection.project(event)
+    enqueue_wake(record, inbox)
+  end
+
+  defp deliver_answer(event, inbox, %{decision_store: store} = state) do
     result =
       with {:ok, record} <- ExecutorWakeProjection.project(event),
            {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
-        deliver_current_answer(record, decision, inbox, store)
+        deliver_current_answer(record, decision, inbox, state)
       end
 
     case result do
@@ -264,7 +283,7 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver_current_answer(record, decision, inbox, store) do
+  defp deliver_current_answer(record, decision, inbox, state) do
     cond do
       not match?(%{kind: :executor}, decision.requester) ->
         skip_answer(record, :requester_notification_mismatch)
@@ -273,7 +292,9 @@ defmodule Aiur.ExecutorListener do
         :ok
 
       true ->
-        enqueue_answer(record, decision.active_action_id, inbox, store)
+        record
+        |> ExecutorWakeProjection.with_answer(decision, state.feature_lookup)
+        |> enqueue_answer(decision.active_action_id, inbox, state.decision_store)
     end
   end
 
@@ -282,8 +303,10 @@ defmodule Aiur.ExecutorListener do
     :ok
   end
 
+  # The answer goes to the Executor that asked, on this instance, even when its
+  # ticket belongs to another instance: skipping would mark it notified unseen.
   defp enqueue_answer(record, action_id, inbox, store) do
-    with :ok <- enqueue_wake(record, inbox),
+    with :ok <- ExecutorWakeInbox.enqueue(stamp_gateway(record), inbox),
          {:ok, _result} <- Aiur.Commands.requester_notified(record["decision_id"], action_id, server: store) do
       :ok
     end
@@ -291,7 +314,13 @@ defmodule Aiur.ExecutorListener do
 
   # Another instance's ticket wakes that instance's Executor, not this one (#5803).
   defp enqueue_wake(record, inbox) do
-    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(record, inbox)
+    if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(stamp_gateway(record), inbox)
+  end
+
+  # Every wake names the gateway whose daemon observed it; nil when the identity is unavailable (MPG-502).
+  defp stamp_gateway(record) do
+    %{gateway_id: id, gateway_label: label} = Identity.current()
+    Map.merge(record, %{"gateway_id" => id, "gateway_label" => label})
   end
 
   # A structured Decision reaches the Executor only as `executor.decision.requested`,
@@ -407,7 +436,7 @@ defmodule Aiur.ExecutorListener do
 
   defp event_topic(event), do: value(event, :topic)
   defp event_id(event), do: value(event, :id)
-  defp executor_topic?(event), do: is_binary(event_topic(event)) and String.starts_with?(event_topic(event), "executor.")
+  defp journaled_topic?(event), do: is_binary(event_topic(event)) and ExecutorEvents.journaled_topic?(event_topic(event))
   defp command_topic?(event), do: event_topic(event) in @command_topics
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 

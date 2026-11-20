@@ -352,7 +352,7 @@ run_control_rpc_dispatch() {
     fi
 
     set +e
-    run_release_rpc_with_timeout "$expression"
+    run_release_rpc_with_timeout "$(aiur_project_local_expr "$expression")"
     status=$?
     output="$AIUR_CONTROL_RPC_OUTPUT"
     set -e

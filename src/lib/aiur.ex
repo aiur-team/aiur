@@ -7,7 +7,7 @@ defmodule Aiur do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    Aiur.Orchestrator.start_link(Keyword.put_new(opts, :name, Aiur.Orchestrator))
+    Aiur.Orchestrator.start_link(Keyword.put_new(opts, :name, Aiur.Project.via(Aiur.Orchestrator)))
   end
 end
 
@@ -21,6 +21,7 @@ defmodule Aiur.Application do
   require Logger
 
   alias Aiur.AgentGitHubGuard
+  alias Aiur.Application.Children
   alias Aiur.Application.StartupChecks
   alias Aiur.GitHub.{Access, Config}
   alias Aiur.Identity.Machine
@@ -29,6 +30,10 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    # Before any child starts, so a runaway process is killed and named, not the whole BEAM (#7882).
+    :ok = Aiur.MemoryWatchdog.cap_process_heap()
+    # The gateway summary (identity layer) reads this; it cannot name Children, which sits above it.
+    Application.put_env(:aiur, :gateway_summary_metadata, &Children.heartbeat_metadata/0)
     # Absolute times render in the viewer's timezone via `DateTime.shift_zone!`,
     # which needs a timezone database installed. `:tz` ships one.
     :ok = Calendar.put_time_zone_database(Tz.TimeZoneDatabase)

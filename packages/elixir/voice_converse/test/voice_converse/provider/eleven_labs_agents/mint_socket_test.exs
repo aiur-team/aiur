@@ -40,6 +40,29 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocketTest do
     send(server, :finish)
   end
 
+  test "routes real websocket frames through the OpenAI transport message tag" do
+    {listener, port} = listen()
+    test_pid = self()
+
+    server =
+      spawn(fn ->
+        socket = accept_upgrade(listener)
+        _frame = recv_client_frame(socket)
+        :ok = :gen_tcp.send(socket, server_frame(1, "openai-reply"))
+        send(test_pid, :reply_sent)
+        receive(do: (:finish -> :gen_tcp.close(socket)))
+      end)
+
+    {:ok, socket} =
+      MintSocket.start(self(), "ws://127.0.0.1:#{port}/realtime", [], message_tag: :openai_realtime_transport)
+
+    assert :ok = MintSocket.send_text(socket, "session.update")
+    assert_receive :reply_sent
+    assert_receive {:openai_realtime_transport, :text, "openai-reply"}
+    assert :ok = MintSocket.close(socket)
+    send(server, :finish)
+  end
+
   test "reports a non-101 upgrade as a transport error" do
     {listener, port} = listen()
 

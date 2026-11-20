@@ -4,23 +4,13 @@ defmodule Aiur.AgentRunner.AsyncMessagePromptTest do
   alias Aiur.AgentRunner.TurnPrompt
   alias Aiur.Issue
 
-  setup do
-    previous = Application.fetch_env(:aiur, :listener_send_routing)
-    Application.put_env(:aiur, :listener_send_routing, :listener)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:aiur, :listener_send_routing, value)
-        :error -> Application.delete_env(:aiur, :listener_send_routing)
-      end
-    end)
-  end
-
   test "async effective mode adds read guidance with unread count on every turn path" do
     for {turn, opts} <- [{1, []}, {1, [resumed: true]}, {1, [prior_work: true]}, {2, []}] do
       prompt = prompt({:ok, %{effective: :async, unread_count: 3}}, turn, opts)
       assert prompt =~ "Messages from the operator are held rather than shown automatically."
-      assert prompt =~ "Call `aiur_read_messages` at natural pauses and before finishing. 3 unread"
+      assert prompt =~ "Call `aiur_read_messages` at natural pauses and before finishing."
+      assert prompt =~ "3 unread"
+      assert prompt =~ "Before concluding that no further work remains or handing back, read and act on every pending operator message."
     end
   end
 
@@ -47,12 +37,6 @@ defmodule Aiur.AgentRunner.AsyncMessagePromptTest do
     assert prompt({:ok, %{effective: :async, unread_count: 2}}) =~ "2 unread"
     assert prompt({:ok, %{effective: :async, unread_count: 1}}, 2) =~ "1 unread"
     refute prompt({:ok, %{effective: :sync, unread_count: 1}}, 3) =~ "aiur_read_messages"
-  end
-
-  test "legacy routing never reads context or adds guidance" do
-    Application.put_env(:aiur, :listener_send_routing, :legacy)
-    opts = [spec_status: :ok, listener_prompt_reader: fn _ -> flunk("legacy prompt read listener context") end]
-    refute TurnPrompt.build_turn_prompt(issue(), opts, 2, nil) =~ "aiur_read_messages"
   end
 
   defp prompt(result, turn \\ 1, opts \\ []) do

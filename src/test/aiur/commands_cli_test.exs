@@ -46,7 +46,7 @@ defmodule Aiur.CommandsCLITest do
     assert envelope["schema_version"] == 1
     assert envelope["page"] == "commands"
     assert envelope["snapshot"]["captured_at"] == "2026-08-08T12:00:00Z"
-    assert envelope["request"]["filter"] == "all"
+    assert envelope["request"]["filter"] == "open"
 
     assert envelope["sources"]["decision_page"] == %{
              "age_ms" => nil,
@@ -186,6 +186,27 @@ defmodule Aiur.CommandsCLITest do
     assert Jason.decode!(output)["data"]["selected"]["decision_id"] == decision.decision_id
   end
 
+  test "human detail displays status, delivery, recommendation, and full context", %{store: store} do
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          question: "Choose a deployment window?",
+          blocking: true,
+          context: %{short_summary: "Release coordination", long_context_markdown: "Release is reversible and rollback is available."},
+          recommendation: %{option_id: "morning", reason: "More staff are available."},
+          options: [%{id: "morning", label: "Morning"}]
+        },
+        [ticket: @ticket, source: @source],
+        store
+      )
+
+    output = capture_io(fn -> assert CommandsCLI.run(decision_id: decision.decision_id, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end) == 0 end)
+
+    assert output =~ "status open · delivery not_dispatched"
+    assert output =~ "Recommendation: morning: More staff are available."
+    assert output =~ "Release is reversible and rollback is available."
+  end
+
   test "rejects page-incompatible query combinations", %{store: store} do
     assert {:error, message} = CommandsCLI.build(filter: :open, ticket: "1592", decision_store: store)
     assert message =~ "only supports --ticket"
@@ -283,6 +304,46 @@ defmodule Aiur.CommandsCLITest do
     refute row["decision_id"] == worker.decision_id
     assert envelope["data"]["page"]["requester_page"] == %{"count" => 1, "partial?" => false}
     assert envelope["data"]["page"]["pagination"]["total"] == nil
+  end
+
+  test "bare commands keeps open work visible and excludes answered history", %{store: store} do
+    open = request!(store, "default-open", true)
+    historic = request!(store, "default-historic", false)
+
+    assert {:ok, _} =
+             DecisionStore.answer(
+               historic.decision_id,
+               %{"idempotency_key" => "default-historic-answer", "expected_version" => 1, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "operator"}, now: ~U[2026-08-08 11:00:00Z]],
+               store
+             )
+
+    opts = [decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: ~U[2026-08-08 12:00:00Z]]
+    assert {:ok, default} = CommandsCLI.build(opts)
+    assert [row] = default["data"]["page"]["decisions"]
+    assert row["decision_id"] == open.decision_id
+
+    assert {:ok, all} = CommandsCLI.build([filter: :all] ++ opts)
+    assert Enum.sort(Enum.map(all["data"]["page"]["decisions"], & &1["decision_id"])) == Enum.sort([open.decision_id, historic.decision_id])
+  end
+
+  test "all includes open and historic Commands and can narrow historic rows by ticket or search", %{store: store} do
+    open = request!(store, "still-open", false)
+    historic = request!(store, "historic-release", false)
+
+    assert {:ok, _} =
+             DecisionStore.answer(historic.decision_id, %{"idempotency_key" => "historic-answer", "expected_version" => 1, "option_id" => "ship"}, [actor: %{kind: :operator, id: "operator"}], store)
+
+    opts = [filter: :all, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end]
+
+    for selection <- [[], [ticket: "1592"]] do
+      assert {:ok, envelope} = CommandsCLI.build(opts ++ selection)
+      assert Enum.sort(Enum.map(envelope["data"]["page"]["decisions"], & &1["decision_id"])) == Enum.sort([open.decision_id, historic.decision_id])
+    end
+
+    assert {:ok, envelope} = CommandsCLI.build(opts ++ [search: historic.decision_id])
+    assert [row] = envelope["data"]["page"]["decisions"]
+    assert row["decision_id"] == historic.decision_id
   end
 
   defp request!(store, source_id, blocking, extra \\ []) do

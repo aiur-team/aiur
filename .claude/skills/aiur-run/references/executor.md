@@ -83,13 +83,14 @@ Classify every discovered finding before creating work:
 
 ## Continuous-build intake
 
-Every authorized new feature, epic, bug batch, or experiment joins the repository's
+Every authorized new feature, epic, feature-scoped bug batch, or experiment joins the repository's
 single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
 for feature collection and `feature:<slug>` labels,
 native `blocked_by` links where real, queue membership, and placement read-back.
 New features never create standalone Build Order roots; existing roots remain history.
-Only an explicit operator exclusion leaves filed work outside the build: park it
-with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+Non-feature findings start with `needs-triage` and the instance's parked label;
+follow the intake rule's main-fix or named-PR promotion exception. Explicit
+operator exclusions also stay parked with their reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
 “Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
@@ -97,7 +98,7 @@ in the ledger under the convergence policy above.
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
 
-**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by epic. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
+**Give every new ticket a home-page lane.** After issue creation returns its number, run `aiur lane list` for the configured keys, then `aiur lane set <lane> <ids…>` once per lane (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Lane assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by lane. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
@@ -216,6 +217,15 @@ every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
 Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
+
+An `agent.handoff.human_review` wake is a historical observation, not proof of
+the ticket's current state. Before delivery, Aiur checks its latest GitHub issue
+projection and discards the wake when the ticket is closed or
+`agent:human-review` is no longer its sole agent state. If the projection is
+unavailable, Aiur delivers the wake so a real handback is not lost; re-fetch
+the issue labels before acting and skip any relabel if the ticket has moved on.
+Wake records may include `observed_state` and `observed_updated_at` as emission
+context; they do not replace the current-state check.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`

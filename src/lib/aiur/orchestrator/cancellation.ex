@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.Cancellation do
   @type result :: Observation.result()
 
   @spec cancel_agent(String.t()) :: {:ok, result()} | {:error, term()}
-  def cancel_agent(identifier), do: cancel_agent(Aiur.Orchestrator, identifier)
+  def cancel_agent(identifier), do: cancel_agent(Aiur.Project.whereis(Aiur.Orchestrator), identifier)
 
   @spec cancel_agent(GenServer.server(), String.t()) :: {:ok, result()} | {:error, term()}
   defdelegate cancel_agent(server, identifier), to: Client

@@ -33,26 +33,27 @@ defmodule Aiur.Instance.LeaderFenceTest do
     suffix = System.unique_integer([:positive])
     supervisor = Module.concat(__MODULE__, "Services#{suffix}")
     leader = Module.concat(__MODULE__, "Leader#{suffix}")
-    {:ok, dynamic} = DynamicSupervisor.start_link(strategy: :one_for_one, name: supervisor)
-    on_exit(fn -> safe_stop(dynamic) end)
+    start_supervised!({DynamicSupervisor, strategy: :one_for_one, name: supervisor})
 
-    {:ok, election} = Agent.start_link(fn -> %{claim: :acquired, renew: :ok} end)
-    on_exit(fn -> safe_stop(election) end)
+    election = start_supervised!({Agent, fn -> %{claim: :acquired, renew: :ok} end})
 
-    {:ok, pid} =
-      RepositoryLeader.start_link(
-        name: leader,
-        role: "primary",
-        repository: "owner/repo",
-        services: [__MODULE__.TestService],
-        supervisor: supervisor,
-        interval_ms: 60_000,
-        store_configured_fun: fn -> true end,
-        claim_fun: fn _, _ -> Agent.get(election, & &1.claim) end,
-        renew_fun: fn _, _ -> Agent.get(election, & &1.renew) end
+    pid =
+      start_supervised!(
+        {RepositoryLeader,
+         [
+           name: leader,
+           role: "primary",
+           repository: "owner/repo",
+           services: [__MODULE__.TestService],
+           supervisor: supervisor,
+           interval_ms: 60_000,
+           store_configured_fun: fn -> true end,
+           claim_fun: fn _, _ -> Agent.get(election, & &1.claim) end,
+           renew_fun: fn _, _ -> Agent.get(election, & &1.renew) end
+         ]},
+        id: leader
       )
 
-    on_exit(fn -> safe_stop(pid) end)
     :sys.get_state(leader)
     assert length(DynamicSupervisor.which_children(supervisor)) == 1
 
@@ -65,12 +66,6 @@ defmodule Aiur.Instance.LeaderFenceTest do
     send(pid, :elect)
     :sys.get_state(leader)
     assert length(DynamicSupervisor.which_children(supervisor)) == 1
-  end
-
-  defp safe_stop(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
   end
 
   defmodule TestService do

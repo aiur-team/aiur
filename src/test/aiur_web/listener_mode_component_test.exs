@@ -14,6 +14,22 @@ defmodule AiurWeb.ListenerModeComponentTest do
 
   defp render_badge(listener), do: render_component(&ListenerMode.listener_badge/1, listener: listener)
 
+  test "conversation drawer retains canonical selector copy and unread age after Units retirement" do
+    now = DateTime.utc_now()
+    listener = view(%{requested: :async, effective: :async, unread_count: 2, oldest_unread_at: DateTime.add(now, -120)})
+
+    for writable <- [false, true] do
+      html = render_mode(listener, writable: writable, now: now)
+      tree = Floki.parse_document!(html)
+      assert Floki.find(tree, "select option") |> Enum.map(&Floki.text/1) == ["Steer · interrupts", "Sync · next turn", "Async · pings only", "Mute · silent"]
+      assert Floki.attribute(tree, "select option[selected]", "value") == ["async"]
+      assert Floki.attribute(tree, "[data-requested-mode]", "data-requested-mode") == ["async"]
+      assert Floki.attribute(tree, "[data-unread-count]", "data-unread-count") == ["2"]
+      assert Floki.text(Floki.find(tree, "[data-unread-count]")) =~ "Unread 2 · oldest 120s ago"
+      assert Floki.find(tree, "select[disabled]") == [] == writable
+    end
+  end
+
   test "unavailable and loading never invent a sync mode" do
     for state <- [:unavailable, :loading] do
       html = render_mode(state)
@@ -34,9 +50,17 @@ defmodule AiurWeb.ListenerModeComponentTest do
     assert read_only =~ "disabled"
   end
 
-  test "legacy routing hides the selector" do
-    html = render_mode(view(%{routing: :legacy}))
-    assert html =~ "Legacy routing"
+  test "mute is selectable and the selected value and badge use canonical silent copy" do
+    assert :mute in ListenerMode.modes()
+    html = render_mode(view(%{requested: :mute, effective: :mute}))
+    assert html =~ ~s(value="mute" selected)
+    assert html =~ ~s(data-requested-mode="mute">Requested: Mute · silent)
+    assert render_badge(view(%{requested: :mute})) =~ ~s(data-requested-mode="mute">Mute · silent)
+  end
+
+  test "unavailable routing hides the selector" do
+    html = render_mode(view(%{routing: :unavailable}))
+    assert html =~ "Listener routing unavailable"
     refute html =~ "<select"
   end
 
@@ -54,20 +78,20 @@ defmodule AiurWeb.ListenerModeComponentTest do
   end
 
   test "row badges omit detail, live regions and unsupported routing" do
-    for listener <- [:unavailable, :loading, %{}, view(%{routing: :legacy})] do
+    for listener <- [:unavailable, :loading, %{}, view(%{routing: :unavailable})] do
       assert String.trim(render_badge(listener)) == ""
     end
 
     html = render_badge(view(%{requested: :async, unread_count: 2}))
     assert html =~ ~s(class="u-pill u-listener")
-    assert html =~ ~s(data-requested-mode="async">Async</span>)
+    assert html =~ ~s(data-requested-mode="async">Async · pings only</span>)
     assert html =~ ~s(data-unread-count="2")
     assert html =~ "Unread 2"
     refute html =~ "role="
     refute html =~ "Observed"
     refute html =~ "Effective"
     refute html =~ "oldest"
-    refute html =~ "on demand"
+    refute html =~ "Async · on demand"
     refute html =~ "<select"
   end
 

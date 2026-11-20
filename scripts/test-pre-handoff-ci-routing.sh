@@ -14,13 +14,14 @@ cat > "$fixture/scripts/run-pre-handoff-code-checks.sh" <<'CHECKS'
 echo "selected tests ran for $*" >> "$EVENT_LOG"
 CHECKS
 chmod +x "$fixture/scripts/run-pre-handoff-code-checks.sh"
-for guard in check-agent-scratch.py check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
+for guard in check-agent-scratch.py check-on-exit-rm-rf.py check-on-exit-alive-stop.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
   case "$guard" in
     *.py) printf '#!/usr/bin/env python3\nraise SystemExit(0)\n' > "$fixture/scripts/$guard" ;;
     *.mjs) printf 'process.exit(0)\n' > "$fixture/scripts/$guard" ;;
   esac
   chmod +x "$fixture/scripts/$guard"
 done
+test -f "$fixture/scripts/check-on-exit-alive-stop.py"
 printf 'exit(0)\n' > "$fixture/scripts/check-config-docs.py"
 printf 'process.exit(0)\n' > "$fixture/scripts/check-docs-prose.mjs"
 base="$(printf 'a%.0s' {1..40})"

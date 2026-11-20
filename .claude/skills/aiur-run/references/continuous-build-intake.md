@@ -8,9 +8,30 @@ Keep the collection's finite acceptance boundary and research/design evidence.
 1. Read `aiur queue show --json` and `aiur queue order`. Capture the previous
    next-up ticket, queue, rank, holds, and start trigger before any writes.
    Inspect existing features and tickets for ownership and real prerequisites.
+   **Ask where the new work goes.** When the operator gives new feature scope and
+   has not said where it belongs, ask before you enqueue. Do not default to the
+   end of the queue. Use the blocking question tool (`AskUserQuestion`). The
+   question shows the current build queue in order, one line per set or feature:
+   its name, percent done and current next-up ticket. Each option reads
+   "Before <set>", with the recommended position first, plus "At the end". The
+   operator should be able to answer with a single choice. Record the answer in
+   the handoff and apply it in step 7. Do not ask again when the request already
+   names a position ("prioritize", "after X", "at the end").
 2. Choose a new feature slug and create its collection with
    `aiur feature create <slug> --label "<display label>"`. New work in an existing
    feature uses that collection. Never create a standalone Build Order root.
+   An epic holds features, a feature holds tickets, and a lane is the technical
+   column a ticket belongs to. For build-order publication, issue titles stay
+   plain; plan IDs belong in the body and receipt. Register the pack's epic
+   (`bo-<root number>`), put each product capability inside it as a feature,
+   give each feature its planned lanes, and assign each issue to the lane its
+   workstream names. Set each lane's icon with `aiur feature edit <slug>
+   --lane-icon <lane-key>=<heroicon>`; use distinct, non-default icons. Each
+   lane also gets its own colour. Once #7447 lands, Aiur assigns lane colours;
+   operators do not set them by hand. A build order's `product_features`
+   list defines one collection per product group; its ticket IDs must partition
+   all published members exactly once. Lanes stay lane assignments on each
+   product feature.
 3. Ensure the `feature:<slug>` GitHub label exists, then create each issue with
    that label, complexity, priority, and disposition in the same request.
    With the queue enabled, use `agent:queued` for new members so incomplete
@@ -53,6 +74,16 @@ Keep the collection's finite acceptance boundary and research/design evidence.
 Planning-only work records these proposed mutations and hands them to the
 Executor. It must not claim that draft tickets have joined the live queue.
 Historical Build Order roots stay readable; a new collection needs no root.
+
+## Non-feature findings
+
+File new non-feature fixes and flakes with `needs-triage` and the instance's
+parked label (`agent:parked`, or `nuc:parked` on NUC), without a dispatch state.
+This applies to Executor findings as well as agent and flake-recorder intake.
+Do not add a feature label merely to bypass triage. Promote only main-fix work
+or a finding that blocks a named PR from merging; write the reason and the PR
+number (when applicable) in the promotion comment. Verify the labels afterward.
+Automatic quarantine PRs continue independently of the parked fix ticket.
 
 ## Filing safeguards
 

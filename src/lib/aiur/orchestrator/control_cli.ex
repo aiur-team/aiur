@@ -2,6 +2,8 @@ defmodule Aiur.Orchestrator.ControlCLI do
   @moduledoc false
   alias Aiur.{AgentChat, Orchestrator, PauseContainment}
   alias Aiur.ControlCLI.Reasons
+  alias Aiur.Gateway
+  alias Aiur.Project.Registry
   import Aiur.Orchestrator.ControlCLI.Resume, only: [resolve_queued_resumes: 1]
   import Aiur.ControlCLI.Protocol
   import Aiur.Orchestrator.ControlCLI.Output
@@ -49,7 +51,7 @@ defmodule Aiur.Orchestrator.ControlCLI do
   # synchronous call will queue behind it. The note rides the RPC stdout the
   # launcher prints, so the operator sees why the command has not returned.
   defp announce_if_orchestrator_busy do
-    with pid when is_pid(pid) <- Process.whereis(Orchestrator),
+    with pid when is_pid(pid) <- GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)),
          {:message_queue_len, depth} when is_integer(depth) <- Process.info(pid, :message_queue_len),
          true <- depth > orchestrator_busy_mailbox_threshold() do
       IO.puts("aiur: waiting for the orchestrator to become available (it is busy; mailbox=#{depth})…")
@@ -118,8 +120,19 @@ defmodule Aiur.Orchestrator.ControlCLI do
   end
 
   defp set_global_pause_result(on?, verb) do
-    source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
+    if not on? and fleet_only_pause?() do
+      control_error("aiur: paused by the fleet pause, not a local one; run `aiur resume --all-gateways`")
+      exit_marker(1)
+    else
+      set_global_pause_result(on?, verb, if(on?, do: "CLI `pause`", else: "CLI `resume`"))
+    end
+  end
 
+  defp fleet_only_pause? do
+    match?({:ok, %{fleet_paused: true, pause_scope: :fleet}}, Orchestrator.global_pause_status())
+  end
+
+  defp set_global_pause_result(on?, verb, source) do
     case set_global_pause_call(on?, source) do
       {:ok, %{globally_paused: paused}} ->
         IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — new starts resume"}")
@@ -133,7 +146,8 @@ defmodule Aiur.Orchestrator.ControlCLI do
   end
 
   defp set_global_pause_call(on?, source) do
-    Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, &Orchestrator.set_global_pause/2).(on?, source)
+    default = if Registry.project_ids() == [], do: &Orchestrator.set_global_pause/2, else: &Gateway.Pause.set/2
+    Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, default).(on?, source)
   end
 
   defp control(action, targets) when action in [:pause, :resume] do
@@ -233,7 +247,7 @@ defmodule Aiur.Orchestrator.ControlCLI do
   def confirmation_status_snapshot(timeout_ms) do
     case Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun) do
       nil -> fleet_status_snapshot(timeout_ms)
-      fun -> fun.(Orchestrator, timeout_ms)
+      fun -> fun.(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms)
     end
   end
 
@@ -270,7 +284,7 @@ defmodule Aiur.Orchestrator.ControlCLI do
   end
 
   defp control_fleet_view(timeout_ms, opts) do
-    case Orchestrator.fleet_view(Orchestrator, timeout_ms, opts) do
+    case Orchestrator.fleet_view(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms, opts) do
       {:ok, snapshot, _freshness} -> {:ok, snapshot}
       {:error, error} -> {:error, error}
     end

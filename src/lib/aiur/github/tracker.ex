@@ -82,16 +82,28 @@ defmodule Aiur.GitHub.Tracker do
   def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
 
   @impl Aiur.Tracker.IssueTracker
-  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
-  def issue_closure(issue_id, max_age_ms) do
-    with {:ok, body, _source} <- client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: "build_queue_observe") do
-      case body do
-        %{"state" => state, "state_reason" => reason} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
-          {:ok, %{open?: state == "open", state_reason: reason}}
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: Aiur.Tracker.ticket_pull_request_result()
+  defdelegate resolve_ticket_pull_request(issue_id, opts), to: Aiur.GitHub.ClosedTicketPullRequest, as: :read
 
-        _ ->
-          {:error, :invalid_issue_closure}
-      end
+  @impl Aiur.Tracker.IssueTracker
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms), do: issue_closure(issue_id, max_age_ms, "build_queue_observe")
+
+  @doc "Reads closure evidence attributed to `caller` in the GitHub cost ledger."
+  @spec issue_closure(String.t(), pos_integer(), String.t()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms, caller) do
+    case client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: caller) do
+      {:ok, %{"state" => state, "state_reason" => reason}, _source} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
+        {:ok, %{open?: state == "open", state_reason: reason}}
+
+      {:ok, _body, _source} ->
+        {:error, :invalid_issue_closure}
+
+      {:error, {:github, _class, %{status: status}}} when status in [404, 410] ->
+        {:error, :not_found}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -408,4 +420,13 @@ defmodule Aiur.GitHub.Tracker do
   defp client_module do
     Application.get_env(:aiur, :github_client_module, Client)
   end
+
+  @spec override_merge_head(map()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_merge_head(pr), to: Aiur.GitHub.OverrideMergeEvidence, as: :read
+
+  @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_pull_request(number), to: Aiur.GitHub.OverrideRecovery, as: :pull_request
+
+  @spec close_superseded_pull_request(pos_integer(), String.t()) :: :ok | {:error, term()}
+  defdelegate close_superseded_pull_request(number, successor), to: Aiur.GitHub.OverrideRecovery, as: :close
 end

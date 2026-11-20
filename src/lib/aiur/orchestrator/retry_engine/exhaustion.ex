@@ -84,6 +84,26 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     )
   end
 
+  @doc false
+  @spec start_mcp_socket_failure_state_write(State.t(), String.t(), String.t(), term(), keyword()) :: State.t()
+  def start_mcp_socket_failure_state_write(state, issue_id, identifier, _failure, opts \\ []) do
+    release = Map.get(state.released_claims, issue_id)
+    opts = Keyword.merge(exhausted_write_options(state, issue_id), opts)
+
+    TrackerTasks.run(
+      state,
+      {:mcp_socket_launch_failure, issue_id},
+      fn -> terminal_policy_state_writer(opts).(identifier, "error", terminal_policy_write_opts(opts)) end,
+      fn current, result ->
+        if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
+          maybe_mark_observed_error_alert(current, issue_id, result == :ok, :mcp_socket_launch_failure)
+        else
+          current
+        end
+      end
+    )
+  end
+
   defp exhausted_write_options(state, issue_id) do
     case Map.get(state.last_polled_issues, issue_id) do
       %Issue{state: issue_state} when is_binary(issue_state) -> [expected_state: issue_state]

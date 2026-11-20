@@ -194,15 +194,15 @@ for (const width of [390, 1280]) {
     await page.locator('.decision-card-head').first().click()
     await expect(page).toHaveURL(/\/commands$/)
 
-    for (const [route, label] of [
-      ['needs_you', 'Needs you'],
-      ['with_executor', 'With Executor'],
-      ['from_executor', 'From Executor'],
-      ['resolved', 'Resolved']
+    for (const [query, label] of [
+      ['route=needs_you', 'Needs you'],
+      ['route=with_executor', 'With Executor'],
+      ['route=from_executor', 'From Executor'],
+      ['filter=blocking', 'Blocking']
     ]) {
       const button = page.locator(`button[data-count-label="${label}"]`)
       await button.click()
-      await expect(page).toHaveURL(new RegExp(`route=${route}`))
+      await expect(page).toHaveURL(new RegExp(query))
       await expect(button).toHaveAttribute('aria-pressed', 'true')
       await assertNoDocumentOverflow(page)
     }

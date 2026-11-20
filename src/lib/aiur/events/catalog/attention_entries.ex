@@ -8,8 +8,12 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
   @alerts [
     # aiur/landing_watch/held_approval.ex
     {"ticket.*.agent.attention.approved_pr_not_armed_for_merge", "orchestration"},
+    # aiur/orchestrator/reconciler/reactivation.ex
+    {"ticket.*.agent.attention.before_run_resume_exhausted", "orchestration"},
     # aiur/orchestrator/retry_engine/hold_streak.ex
     {"ticket.*.agent.attention.budget-hold-persistent", "orchestration"},
+    # aiur/control_cli/pending_commands.ex
+    {"ticket.*.agent.attention.command_dropped", "control-cli"},
     # aiur/orchestrator/comment_wake/dispatch.ex
     {"ticket.*.agent.attention.comment_wake_dispatch_declined", "orchestration"},
     # aiur/orchestrator/comment_wake/idle_rework.ex
@@ -50,6 +54,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.landing_withdrawal_failed", "orchestration"},
     # aiur/orchestrator/dispatcher/budget_trip.ex
     {"ticket.*.agent.attention.lifetime_latch_write_failed", "orchestration"},
+    # aiur/orchestrator/comment_wake/reference_merge_bookkeeping.ex
+    {"ticket.*.agent.attention.merge_reference_bookkeeping_failed", "orchestration"},
     # aiur/orchestrator/comment_wake/merged_pr.ex
     {"ticket.*.agent.attention.merge_terminal_write_failed", "orchestration"},
     # aiur/orchestrator/merged_ticket_reconciler.ex
@@ -70,6 +76,10 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.paused-max_agent_duration", "orchestration"},
     # aiur/orchestrator/duration_cap_release.ex
     {"ticket.*.agent.attention.paused-max_agent_duration.resolved", "orchestration"},
+    # aiur/orchestrator/premise_changes.ex
+    {"ticket.*.agent.attention.premise-changed", "orchestration"},
+    # aiur/ticket_reopen.ex
+    {"ticket.*.agent.attention.reopened", "orchestration"},
     # aiur/orchestrator/comment_wake/reactivation.ex
     {"ticket.*.agent.attention.review_rework_refused", "orchestration"},
     # aiur/orchestrator/rework_gate.ex
@@ -79,7 +89,7 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     # aiur/orchestrator/startup_claim_reconciler.ex
     {"ticket.*.agent.attention.startup_claim_reconciliation_failed", "orchestration"},
     # aiur/orchestrator/startup_claim_reconciler.ex
-    {"ticket.*.agent.attention.startup_orphan_claim_released", "orchestration"},
+    {"ticket.*.agent.attention.orphan_claim_released", "orchestration"},
     # aiur/orchestrator/issue_sync/missing_labels.ex
     {"ticket.*.agent.attention.state-label-missing", "orchestration"},
     # aiur/orchestrator/issue_sync/missing_labels.ex

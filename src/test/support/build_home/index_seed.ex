@@ -9,7 +9,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
   end
 
   def start(data, dir) when is_map(data) do
-    settings = %{build_order: %{general_epics: IndexParts.general()}, tracker: %{github: %{label_prefix: "agent"}}}
+    settings = %{build_order: %{lanes: IndexParts.general()}, tracker: %{github: %{label_prefix: "agent"}}}
     {:ok, history} = History.start_link(name: nil, repository: "example/aiur-fixture", state_dir: Path.join(dir, "history"), flush_ms: 60_000)
 
     {:ok, features} =
@@ -41,7 +41,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
       repository_fun: fn -> {:ok, {"example", "aiur-fixture"}} end
     ]
 
-    core = Index.read_core_parts(MapSet.new(~w(history health features overrides settings repository)a), opts)
+    core = Index.read_core_parts(MapSet.new(~w(history health features overrides settings repository labels)a), opts)
     source = %{state: "ok", observed_at: data["now"], reason: nil}
     now = Enum.map(data["sections"]["now"], &facts(&1, ~w(id num sec status ord start start_src pct agent pr)))
     planned = Enum.map(data["sections"]["plan"], &facts(&1, ~w(id num sec status ord deps wave qpos cue)))
@@ -64,7 +64,7 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
     meta = [server: server, actor: "cli:fixture", source: "cli:fixture"]
 
     for {slug, f} <- data["features"] do
-      epics = Enum.map(f["epics"], fn key -> %{key: key, label: data["epics"][key]["label"]} end)
+      epics = Enum.map(f["epics"], fn key -> %{key: key, label: data["lanes"][key]["label"]} end)
       {:ok, _} = Features.create(slug, %{label: f["label"], hue: f["hue"], epics: epics, from: dt(f["from"]), to: if(f["to"], do: dt(f["to"]), else: :none)}, meta)
       members = Enum.filter(rows, &(&1["feature"] == slug))
       {added, original} = Enum.split_with(members, & &1["added"])

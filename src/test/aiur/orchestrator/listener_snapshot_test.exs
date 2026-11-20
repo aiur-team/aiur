@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.ListenerSnapshotTest do
     assert row.listener.version == 4
     assert row.listener.unread_count == 0
     assert %DateTime{} = row.listener.observed_at
-    assert row.listener.routing == :legacy
+    assert row.listener.routing == :listener
     projected = UnitsRow.snapshot(%{status: Map.merge(snapshot, %{health: :healthy, freshness: %{status: :fresh}})})
     assert [unit] = projected.rows
     assert unit.listener == Map.put(row.listener, :freshness, :fresh)

@@ -1,10 +1,11 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
+  alias Aiur.Orchestrator.CommandOverrideContext
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.OperatorMessages.Calls, as: MessageCalls
-  alias Aiur.Orchestrator.OperatorMessages.{HeldReads, Snapshot}
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -20,10 +21,16 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
     do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
 
+  def handle_call({:claim_executor_hook_batch, binding, boundary, opts}, _from, state),
+    do: Aiur.Handoff.claim_or_empty(state, fn -> ExecutorHookClaims.handle_call(state, binding, boundary, opts) end)
+
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
   def handle_call(:list_active_identifiers, _from, state),
     do: StatusReport.list_active_identifiers(state)
+
+  def handle_call({:command_override_context, identifier}, _from, state),
+    do: {:reply, CommandOverrideContext.read(state, identifier), state}
 
   def handle_call(:list_running_active_identifiers, _from, state),
     do: StatusReport.list_running_active_identifiers(state)
@@ -172,6 +179,13 @@ defmodule Aiur.Orchestrator.Calls do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
+  def handle_call({:redispatch, identifier, backend}, _from, state)
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)),
+      do: RC.redispatch_call(state, identifier, backend)
+
+  def handle_call({:redispatch, _identifier, _backend}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
   def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),
       do: RC.ensure_remote_control_trust_call(state, workspace, from)
@@ -189,6 +203,8 @@ defmodule Aiur.Orchestrator.Calls do
 
   def handle_call(:globally_paused?, _from, state),
     do: GlobalPause.globally_paused_call(state)
+
+  def handle_call(:sync_fleet_pause, _from, state), do: GlobalPause.sync_fleet_pause_call(state)
 
   def handle_call(:global_pause_status, _from, state),
     do: {:reply, GlobalPause.global_pause_status(state), state}
@@ -278,6 +294,17 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:fail_delivered_queue_items, issue_identifier, reason}, _from, state)
       when is_binary(issue_identifier),
       do: OM.fail_delivered_queue_items_call(state, issue_identifier, reason)
+
+  @spec handle_cast(term(), Aiur.Orchestrator.State.t()) :: {:noreply, Aiur.Orchestrator.State.t()}
+  def handle_cast({:enqueue_event_digest_async, identifier, event, %{subscribed_to: subs}}, state)
+      when is_binary(identifier) and is_map(event) and is_list(subs) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, [event], event, subscribed_to: subs)}
+  end
+
+  def handle_cast({:enqueue_event_digest_batch_async, identifier, events}, state)
+      when is_binary(identifier) and is_list(events) do
+    {:noreply, OM.enqueue_event_digest_item(state, identifier, events, %{events: events})}
+  end
 
   # Republish a collapsed timer wake so status shows its new countdown (#2640).
   # Coalesced requests do not change the countdown.

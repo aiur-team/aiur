@@ -16,7 +16,7 @@ ensure_remote_all_read_command() {
 
   if [ "$command" = executor-wait ]; then
     remote_command_has_as "$@" || {
-      echo "aiur: executor-wait with --instance requires --as <id>" >&2
+      echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} requires --as <id>" >&2
       return 64
     }
     AIUR_REMOTE_ALL_WAIT=1
@@ -24,12 +24,12 @@ ensure_remote_all_read_command() {
     local previous_wait_arg=""
     for wait_arg in "$@"; do
       case "$wait_arg" in
-        --timeout | --as) [ -z "$previous_wait_arg" ] || { echo "aiur: executor-wait with --instance accepts --timeout, --as and --json" >&2; return 64; }; previous_wait_arg="$wait_arg" ;;
+        --timeout | --as) [ -z "$previous_wait_arg" ] || { echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} accepts --timeout, --as and --json" >&2; return 64; }; previous_wait_arg="$wait_arg" ;;
         --timeout=* | --as=* | --json) previous_wait_arg="" ;;
-        *) if [ -n "$previous_wait_arg" ]; then previous_wait_arg=""; else echo "aiur: executor-wait with --instance accepts --timeout, --as and --json" >&2; return 64; fi ;;
+        *) if [ -n "$previous_wait_arg" ]; then previous_wait_arg=""; else echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} accepts --timeout, --as and --json" >&2; return 64; fi ;;
       esac
     done
-    [ -z "$previous_wait_arg" ] || { echo "aiur: executor-wait with --instance accepts --timeout, --as and --json" >&2; return 64; }
+    [ -z "$previous_wait_arg" ] || { echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} accepts --timeout, --as and --json" >&2; return 64; }
     return 0
   fi
 
@@ -47,6 +47,9 @@ ensure_remote_all_read_command() {
       esac
       ;;
     epic)
+      case "${1:-}" in show | list) ;; *) allowed=0 ;; esac
+      ;;
+    lane)
       case "${1:-}" in show | list) ;; *) allowed=0 ;; esac
       ;;
     feature)
@@ -74,7 +77,7 @@ ensure_remote_all_read_command() {
   esac
 
   [ "$allowed" -eq 1 ] || {
-    echo "aiur: --instance all is for read commands" >&2
+    echo "aiur: ${AIUR_REMOTE_SELECTOR_FLAG:---instance} all is for read commands" >&2
     return 64
   }
 }
@@ -106,13 +109,13 @@ run_remote_all_executor_wait() {
       --as) shift; as="${1:-}" ;;
       --as=*) as="${arg#--as=}" ;;
       --json) json=1 ;;
-      *) echo "aiur: executor-wait with --instance accepts --timeout, --as and --json" >&2; return 64 ;;
+      *) echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} accepts --timeout, --as and --json" >&2; return 64 ;;
     esac
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; return 64; }
   [ "$timeout" -le 600 ] || { echo "aiur: remote executor-wait --timeout cannot exceed 600 seconds" >&2; return 64; }
-  [ -n "$as" ] && [[ "$as" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "aiur: executor-wait with --instance requires --as <id>" >&2; return 64; }
+  [ -n "$as" ] && [[ "$as" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "aiur: executor-wait with ${AIUR_REMOTE_SELECTOR_FLAG:---instance} requires --as <id>" >&2; return 64; }
   AIUR_REMOTE_ALL_JSON="$json"
   AIUR_REMOTE_ALL_MAX_SCOPE=write
   export AIUR_REMOTE_ALL_MAX_SCOPE
@@ -213,6 +216,7 @@ run_remote_all_wait_instance() {
   local index="$1" name="$2" timeout="$3" as="$4" result_dir="$5" state_dir="$6" cursor_file="$state_dir/$name.wake-ack" cursor=0 instance_id="" expression status=0
   AIUR_REMOTE_INSTANCE="$name"
   AIUR_REMOTE_MAX_SCOPE=write
+  AIUR_REMOTE_NO_REQUEST_ID=1 # a long poll is not a replay-safe write; do not fill the daemon's replay store
   AIUR_CONTROL_COMMAND=executor-wait
   AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10))
   AIUR_REMOTE_INSTANCE_ID=""

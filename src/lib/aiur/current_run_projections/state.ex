@@ -32,6 +32,7 @@ defmodule Aiur.CurrentRunProjections.State do
       checkpoint_generation: 0,
       checkpoint_write: nil,
       checkpoint_hash: nil,
+      checkpoint_content: nil,
       checkpoint_completed_at: nil,
       checkpoint_interval_ms: positive_integer(opts, :checkpoint_interval_ms, 1_000),
       subscribe_funs: Keyword.get(opts, :subscribe_funs, default_subscribe_funs()),
@@ -116,7 +117,7 @@ defmodule Aiur.CurrentRunProjections.State do
 
   defp readers(opts) do
     snapshot_store_read_fun = Keyword.get(opts, :snapshot_store_read_fun, &SnapshotStore.read/3)
-    status_orchestrator = Keyword.get(opts, :status_orchestrator, Aiur.Orchestrator)
+    status_orchestrator = Keyword.get(opts, :status_orchestrator, Aiur.Orchestrator.server())
 
     %{
       run: Keyword.get(opts, :run_snapshot_fun, &run_snapshot/0),

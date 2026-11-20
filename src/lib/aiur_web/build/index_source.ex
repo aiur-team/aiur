@@ -7,7 +7,7 @@ defmodule AiurWeb.Build.IndexSource do
 
   @impl true
   def subscribe(opts) do
-    with :ok <- Index.subscribe(Keyword.get(opts, :server, Index)),
+    with :ok <- Index.subscribe(Keyword.get(opts, :server, Index), Keyword.get(opts, :subscriber, self())),
          :ok <- Keyword.get(opts, :index_subscribe, &Core.subscribe/0).() do
       usage = Keyword.get(opts, :usage, Usage)
       usage.subscribe(Keyword.get(opts, :financial, :locked))
@@ -22,12 +22,14 @@ defmodule AiurWeb.Build.IndexSource do
       usage = Keyword.get(opts, :usage, Usage)
       freshness = Keyword.get(opts, :freshness, Freshness)
 
-      {:ok,
-       Map.merge(data, %{
-         usage: step(:usage, fn -> usage.read(Keyword.get(opts, :financial, :locked), opts) end),
-         daemon: data.daemon || step(:daemon, fn -> freshness.read_daemon(opts) end),
-         writable: EndpointConfig.get(:dashboard_writable) == true
-       })}
+      snapshot =
+        Map.merge(data, %{
+          usage: step(:usage, fn -> usage.read(Keyword.get(opts, :financial, :locked), opts) end),
+          daemon: data.daemon || step(:daemon, fn -> freshness.read_daemon(opts) end),
+          writable: EndpointConfig.get(:dashboard_writable) == true
+        })
+
+      {:ok, snapshot}
     end
   end
 
@@ -60,6 +62,15 @@ defmodule AiurWeb.Build.IndexSource do
   end
 
   @impl true
+  def last_agents(opts) do
+    case guard(fn -> GenServer.call(server(opts), :last_agent_snapshot, 1_000) end) do
+      {:ok, snapshot} -> {:ok, snapshot}
+      {:error, _reason} = error -> error
+      _ -> {:error, :unavailable}
+    end
+  end
+
+  @impl true
   def earlier(before, zone, opts),
     do: call({:earlier, before, zone, Keyword.get(opts, :days, 1)}, opts)
 
@@ -82,6 +93,7 @@ defmodule AiurWeb.Build.IndexSource do
     :exit, _ -> {:error, :index_not_running}
   end
 
-  defp server(opts), do: Keyword.get(opts, :server, Index)
+  # Projects mode runs one index per project tree; `whereis/1` follows the request's project.
+  defp server(opts), do: Keyword.get_lazy(opts, :server, fn -> Aiur.Project.whereis(Index) end)
   defp timeout(opts), do: Keyword.get(opts, :timeout, 4_000)
 end

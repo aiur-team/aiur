@@ -7,15 +7,29 @@ defmodule Aiur.ClientTokens do
   @name ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
   @digest ~r/\A[0-9a-f]{64}\z/
 
-  @spec create(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def create(name, scope \\ "write") do
+  # Owned here so identity does not depend on the control-call allowlist, which derives its atoms from this list.
+  @categories ~w(read message executor agents tickets config)
+
+  @doc "Permission categories a token can be granted. `trust` is deliberately absent."
+  @spec categories() :: [String.t()]
+  def categories, do: @categories
+
+  # A token without "categories" is a legacy token: read keeps only `read`, write keeps every category.
+  @spec create(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def create(name, scope \\ "write", opts \\ []) do
+    peer = opts[:peer]
+    categories = opts[:categories]
+    expires_at = opts[:expires_at]
+
     with :ok <- validate_name(name),
          :ok <- validate_scope(scope),
+         :ok <- validate_peer(peer),
+         :ok <- validate_categories(categories, scope),
          {:ok, path} <- store_path(),
          {:ok, records} <- read_records(path),
          false <- Enum.any?(records, &(&1["name"] == name)),
          token <- "aiur_" <> Base.url_encode64(:crypto.strong_rand_bytes(@token_bytes), padding: false),
-         record <- %{"name" => name, "scope" => scope, "hash" => hash(token), "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()},
+         record <- new_record(name, scope, peer, categories, hash(token)) |> put_expiry(expires_at),
          :ok <- write_records(path, [record | records]) do
       {:ok, token}
     else
@@ -24,11 +38,31 @@ defmodule Aiur.ClientTokens do
     end
   end
 
+  @doc "Marks a token to stop authenticating at `expires_at` (ISO 8601). Expired records are dropped on the next write."
+  @spec expire(String.t(), String.t()) :: :ok | {:error, term()}
+  def expire(name, expires_at) when is_binary(expires_at) do
+    with :ok <- validate_name(name),
+         {:ok, path} <- store_path(),
+         {:ok, records} <- read_records(path),
+         true <- Enum.any?(records, &(&1["name"] == name)) do
+      write_records(path, Enum.map(records, &if(&1["name"] == name, do: Map.put(&1, "expires_at", expires_at), else: &1)))
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
   @spec list() :: {:ok, [map()]} | {:error, term()}
   def list do
     with {:ok, path} <- store_path(), {:ok, records} <- read_records(path) do
-      {:ok, Enum.map(records, &Map.take(&1, ["name", "scope", "created_at"]))}
+      {:ok, Enum.map(records, &Map.take(&1, ["name", "scope", "peer", "categories", "created_at", "expires_at"]))}
     end
+  end
+
+  @doc "Names of the client tokens bound to one peer gateway id."
+  @spec list_for_peer(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_for_peer(peer) do
+    with {:ok, tokens} <- list(), do: {:ok, for(%{"peer" => ^peer, "name" => name} <- tokens, do: name)}
   end
 
   @spec revoke(String.t()) :: :ok | {:error, term()}
@@ -46,23 +80,69 @@ defmodule Aiur.ClientTokens do
   end
 
   @spec authenticate(term()) :: {:ok, String.t(), String.t()} | :error
-  def authenticate(token) when is_binary(token) do
+  def authenticate(token) do
+    with {:ok, %{name: name, scope: scope}} <- authenticate_full(token), do: {:ok, name, scope}
+  end
+
+  @spec authenticate_full(term(), DateTime.t()) ::
+          {:ok, %{name: String.t(), scope: String.t(), peer: String.t() | nil, categories: [String.t()]}} | :error
+  def authenticate_full(token, now \\ DateTime.utc_now())
+
+  def authenticate_full(token, now) when is_binary(token) do
     with {:ok, path} <- store_path(), {:ok, records} <- read_records(path) do
-      authenticate_records(records, token)
+      find_token(Enum.reject(records, &expired?(&1, now)), hash(token))
     else
       _ -> :error
     end
   end
 
-  def authenticate(_), do: :error
+  def authenticate_full(_token, _now), do: :error
 
-  defp authenticate_records(records, token) do
-    token_hash = hash(token)
-
+  defp find_token(records, token_hash) do
     Enum.find_value(records, :error, fn record ->
-      if secure_equal?(record["hash"], token_hash), do: {:ok, record["name"], record["scope"]}
+      if secure_equal?(record["hash"], token_hash), do: {:ok, effective(record)}
     end)
   end
+
+  defp put_expiry(record, nil), do: record
+  defp put_expiry(record, expires_at), do: Map.put(record, "expires_at", expires_at)
+
+  defp expired?(%{"expires_at" => at}, now) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, at, _offset} -> DateTime.compare(now, at) != :lt
+      _ -> true
+    end
+  end
+
+  defp expired?(_record, _now), do: false
+
+  defp effective(record) do
+    categories = record["categories"] || if(record["scope"] == "read", do: ["read"], else: @categories)
+    %{name: record["name"], scope: record["scope"], peer: record["peer"], categories: categories}
+  end
+
+  defp new_record(name, scope, peer, categories, digest) do
+    base = %{"name" => name, "scope" => scope, "hash" => digest, "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()}
+    # An older reader only knows scope, so categories beyond `read` must also store scope "write".
+    base = if categories, do: Map.merge(base, %{"categories" => categories, "scope" => if(categories == ["read"], do: "read", else: "write")}), else: base
+    if peer, do: Map.put(base, "peer", peer), else: base
+  end
+
+  defp validate_peer(nil), do: :ok
+  defp validate_peer(peer) when is_binary(peer), do: if(Regex.match?(@name, peer), do: :ok, else: {:error, :invalid_peer})
+  defp validate_peer(_), do: {:error, :invalid_peer}
+
+  defp validate_categories(nil, _scope), do: :ok
+
+  defp validate_categories(categories, scope) when is_list(categories) and categories != [] do
+    cond do
+      not Enum.all?(categories, &(&1 in @categories)) -> {:error, :invalid_categories}
+      scope == "read" and categories != ["read"] -> {:error, :scope_conflicts_with_categories}
+      true -> :ok
+    end
+  end
+
+  defp validate_categories(_, _), do: {:error, :invalid_categories}
 
   defp store_path do
     case Application.get_env(:aiur, :client_tokens_path) do
@@ -95,6 +175,8 @@ defmodule Aiur.ClientTokens do
   end
 
   defp write_records(path, records) do
+    now = DateTime.utc_now()
+    records = Enum.reject(records, &expired?(&1, now))
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
 
     try do
@@ -143,11 +225,16 @@ defmodule Aiur.ClientTokens do
 
   defp validate_name(_), do: {:error, :invalid_name}
 
-  defp valid_record?(%{"name" => name, "scope" => scope, "hash" => digest, "created_at" => created_at}) do
-    validate_name(name) == :ok and validate_scope(scope) == :ok and is_binary(created_at) and is_binary(digest) and Regex.match?(@digest, digest)
+  defp valid_record?(%{"name" => name, "scope" => scope, "hash" => digest, "created_at" => created_at} = record) do
+    validate_name(name) == :ok and validate_scope(scope) == :ok and is_binary(created_at) and is_binary(digest) and Regex.match?(@digest, digest) and
+      validate_peer(record["peer"]) == :ok and valid_expiry?(record["expires_at"]) and validate_categories(record["categories"], scope) == :ok
   end
 
   defp valid_record?(_), do: false
+
+  defp valid_expiry?(nil), do: true
+  defp valid_expiry?(at) when is_binary(at), do: match?({:ok, _, _}, DateTime.from_iso8601(at))
+  defp valid_expiry?(_), do: false
 
   defp validate_scope(scope) when scope in ["read", "write"], do: :ok
   defp validate_scope(_), do: {:error, :invalid_scope}

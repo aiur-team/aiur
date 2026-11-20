@@ -18,13 +18,13 @@ defmodule Aiur.Commands.RoutingFactsTest do
     end)
 
     :ok = ExecutorEvents.subscribe("executor.#")
-    pid = start_store!(dir)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    pid = start_supervised_store!(dir)
     {:ok, %{decision: decision}} = request(pid, %{question: "Private question?", blocking: false})
     %{pid: pid, decision: decision, at: DateTime.utc_now()}
   end
 
   defp fact(pid, decision, type, data), do: DecisionStore.record_command_fact(decision.decision_id, type, data, server: pid)
+  defp store_spec(dir), do: Supervisor.child_spec({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end}, id: make_ref(), restart: :temporary)
   defp route(at, state \\ :with_executor), do: %{policy: :executor_first, state: state, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}
   defp escalation(at), do: %{cause: :executor_ack_timeout, at: at, detail: "No acknowledgement", actor: %{kind: :system, id: "routing"}}
   defp human(at, requester \\ :worker), do: %{cause: :executor_ack_timeout, at: at, short_label: "Private summary", requester_kind: requester, blocking: false, urgency: :normal}
@@ -70,8 +70,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
     assert {:ok, %{status: :duplicate}} = fact(pid, d, :human_needed, human(at))
     refute_received {:event, %{topic: ^topic}}
     GenServer.stop(pid)
-    replayed = start_store!(dir)
-    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    replayed = start_supervised!(store_spec(dir))
     assert DecisionStore.health(replayed) == :writable
     assert {:ok, %{status: :duplicate, decision: current}} = fact(replayed, d, :human_needed, human(at))
     assert {:ok, %{decision: enriched}} = enrich(replayed, id, %{"context" => %{"short_summary" => "New evidence"}}, 1, now: at)
@@ -79,8 +78,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
     assert enriched.human_needed_at == at
     assert enriched.human_visible_at == current.human_visible_at
     GenServer.stop(replayed)
-    enriched_store = start_store!(dir)
-    on_exit(fn -> if Process.alive?(enriched_store), do: GenServer.stop(enriched_store) end)
+    enriched_store = start_supervised!(store_spec(dir))
     assert {:ok, %{status: :duplicate, decision: restored}} = fact(enriched_store, d, :human_needed, human(at))
     assert restored.version == 2
     assert restored.human_visible_at == at
@@ -107,8 +105,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
     assert PublicProjection.encode(acked)["executor_acknowledged_at"] == DateTime.to_iso8601(at)
     assert {:ok, %{status: :duplicate, decision: ^acked}} = fact(pid, d, :executor_acknowledged, %{data | at: DateTime.add(at, 1)})
     GenServer.stop(pid)
-    replayed = start_store!(dir)
-    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    replayed = start_supervised!(store_spec(dir))
     assert {:ok, %{status: :duplicate, decision: ^acked}} = fact(replayed, d, :executor_acknowledged, data)
   end
 

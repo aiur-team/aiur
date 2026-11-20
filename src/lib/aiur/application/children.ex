@@ -4,12 +4,17 @@ defmodule Aiur.Application.Children do
   """
 
   alias Aiur.Application.ExportChildren
+  alias Aiur.Application.ProjectChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Executor.Roster
   alias Aiur.Experiments.Auto
-  alias Aiur.GitHub.{Access, BlockerProgress, Config}
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
-  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
+  alias Aiur.Orchestrator.{InstanceHeartbeatMetadata, PremiseChanges}
+  alias Aiur.Ownership
+  alias Aiur.Ownership.{Fence, FenceCommand}
+  alias Aiur.Project.Supervisors, as: ProjectSupervisors
 
   @doc """
   Build the supervision children for the given run shape.
@@ -50,8 +55,10 @@ defmodule Aiur.Application.Children do
 
     instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
+    # The shared unit-test app turns repository services off: they poll GitHub and log into other tests' captures (#6474).
     github_tracker? =
-      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end) and
+        Keyword.get(opts, :repository_services?, Application.get_env(:aiur, :repository_services?, true))
 
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
@@ -63,6 +70,7 @@ defmodule Aiur.Application.Children do
       Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
 
     recording_children = recording_children(recording?)
+    projects = Keyword.get_lazy(opts, :projects, &configured_projects/0)
 
     cli_children =
       if interactive_cli? do
@@ -111,6 +119,7 @@ defmodule Aiur.Application.Children do
       {Aiur.PubSub.Boot, name: Aiur.PubSub},
       Aiur.AgentPubSub.FleetRefresh,
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+      {Registry, keys: :unique, name: Aiur.ProjectRegistry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
@@ -129,6 +138,8 @@ defmodule Aiur.Application.Children do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,
@@ -165,7 +176,11 @@ defmodule Aiur.Application.Children do
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
       {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
-      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      Aiur.Conversation.HeadTable,
+      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
+      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
+      Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
       Aiur.PostDeployChecklist,
@@ -219,18 +234,26 @@ defmodule Aiur.Application.Children do
       # over it.
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
-      {Aiur.DecisionStore, name: Aiur.DecisionStore},
+      # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &__MODULE__.premise_notifier/1},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
       {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
+      # The repository's label descriptions, read once an hour and served locally to the
+      # build index's Features rows. A feature whose tickets have all merged wears no label
+      # an open-issue observation or a persisted history row can describe, so this is the
+      # only source that still names it. Refresh is off in tests via
+      # `:label_catalogue_refresh?`; the table is always there for tests to drive.
+      Aiur.GitHub.LabelCatalogue,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
-      Aiur.Events.SubscriptionStoreSupervisor,
+      {Aiur.Events.SubscriptionStoreSupervisor, name: Aiur.Events.subscription_store_supervisor()},
       {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.OptimisticLedger,
+      Aiur.Capacity.LedgerStore,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator.SnapshotCache,
       Aiur.Orchestrator.SnapshotStore,
@@ -242,6 +265,8 @@ defmodule Aiur.Application.Children do
       # Durable last-known progress retention. Starts before TicketActivity so
       # the projection can seed from it at boot and cast retains into it.
       Aiur.ProgressRetention,
+      # Remote-write replay ledger; must be up before the endpoint takes control calls.
+      Aiur.ControlCall.ReplayStore,
       Aiur.TicketActivity,
       # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
       Aiur.CodingAgent.child_specs(),
@@ -254,8 +279,10 @@ defmodule Aiur.Application.Children do
       # Seed the fail-closed admission table before the Orchestrator can perform
       # its initial dispatch.
       Aiur.Orchestrator.SpendCap.Store,
+      # Intent store and sync precede the Orchestrator: its boot reads the fleet pause after a bounded pull.
+      intent_children(),
       Aiur.GitHub.Listeners,
-      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
@@ -304,7 +331,7 @@ defmodule Aiur.Application.Children do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(
       cli_children ++
-        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog, Aiur.DiskWatchdog] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,
@@ -313,23 +340,74 @@ defmodule Aiur.Application.Children do
         BuildOrders.child_specs(:label_projection, opts) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        dashboard_cache_children(dashboard?) ++
+        dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
+        Aiur.VoiceConversation.child_specs() ++
+        [toolchain_child()] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
-        BuildOrders.child_specs(:label_backfill, opts)
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        List.wrap(
+          if(recording?,
+            do: [
+              Aiur.Executor.Session,
+              Aiur.Executor.SessionIngest,
+              {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+              Aiur.Executor.TranscriptIngest,
+              Aiur.ControlCLI.PendingCommands
+            ]
+          )
+        )
     )
+    |> with_projects(projects, recording?)
   end
+
+  # `projects:` empty leaves today's tree untouched. Otherwise the machine list drops
+  # what polls or dispatches one repository, and one project tree per entry starts last.
+  defp with_projects(children, [], _recording?), do: children
+
+  defp with_projects(children, _projects, recording?) do
+    pollers = ProjectChildren.pollers()
+
+    Enum.reject(children, &(child_module(&1) in pollers)) ++
+      [Aiur.Gateway.Capacity, ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+  end
+
+  defp child_module({module, _opts}), do: module
+  defp child_module(module) when is_atom(module), do: module
+  defp child_module(_spec), do: nil
+
+  defp configured_projects, do: if(Application.get_env(:aiur, :projects_enabled?, true), do: Aiur.Project.Config.configured(), else: [])
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
-      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
+      List.wrap(if(LeaseStore.configured?(), do: AgentBudgetSocket)) ++
+      Fence.child_specs() ++
+      fence_socket_child() ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
-  defp dashboard_cache_children(dashboard?) do
+  defp fence_socket_child do
+    if Ownership.enabled?() do
+      [
+        Supervisor.child_spec(
+          {AgentBudgetSocket, name: Ownership.FenceSocket, socket_path: AgentBudgetSocket.fence_socket_path(), command_fun: &FenceCommand.execute/1},
+          id: Ownership.FenceSocket
+        )
+      ]
+    else
+      []
+    end
+  end
+
+  defp dashboard_cache_children(dashboard?, opts) do
     List.wrap(
       if(dashboard?,
         do: [
@@ -337,14 +415,19 @@ defmodule Aiur.Application.Children do
           {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
-    )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
+  end
+
+  defp intent_children do
+    [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+      if(LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+        else: []
+      )
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
-    store_children =
-      if LeaseStore.configured?(),
-        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
-        else: []
+    store_children = if(LeaseStore.configured?(), do: [Aiur.Gateway.Liveness], else: [])
 
     services =
       []
@@ -370,9 +453,26 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   defp recording_children(true),
-    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, {Aiur.ExecutorListener, feature_lookup: &BuildOrders.feature_and_epic/1}]
 
   defp recording_children(false), do: []
+
+  @doc false
+  @spec heartbeat_metadata() :: map()
+  def heartbeat_metadata, do: InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0)
+
+  # Wired here because orchestration may not depend on the optional executor-attention component.
+  # record?: false — a heartbeat must not move the roster's stall evidence.
+  defp executor_present do
+    %{executors: executors} = Roster.build(record?: false)
+    Enum.any?(executors, &(&1.state in [:active, :idle]))
+  end
+
+  @doc false
+  # A named capture (not a closure) keeps the DecisionStore child spec comparable.
+  @spec premise_notifier(map()) :: :ok
+  def premise_notifier(change),
+    do: PremiseChanges.notify_async(change, wake: fn event -> Aiur.ExecutorWakeInbox.enqueue_attention(event, Aiur.ExecutorWakeInbox, &BuildOrders.feature_and_epic/1) end)
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil

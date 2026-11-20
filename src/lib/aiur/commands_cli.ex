@@ -3,6 +3,7 @@ defmodule Aiur.CommandsCLI do
   @moduledoc false
 
   alias Aiur.CommandsCLI.{Observation, Printer}
+  alias Aiur.ControlCLI.PendingCommands
   alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.DecisionProvider
 
@@ -50,7 +51,8 @@ defmodule Aiur.CommandsCLI do
            page: page |> Map.drop([:health]) |> Map.update!(:decisions, &Enum.map(&1, fn row -> Observation.row(row, page, captured_at) end)),
            selected: Observation.row(selected.decision, %{health: selected.health}, captured_at),
            retained_counts: Map.drop(counts, [:health, :scope]),
-           history: history
+           history: history,
+           pending: pending(opts)
          },
          auxiliary: %{}
        }
@@ -61,7 +63,7 @@ defmodule Aiur.CommandsCLI do
   def build(_opts), do: {:error, "expects command options"}
 
   defp request(opts) do
-    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :all)
+    filter = if Keyword.get(opts, :blocking, false), do: :blocking, else: Keyword.get(opts, :filter, :open)
     decision_id = Keyword.get(opts, :decision_id)
 
     with {:ok, filter} <- filter(filter),
@@ -103,7 +105,7 @@ defmodule Aiur.CommandsCLI do
         :"needs-you" -> Map.merge(query, %{"lifecycle" => "open", "route" => "needs_you"})
         :"with-executor" -> Map.merge(query, %{"lifecycle" => "open", "route" => "with_executor"})
         :"from-executor" -> Map.merge(query, %{"lifecycle" => "open", "requester" => "executor"})
-        :all -> query |> Map.put("lifecycle", "open") |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
+        :all -> query |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
       end
 
     {:ok, query}
@@ -144,6 +146,16 @@ defmodule Aiur.CommandsCLI do
     _error -> {[], unavailable_source(:history_unavailable)}
   catch
     :exit, _reason -> {[], unavailable_source(:history_unavailable)}
+  end
+
+  # nil, not [], when the store cannot be read: "none pending" would be a claim we cannot make.
+  defp pending(opts) do
+    opts
+    |> Keyword.get(:pending_fun, &PendingCommands.list/0)
+    |> then(& &1.())
+    |> Enum.map(fn entry -> %{id: entry["id"], after: entry["after"], question: entry["params"]["question"], short_summary: entry["params"]["short_summary"], created_at: entry["created_at"]} end)
+  catch
+    :exit, _reason -> nil
   end
 
   defp provider_opts(opts) do

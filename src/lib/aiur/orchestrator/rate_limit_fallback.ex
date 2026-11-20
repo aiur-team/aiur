@@ -18,6 +18,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   """
 
   require Logger
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
   alias Aiur.Orchestrator.RateLimitFallback.PausedFallback
@@ -88,9 +90,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp usage_limited_on_primary?(running_entry, issue, opts) do
     current_backend = PausedFallback.limited_backend(running_entry, issue, opts)
-    fallback_backend = PausedFallback.backend(issue, current_backend, fallback_backend(opts), opts)
-
-    PausedFallback.eligible?(running_entry, issue, current_backend, fallback_backend, primary_backend(opts), opts)
+    PausedFallback.eligible?(running_entry, issue, current_backend, fallback_backend(opts), opts)
   end
 
   defp recovery_ready?(running_entry, opts) do
@@ -266,7 +266,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp apply_decision(state, _running_entry, _issue, :noop, _opts), do: {state, false}
 
-  defp apply_decision(%State{globally_paused: true} = state, _entry, _issue, :resume, _opts), do: {state, false}
+  defp apply_decision(%State{} = state, _entry, _issue, :resume, _opts) when effective_paused?(state), do: {state, false}
 
   defp apply_decision(state, running_entry, _issue, :resume, opts) do
     resume = Keyword.get(opts, :resume_fun, &PauseResume.resume_paused_issue(&1, &2, false))
@@ -279,8 +279,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp apply_decision(state, running_entry, issue, :engage, opts) do
-    route = PausedFallback.route_backend(issue, PausedFallback.limited_backend(running_entry, issue, opts), opts)
-    fallback_backend = route || fallback_backend(opts)
+    current_backend = PausedFallback.limited_backend(running_entry, issue, opts)
+    route = PausedFallback.route_backend(issue, current_backend, opts)
+    fallback_backend = route || PausedFallback.backend(issue, current_backend, fallback_backend(opts), opts)
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
     relabeled = if route, do: select_backend(issue, route), else: engage_issue(issue, fallback_backend, marker_label)
     context = Redispatch.transition_context(state, running_entry, issue, relabeled, opts)

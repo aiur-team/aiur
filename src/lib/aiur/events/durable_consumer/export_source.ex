@@ -54,7 +54,7 @@ defmodule Aiur.Events.DurableConsumer.ExportSource do
 
     case Export.read(cursor, limit, ["#"], opts) do
       {:ok, %{records: records, epoch: epoch}} ->
-        if state.epoch != epoch, do: JsonStore.write!(state.path, %{"epoch" => epoch})
+        if state.epoch != epoch, do: JsonStore.write_or_drop(state.path, %{"epoch" => epoch})
         {:reply, {:ok, records}, %{state | epoch: epoch}}
 
       {:reset, %{oldest_seq: oldest, epoch: epoch}} ->
@@ -80,7 +80,7 @@ defmodule Aiur.Events.DurableConsumer.ExportSource do
   def handle_info({:DOWN, _, :process, consumer, _}, %{consumer: consumer} = state), do: {:stop, :normal, state}
 
   defp commit_pending(%{pending: {epoch, cursor}} = state, cursor) do
-    JsonStore.write!(state.path, %{"epoch" => epoch})
+    JsonStore.write_or_drop(state.path, %{"epoch" => epoch})
     %{state | epoch: epoch, pending: nil}
   end
 

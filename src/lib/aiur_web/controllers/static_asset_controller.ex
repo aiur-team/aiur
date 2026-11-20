@@ -14,14 +14,20 @@ defmodule AiurWeb.StaticAssetController do
   @spec ticket_context_dialog_hook(Conn.t(), map()) :: Conn.t()
   def ticket_context_dialog_hook(conn, _params), do: serve(conn, "/ticket-context-dialog-hook.js", revalidate?: true)
 
-  @spec build_order_grid_hook(Conn.t(), map()) :: Conn.t()
-  def build_order_grid_hook(conn, _params), do: serve(conn, "/build-order-grid-hook.js", revalidate?: true)
-
   @spec time_brush_hook(Conn.t(), map()) :: Conn.t()
   def time_brush_hook(conn, _params), do: serve(conn, "/time-brush-hook.js", revalidate?: true)
 
   @spec decision_questions_validation(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def decision_questions_validation(conn, _params), do: serve(conn, "/decision-questions-validation.js", revalidate?: true)
+
+  @spec projects_home_hook(Conn.t(), map()) :: Conn.t()
+  def projects_home_hook(conn, _params), do: serve(conn, "/projects-home-hook.js", revalidate?: true)
+
+  @spec gateway_state(Conn.t(), map()) :: Conn.t()
+  def gateway_state(conn, _params), do: serve(conn, "/gateway-state.js", revalidate?: true)
+
+  @spec gateway_view_hook(Conn.t(), map()) :: Conn.t()
+  def gateway_view_hook(conn, _params), do: serve(conn, "/gateway-view-hook.js", revalidate?: true)
 
   @spec sortable_table_hook(Conn.t(), map()) :: Conn.t()
   def sortable_table_hook(conn, _params), do: serve(conn, "/sortable-table-hook.js", revalidate?: true)

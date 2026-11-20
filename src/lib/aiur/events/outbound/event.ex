@@ -40,6 +40,7 @@ defmodule Aiur.Events.Outbound.Event do
       ["ticket", _identifier, "cancel", "result"] -> true
       ["ticket", _identifier, "agent", "progress"] -> true
       ["ticket", _identifier, "agent", "progress", suffix] when suffix in ["checkin", "phase"] -> true
+      ["ticket", _identifier, "agent", "decision", suffix] when suffix in ["requested", "answered"] -> true
       _other -> false
     end
   end

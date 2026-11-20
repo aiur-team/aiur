@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.Features.Journal do
   alias Aiur.BuildOrder.Features.{JournalValidation, Projection}
 
   @spec empty() :: map()
-  def empty, do: %{features: %{}, owners: %{}, also: %{}, seq: 0, events: []}
+  def empty, do: %{features: %{}, owners: %{}, also: %{}, seq: 0, events: [], imported: MapSet.new()}
 
   @spec encode(map()) :: map()
   def encode(record), do: encode_value(record)
@@ -16,6 +16,7 @@ defmodule Aiur.BuildOrder.Features.Journal do
   @spec fold(map(), map()) :: {:ok, map()} | {:error, term()}
   def fold(projection, record), do: Projection.fold(projection, record)
 
+  defp encode_value(nil), do: nil
   defp encode_value(%DateTime{} = time), do: DateTime.to_iso8601(time)
   defp encode_value(%MapSet{} = set), do: set |> Enum.sort() |> Enum.map(&encode_value/1)
   defp encode_value(map) when is_map(map), do: Map.new(map, fn {key, value} -> {to_string(key), encode_value(value)} end)

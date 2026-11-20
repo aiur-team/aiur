@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
 
   require Logger
 
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
   alias Aiur.GitHub.Config
@@ -315,7 +317,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
   # global pause, prewarm hold, or host-pressure hold it can still describe a
   # queued ticket as dispatchable even though the dispatcher deliberately did
   # not attempt it. Those expected holds are not dependency cycles.
-  defp circular_wait_detection_enabled?(%State{globally_paused: true}), do: false
+  defp circular_wait_detection_enabled?(%State{} = s) when effective_paused?(s), do: false
   defp circular_wait_detection_enabled?(%State{capacity_hold: hold}) when not is_nil(hold), do: false
   defp circular_wait_detection_enabled?(%State{prewarm_hold_ticks: ticks}) when is_integer(ticks) and ticks > 0, do: false
   defp circular_wait_detection_enabled?(%State{}), do: true

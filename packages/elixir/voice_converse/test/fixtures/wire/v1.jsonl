@@ -14,3 +14,7 @@
 {"message":"Context is stale.","source":"briefing","type":"context_gap","v":1}
 {"code":"provider_error","message":"Provider error.","type":"error","v":1}
 {"reason":"user_end","type":"ended","v":1}
+{"audio_offset_ms":0,"chars":[{"length":1,"offset_ms":0},{"length":1,"offset_ms":50}],"estimated":false,"text":"é👋","turn_id":"turn-1","type":"agent_text_timing","v":1}
+{"audio_offset_ms":0,"estimated":true,"text":"x","turn_id":"turn-1","type":"agent_text_timing","v":1}
+{"state":"stopped","type":"playback_state","v":1}
+{"played_until_ms":50,"state":"stopped","turn_id":"turn-1","type":"playback_state","v":1}

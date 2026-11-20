@@ -6,7 +6,7 @@ Aiur uses ElevenLabs for Stream Deck and Dashboard voice input, and for spoken D
 
 | Capability | Where | What happens |
 | --- | --- | --- |
-| Speech to text | Stream Deck Mic key and Dashboard agent composer | Dictation is transcribed and delivered through the same agent-message path as typed Dashboard text. |
+| Speech to text | Stream Deck Mic key, Dashboard agent and Executor composers, and Command responses or revisions | Dictation returns text to the composer, custom Command response, or Stream Deck buffer for review. |
 | Text to speech | Dashboard interactive conversation | The agent's reply is streamed back to the browser as speech. |
 
 Aiur holds the credential and makes every ElevenLabs call; neither the Stream Deck sidecar nor the browser ever receives it.
@@ -18,10 +18,14 @@ Aiur holds the credential and makes every ElevenLabs call; neither the Stream De
 | Capture | The browser captures through an AudioWorklet; the Stream Deck sidecar uses `parec`. Both stream 16 kHz mono PCM16 audio only while the mic is held or recording is active. |
 | Transport | Audio reaches Aiur over authenticated sockets: `/voice` requires a writable Dashboard session and CSRF proof; `/streamdeck` requires the sidecar token. |
 | Transcription | Aiur's daemon opens the ElevenLabs realtime session with its own key. Microphone audio and the returned text pass through ElevenLabs. |
-| Delivery | Dictated text returns to the Dashboard composer or Stream Deck buffer for review. It reaches the selected agent only when you press Send. |
+| Delivery | Agent messages use Send after review. Command dictation stays in the custom response until you use the existing answer button. |
 | Retention | Aiur writes no microphone audio to disk or logs. Sent text becomes an ordinary chat message. |
 
 Interactive voice chat on the Dashboard sends each finished utterance to the agent without a Send press.
+
+Command dictation appends to the custom response on cards, detail pages and revision forms.
+Review the text and record it with the existing answer button; speaking does not
+submit an answer or choose a suggested option.
 
 ## API key permissions
 
@@ -63,9 +67,39 @@ Voice transcription is cloud processing: while you dictate, your audio and the r
 
 | State | Data path |
 | --- | --- |
-| Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer or deck buffer until you press Send. |
-| Dictation released | Capture stops; there is no always-on listener or wake word. |
-| Key absent | No ElevenLabs connection opens and no audio leaves the machine. |
+| Dictation held open | Microphone audio goes to ElevenLabs; returned text stays in the composer, Command response, or deck buffer until you submit it. |
+| Stop dictation | Capture stops and final transcription settles before review; there is no always-on listener or wake word. |
+| Browser Cancel or Escape during dictation | Capture stops and the pre-recording draft is restored. Audio already sent to ElevenLabs cannot be recalled. |
+| Submit reviewed text | Agent and Executor messages, Command answers and revisions use their normal delivery and retention paths. Transcription alone is not a delivery receipt. |
+| Legacy interactive agent chat | Finished utterances are sent automatically and enter the ticket transcript. |
+| Executor voice prototype | Conversation transcripts and summaries are retained and handed to the Executor; see [Executor voice](/guide/executor-voice). |
+| Dictation key absent | No ElevenLabs transcription connection opens and no dictation audio leaves the machine. |
 | Agent process | `ELEVENLABS_API_KEY` is scrubbed from coding-agent environments and never logged. |
 
+Aiur stores no microphone audio. This does not promise deletion or non-retention
+by a cloud provider; provider retention follows its account settings and policy.
+
 See [Stream Deck voice input](/guide/stream-deck#voice-input) for operator controls and [Configuration](/reference/configuration#elevenlabs) for field defaults.
+
+## Executor conversations
+
+With `voice.conversation.provider: elevenlabs_agents` (the default), the read-only
+Executor voice prototype uses ElevenLabs **Agents**, separate from dictation and
+synthesized composer replies.
+
+The daemon opens the Agent
+websocket, sends microphone PCM and briefing context, handles client tools, and
+relays reply audio and transcripts to the authenticated browser.
+
+From Home, open **Settings → Talk to Executor** (`/voice`) for the prototype’s
+provider comparison, minute meters, ratings and delivery receipts. Worker Dictate
+and Converse remain in the worker drawer on that page.
+
+See
+[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
+for the Agent id, credential source, exact client tool names and schemas, and the
+`executor.voice.session_ended` handoff topic. The ElevenLabs key remains
+server-side; conversation audio and briefing text are processed by ElevenLabs.
+
+OpenAI Realtime is an alternative in the same setup guide; it uses the daemon's
+`OPENAI_API_KEY` instead of an ElevenLabs credential.

@@ -96,4 +96,22 @@ defmodule AiurEngineRestartHandoffTest do
     assert out =~ "ISSUE-42 fallback snapshot_timeout"
     refute out =~ "__AIUR_HANDOFF__:"
   end
+
+  test "restart with keep-agents and no state dir set has no stderr" do
+    state = tmp_state()
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(state) end)
+
+    {out, 0} =
+      run_sourced_engine(
+        """
+        run_control_rpc() { case "$1" in *prepare*) echo '__AIUR_HANDOFF__:handoff-6956' ;; *report*) echo 'handoff report' ;; esac; }
+        cmd_stop() { :; }
+        dispatch_run() { :; }
+        cmd_restart --keep-agents --no-build
+        """,
+        [{"XDG_CONFIG_HOME", state}, {"AIUR_BG_STATE_DIR", nil}]
+      )
+
+    refute out =~ "AIUR_BG_STATE_DIR: parameter null or not set"
+  end
 end

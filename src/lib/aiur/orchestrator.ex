@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
 
   alias Aiur.Orchestrator.ListenerModes
-  alias Aiur.Orchestrator.OperatorMessages.HeldReads
+  alias Aiur.Orchestrator.OperatorMessages.{ExecutorHookClaims, HeldReads}
   require Logger
 
   alias Aiur.{Issue, Signal}
@@ -15,32 +15,27 @@ defmodule Aiur.Orchestrator do
     CommentPollingState,
     CommentWake,
     DispatchCycleLiveness,
+    GlobalPause,
     StaleApprovedHead,
     TicketTransition
   }
 
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
+  alias Aiur.Orchestrator.{Calls, Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, StaleOwner, State, StatusReport}
 
-  alias Aiur.Orchestrator.{
-    TokenAccounting,
-    TrackedSet,
-    TrackerHealth,
-    TrackerTasks,
-    WorkspaceCleanup
-  }
+  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
 
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def read_held_messages(identifier, max \\ 50),
-    do: HeldReads.read(__MODULE__, identifier, max)
+  def read_held_messages(identifier, max \\ 50), do: HeldReads.read(server(), identifier, max)
+
+  @doc "The current project's orchestrator, or the global one with no project."
+  @spec server() :: GenServer.server()
+  def server, do: Aiur.Project.whereis(__MODULE__)
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name)
-    GenServer.start_link(__MODULE__, opts, name: name)
-  end
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name))
 
   @impl true
   def init(opts), do: Lifecycle.init(opts, &issue_tracked?/1)
@@ -48,7 +43,11 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
   def has_live_owner?(identifier),
-    do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+    do: StatusReport.has_live_owner_api(Aiur.Project.whereis(__MODULE__), identifier, 1_000)
+
+  @doc false
+  @spec tracker_identity(String.t()) :: Aiur.TrackerIdentity.t() | nil
+  def tracker_identity(identifier), do: TrackedSet.tracker_identity(identifier)
 
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
@@ -81,6 +80,13 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:dispatch_cycle_liveness_check, token}, state),
     do: DispatchCycleLiveness.handle_check(state, token)
+
+  def handle_info({:intent_register_changed, {"fleet", "fleet", "pause"}, _}, state), do: GlobalPause.fleet_pause_info(state)
+
+  def handle_info({:gateway_pause, on?, _meta}, state), do: GlobalPause.gateway_pause_info(state, on?)
+
+  def handle_info({:ownership_moved, identifier, epoch}, %State{} = state),
+    do: {:noreply, StaleOwner.handle(state, identifier, epoch)}
 
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
@@ -425,6 +431,7 @@ defmodule Aiur.Orchestrator do
 
   @impl true
   def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
+
   def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
@@ -452,7 +459,7 @@ defmodule Aiur.Orchestrator do
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
-  def note_agent_activity(server \\ __MODULE__, identifier) when is_binary(identifier) do
+  def note_agent_activity(server \\ Aiur.Project.whereis(__MODULE__), identifier) when is_binary(identifier) do
     GenServer.cast(server, {:note_agent_activity, identifier})
   end
 
@@ -467,10 +474,16 @@ defmodule Aiur.Orchestrator do
   end
 
   @impl true
+  def handle_cast({:restore_executor_hook_batch, attempt}, state),
+    do: ExecutorHookClaims.restore_call(state, attempt)
+
   def handle_cast({:mark_sleeping, identifier}, state) when is_binary(identifier) do
     {next, effects} = PushRouting.sleeping_effects(state, identifier)
     {:noreply, TicketTransition.apply_effects(next, effects)}
   end
+
+  @impl true
+  def handle_cast(message, state), do: Calls.handle_cast(message, state)
 
   @doc false
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()

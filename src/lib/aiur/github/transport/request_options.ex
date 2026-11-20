@@ -20,7 +20,14 @@ defmodule Aiur.GitHub.Transport.RequestOptions do
     timeout_ms = Map.get(req, :timeout_ms, @default_request_timeout_ms)
 
     options
-    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms, retry: false)
+    # Req starts one Finch pool per distinct `connect_options` and never stops it, so a
+    # per-request timeout here leaked a pool per remaining-deadline value (#7796).
+    |> Keyword.merge(
+      headers: headers,
+      connect_options: [timeout: @default_request_timeout_ms],
+      receive_timeout: timeout_ms,
+      retry: false
+    )
     |> OffProcess.maybe_bound_response(req)
   end
 

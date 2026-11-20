@@ -33,7 +33,9 @@ function show({ focusTitle = true } = {}) {
   const modal = $('#tk-modal');
   modal.classList.add('bdm'); modal.removeAttribute('aria-label'); modal.setAttribute('aria-labelledby', 'bm-title');
   $('#tk-backdrop').classList.add('show'); document.body.style.overflow = 'hidden';
-  if (focusTitle) ctx.life.frame('modal-focus', () => { if (shown()) $('#bm-title')?.focus(); });
+  if (focusTitle) ctx.life.frame('modal-focus', () => {
+    if (shown() && !$('#tk-modal').contains(document.activeElement)) $('#bm-title')?.focus();
+  });
 }
 export function renderHead(t) {
   const active = document.activeElement, inside = $('#tk-head').contains(active);
@@ -110,7 +112,7 @@ export function modalSync(msg) {
     else if (isUnfiled(MS.t)) openById(id);
     else { cleanup(); error(id, 'not_found'); }
   }
-  else if (MS.t && ['repo', 'epics', 'features'].some(key => Object.hasOwn(msg.set || {}, key))) renderHead(MS.t);
+  else if (MS.t && ['repo', 'lanes', 'features'].some(key => Object.hasOwn(msg.set || {}, key))) renderHead(MS.t);
 }
 async function copyLink(button) {
   const req = MS.req, url = new URL(location.href);

@@ -71,7 +71,7 @@ defmodule Aiur.WorkflowStoreTest do
     # `prewarm.base_build_file` is read by `Workflow.load/1` but is not part
     # of the change stamp — exactly the shape of a transient load error the
     # stamp cannot see, so a poisoned stamp would never heal on its own.
-    File.write!(path, File.read!(staging) <> "\nprewarm:\n  base_build_file: prewarm\n")
+    File.write!(path, File.read!(staging) <> "\nprewarm:\n  enabled: true\n  base_build_file: prewarm\n")
 
     assert {:error, {:missing_prewarm_file, _prewarm_path, :enoent}} = WorkflowStore.force_reload()
 
@@ -135,7 +135,7 @@ defmodule Aiur.WorkflowStoreTest do
     assert {:ok, %{prompt: "Live store prompt"}} = WorkflowStore.current()
 
     File.write!(path, "invalid: [")
-    :ets.delete(Cache.table(), :current)
+    :ets.delete(Cache.table(), {:current, :default})
 
     assert {:ok, %{prompt: "Live store prompt"}, :unknown, :unknown} = WorkflowStore.current_with_cache_identity()
   end
@@ -203,7 +203,7 @@ defmodule Aiur.WorkflowStoreTest do
 
     assert {:ok, valid_workflow, generation} = WorkflowStore.current_with_generation()
     assert {:ok, {"owner", "repo"}} = GitHubConfig.configured_repo()
-    assert [{:settings, stale_key, stale_settings}] = :ets.lookup(Cache.table(), :settings)
+    assert [{{:settings, :default}, stale_key, stale_settings}] = :ets.lookup(Cache.table(), {:settings, :default})
     assert {{^generation, publication}, _env_epoch} = stale_key
     assert is_reference(publication)
 

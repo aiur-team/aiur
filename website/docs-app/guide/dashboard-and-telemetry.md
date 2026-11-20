@@ -14,15 +14,31 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
 The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider icons from `priv/static` before router dispatch. Explicit allowlists keep the dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and font files use long-lived caching, and provider icons derive from the coding-agent registry.
 
-On `/build`, epic columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their epic colour without keeping an empty epic column. Feature focus follows its visible tickets.
+On `/build`, lane columns follow matching DAG tickets visible after filters and span/zoom selection. History groups whole visible days; planned and not-queued tickets share columns while their section is in view. Live-agent cards keep their lane colour without keeping an empty lane column. Feature focus follows its visible tickets.
 
-Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = epic”.
+Counts show server totals; `—` means the count is unavailable. Narrow flow layouts replace headers with “Colour = lane”. On touch, one finger scrolls the page, two fingers pan the board, and a pinch sets the zoom percent.
+
+If individual Build rows fail validation, Aiur omits those rows and shows how many are unavailable; the remaining board is marked partial.
 
 Planned and running estimates use complexity defaults of 1, 2, 4, 7 and 11 hours. A recorded override takes precedence and shows its reason. Unknown estimates display `—`.
 
 The Live band ETA sums planned hours and divides by the observed runtime agent cap; `≥` marks running work, a partial queue or missing estimates. A stale cap is labelled. Use [`aiur ticket estimate`](../reference/cli.md#decisions-executor-events-and-findings) to inspect or correct an estimate.
 
-Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, epic, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
+Click a ticket on `/build` (or press Enter/Space on a focused card, Enter on a list row), or follow `/build?ticket=<number>`, to open its header with state, lane, feature, points and repository links. Deep links also find indexed tickets outside the loaded history window.
+
+## Ticket timeline
+
+In ticket detail, choose **Timeline** to see the recorded event history. Items use observed timestamps; the tab updates as new ticket events arrive. Journal read failures are shown as unavailable without blocking the description.
+
+Ticket event journal rows retain the event ID, observed timestamp, topic, kind,
+safe summary and actor when supplied. Progress rows store `pct`; command rows
+store a redacted `cmd`. CI and merge-group failures store bounded check names
+and safe GitHub Actions run links. Successful merge-group requeues store the
+run, PR and cause.
+
+GitHub review and label transitions use the trusted ticket identity. Comment
+summaries are sanitized and bounded; full comment bodies and command output
+are not stored in marker rows.
 
 Missing tickets show “Ticket not found”; failed reads show “Ticket unavailable”. Escape, the close button or the backdrop closes the modal and clears the ticket from the URL.
 
@@ -39,38 +55,76 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Build ticket conversation
+
+Open a running ticket in Build to watch its loaded conversation. New entries
+follow the bottom while you are within 60 pixels of it. Scroll up to read
+without moving; **New activity** returns to the latest entries, fetching the
+tail again if paging older history displaced it. The view keeps at most 500 entries.
+
+The right minimap previews loaded rows. Drag it to scroll, or select an event
+tick to jump and highlight that event; hover for its label and time. Focus the
+conversation to scroll with the keyboard. The working indicator appears only
+for an active agent with live conversation state and a live dashboard link.
+
+Dividers mark work start/end, first progress reports at or above 25%, 50% and
+75%, PR open/reviews/merge, and each pause or resume. Earlier entries collapse
+under **Reading ticket**. Persisted events restore them after restart; a missing
+start alert falls back to the first file edit.
+
+### Conversation event navigation
+
+At `/conversations/:id`, use the Events rail to jump to progress, pushes,
+PRs and Commands. Kind filters follow the catalogue defaults and are remembered
+in this browser when local storage is available. CI and review comments start
+hidden. On phones the rail sits above the transcript.
+
+Selecting an event opens `?pos=N`, loads the surrounding entries and brings
+that position into view. Observed events appear after an entry with an
+“approximate position” marker. Events without an anchor say “Not linked to a
+position” and have no jump.
+
+Command requests also link to their Command page;
+resolved Commands say “answered”. A missing position shows “Position not found”
+and the latest entries, with one retry after the next journal append.
+
 ### Build timeline filters
 
-Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
-Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
-hover.
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature Done, Weighted, and scope figures. Unknown figures show `—` with a reason on hover.
 
 Focus dims unrelated tickets; Compact replaces unrelated runs with gap
 markers and retains loaded dependencies as dashed ghost cards. Earlier history
 loads back to the feature’s oldest closed member. Clear the feature with ×.
 
+The Build toolbar filters by Lane, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL as `lane=`, and the pre-rename `epic=` parameter still loads and is rewritten to `lane=` in the address bar.
 
-The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
-
-Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
+Lane hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
 
 Tickets closed as not planned are hidden by default. Choose **Not planned** in the Ticket group to show them. **Clear** restores the default view. Escape closes a filter popover and returns focus to its button.
+
+**Build order** renders the published document's review and graph through the `aiur-build-order` package; its `sources.*.status` draws its stale and unknown banners.
 
 ### Build timeline range
 
 On the build timeline, Day, Week and Month set the visible range; − and + step
-through 1–30 days. The span is kept in the link. Range controls are hidden in
-List view and return when you switch to Timeline or Gantt.
+through 1–30 days. The span is kept in the link. List and Build order hide the
+range controls; Timeline and Gantt restore them.
 
-In List view, **List shows** switches between Tickets, Features and Epics. The
-selection is kept in the `list` link parameter; `tickets` is the default and
-omitted.
+In List view, **List shows** switches between Tickets, Features and Lanes. The selection is kept in the `list` link parameter; `tickets` is the default and omitted. A bookmark with `list=epics` still opens the Lanes list.
 
-The Features list shows closed, published-open, and planned-not-published
-segments for each feature. Percentages use closed tickets divided by the full
-planned feature total. Unavailable counts show `—` with a reason; incomplete
-history does not appear as zero progress. Each row opens the existing feature
-focus in Tickets view.
+All three lists are the same plain table card with column headers. Features shows Feature, Progress, Merged and Remaining; Lanes shows Lane, Progress, Remaining and Done, with rounded bars. A caption row under each table holds its summary: for Features, the merged total and the viewer's local date. Narrow screens hide Remaining (Features) and Done (Lanes).
+
+Each registry feature and `feature:<slug>` label in history gets a row with its name, progress bar, merged/total and remaining count. Build Order roots and their generated epics are not rows; their tickets roll up into the product feature they belong to. Merged means closed with a merged PR, or closed as done without a PR.
+
+Finished features stay listed with green bars; partial bars are blue. The amber **All features** row sums them. A row's name is its registry label (logical ids such as `MP-E1` stripped), then the label description, then the title-cased slug. Descriptions come from the repository's label list, read hourly, so fully merged features keep their names.
+
+Rows follow [`feature_order`](../reference/configuration-build-order.md). The **Sort** control sits in the toolbar, not in the list, and stays in `fsort` (goal order, most done, most left). The filter shares the progress source; unavailable history is shown as such. Selecting a registry feature opens its focus in Tickets view.
+
+An [epic](../concepts/build-orders.md) that holds features gets its own merged/total row; its features follow, indented, in the epic's order, and a shared ticket counts once. Epics sort by their first feature's `feature_order` position, then creation; features no epic lists come last under **No epic**. Clicking one focuses the timeline on its features.
+
+The Lanes list counts matching tickets per lane, including feature-owned ones, so totals overlap, and each row keeps the lane's stored colour.
+
+Sort is remaining, then name. The caption row shows the data age and counts unmatched tickets. Planned pack tickets without area labels are excluded; incomplete history or labels stay unknown. With no matches, see [`lanes`](../reference/configuration-build-order.md#lanes).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -89,6 +143,12 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With an `openrouter:` route configured, the provider row shows the key's
+remaining credit against the limit it was bought with, and
+`aiur usage openrouter` lists each route's spend per route and model beside that
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
+the row reports an unknown reading rather than zero credit.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
@@ -250,9 +310,9 @@ Spend is the known USD API-equivalent amount from the same usage aggregate as th
 
 Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
 
-If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce it again. Aiur does not stop an already-running agent for that, and there is no cap-specific grace timer: the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
 
-There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+If the spend-cap store itself cannot load, persist, or subscribe, dispatch closes for every tracked ticket and Aiur raises `system.spend_cap.unavailable` with the cause. It retries with backoff and emits `system.spend_cap.unavailable.resolved` once the store is healthy again.
 
 When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
 
@@ -406,3 +466,34 @@ usable cgroup v2 memory limit, dispatch uses the host memory floor.
 ### Post-deploy checks
 
 The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.
+
+## Feature supply attention
+
+`system.feature_supply_low` wakes the Executor when free worker slots exceed
+ready feature tickets for 30 continuous minutes. Feature classification uses
+telemetry's `work_kind`; readiness uses the dispatch candidate decision before
+workers are started.
+
+The attention includes free slots, ready features,
+feature todo decline counts, and the five blockers holding the most features,
+with cached PR numbers and states. Missing PR evidence is `unknown`.
+
+Land the blocker PRs through normal review, then promote or publish feature
+work in goal order. Avoid filling the slots with non-feature work. One
+attention opens per episode and resolves after 10 continuous minutes of
+sufficient supply.
+
+Paused or unavailable tracker passes interrupt the timers
+and interval coverage. Restarts restart timers while retaining open attention.
+
+`analytics/run-summary --json` exposes `feature_supply_daily` by UTC date.
+Each row includes `feature_starved_slot_minutes` (elapsed minutes times
+`max(0, free - feature_ready)`), `non_feature_during_starvation_minutes`
+(elapsed minutes with at least one active non-feature turn during starvation),
+and `observed_minutes`.
+
+Text reports print the same totals. Sum rows across
+boots for a daily report. No observations means unavailable, not zero.
+
+The daemon records intervals between successful dispatch observations;
+transitions between polls have poll-cadence precision.

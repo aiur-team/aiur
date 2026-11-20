@@ -91,6 +91,22 @@ for (const tier of ['full', 'line', 'mini', 'bar']) test(`tier markup: ${tier}`,
   if (tier === 'mini') expect(await card.locator('.bd-in').evaluate(el => [...el.children].map(el => el.className))).toEqual(['sr-only', 'bd-dot', 'bd-id'])
 })
 
+// #7446: live (Now band) cards follow the board's chosen tier instead of a band-only look.
+for (const tier of ['full', 'line', 'mini', 'bar']) test(`live and planned cards share tier markup: ${tier}`, async ({ page }) => {
+  await open(page, 'live')
+  const shapes = await page.evaluate(tier => {
+    const det = ctx.L.det; ctx.L.det = tier
+    const shape = it => {
+      const el = st.fx.makeCard(it)
+      return { tier: ['full', 'line', 'mini', 'bar'].filter(t => el.classList.contains(t)), now: el.classList.contains('now'),
+        parts: Object.fromEntries(['.bd-top', '.bd-title', '.bd-dot', '.bd-id'].map(s => [s, el.querySelectorAll(s).length])) }
+    }
+    try { return { live: shape(ctx.L.band.items[0]), plan: shape(ctx.L.secs.plan.items[0]) } } finally { ctx.L.det = det }
+  }, tier)
+  expect(shapes.live.tier).toEqual([tier]); expect(shapes.live.now).toBe(true)
+  expect({ tier: shapes.live.tier, parts: shapes.live.parts }).toEqual({ tier: shapes.plan.tier, parts: shapes.plan.parts })
+})
+
 test('Gantt detail respects height, lane caps and base cap', async ({ page }) => {
   await open(page)
   expect(await page.evaluate(() => {
@@ -241,7 +257,7 @@ test('client guards malicious numbers, missing epic and feature keys', async ({ 
   const warnings = []; page.on('console', msg => { if (msg.type() === 'warning') warnings.push(msg.text()) })
   await page.evaluate(() => {
     inject('9001', { cx: 9, num: '1<b>', epic: 'ghost-epic', pct: '50%;background:red' })
-    ctx.D.epics.bugs.hue = '1);x'; S.feature = 'ghost-feature'
+    ctx.D.lanes.bugs.hue = '1);x'; S.feature = 'ghost-feature'
   })
   let card = await draw(page, '9001'); await draw(page, '9001')
   await expect(card).toHaveClass(/unsorted/); await expect(card.locator('.bd-id')).toHaveText('#—')

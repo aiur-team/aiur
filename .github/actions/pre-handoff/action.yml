@@ -14,7 +14,7 @@ runs:
       working-directory: src
       env:
         AIUR_LEASE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/aiur_test
-      run: mise exec -- mix test test/aiur/instance_lease_store_test.exs
+      run: mise exec -- mix test test/aiur/instance_lease_store_test.exs test/aiur/intent/postgres_test.exs
     - name: Cache Dialyzer PLT
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:

@@ -7,8 +7,14 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
 
   @spec record_dispatch(Aiur.Issue.t(), String.t(), map()) :: :ok
   def record_dispatch(issue, attempt_id, metadata) do
-    Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(attempt_fields(issue), metadata))
+    fields = issue |> attempt_fields() |> Map.put(:reason, dispatch_reason(issue))
+    Signal.lifecycle(issue.identifier, attempt_id, :dispatch, :point, Map.merge(fields, metadata))
   end
+
+  @doc "Why the capacity policy chose this dispatch (`dispatch_selection.chosen.reason`), or `nil` (#7889)."
+  @spec dispatch_reason(Aiur.Issue.t()) :: atom() | nil
+  def dispatch_reason(%Aiur.Issue{dispatch_selection: %{chosen: %{reason: reason}}}), do: reason
+  def dispatch_reason(_issue), do: nil
 
   @spec attempt_fields(Aiur.Issue.t(), keyword()) :: map()
   def attempt_fields(issue, opts \\ []) do
@@ -26,6 +32,20 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       blockers: Enum.map(issue.blocked_by, &blocker/1),
       start_mode: "normal"
     }
+  end
+
+  @doc "The issue's first `feature:<slug>` label in sorted order, else `:none`."
+  @spec feature_slug(Aiur.Issue.t()) :: String.t() | :none
+  def feature_slug(%Aiur.Issue{} = issue) do
+    issue
+    |> Aiur.Issue.label_names()
+    |> Enum.sort()
+    |> Enum.find_value(:none, fn label ->
+      case Features.parse_label(label) do
+        {:ok, slug} -> slug
+        :ignore -> nil
+      end
+    end)
   end
 
   defp prefixes do

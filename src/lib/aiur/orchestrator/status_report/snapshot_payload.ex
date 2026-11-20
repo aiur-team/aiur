@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   # Builds the dashboard/CLI snapshot payload from one state copy.
 
   import Aiur.Orchestrator.StatusReport.AgentStatuses,
-    only: [idle_evidence: 5, idle_evidence_waiting_reason: 2]
+    only: [idle_evidence: 6, idle_evidence_waiting_reason: 2]
 
   import Aiur.Orchestrator.StatusReport.Progress,
     only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2]
@@ -11,12 +11,14 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusObservation
@@ -28,6 +30,10 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
+    CodingAgent.with_snapshot(fn -> SettingsSnapshot.run(fn -> do_snapshot_payload(state) end) end)
+  end
+
+  defp do_snapshot_payload(state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -79,9 +85,9 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
       orphaned_agent_reap_count: state.orphaned_agent_reap_count,
-      globally_paused: state.globally_paused == true,
+      globally_paused: PauseGuard.paused?(state),
       global_pause: %{
-        globally_paused: state.globally_paused == true,
+        globally_paused: PauseGuard.paused?(state),
         paused_at: Map.get(state.global_pause, :paused_at),
         source: Map.get(state.global_pause, :source)
       },
@@ -231,7 +237,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
       activity_stage: activity_stage(Issue.tracker_identity(metadata.issue), activity_by_identity),
-      ci_result: cached_ci_result(state, metadata.identifier)
+      ci_result: cached_ci_result(state, metadata.identifier),
+      capacity_reason: capacity_choice(metadata)
     }
     |> Map.merge(progress_facts(Issue.tracker_identity(metadata.issue), activity_by_identity))
     |> Map.merge(running_execution_facts(metadata))
@@ -288,6 +295,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   end
 
   defp idle_snapshot(%State{} = state, now_ms, activity_by_identity, decision_counts) do
+    terminal_states = DispatchPolicy.terminal_state_set()
     running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
@@ -296,7 +304,6 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     retrying_issue_ids = MapSet.new(Map.keys(state.retry_attempts))
 
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
-    terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
       visible_polled_issues(state)
@@ -310,11 +317,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       idle_issue_snapshot(
         state,
         issue,
-        terminal_states,
         now_ms,
         latch_statuses,
         activity_by_identity,
-        decision_counts
+        decision_counts,
+        terminal_states
       )
     end)
   end
@@ -322,11 +329,11 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp idle_issue_snapshot(
          %State{} = state,
          %Issue{} = issue,
-         _terminal_states,
          now_ms,
          latch_statuses,
          activity_by_identity,
-         decision_counts
+         decision_counts,
+         terminal_states
        ) do
     identifier = issue.identifier || issue.id
 
@@ -335,7 +342,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
     latch = Map.get(latch_statuses, issue.id, :none)
     release = Map.get(state.released_claims, issue.id)
-    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
+    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms, terminal_states)
 
     %{
       issue_id: issue.id,
@@ -357,6 +364,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
       dispatch_decline_reason: Map.get(state.dispatch_declines, issue.id),
       waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
+      capacity_reason: capacity_waiting(state, idle_evidence_waiting_reason(idle_evidence, release)),
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       blocked_by: known_blocked_by(issue),
@@ -396,7 +404,9 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       resolved_model: Map.get(execution, :resolved_model),
       effort: Map.get(execution, :effort),
       account: Map.get(execution, :account),
-      account_selection_reason: Map.get(execution, :account_selection_reason)
+      account_selection_reason: Map.get(execution, :account_selection_reason),
+      skills: Map.get(execution, :skills),
+      skill_preload: Map.get(execution, :skill_preload)
     }
     |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))
   end

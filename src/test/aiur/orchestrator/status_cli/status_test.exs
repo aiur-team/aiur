@@ -5,6 +5,7 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.ExecutorWakeInbox
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
@@ -56,6 +57,22 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
       if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url), else: Application.delete_env(:aiur, :lease_database_url)
       if previous_roster, do: Application.put_env(:aiur, :instance_roster_fun, previous_roster), else: Application.delete_env(:aiur, :instance_roster_fun)
     end)
+  end
+
+  test "status report prints the signed-out Claude probe failure and its time" do
+    UsageReadings.reset()
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    UsageReadings.record("claude", "work", {:error, :no_oauth_token}, observed_at)
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}})
+      end)
+
+    assert output =~ "ACCOUNT claude/work usage probe failing: not signed in; run `aiur login claude work`"
+    assert output =~ "last failed #{DateTime.to_iso8601(observed_at)}"
+  after
+    UsageReadings.reset()
   end
 
   test "status escapes control characters in shared roster values" do

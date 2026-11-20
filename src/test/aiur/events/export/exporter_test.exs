@@ -5,7 +5,7 @@ defmodule Aiur.Events.Export.ExporterTest do
   alias Aiur.Events.Export.{Exporter, Layout}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "exporter-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("exporter")
     previous = Application.get_env(:aiur, :runtime_state_dir)
     Application.put_env(:aiur, :runtime_state_dir, root)
     :persistent_term.erase({Export, :status})

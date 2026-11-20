@@ -115,10 +115,8 @@ defmodule AiurWeb.InstanceRosterLiveTest do
     end)
 
     {:ok, roster_view, _html} = live(build_conn(), "/instances")
-    {:ok, units_view, _units_html} = live(build_conn(), "/units")
 
     assert has_element?(roster_view, "[data-empty-reason=repository_unavailable]", "Instance roster is unavailable because the repository identity could not be resolved.")
-    assert has_element?(units_view, "#instance-agent-list [data-empty-reason=repository_unavailable]", "Agent roster is unavailable because the repository identity could not be resolved.")
   end
 
   test "dashboard roster explains when the shared store is disabled" do
@@ -127,25 +125,6 @@ defmodule AiurWeb.InstanceRosterLiveTest do
     {:ok, view, _html} = live(build_conn(), "/instances")
 
     assert has_element?(view, "[data-empty-reason=lease_store_disabled]", "Instance roster is unavailable because no shared lease store is configured.")
-  end
-
-  test "main dashboard agent list names each instance and observation age" do
-    {:ok, view, _html} = live(build_conn(), "/units")
-
-    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="home-a"][data-observation-age-ms="10000"]), "acme/widgets#41 — running — home-a (observed 10 seconds ago)")
-    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="container-b"][data-observation-age-ms="90000"]), "acme/widgets#42 — paused — container-b (stale) (observed 1 minutes ago)")
-  end
-
-  test "main dashboard explains an unavailable shared store for the all-instance agent list" do
-    Application.put_env(:aiur, :instance_roster_fun, fn -> {:error, :offline} end)
-
-    {:ok, view, _html} = live(build_conn(), "/units")
-
-    assert has_element?(
-             view,
-             "#instance-agent-list [data-empty-reason=lease_store_unavailable]",
-             "Agent roster is unavailable because the shared lease store could not be read."
-           )
   end
 
   defp restore(key, nil), do: Application.delete_env(:aiur, key)

@@ -15,6 +15,10 @@ defmodule AiurWeb.ListenModeControllerTest do
     @impl true
     def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
     def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
+    def handle_call(_request, _from, state), do: {:reply, {:error, :unsupported}, state}
+
+    @impl true
+    def handle_info(_message, state), do: {:noreply, state}
   end
 
   setup do
@@ -31,7 +35,7 @@ defmodule AiurWeb.ListenModeControllerTest do
   test "stale expected_version returns 409 with current record" do
     assert request(:post, %{mode: "steer", expected_version: 0}).status == 200
     response = request(:post, %{mode: "async", expected_version: 0})
-    assert response.status == 409
+    assert response.status == 409, response.resp_body
     assert %{"error" => "mode_conflict", "current" => %{"requested" => "steer", "version" => 1}} = Jason.decode!(response.resp_body)
     assert {:ok, %{requested: :steer, version: 1}} = Listener.get_mode("42")
   end
@@ -42,7 +46,14 @@ defmodule AiurWeb.ListenModeControllerTest do
     assert first.status == 200
     assert request(:post, body).resp_body == first.resp_body
     assert request(:get, %{}).resp_body == first.resp_body
-    assert %{"requested" => "async", "effective" => nil, "effective_reason" => "not_running", "version" => 1, "actor" => "executor", "routing" => "legacy"} = Jason.decode!(first.resp_body)
+    assert %{"requested" => "async", "effective" => nil, "effective_reason" => "not_running", "version" => 1, "actor" => "executor", "routing" => "listener"} = Jason.decode!(first.resp_body)
+  end
+
+  test "mute is accepted and round-trips through the HTTP mode control" do
+    response = request(:post, %{mode: "mute", expected_version: 0})
+    assert response.status == 200
+    assert %{"requested" => "mute", "effective" => "mute", "version" => 1} = Jason.decode!(response.resp_body)
+    assert request(:get, %{}).resp_body == response.resp_body
   end
 
   test "invalid mode and metadata return 422 without writing" do

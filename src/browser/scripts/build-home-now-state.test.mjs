@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { AST, UNKNOWN_STATE, agentState, progress, modelLabel } from '../../priv/static/build-home/now-state.js';
+import { AST, UNKNOWN_STATE, agentState, progress, modelLabel, ticketStatus } from '../../priv/static/build-home/now-state.js';
 import { loadBuildJs } from './export-build-home-fixtures.mjs';
 
 test('unknown progress has no percentage or hue', () => {
@@ -37,4 +37,14 @@ test('model label prefers the provider name without inventing unknown labels', (
   assert.equal(modelLabel({ model: 'kimi', name: null }), 'Kimi');
   for (const agent of [null, { model: 'muse', name: null }, { model: '__proto__', name: null }])
     assert.equal(modelLabel(agent), null);
+});
+
+test('ticket status covers current, history, planned, unfiled and unknown rows', () => {
+  assert.deepEqual(ticketStatus({ sec: 'now', agent: { state: 'ci_wait' } }), { label: 'Waiting for CI', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'hist', status: 'done' }), { label: 'Merged', tone: 'done' });
+  assert.deepEqual(ticketStatus({ sec: 'hist', status: 'constructor' }), { label: 'State unknown', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'plan', num: 7, qpos: 3 }), { label: 'Queued · Q3', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'plan', num: null, id: 'pack:test/a' }), { label: 'Planned · not filed', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'nq' }), { label: 'Not queued', tone: 'idle' });
+  assert.deepEqual(ticketStatus({ sec: 'future' }), { label: 'State unknown', tone: 'idle' });
 });

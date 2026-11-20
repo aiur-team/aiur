@@ -1,0 +1,32 @@
+/* Optional default theme for @aiur/commands. Set the --aiur-command-* custom
+   properties on any ancestor to restyle; every value below is a fallback. */
+.aiur-command {
+  --_accent: var(--aiur-command-accent, #2457d6);
+  --_radius: var(--aiur-command-radius, 8px);
+  --_font: var(--aiur-command-font, system-ui, sans-serif);
+  --_fg: var(--aiur-command-fg, #1c2128);
+  --_muted: var(--aiur-command-muted, #58606a);
+  --_bg: var(--aiur-command-bg, #ffffff);
+  --_border: var(--aiur-command-border, #d0d7de);
+  --_gap: var(--aiur-command-gap, 0.75rem);
+  font-family: var(--_font);
+  color: var(--_fg);
+  background: var(--_bg);
+  border: 1px solid var(--_border);
+  border-radius: var(--_radius);
+  padding: var(--_gap);
+  display: grid;
+  gap: var(--_gap);
+}
+.aiur-commands { display: grid; gap: var(--aiur-command-gap, 0.75rem); }
+.aiur-command-state { color: var(--_muted); font-size: 0.8em; }
+.aiur-command-question { margin: 0; }
+.aiur-command-options { border: 0; padding: 0; margin: 0; }
+.aiur-command-option { display: flex; gap: 0.5rem; padding: 0.35rem 0; }
+.aiur-command-option.is-recommended { border-left: 3px solid var(--_accent); padding-left: 0.5rem; }
+.aiur-command-chip { border: 1px solid var(--_accent); color: var(--_accent); border-radius: 999px; padding: 0 0.5rem; font-size: 0.75em; }
+.aiur-command-response textarea { width: 100%; font: inherit; border: 1px solid var(--_border); border-radius: var(--_radius); }
+.aiur-command-actions button { font: inherit; color: #fff; background: var(--_accent); border: 0; border-radius: var(--_radius); padding: 0.4rem 0.9rem; }
+.aiur-command-media-item img, .aiur-command-media-item video { max-width: 100%; border-radius: var(--_radius); }
+.aiur-command-embed iframe { width: 100%; aspect-ratio: 16 / 9; height: auto; border: 0; border-radius: var(--_radius); }
+.aiur-command-embed-fallback { color: var(--_muted); font-size: 0.85em; margin: 0; }

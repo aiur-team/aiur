@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
+  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, OverrideSummary, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, DecisionCommands, NavState, RouteRegistry}
@@ -15,11 +15,12 @@ defmodule AiurWeb.BuildLive do
   @route RouteRegistry.current_route(:build)
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     connected = connected?(socket)
 
     socket =
       socket
+      |> assign(:build_fixture_dataset, fixture_dataset(session))
       |> Protocol.init()
       |> Controls.init()
       |> Conversation.init()
@@ -30,6 +31,7 @@ defmodule AiurWeb.BuildLive do
       |> DashboardShell.mount()
       |> UsageUpdates.init(connected)
       |> AwaitingCommands.mount(connected)
+      |> OverrideSummary.refresh()
       |> assign(
         open_ticket: nil,
         build_state: :loading,
@@ -52,8 +54,15 @@ defmodule AiurWeb.BuildLive do
     location = URI.parse(uri)
     socket = assign(socket, url_path: location.path, url_state: state)
     socket = if previous != nil and previous != state and connected?(socket), do: push_event(socket, "build:url", %{state: state}), else: socket
-    {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", URLState.to_query(state))}
+    query = state |> URLState.to_query() |> keep_project(params["project"])
+    {:noreply, socket |> refresh_controls() |> patch_url(location.query || "", query)}
   end
+
+  # The canonical URL keeps the `AiurWeb.ProjectScope` pick, so a reconnect remounts the same project.
+  defp keep_project(query, project) when is_binary(project) and project != "",
+    do: [query, URI.encode_query(project: project)] |> Enum.reject(&(&1 == "")) |> Enum.join("&")
+
+  defp keep_project(query, _project), do: query
 
   defp patch_url(socket, current, query) do
     if current == query do
@@ -65,9 +74,13 @@ defmodule AiurWeb.BuildLive do
   end
 
   defp corrected_url?(params, query) do
-    sent = Map.reject(params, fn {key, value} -> key == "ticket" or not is_binary(value) or value == "" end)
+    # `project` belongs to `AiurWeb.ProjectScope`, not the build URL state.
+    sent = Map.reject(params, fn {key, value} -> key in ["ticket", "project"] or not is_binary(value) or value == "" end)
     Map.take(URI.decode_query(query), Map.keys(sent)) != sent
   end
+
+  defp fixture_dataset(session), do: if(fixture_query_enabled?(), do: session["fixture_dataset"])
+  defp fixture_query_enabled?, do: Application.get_env(:aiur, :build_fixture_query, false)
 
   defp load_snapshot(socket) do
     source = socket.assigns.build_source
@@ -91,10 +104,10 @@ defmodule AiurWeb.BuildLive do
   end
 
   def handle_async(:build_snapshot, {:ok, {:error, reason}}, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, unavailable(socket, reason_tag(reason))}
+    do: {:noreply, snapshot_unavailable(socket, reason_tag(reason))}
 
   def handle_async(:build_snapshot, {:exit, _reason}, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, unavailable(socket, "crashed")}
+    do: {:noreply, snapshot_unavailable(socket, "crashed")}
 
   def handle_async({:queue_add, id}, result, socket), do: {:noreply, QueueAdd.result(socket, id, result)}
 
@@ -103,7 +116,7 @@ defmodule AiurWeb.BuildLive do
 
   @impl true
   def handle_info(:build_snapshot_timeout, %{assigns: %{build_state: :loading}} = socket),
-    do: {:noreply, socket |> cancel_async(:build_snapshot) |> unavailable("timeout")}
+    do: {:noreply, socket |> cancel_async(:build_snapshot) |> snapshot_unavailable("timeout")}
 
   def handle_info({:build_changes, changes} = message, socket), do: {:noreply, socket |> Protocol.changes(changes, source_opts(socket)) |> Controls.refresh() |> Conversation.info(message)}
 
@@ -114,15 +127,18 @@ defmodule AiurWeb.BuildLive do
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
 
-  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> AwaitingCommands.refresh() |> CommandCard.refresh()}
-  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, socket |> AwaitingCommands.tick() |> CommandCard.refresh()}
+  def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, socket |> AwaitingCommands.refresh() |> OverrideSummary.refresh() |> CommandCard.refresh()}
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, socket |> AwaitingCommands.tick() |> OverrideSummary.refresh() |> CommandCard.refresh()}
   def handle_info({:send_status_poll, id, request_id, n}, socket), do: {:noreply, Composer.poll(socket, id, request_id, n)}
   def handle_info({:build_conversation_poll, _token} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_changed, _snapshot} = message, socket), do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:live_conversation_restarted, _epoch, _now} = message, socket), do: {:noreply, Conversation.info(socket, message)}
-  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh, :ticket_history_updated], do: {:noreply, Conversation.info(socket, message)}
+  def handle_info({:ticket_history_updated, _} = message, socket), do: {:noreply, socket |> TicketDoc.update(message) |> Conversation.info(message)}
+  def handle_info({:build_order_history_changed, _} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
+  def handle_info({tag, _} = message, socket) when tag in [:conversation_events_refresh], do: {:noreply, Conversation.info(socket, message)}
   def handle_info({:ticket_detail_updated, _state} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info({:ticket_detail_coordinator_reset, _epoch} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
+  def handle_info({:ticket_timeline_loaded, _key, _cached, _result} = message, socket), do: {:noreply, TicketDoc.update(socket, message)}
   def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
 
   @impl true
@@ -196,6 +212,37 @@ defmodule AiurWeb.BuildLive do
     assign(socket, :build_state, {:unavailable, tag})
   end
 
+  defp snapshot_unavailable(socket, tag) do
+    case DataSource.last_agents(socket.assigns.build_source, source_opts(socket)) do
+      {:ok, %{sections: %{now: rows}, sources: %{agents: agents}, observed_at: observed_at}} when is_list(rows) and is_map(agents) and is_integer(observed_at) ->
+        Logger.warning("build home snapshot stale reason=#{tag}")
+        data = stale_agent_source(socket.assigns[:build_snapshot] || empty_snapshot(), rows, agents, tag)
+        socket |> assign(:build_state, :ready) |> Protocol.store(data)
+
+      {:error, _reason} ->
+        unavailable(socket, tag)
+
+      _invalid ->
+        unavailable(socket, tag)
+    end
+  end
+
+  defp empty_snapshot, do: %{"sections" => %{"now" => []}, "sources" => %{}}
+
+  defp stale_agent_source(data, rows, source, tag) do
+    sources = Map.get(data, :sources, Map.get(data, "sources", %{}))
+    observed_at = Map.get(source, :observed_at) || Map.get(source, "observed_at")
+    agents = source |> Map.put(:state, "stale") |> Map.put(:reason, tag) |> Map.put(:observed_at, observed_at)
+
+    sections = Map.get(data, :sections, Map.get(data, "sections", %{}))
+    sections = Map.put(sections, key_for(sections, :now), rows)
+    data = Map.put(data, if(Map.has_key?(data, :sections), do: :sections, else: "sections"), sections)
+
+    Map.put(data, if(Map.has_key?(data, :sources), do: :sources, else: "sources"), Map.put(sources, key_for(sources, :agents), agents))
+  end
+
+  defp key_for(map, key), do: if(Map.has_key?(map, Atom.to_string(key)), do: Atom.to_string(key), else: key)
+
   defp reason_tag(:not_wired), do: "not_wired"
   defp reason_tag(:timeout), do: "timeout"
   defp reason_tag(:epic_config_unavailable), do: "epic_config_unavailable"
@@ -215,10 +262,14 @@ defmodule AiurWeb.BuildLive do
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
+      <:status><OverrideSummary.summary state={@fleet_overrides} /></:status>
+      <:sidebar><div id="bd-usage-nav" class="ax-nu" phx-update="ignore" aria-label="Usage" role="group"></div></:sidebar>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}
         data-daemon={@daemon_hint && Jason.encode!(@daemon_hint)}>
         <div id="bd-usage"></div><div id="bd-offline"></div><div id="bd-fh"></div>
+        <div id="bd-partial" class="bd-partial" aria-live="polite"></div>
+        <div class="bd-board">
         <div class="bd-toolbar"><div class="bd-bar-l" id="bd-tools-l"></div><div class="bd-filters" id="bd-filters"></div><div class="bd-bar-r" id="bd-tools"></div></div>
         <div class="bd-vpw"><div class="bd-vp" id="bd-vp">
           <div class="bd-lanes"><div class="bd-skel-lanes"><i class="bd-skel-i" style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i><i style="background: var(--surface-3)"></i></div></div>
@@ -226,6 +277,7 @@ defmodule AiurWeb.BuildLive do
           <div class="bd-loading" role="status"><span class="bd-spin"></span>Loading build timeline…</div>
         </div><div class="bd-sb" id="bd-sb"><i></i></div><div class="bd-tree" id="bd-tree" hidden></div></div>
         <div class="bd-status" id="bd-status"></div>
+        </div>
       </div>
     </DashboardShell.dashboard_shell>
     <div id="usage-watch" phx-hook="UsageWatch" hidden></div>

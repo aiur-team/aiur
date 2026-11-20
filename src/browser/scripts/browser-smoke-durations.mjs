@@ -12,6 +12,28 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // Governed local run (2026-11-01): completed tint matrix took 52.2s; rounded up for startup variance.
+  'test:browser-suite -- build-home-completed-tint': 60,
+  // Governed local run (2026-10-30): 38.557s whole command including fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-native-hold': 39,
+  'test:projects-home-model': 5,
+  'test:gateway-state': 5,
+  'test:gateway-state': 5,
+  'test:browser-suite -- build-home-projects': 30,
+  'test:browser-suite -- build-home-gateway-view': 30,
+  // #7319 local two-case run: 21.1s, plus fixture/startup margin; refresh from the first CI shard log.
+  'test:executor-view': 60,
+  // Local run (2026-10-30): one focused tab-preservation case, rounded up with fixture startup.
+  'test:browser-suite -- build-home-running-ticket-timeline': 12,
+  // Governed local run (2026-10-30): expanded 11-case suite took 31.029s including fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-conversation-live': 32,
+  // Governed local run (2026-11-01): three 390px cases in 18.7s plus fixture startup; refresh from CI.
+  'test:browser-suite -- build-home-mobile-composer': 30,
+  // CI run 41385779395, shard 7: two breakpoint cases completed in 8.6s.
+  'test:browser-suite -- build-home-conversation-breakpoints': 9,
+  // Governed local run (2026-10-28): 29.779s whole command including fixture startup; refresh from CI.
+  // Governed local run (2026-10-28): 35.65s including fixture startup; two browser cases in 19.5s.
+  'test:conversation-view': 36,
   // Governed functional run (2026-10-23), including startup: 57.170 seconds.
   'test:build-home-unfiled': 58,
   'test:parity': 16,
@@ -35,9 +57,12 @@ export const recordedSeconds = {
   'test:build-home-chains-unit': 1,
   // Job 118131038618 (shard 8/9): 132.3s.
   'test:build-home-chains': 133,
+  'test:browser-suite -- build-home-dictation-lifecycle': 11.1,
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
+  // #7686 local estimate: touch suite (three viewports plus pan/pinch cases) with fixture startup; refresh from the first CI shard log.
+  'test:browser-suite -- build-home-touch': 40,
   // Local estimate (loaded host ran 234s; CI hosts run the home suites about 2x faster); replace from its first shard log.
   'test:browser-suite -- build-home-performance': 150,
   // Local governed run: 11 cases in 139s including fixture startup; rounded up.
@@ -50,6 +75,9 @@ export const recordedSeconds = {
   'test:build-home-conversation': 165,
   // Local complete run for the new Fit endpoint check took 17s; reserve 25s for fixture variance.
   'test:browser-suite -- build-home-chains-fit-endpoints': 25,
+  // Local governed run (2026-11-06): 5 cases in 4.6s, 12.3s whole command including fixture startup;
+  // rounded up. Refresh from the first CI shard log.
+  'test:browser-suite -- build-home-build-order': 15,
   // node --test, 7 cases in 0.4s locally (#3163); rounded up.
   'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
@@ -61,6 +89,10 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-command': 99,
   // CI run 39758422723, shard 5/8: duration read from its suite log.
   'test:browser-suite -- build-home-live-top': 10,
+  // #7446 local run (no CI shard log yet): 2 cases, 10 repeats took 108s wall incl. fixture boot.
+  'test:browser-suite -- build-home-live-band-scroll': 30,
+  // #7758 local run (no CI shard log yet): 8 cases took about 40s with fixture boot.
+  'test:browser-suite -- build-home-live-band-pin': 45,
   // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
   // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
   'test:build-home-edges-unit': 0.2,
@@ -84,17 +116,14 @@ export const recordedSeconds = {
   'test:command-history': 15,
   'test:build-order': 6,
   'test:experiments': 15,
-  'test:interaction': 26,
   'test:time-brush': 8,
-  'test:performance': 18,
-  'test:responsive': 16,
   'test:layout': 24,
   'test:ticket-context': 17,
-  'test:units': 38,
+  'test:browser-suite -- build-home-executor-voice-comparison': 30,
+  'test:voice-input': 38,
+  // Local governed run (2026-10-29): 39s whole command; 14 Node + 13 browser cases (19.5s).
+  'test:voice-drawer': 40,
   'test:provider-meters': 14,
-  'test:meter-row': 15,
-  'test:models-panel': 9,
-  'test:quota-panel': 8,
   'test:streamdeck': 59,
   'test:streamdeck-flow': 13,
   'test:palette': 16,

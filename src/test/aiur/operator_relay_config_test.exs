@@ -1,15 +1,22 @@
 defmodule Aiur.OperatorRelayConfigTest do
   use Aiur.TestSupport
   alias Aiur.Events.Exchange
+  alias Aiur.WorkflowStore.Reload
 
-  test "enabling the relay gate on reload alerts once and preserves the disabled default" do
+  test "relay gate is on by default, opts out with false, and alerts once when re-enabled on reload" do
     ensure_workflow_store_running()
     :ok = Exchange.subscribe("system.config.operator_relay.enabled")
     path = Workflow.workflow_file_path()
     original = File.read!(path)
-    refute Config.relay_operator_answers?()
+    on_exit(fn -> File.write!(path, original) end)
+    assert Config.relay_operator_answers?()
 
-    File.write!(path, original <> "\nexecutor: {relay_operator_answers: true}\n")
+    File.write!(path, original <> "\nexecutor: {relay_operator_answers: false}\n")
+    assert :ok = WorkflowStore.force_reload()
+    refute Config.relay_operator_answers?()
+    refute_receive {:event, _event}, 100
+
+    File.write!(path, original)
     assert :ok = WorkflowStore.force_reload()
     assert Config.relay_operator_answers?()
     assert_receive {:event, event}, 2_000
@@ -19,9 +26,33 @@ defmodule Aiur.OperatorRelayConfigTest do
 
     assert :ok = WorkflowStore.force_reload()
     refute_receive {:event, _event}, 100
+  end
+
+  test "boot commit with the relay on by default raises no enabled alert" do
+    ensure_workflow_store_running()
+    :ok = Exchange.subscribe("system.config.operator_relay.enabled")
+    state = :sys.get_state(WorkflowStore)
+    assert Config.relay_operator_answers?()
+    assert :ok = Reload.commit(state)
+    refute_receive {:event, _event}, 100
+  end
+
+  test "enabling reversible human-required delegation alerts and remains opt-in" do
+    ensure_workflow_store_running()
+    :ok = Exchange.subscribe("system.config.executor.human_required_delegation.enabled")
+    path = Workflow.workflow_file_path()
+    original = File.read!(path)
+    refute Config.allow_reversible_human_required_answers?()
+
+    File.write!(path, original <> "\nexecutor: {allow_reversible_human_required_answers: true}\n")
+    assert :ok = WorkflowStore.force_reload()
+    assert Config.allow_reversible_human_required_answers?()
+    assert_receive {:event, event}, 2_000
+    assert event.topic == "system.config.executor.human_required_delegation.enabled"
+    assert event["message"] =~ "allow_reversible_human_required_answers enabled"
+
     File.write!(path, original)
     assert :ok = WorkflowStore.force_reload()
-    refute Config.relay_operator_answers?()
-    refute_receive {:event, _event}, 100
+    refute Config.allow_reversible_human_required_answers?()
   end
 end

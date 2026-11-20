@@ -2,6 +2,7 @@ defmodule Aiur.Handoff.AdopterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.Handoff, as: Runner
+  alias Aiur.Capacity.LedgerStore
   alias Aiur.Handoff.{Adopter, Compatibility, Record, Report}
   alias Aiur.Orchestrator.{OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
 
@@ -30,10 +31,14 @@ defmodule Aiur.Handoff.AdopterTest do
       end
     end
 
-    state = Adopter.adopt(%State{max_concurrent_agents: 0}, options(dir, runner: runner))
+    ledger = start_supervised!({LedgerStore, name: :adopter_test_ledger})
+    policy = %{sources: %{"codex" => %{billing: "subscription"}}}
+    state = Adopter.adopt(%State{max_concurrent_agents: 0}, options(dir, runner: runner, ledger_store: ledger, capacity_policy: policy))
     assert_receive {:continued, pid}, 1000
     on_exit(fn -> send(pid, :stop) end)
     assert state.running["one"].pid == pid
+    # Adoption rebuilds the reservation hold of the adopted agent (#7890).
+    assert Map.keys(LedgerStore.ledger(ledger).holds) == ["one"]
     assert state.running["one"].adopted_from == "restart"
     assert {:ok, %{adopted: [outcome], fallback: []}} = Report.latest(dir: dir)
     assert outcome["provider_pid_before"] == "123"
@@ -275,6 +280,36 @@ defmodule Aiur.Handoff.AdopterTest do
     refute_receive :resumed_before_consume, 20
   end
 
+  test "an in-daemon record with no model anywhere falls back naming :missing_model", %{dir: dir} do
+    workspace = Path.join(Aiur.Config.workspace_root(), "adopter-in-daemon-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    assert :ok = Record.write(record([in_daemon_agent(workspace, "one")]), dir: dir)
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: fn agent, generation, recipient, opts ->
+            send(recipient, {:handoff_adopted, self(), Runner.attach(agent, generation, opts)})
+          end,
+          api_key_fetcher: fn _env -> "test-key" end,
+          backend_config: %{},
+          issue_state_fetcher: fn ["one"] ->
+            {:ok, [%Aiur.Issue{id: "one", identifier: "one", title: "existing", state: "done"}]}
+          end
+        )
+      )
+
+    assert state.running == %{}
+
+    # The cause still reaches the operator-facing report: this record carries no
+    # model and the backend config names none.
+    assert {:ok, %{adopted: [], fallback: [outcome]}} = Report.latest(dir: dir)
+    assert outcome["reason"] == ":missing_model"
+  end
+
   test "compatibility checks protocol, identity and loss before mutable configuration", %{dir: dir} do
     agent = agent(dir, "one")
     opts = options(dir)
@@ -304,7 +339,7 @@ defmodule Aiur.Handoff.AdopterTest do
   defp hello, do: %{"protocol" => 1, "spawn_nonce" => "nonce", "provider_pid" => 123, "relay_id" => "relay", "lossy" => false}
 
   defp agent(dir, id) do
-    issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress"}
+    issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress", selected_backend: "codex"}
     entry = %{identifier: id, session_id: "session-#{id}", issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
 
     %{
@@ -315,6 +350,19 @@ defmodule Aiur.Handoff.AdopterTest do
       "running_entry" => Runner.encode(entry),
       "transport" => Map.merge(hello(), %{"kind" => "relay", "directory" => dir}),
       "dispatch_attempts" => Runner.encode(%{attempts: 3})
+    }
+  end
+
+  defp in_daemon_agent(workspace, id) do
+    provider_state = %{"thread_id" => "thread-#{id}", "turn_index" => 0, "next_request_id" => 1, "messages" => [], "interrupted" => false}
+
+    %{
+      "issue_id" => id,
+      "identifier" => id,
+      "workspace" => workspace,
+      "backend" => "openrouter",
+      "running_entry" => Runner.encode(%{identifier: id, session_id: "session-#{id}", worker_host: nil}),
+      "transport" => %{"kind" => "in_daemon", "provider_state" => Runner.encode(provider_state)}
     }
   end
 

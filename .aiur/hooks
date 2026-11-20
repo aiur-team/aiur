@@ -24,6 +24,8 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
+  git config user.name "${AIUR_GIT_NAME:?AIUR_GIT_NAME is required}"
+  git config user.email "${AIUR_GIT_EMAIL:?AIUR_GIT_EMAIL is required}"
   if [ -x scripts/install-attribution-hooks ]; then
     scripts/install-attribution-hooks .
   fi
@@ -140,6 +142,8 @@ before_run: |
     if [ -f scripts/prepare-skill-mount-merge.py ]; then
       python3 scripts/prepare-skill-mount-merge.py --base "origin/$base_branch"
     fi
+    git config user.name "${AIUR_GIT_NAME:?AIUR_GIT_NAME is required}"
+    git config user.email "${AIUR_GIT_EMAIL:?AIUR_GIT_EMAIL is required}"
     if ! git merge --no-edit "origin/$base_branch"; then
       conflicted_files="$(git diff --name-only --diff-filter=U)"
       if [ -z "$conflicted_files" ]; then

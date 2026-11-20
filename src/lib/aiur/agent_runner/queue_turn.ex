@@ -17,7 +17,7 @@ defmodule Aiur.AgentRunner.QueueTurn do
 
   @doc false
   @spec queue_item_text(map()) :: String.t()
-  def queue_item_text(%{category: :operator_message, body: %{text: text}}), do: text
+  def queue_item_text(%{category: category, body: %{text: text}}) when category in [:operator_message, :system_notice], do: text
 
   def queue_item_text(
         %{
@@ -124,7 +124,8 @@ defmodule Aiur.AgentRunner.QueueTurn do
          codex_update_recipient,
          opts
        ) do
-    text = queue_item_text(item)
+    opts = Aiur.Commands.prepare_override_prompt(issue.identifier, opts)
+    text = Aiur.Commands.render_pending_overrides(opts) <> queue_item_text(item)
     turn_id = queue_item_turn_id(item)
     workspace = SessionLifecycle.session_workspace(app_session)
     worker_host = SessionLifecycle.session_worker_host(app_session)

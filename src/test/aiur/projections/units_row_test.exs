@@ -207,7 +207,7 @@ defmodule Aiur.Projections.UnitsRowTest do
       UnitsRow.snapshot(%{
         membership: membership([member(ticket)]),
         status: %{
-          running: [status(ticket, work_state: :completed, waiting_reason: :awaiting_dispatch)],
+          running: [ticket |> status(work_state: :completed, waiting_reason: :awaiting_dispatch) |> Map.put(:capacity_reason, "codex (preferred)")],
           retrying: [],
           idle: []
         },
@@ -222,6 +222,8 @@ defmodule Aiur.Projections.UnitsRowTest do
     assert row.lifecycle == :waiting
     assert row.field_sources.lifecycle == :status_report
     assert row.runtime.bucket == :running
+    # The status row's capacity reason rides into the Units row (#7892).
+    assert row.capacity_reason == "codex (preferred)"
   end
 
   test "keeps a completed runtime row with an open decision and tracker pause at the replacement boundary" do

@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, SettingsSnapshot, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -30,6 +30,15 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "Whether the Executor may answer reversible human-required engineering decisions."
+  @spec allow_reversible_human_required_answers?() :: boolean()
+  def allow_reversible_human_required_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.allow_reversible_human_required_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
@@ -45,7 +54,9 @@ defmodule Aiur.Config do
       same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings do
+  def settings, do: SettingsSnapshot.read(&live_settings/0)
+
+  defp live_settings do
     case Workflow.current_with_cache_identity() do
       {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
         cached_settings(workflow, {generation, publication})
@@ -241,6 +252,15 @@ defmodule Aiur.Config do
   @spec decisions_require_suggested_responses?() :: boolean()
   def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
 
+  @doc "Hosts allowed to serve `embed` Command media; `[]` (embeds off) when config cannot be read."
+  @spec decisions_embed_hosts() :: [String.t()]
+  def decisions_embed_hosts do
+    case settings() do
+      {:ok, settings} -> settings.decisions.embed_hosts
+      {:error, _reason} -> []
+    end
+  end
+
   defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
@@ -255,6 +275,7 @@ defmodule Aiur.Config do
   defdelegate backend_config(backend), to: Aiur.Config.AgentSettings
   defdelegate agent_backend_configs(), to: Aiur.Config.AgentSettings
   defdelegate agent_routing(), to: Aiur.Config.AgentSettings
+  defdelegate agent_routing_candidates(), to: Aiur.Config.AgentSettings
   defdelegate switch_model_on_ratelimit(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_fallback_backend(), to: Aiur.Config.AgentSettings
   defdelegate rate_limit_primary_backend(), to: Aiur.Config.AgentSettings
@@ -263,6 +284,7 @@ defmodule Aiur.Config do
   defdelegate agent_prior_work_continuation?(), to: Aiur.Config.AgentSettings
   defdelegate agent_complexity_prompts(), to: Aiur.Config.AgentSettings
   defdelegate agent_max_turns_by_complexity(), to: Aiur.Config.AgentSettings
+  defdelegate agent_skills(), to: Aiur.Config.AgentSettings
   defdelegate alerts_settings(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_first_alert_hours(), to: Aiur.Config.AgentSettings
   defdelegate executor_takeover_continuous_alert_hours(), to: Aiur.Config.AgentSettings
@@ -280,6 +302,9 @@ defmodule Aiur.Config do
   defdelegate ci_recovery_enabled?(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_poll(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_hour(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent(settings), to: Aiur.Config.AgentSettings
+  defdelegate usage_floor_percent_for(backend), to: Aiur.Config.AgentSettings
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings

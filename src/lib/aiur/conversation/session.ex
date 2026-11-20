@@ -11,7 +11,9 @@ defmodule Aiur.Conversation.Session do
             started_at: nil,
             ended_at: nil,
             start_reason: nil,
-            end_reason: nil
+            end_reason: nil,
+            transcript_source: nil,
+            meta: %{}
 
   @type t :: %__MODULE__{}
 
@@ -19,7 +21,7 @@ defmodule Aiur.Conversation.Session do
   def start_line(%__MODULE__{} = session) do
     session
     |> to_json()
-    |> Map.drop(["ended_at", "end_reason", "last_pos"])
+    |> Map.drop(["ended_at", "end_reason", "last_pos", "meta"])
     |> Map.put("type", "start")
   end
 
@@ -39,7 +41,8 @@ defmodule Aiur.Conversation.Session do
 
     session
     |> to_json()
-    |> Map.take(["v", "session_seq", "ended_at", "end_reason", "last_pos"])
+    |> Map.take(["v", "session_seq", "ended_at", "end_reason", "last_pos", "meta"])
+    |> Map.reject(fn {key, value} -> key == "meta" and value == %{} end)
     |> Map.put("type", "end")
   end
 

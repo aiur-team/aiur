@@ -9,7 +9,7 @@ defmodule Aiur.OperatorMessageLoadTest do
     original_timeout = Application.get_env(:aiur, :operator_message_call_timeout_ms)
     Application.delete_env(:aiur, :operator_message_call_timeout_ms)
 
-    {:ok, orchestrator} = Orchestrator.start_link(name: nil)
+    orchestrator = start_supervised!({Orchestrator, name: nil})
     issue_id = "issue-message-load"
     identifier = "5995-load-test"
     worker = Isolation.start_owned!({Task, fn -> worker_loop() end})
@@ -23,8 +23,6 @@ defmodule Aiur.OperatorMessageLoadTest do
         catch
           :exit, _reason -> :ok
         end
-
-        Aiur.TestSupport.safe_stop(orchestrator)
       end
     end)
 

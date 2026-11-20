@@ -1,6 +1,6 @@
 # Outbound events
 
-Aiur can push ticket lifecycle, progress, usage, spend-cap and cancellation
+Aiur can push ticket lifecycle, progress, decision, usage, spend-cap and cancellation
 results to a TypeScript service over signed webhooks. Consumers do not poll.
 The first release supports one webhook endpoint per Aiur instance.
 
@@ -75,13 +75,19 @@ The supported outbound families are:
 | --- | --- |
 | Ticket lifecycle | `ticket.<id>.lifecycle.changed` |
 | Ticket progress | `ticket.<id>.agent.progress`, `.progress.checkin`, or `.progress.phase` |
+| Decision request or answer | `ticket.<id>.agent.decision.requested` or `.decision.answered` |
 | Ticket usage | `ticket.<id>.usage.changed` |
 | Spend-cap transition | `ticket.<id>.usage.spend_cap_reached` |
 | Cancellation result | `ticket.<id>.cancel.result` |
 
-Each family has a separate v1 JSON Schema constraining its topic, references,
-and attributes, while the shared envelope is built by the event bus. Treat an
-event as a refresh signal and re-read the owning API for authoritative state.
+Each family has a v1 schema for its topic, refs, and attributes. Decision events
+carry a sanitized question and options; answers add the answer.
+
+Other decision lifecycle topics remain available on the pull event feed, but are
+not sent by the outbound webhook.
+
+The event bus builds the shared envelope. Treat events as refresh signals and
+re-read the owning API for authoritative state.
 
 Unknown topics or newer `v` values require a newer contract package; a breaking
 wire change adds another schema version instead of changing v1 in place.

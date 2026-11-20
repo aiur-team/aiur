@@ -7,6 +7,12 @@
 .aiur-shell--dashboard .aiur-shell__item { min-height: 0; line-height: inherit; }
 .aiur-shell--dashboard .aiur-shell__count { display: inline; height: auto; margin-left: 0; }
 .aiur-shell--dashboard .aiur-shell__state { margin-left: 0; }
+.standalone-recovery { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 100; display: flex; gap: 8px; }
+.standalone-recovery[hidden] { display: none !important; }
+.standalone-recovery a, .standalone-recovery button { min-height: 44px; padding: 0 14px; border: 1px solid var(--aiur-color-line); border-radius: 999px; background: var(--aiur-color-surface); color: var(--aiur-color-fg); font: inherit; }
+@media (display-mode: standalone) {
+  .standalone-recovery[hidden] { display: flex !important; }
+}
 /* Shell (ported from design build.css v10) */
 .aiur-shell--dashboard .aiur-page { display: grid; gap: 1rem; min-width: 0; }
 .aiur-shell--dashboard .aiur-page > * { min-width: 0; }
@@ -70,8 +76,6 @@ html.nav-collapsed .aiur-shell--dashboard .aiur-shell__toggle svg { transform: s
 .aiur-shell--dashboard .aiur-shell__body, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: 1fr; }
 .aiur-shell--dashboard .aiur-shell__sidebar { top: auto; height: auto; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); }
 .aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { border-radius: 10px; padding: .45rem .3rem; }
-  /* The design has five items; a sixth fits a 390px bar only without gaps (#4827). */
-.aiur-shell--dashboard .aiur-shell__nav:has(> .aiur-shell__item:nth-child(6)) { gap: 0; }
 .aiur-shell--dashboard .aiur-shell__toggle { display: none; }
 .aiur-shell--dashboard .aiur-page { padding: 1rem .9rem 5.5rem; }
 html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label { display: inline; }
@@ -129,6 +133,7 @@ html.nav-collapsed .aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item
 .aiur-shell--dashboard .aiur-shell__nav { min-width: 0; overflow-x: auto; }
 }
 @media (max-width: 480px) {
+.aiur-shell--dashboard .aiur-shell__item--phone-secondary { display: none; }
 .aiur-shell--dashboard .aiur-shell__menu-item { height: auto; min-height: 34px; }
 .aiur-shell--dashboard .aiur-shell__menu-item span:not(.aiur-shell__theme-icon) { min-width: 0; }
 }

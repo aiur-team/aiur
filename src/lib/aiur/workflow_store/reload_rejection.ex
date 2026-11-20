@@ -18,6 +18,7 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
   require Logger
 
   alias Aiur.{Alerts, Config}
+  alias Aiur.Project.Context
   alias Aiur.WorkflowStore.Cache
 
   @topic "system.config.reload_rejected"
@@ -36,12 +37,14 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
     error in ArgumentError -> {:error, {:invalid_workflow_config, Exception.message(error)}}
   end
 
+  defp key, do: {@key, Context.current_id()}
+
   @doc "Records a rejected reload of `path` and raises the operator alert."
   @spec reject(Path.t(), term()) :: :ok
   def reject(path, reason) do
     message = Config.format_config_error(reason)
     Logger.error("Failed to reload workflow path=#{path} reason=#{inspect(reason)}; keeping last known good configuration")
-    safe(fn -> :ets.insert(Cache.table(), {@key, %{path: path, message: message, rejected_at: DateTime.utc_now()}}) end)
+    safe(fn -> :ets.insert(Cache.table(), {key(), %{path: path, message: message, rejected_at: DateTime.utc_now()}}) end)
 
     emit(@topic,
       message: "Config reload rejected; keeping the last known good config",
@@ -59,15 +62,15 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
         :ok
 
       %{path: path} ->
-        safe(fn -> :ets.delete(Cache.table(), @key) end)
+        safe(fn -> :ets.delete(Cache.table(), key()) end)
         emit(@topic <> ".resolved", message: "Config reload accepted", reason: "#{path} loads cleanly again", needs_attention: false)
     end
   end
 
   @spec current() :: rejection() | nil
   def current do
-    case :ets.lookup(Cache.table(), @key) do
-      [{@key, rejection}] -> rejection
+    case :ets.lookup(Cache.table(), key()) do
+      [{_key, rejection}] -> rejection
       _ -> nil
     end
   rescue

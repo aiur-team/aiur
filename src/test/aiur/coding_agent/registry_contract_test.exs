@@ -106,6 +106,7 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
 
     callbacks = [
       launch_telemetry: [prepare_launch: 2, revoke: 1],
+      native_transcript: [read: 2],
       display_tailer: [start: 1, current_session: 1, buffer_operator_delivery: 3, handoff_state: 1, restore_handoff: 2]
     ]
 

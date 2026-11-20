@@ -4,11 +4,36 @@
   "running": [
     {
       "adopted_from": "handoff-7",
+      "capacity_reason": "codex/default (preferred; 62% left at dispatch, reading 40s old)",
       "codex_app_server_pid": null,
       "identifier": "5698",
       "issue_id": "I_5698",
       "provider_pid": "12345",
-      "session_id": "session-5698"
+      "session_id": "session-5698",
+      "skill_preload": {
+        "bytes": 812,
+        "mapped": [
+          {
+            "name": "pixel-art",
+            "reason": "lane:art"
+          }
+        ],
+        "max_bytes": 4096,
+        "missing": [
+          "ghost-skill"
+        ],
+        "over_budget": false
+      }
+    },
+    {
+      "adopted_from": "handoff-7",
+      "capacity_reason": null,
+      "codex_app_server_pid": null,
+      "identifier": "5699",
+      "issue_id": "I_5699",
+      "provider_pid": null,
+      "session_id": "session-5699",
+      "skill_preload": null
     }
   ]
 }

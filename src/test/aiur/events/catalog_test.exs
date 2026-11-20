@@ -1,4 +1,6 @@
 defmodule Aiur.Events.CatalogTest do
+  @moduledoc "Keeps event catalog matching, export allowlist, and ownership contracts together."
+
   use ExUnit.Case, async: true
 
   alias Aiur.Events
@@ -17,7 +19,9 @@ defmodule Aiur.Events.CatalogTest do
   }
 
   test "lookup picks the most specific entry and unknown topics use the private live default" do
-    assert %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true} = Catalog.lookup("ticket.42.agent.decision.answered")
+    assert %Entry{pattern: "ticket.*.agent.decision.answered", class: :journaled, export?: true} = Catalog.lookup("ticket.42.agent.decision.answered")
+    assert %Entry{pattern: "ticket.*.agent.decision.#", class: :journaled, export?: true} = Catalog.lookup("ticket.42.agent.decision.executor-acknowledged")
+    assert Catalog.lookup("ticket.42.agent.decision.mooted").export?
     assert %Entry{pattern: "ticket.*.agent.#", class: :logged, export?: false} = Catalog.lookup("ticket.42.agent.phase.work.start")
     assert %Entry{pattern: "#", class: :live, export?: false, refs: [], attrs: [], owner: "unknown"} = Catalog.default()
     assert Catalog.lookup("foo.bar") == Catalog.default()
@@ -32,20 +36,22 @@ defmodule Aiur.Events.CatalogTest do
 
     for entry <- exported do
       assert entry.refs != [] or entry.attrs != [], entry.pattern
-      assert Enum.all?(entry.refs, &(&1 in [:ticket, :job_id, :pr_number, :head_sha, :decision_id, :decision_version, :queue_id, :prerequisite, :blocked, :root])), entry.pattern
+      assert Enum.all?(entry.refs, &(&1 in [:ticket, :job_id, :run_id, :pr_number, :head_sha, :decision_id, :decision_version, :queue_id, :prerequisite, :blocked, :root])), entry.pattern
       assert Enum.all?(entry.attrs, fn {key, type} -> is_atom(key) and allowed_type?(type) end), entry.pattern
       assert approved_export?(entry.pattern), "Unapproved export: #{entry.pattern}"
     end
   end
 
   test "approved export families retain exact identifier and enum allowlists" do
-    decision = Catalog.lookup("ticket.42.agent.decision.answered")
+    decision = Enum.find(Catalog.entries(), &(&1.pattern == "ticket.*.agent.decision.#"))
     assert decision.refs == [:ticket, :decision_id, :decision_version]
     assert [slug: {:enum, slugs}] = decision.attrs
     requests = File.read!(Path.expand("../../../lib/aiur/decision_store/requests.ex", __DIR__))
     producer_slugs = Regex.scan(~r/def lifecycle_slug\([^)]*\), do: "([^"]+)"/, requests) |> Enum.map(&List.last/1)
     assert producer_slugs != []
     assert Enum.sort(slugs) == Enum.sort(["requested" | producer_slugs])
+    assert Catalog.lookup("ticket.42.agent.decision.requested").attrs == [question: :text, options: :decision_options]
+    assert Catalog.lookup("ticket.42.agent.decision.answered").attrs == [question: :text, options: :decision_options, answer: :decision_answer]
 
     for verb <- ~w(opened ready_for_review merged), do: assert_pr_refs("ticket.42.pr.#{verb}", [])
 
@@ -94,7 +100,7 @@ defmodule Aiur.Events.CatalogTest do
       assert %Entry{class: :ledgered, export?: true, attrs: [milestone: {:enum, ~w(25 50 75 100)}, percent: :integer, generation: :integer, freshness: {:enum, _}]} = Catalog.lookup(topic)
     end
 
-    assert %Entry{class: :live, export?: true, attrs: [requested: {:enum, ~w(steer sync async)}, effective: {:enum, ~w(steer sync async)}, effective_reason: {:enum, _}, version: :integer]} =
+    assert %Entry{class: :live, export?: true, attrs: [requested: {:enum, ~w(steer sync async mute)}, effective: {:enum, ~w(steer sync async mute)}, effective_reason: {:enum, _}, version: :integer]} =
              Catalog.lookup("ticket.42.agent.listen-mode.changed")
 
     assert %Entry{class: :live, export?: true, attrs: [revision: :integer]} = Catalog.lookup("system.capabilities.changed")
@@ -181,16 +187,16 @@ defmodule Aiur.Events.CatalogTest do
 
   defp allowed_type?({:enum, values}), do: is_list(values) and values != [] and Enum.all?(values, &is_binary/1)
   defp allowed_type?({:list, :id}), do: true
-  defp allowed_type?(type), do: type in [:integer, :boolean, :id, :sha]
+  defp allowed_type?(type), do: type in [:integer, :boolean, :id, :sha, :text, :decision_options, :decision_answer]
 
   defp approved_export?("executor.decision.human-needed"), do: true
 
   defp approved_export?(pattern) do
     Enum.any?(
-      ~w(ticket.*.agent.decision.# ticket.*.pr.opened ticket.*.pr.ready_for_review ticket.*.pr.merged ticket.*.pr.closed_unmerged ticket.*.issue.closed
-      ticket.*.ci.passed ticket.*.ci.failed ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin ticket.*.agent.progress.phase
+      ~w(ticket.*.agent.decision.# ticket.*.agent.decision.requested ticket.*.agent.decision.answered ticket.*.agent.decision.human-needed ticket.*.pr.opened ticket.*.pr.ready_for_review ticket.*.pr.merged ticket.*.pr.closed_unmerged ticket.*.issue.closed
+      ticket.*.ci.passed ticket.*.ci.failed ticket.*.ci.merge_group.# ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin ticket.*.agent.progress.phase
       ticket.*.lifecycle.changed ticket.*.usage.changed ticket.*.usage.spend_cap_reached ticket.*.cancel.result
-      ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
+      ticket.*.agent.command ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
       ticket.*.queue.removed ticket.*.queue.attention.# system.queue.*.progress system.queue.attention.# system.build_order.*.progress
       ticket.*.agent.listen-mode.changed system.capabilities.changed system.#),
       &Events.matches?(&1, pattern)

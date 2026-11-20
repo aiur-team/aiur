@@ -146,6 +146,7 @@ fi
 unset AIUR_DEV_TEST_TICKET_IDS AIUR_GITHUB_BUDGET_DIR AIUR_DEV_TEST_STATE_DIR AIUR_DEV_TEST_RUN_ID
 test_scope_ids=""
 if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+  export AIUR_GATEWAY_MODE=0 # keep --test on a cwd key; never the live gateway daemon (MPG-309)
   tickets_file="$repo_root/.aiur-test-tickets.json"
   if ! command -v jq >/dev/null 2>&1 || [ ! -r "$tickets_file" ]; then
     echo "❌ test launch requires jq and a readable $tickets_file; no tickets were reset" >&2

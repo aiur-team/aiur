@@ -16,19 +16,13 @@ export default defineConfig({
       // their behavior is exercised through focused integration tests, while
       // the 100% unit threshold remains for the pure protocol/render modules.
       // The siblings split out of those files for size keep their exclusion:
-      // hid-device.ts and sidecar-wiring.ts hold main.ts's wiring, key-face.ts
-      // the rasterizer's painters, and controller/ the controller's closure.
+      // hid-device.ts and sidecar-wiring.ts hold main.ts's wiring.
       // No code that was measured left the gate.
       exclude: [
         "src/main.ts",
         "src/hid-device.ts",
         "src/sidecar-wiring.ts",
         "src/channel.ts",
-        "src/controller.ts",
-        "src/controller/**",
-        "src/rasterizer.ts",
-        "src/key-face.ts",
-        "src/surface.ts",
       ],
       thresholds: {
         branches: 100,

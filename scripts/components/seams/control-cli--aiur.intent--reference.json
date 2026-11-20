@@ -1,0 +1,6 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.Intent.*",
+  "kind": "reference",
+  "reason": "#7654 pause and resume --all-gateways author the fleet.pause change and push it; works with the store unconfigured (outbox only)"
+}

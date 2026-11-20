@@ -32,9 +32,27 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
       dispatch_delay_ms: 60_000
     ]
 
+    start_supervised!(Supervisor.child_spec({DecisionStore, Keyword.merge(defaults, opts)}, id: make_ref(), restart: :temporary))
+  end
+
+  defp start_crash_store(dir, opts) do
+    parent = self()
+
+    defaults = [
+      name: nil,
+      state_dir: dir,
+      filesystem_sync_fun: fn -> :ok end,
+      executor_request_publisher: fn decision ->
+        send(parent, {:notified, decision.decision_id})
+        {:ok, 1, 0}
+      end,
+      executor_request_boot_reconciler: fn _ -> {:ok, 0} end,
+      reconcile_delay_ms: 60_000,
+      dispatch_delay_ms: 60_000
+    ]
+
     {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
     Process.unlink(pid)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     pid
   end
 
@@ -169,7 +187,7 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
       end
     end
 
-    pid = start_store(dir, executor_request_publisher: publisher)
+    pid = start_crash_store(dir, executor_request_publisher: publisher)
     monitor = Process.monitor(pid)
 
     spawn(fn ->
@@ -186,13 +204,14 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
     assert event_id == projection["last_event_id"]
     Process.exit(pid, :kill)
     receive_barrier({:DOWN, ^monitor, :process, ^pid, :killed})
-    restarted = start_store(dir)
+    restarted = start_crash_store(dir, [])
     assert DecisionStore.health(restarted) == :writable
     assert_received {:notified, ^id}
     GenServer.stop(restarted)
-    again = start_store(dir)
+    again = start_crash_store(dir, [])
     assert DecisionStore.health(again) == :writable
     refute_received {:notified, _}
+    GenServer.stop(again)
   end
 
   test "stale status renders timestamp and age, unknown timestamp renders age unknown", %{tmp_dir: dir} do

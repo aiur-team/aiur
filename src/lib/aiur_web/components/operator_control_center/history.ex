@@ -39,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, default: false)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
@@ -77,6 +78,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
               action_state={@action_state}
               writable={@writable}
               live_connected={@live_connected}
+              voice_capabilities={@voice_capabilities}
               filter={@filter}
               query={@query}
               time_zone={@time_zone}
@@ -103,6 +105,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, required: true)
   attr(:action_state, :map, required: true)
   attr(:writable, :boolean, required: true)
+  attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, required: true)
   attr(:query, :map, required: true)
@@ -123,6 +126,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
       phx-click={@toggle}
     >
       <td class="history-command" data-sort-value={@decision.question}>
+        <AiurWeb.OperatorControlCenter.DecisionOverrides.badge decision={@decision} />
         <%!-- The whole row is clickable, but the accordion control is a real
               button: it is what carries the accessible name and aria-expanded,
               and it is what Enter and Space activate. The row click is a mouse
@@ -169,10 +173,12 @@ defmodule AiurWeb.OperatorControlCenter.History do
         <div phx-mounted={JS.focus(to: "#decision-detail-#{@decision.decision_id}")}>
           <DecisionDetail.decision_detail
             decision={@decision}
+            conversation_link={AiurWeb.OperatorControlCenter.DecisionConversation.link(@decision.decision_id)}
             history={@history}
             action_state={@action_state}
             writable={@writable}
             live_connected={@live_connected}
+            voice_capabilities={@voice_capabilities}
             filter={@filter}
             query={@query}
           />

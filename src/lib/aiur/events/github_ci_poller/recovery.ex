@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
-  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, RepoWideFailure}
+  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, FailureObservation, RepoWideFailure}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -34,8 +34,11 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, entry} -> issue |> recover_current(result, entry, opts) |> base_gate(issue, entry, opts)
-      {:error, reason} -> issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
+      {:ok, entry} ->
+        result |> FailureObservation.route(entry, &recover_current(issue, &1, entry, opts)) |> base_gate(issue, entry, opts)
+
+      {:error, reason} ->
+        issue |> attention(result, "evidence_unavailable", reason, opts) |> base_gate(issue, %{}, opts)
     end
   end
 
@@ -47,21 +50,16 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     target = to_string(issue.identifier || issue.id)
 
     case Store.read(target, number, opts) do
-      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} ->
-        hold_result(result, hold)
-
-      {:ok, entry} ->
-        recover_cancelled_entry(issue, result, entry, sha, opts)
-
-      {:error, reason} ->
-        attention(issue, result, "evidence_unavailable", reason, opts)
+      {:ok, %{"hold" => %{"sha" => ^sha} = hold}} -> hold_result(result, hold)
+      {:ok, entry} -> recover_cancelled_entry(issue, result, entry, sha, opts)
+      {:error, reason} -> attention(issue, result, "evidence_unavailable", reason, opts)
     end
   end
 
   defp recover_cancelled_entry(issue, result, entry, sha, opts) do
     case digest(sha, opts) do
       {:ok, digest} ->
-        case Safety.cancelled_checks(digest, sha, entry) do
+        case Safety.rerun_checks(result, digest, entry) do
           [] -> attention(issue, result, "rerun_skipped", "cancelled_run", opts)
           checks -> recover_failure(issue, Map.merge(result, %{ci_failure_digest: digest, failures: checks}), entry, opts)
         end
@@ -203,7 +201,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp choose_recovery(issue, result, entry, pr, opts) do
-    case Safety.recovery_gate(result, pr) do
+    case Safety.recovery_gate(result, pr, entry) do
       {:held, reason} -> held(result, reason)
       {:skipped, reason} -> attention(issue, result, "rerun_skipped", reason, opts)
       :ready -> rerun(issue, result, entry, opts)
@@ -249,7 +247,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp start_rerun(issue, result, entry, opts) do
-    checks = Safety.cancelled_checks(result.ci_failure_digest, result.head_sha, entry)
+    checks = Safety.rerun_checks(result, result.ci_failure_digest, entry)
 
     if checks == [] and result.ci_failure_digest.checks != [] do
       attention(issue, result, "rerun_skipped", "cancelled_run", opts)
@@ -309,6 +307,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   defp request_reruns(issue, result, runs, opts) do
     case Enum.reduce_while(runs, :ok, &rerun_request(&1, &2, opts)) do
       :ok ->
+        Safety.record_rerun(issue, result, runs, opts)
         held(result, "rerun_requested")
 
       {:error, reason} ->
@@ -402,7 +401,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
 
   @spec record_failure(map(), map(), keyword()) :: :ok | {:error, term()}
   def record_failure(issue, result, opts) do
-    token = result.head_sha <> ":" <> to_string(issue.updated_at)
+    token = FailureObservation.signature(result.head_sha, result.failures)
 
     case update(issue, result, &count_cycle(&1, token), opts) do
       {:ok, entry} ->

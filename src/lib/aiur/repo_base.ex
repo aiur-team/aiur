@@ -40,7 +40,7 @@ defmodule Aiur.RepoBase do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
   end
 
   @doc "Absolute path of the warm base for `repo_url`."
@@ -125,7 +125,7 @@ defmodule Aiur.RepoBase do
   `{:error, reason}`.
   """
   @spec status(timeout()) :: {atom() | {:error, term()}, Path.t() | nil}
-  def status(timeout \\ 5_000), do: GenServer.call(__MODULE__, :status, timeout)
+  def status(timeout \\ 5_000), do: GenServer.call(Aiur.Project.whereis(__MODULE__), :status, timeout)
 
   @doc """
   Trigger an asynchronous refresh of the warm base toward the latest remote base branch.
@@ -134,11 +134,11 @@ defmodule Aiur.RepoBase do
   has. Returns immediately.
   """
   @spec refresh_async() :: :ok
-  def refresh_async, do: GenServer.cast(__MODULE__, :refresh_async)
+  def refresh_async, do: GenServer.cast(Aiur.Project.whereis(__MODULE__), :refresh_async)
 
   @doc false
   @spec refresh_for_dispatch() :: atom() | {:error, term()}
-  def refresh_for_dispatch, do: GenServer.call(__MODULE__, :refresh_for_dispatch)
+  def refresh_for_dispatch, do: GenServer.call(Aiur.Project.whereis(__MODULE__), :refresh_for_dispatch)
 
   @doc """
   The branch the warm base tracks. Missing or empty `tracker.base_branch`

@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
       state.resetState(); state.S.view = 'gantt'
       state.ctx.snap = { daemon: { state: 'live' }, sources: { agents: { state: 'ok' } } }
       state.ctx.L = { det: 'full', base: 'full', fs: 13 }
-      state.ctx.D = { epics: { a: { key: 'a', hue: 100 } }, features: {}, byId: {} }
+      state.ctx.D = { lanes: { a: { key: 'a', hue: 100 } }, features: {}, byId: {} }
     }
   })
 })
@@ -315,13 +315,13 @@ test('B5 live now-to-history diff lays out the actual completed interval', async
   })).toBe(2)
 })
 
-test('known Unsorted follows the palette while missing epics remain neutral', async ({ page }) => {
+test('known Unsorted follows the palette while missing lanes remain neutral', async ({ page }) => {
   await page.goto('/build-fixture/dense?view=gantt')
   await expect(page.locator('.bd-card').first()).toBeVisible()
   const colors = await page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'), { makeCard } = await import('/build-home/cards.js')
     document.documentElement.dataset.palette = 'gruvbox'
-    ctx.D.epics['palette-reference'] = { key: 'palette-reference', hue: 0 }
+    ctx.D.lanes['palette-reference'] = { key: 'palette-reference', hue: 0 }
     const color = epic => {
       const t = { ...ctx.D.hist[0], id: 'palette-probe', epic }, el = makeCard({ t, sec: 'hist', h: 32.5 })
       ctx.root.append(el)

@@ -130,6 +130,16 @@ defmodule Aiur.GitHub.Issues do
           {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
   defdelegate fetch_issue_raw_conditional(issue_number, opts \\ []), to: RawIssue
 
+  @doc "Lists every open issue with its labels, uncached and without dispatch authorization."
+  @spec list_open_issues() :: {:ok, [Issue.t()]} | {:error, term()}
+  def list_open_issues do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
+      fetch_label_issue_pages(&Access.default_request_fun/1, url, token, owner, repo, GitHub.Config.label_prefix(), [])
+    end
+  end
+
   defp do_fetch_candidate_issues(opts) do
     listed_from = DateTime.utc_now()
 

@@ -84,7 +84,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Sources do
   defp epics(_readers, false, unknown), do: {[], %{}, unknown}
 
   defp epics(readers, true, unknown) do
-    with {:ok, overrides, _} <- readers.overrides.(), {:ok, %{build_order: %{general_epics: catalog}}} <- readers.settings.() do
+    with {:ok, overrides, _} <- readers.overrides.(), {:ok, %{build_order: %{lanes: catalog}}} <- readers.settings.() do
       labels = Map.new(catalog, &{&1.key, &1.labels})
       {items, skipped} = Enum.reduce(overrides, {[], 0}, &epic(&1, &2, labels))
       {items, %{no_matcher: skipped}, unknown}

@@ -34,7 +34,7 @@ runs:
     - name: Test isolation ratchet and coverage-shard rule
       shell: bash
       working-directory: .
-      run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py && python3 scripts/check-test-shard-parity.py
+      run: python3 scripts/test-check-test-isolation.py && python3 scripts/check-test-isolation.py && python3 scripts/check-test-shard-parity.py && python3 scripts/check-listener-spec.py
     - name: Platform publish/pin drift check
       shell: bash
       working-directory: .

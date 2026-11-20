@@ -59,13 +59,29 @@ defmodule Aiur.LandingWatch.QuarantineAnnotations do
   defp test(message, annotation, job) do
     case String.split(message, " :: ", parts: 3) do
       [class, module, name] when class in ["known-flake", "new-failure"] and module != "" and name != "" ->
-        excerpt = annotation["raw_details"] || annotation["description"] || message
-        [%{module: module, name: name, job: job, class: class, path: annotation["path"], excerpt: String.slice(String.trim(to_string(excerpt)), 0, 500)}]
+        excerpt = excerpt(annotation, message)
+        [%{module: module, name: name, job: job, class: class, path: annotation["path"], excerpt: excerpt}]
 
       _ ->
         []
     end
   end
+
+  defp excerpt(annotation, message) do
+    case annotation["raw_details"] || annotation["description"] do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> missing_excerpt(message)
+          trimmed -> String.slice(trimmed, 0, 500)
+        end
+
+      _ ->
+        missing_excerpt(message)
+    end
+  end
+
+  defp missing_excerpt(message),
+    do: "No error excerpt was available in the GitHub check annotation. Annotation: #{String.slice(message, 0, 400)}"
 
   defp check_run_id(%{"check_run_id" => id}) when is_integer(id), do: id
 

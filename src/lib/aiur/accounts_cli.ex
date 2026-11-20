@@ -69,15 +69,66 @@ defmodule Aiur.AccountsCLI do
   @spec login(String.t(), String.t(), String.t() | nil) :: :ok | {:error, term()}
   def login(harness, name, dir) do
     with :ok <- maybe_validate_and_register(harness, name, dir) do
-      case Accounts.capability(harness) do
-        {:ok, %{kind: :api_key}} ->
-          :ok
-
-        _ ->
-          launch_login(Accounts.login_command(harness, name))
-      end
+      login_registered_account(harness, name)
     end
   end
+
+  defp login_registered_account(harness, name) do
+    case Accounts.capability(harness) do
+      {:ok, %{kind: :api_key}} -> :ok
+      _ -> login_profile(harness, name)
+    end
+  end
+
+  defp login_profile(harness, name) do
+    case login_decision(harness, name) do
+      {:ok, _profile_dir, false} -> print_registered_identity(harness, name)
+      {:ok, _profile_dir, true} -> launch_profile_login(harness, name)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp launch_profile_login(harness, name) do
+    if stdin_tty?() do
+      launch_login(Accounts.login_command(harness, name))
+    else
+      {:error, "profile is not signed in; run `aiur login #{harness} #{name}` in an interactive terminal"}
+    end
+  end
+
+  defp print_registered_identity(harness, name) do
+    identity =
+      case Enum.find(Accounts.list(harness), &(&1.name == name)) do
+        %{profile_dir: dir} -> shim_identity(harness, dir)
+        _ -> %{}
+      end
+
+    label = Map.get(identity, "email") || Map.get(identity, "account_id") || Map.get(identity, "organization") || "profile"
+    IO.puts("registered #{harness}:#{name} (signed in as #{label})")
+    :ok
+  end
+
+  @doc false
+  @spec login_decision(String.t(), String.t()) :: {:ok, Path.t() | nil, boolean()} | {:error, term()}
+  def login_decision(harness, name) do
+    case Enum.find(Accounts.list(harness), &(&1.name == name)) do
+      %{profile_dir: profile_dir} -> {:ok, profile_dir, not signed_in?(harness, profile_dir)}
+      nil -> {:error, :unknown_account}
+    end
+  end
+
+  defp signed_in?(harness, profile_dir), do: map_size(shim_identity(harness, profile_dir)) > 0
+
+  defp stdin_tty? do
+    case :io.getopts(:standard_io) do
+      opts when is_list(opts) -> Keyword.get(opts, :terminal, false)
+      _ -> false
+    end
+  end
+
+  defp shim_identity("claude", dir), do: Claude.identity(dir)
+  defp shim_identity("codex", dir), do: Codex.identity(dir)
+  defp shim_identity(_, _dir), do: %{}
 
   defp launch_login({command, args}) when is_binary(command) and is_list(args) do
     {_output, status} = System.cmd(command, args, into: IO.stream(:stdio, :line))
@@ -103,17 +154,20 @@ defmodule Aiur.AccountsCLI do
     end
   end
 
-  @spec prepare_login_result(String.t(), String.t(), String.t() | nil) :: {:ok, Path.t() | nil} | {:error, term()}
+  @spec prepare_login_result(String.t(), String.t(), String.t() | nil) :: {:ok, Path.t() | nil, boolean()} | {:error, term()}
   def prepare_login_result(harness, name, dir) do
     case Accounts.capability(harness) do
       {:ok, %{kind: :api_key}} ->
-        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil}
+        with :ok <- maybe_validate_and_register(harness, name, dir), do: {:ok, nil, false}
 
       {:ok, %{reason: reason}} ->
         {:error, {:unsupported_account_backend, reason}}
 
       _ ->
-        prepare_login(harness, name, dir)
+        with {:ok, profile_dir} <- prepare_login(harness, name, dir),
+             {:ok, _profile_dir, login_needed} <- login_decision(harness, name) do
+          {:ok, profile_dir, login_needed}
+        end
     end
   end
 
@@ -155,7 +209,7 @@ defmodule Aiur.AccountsCLI do
     end
   end
 
-  # Freshness and the stale cutoff come from `Aiur.Accounts.UsageReadings`, the rule the
+  # Freshness and the stale cutoff come from the usage readings, the rule the
   # Models panel uses too. Only Claude rows carry `last_error` (#5747).
   defp claude_row(name, harness, identity, %{reading: reading} = entry) when is_map(reading) do
     observed_at = entry.observed_at
@@ -167,9 +221,9 @@ defmodule Aiur.AccountsCLI do
       five_hour_percent: percent(reading.windows, "five_hour"),
       remaining_percent: HeadroomDispatch.remaining_percent(%{windows: %{"seven_day" => percent(reading.windows, "seven_day"), "five_hour" => percent(reading.windows, "five_hour")}}),
       observed_at: DateTime.to_iso8601(observed_at),
-      age_ms: age_ms_since(observed_at),
-      last_error: last_error(Map.get(entry, :reason))
+      age_ms: age_ms_since(observed_at)
     })
+    |> with_failure(entry)
   end
 
   # The probe is failing. After an earlier good reading the row is stale with
@@ -182,17 +236,27 @@ defmodule Aiur.AccountsCLI do
       %DateTime{} = last_observed_at ->
         name
         |> usage_unavailable_row(harness, identity, "stale")
-        |> Map.merge(%{observed_at: DateTime.to_iso8601(last_observed_at), age_ms: age_ms_since(last_observed_at), last_error: last_error(reason)})
+        |> Map.merge(%{observed_at: DateTime.to_iso8601(last_observed_at), age_ms: age_ms_since(last_observed_at)})
+        |> with_failure(entry)
 
       nil ->
-        name |> usage_unavailable_row(harness, identity, freshness(reason)) |> Map.put(:last_error, last_error(reason))
+        name |> usage_unavailable_row(harness, identity, freshness(reason)) |> with_failure(entry)
     end
   end
 
-  defp age_ms_since(observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
+  # A failing probe says when it last failed and, for a signed-out profile,
+  # the command that fixes it (#7449).
+  defp with_failure(row, %{reason: reason} = entry) when not is_nil(reason) do
+    failed_at = if is_nil(Map.get(entry, :reading)), do: Map.get(entry, :observed_at)
 
-  defp last_error(nil), do: nil
-  defp last_error(reason), do: freshness(reason)
+    row
+    |> Map.merge(%{last_error: freshness(reason), last_error_at: failed_at && DateTime.to_iso8601(failed_at)})
+    |> then(&if(entry[:fix], do: Map.put(&1, :fix, entry.fix), else: &1))
+  end
+
+  defp with_failure(row, _entry), do: Map.put(row, :last_error, nil)
+
+  defp age_ms_since(observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
 
   defp identity("claude", dir), do: Claude.identity(dir)
   defp identity("codex", dir), do: Codex.identity(dir)
@@ -278,7 +342,9 @@ defmodule Aiur.AccountsCLI do
     fields =
       if Map.get(row, :identity) == nil,
         do: [:name, :harness, :usage, :remaining_percent],
-        else: [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms] ++ Enum.filter([:last_error], &Map.has_key?(row, &1))
+        else:
+          [:name, :harness, :email, :org, :seat_tier, :remaining_percent, :weekly_percent, :five_hour_percent, :freshness, :age_ms] ++
+            Enum.filter([:last_error, :last_error_at, :fix], &Map.has_key?(row, &1))
 
     IO.puts(Enum.map_join(fields, "  ", fn key -> "#{key}=#{inspect(Map.get(row, key))}" end))
   end

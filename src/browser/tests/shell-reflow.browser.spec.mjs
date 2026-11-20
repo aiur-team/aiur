@@ -19,7 +19,7 @@ for (const width of [320, 390, 720]) {
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
 
       const navigation = page.locator('.sidenav-nav')
-      await expect(navigation.locator('a.snav')).toHaveCount(5)
+      await expect(navigation.locator('a.snav:visible')).toHaveCount(5)
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       await expect.poll(() => navigation.evaluate(node => getComputedStyle(node).overflowX)).toBe('auto')
 
@@ -62,7 +62,7 @@ for (const width of [320, 390, 720]) {
         }
       }
 
-      for (const link of await navigation.locator('a.snav').all()) {
+      for (const link of await navigation.locator('a.snav:visible').all()) {
         await link.evaluate(node => node.scrollIntoView({ block: 'nearest', inline: 'center' }))
         const bounds = await link.evaluate(node => {
           const nav = node.closest('.sidenav-nav').getBoundingClientRect()
@@ -96,7 +96,7 @@ for (const width of [320, 390, 720]) {
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
 
       const navigation = page.locator('.sidenav-nav')
-      const links = navigation.locator('a.snav')
+      const links = navigation.locator('a.snav:visible')
       await expect(links).toHaveCount(5)
       // The settings cog is display:none below 961px. Starting keyboard
       // navigation from it leaves focus on a 0x0 target and Tab can stall at

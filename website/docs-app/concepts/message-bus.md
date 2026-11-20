@@ -327,12 +327,40 @@ records.
 Disabled export or an unreadable journal sends an error `record` with
 `code: "feature_disabled"` or `"events_unavailable"`, then closes the channel.
 
-## Held async messages
+## Held async and mute messages
 
 Agents with a tool path can call `aiur_read_messages` to consume their own held
-async operator messages. Its optional `max` accepts 1–50 (default 50). Results
+async or mute operator messages. Its optional `max` accepts 1–50 (default 50). Results
 contain `messages` (`id`, `text`, `from`, `accepted_at`) and `remaining`, oldest
 first.
+
+A message sent to one agent counts as addressed.
+Async queues one content-free nudge per accepted message telling the agent to
+call `aiur_read_messages`; retries of the same message ID do not add a nudge.
+The nudge carries no message body and does not advance the read cursor or
+reduce the unread count.
+
+It waits for the turn boundary when the agent is busy.
+
+Mute retains messages for explicit reads and never wakes for them. The labels
+follow Khala `7d0a3d44` (listener v1): **Async · pings only**, **Mute · silent**.
+
+Leaving Async or Mute for Sync or Steer queues one count-only backlog notice
+when unread bodies remain and the read tool is available. The bodies stay
+unread until explicitly read. Leaving Async supersedes its pending pings so
+the backlog notice is the only remaining nudge.
+
+The control projection declares `backlog_on_leave_async: notice`, the shared
+spec's alternative to Khala's `skip`. Showing a notice on exit from Mute is
+an Aiur-specific extension outside spec v1.
+
+In Sync, an unaddressed agent broadcast stays queued without waking an idle
+agent. A manual subscription watches a sender's events; it does not address
+them to the watcher. Actionable declared-blocker signals are addressed
+dependency inputs and retain their wake, as do operator/system inputs.
+
+Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
+human and Executor mode controls. Conversation sends default to Sync.
 
 Each batch contains at most 64 KiB of text; a clipped final message has
 `truncated: true` and is acknowledged in full. Normal sync messages stay with
@@ -357,7 +385,7 @@ path and continues to fall back to sync.
 ## Held-message counts
 
 Per-ticket control capabilities include `listener.unread_count` and
-`listener.oldest_unread_at`. They count pending held-async operator messages,
+`listener.oldest_unread_at`. They count pending held async or mute operator messages,
 including messages retained while the agent is stopped. The oldest timestamp is
 `nil` when none remain. Ordinary pending messages and consumed, failed or
 superseded held messages are excluded.

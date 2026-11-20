@@ -111,6 +111,19 @@ rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
 about the specific boundary; the category alone is not a rationale. Legacy
 attention projections remain human-required without this worker-supplied field.
 
+**Name the audience when you know it.** The app's creator answers product
+questions; engineering and operations questions belong to the Executor.
+
+- `audience: "executor"`: an engineering or operations question the creator
+  cannot answer (an index choice, a flaky check, a rebase target). It never
+  appears in a creator inbox (app, phone, watch) and never escalates to the
+  creator on a deadline. With no live Executor it waits and alerts the operator;
+  the Executor dashboard and CLI still show it. It cannot be combined with
+  `authority: human_required`.
+- `audience: "creator"`: a question only the creator can answer. It appears in
+  creator inboxes at once, even when the Executor could also answer it.
+- Omit it to keep routing by `authority`.
+
 An Executor may reclassify an open historical Command only when it has no
 human-only basis. Product, spend, publication, or security decisions and legacy
 attentions remain human-only. Reclassification increments the version; answer
@@ -256,6 +269,33 @@ Or, on failure:
 ```jsonc
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
+
+#### Attaching media (images, clips)
+
+Put typed media on the prompt (`media`) or on an option (`options[].media`) in
+the same `decision.requested` payload. Every harness, including the
+OpenAI-compatible (OpenRouter, DeepSeek) worker, calls it as the `emit_event`
+tool:
+
+```jsonc
+emit_event({
+  "name": "decision.requested",
+  "message": "Which prototype should ship?",
+  "payload": {
+    "blocking": false,
+    "media": [{"kind": "image", "mime_type": "image/png", "locator": "/abs/path/in/workspace/shot.png", "alt_text": "Prototype A title screen"}],
+    "options": [
+      {"id": "a", "label": "Keep A"},
+      {"id": "b", "label": "Use B", "media": [{"kind": "video", "mime_type": "video/mp4", "locator": "https://github.com/…/b.mp4", "caption": "B gameplay"}]}
+    ]
+  }
+})
+```
+
+Use an absolute local path under the workspace, or an allowlisted `https` URL;
+expiring (signed) URLs are refused. Images need `alt_text`. Do not shell out to
+`aiur command request`: that is the Executor's CLI and a worker sandbox cannot
+reach the daemon. See [Media on a Command](../../../website/docs-app/concepts/commands.md#media-on-a-command).
 
 ### Acknowledging a delivered Decision answer
 

@@ -66,7 +66,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     assert caps["instance.status"].state in [:available, :degraded]
     assert caps["agents.run"] == %{state: :available}
     assert caps["executor.wakes"] == %{state: :unavailable, reason: :not_running}
-    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed}
+    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
 
     for id <- ~w(agents.message commands.read commands.answer) do
       assert caps[id] == %{state: :unavailable, reason: :dependency_unavailable, depends_on: ["api.http"]}

@@ -1,106 +1,34 @@
 defmodule AiurWeb.DashboardLive.OverviewTest do
   use Aiur.TestSupport
 
-  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
   import AiurWeb.DashboardLiveSupport
   import AiurWeb.DashboardLiveSupport.DecisionFixtures
-  import AiurWeb.DashboardLiveSupport.UnitFixtures
 
-  alias Aiur.Issue
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.SnapshotStore
-  alias Aiur.Orchestrator.StatusReport
-  alias Aiur.TestSupport.RefreshTrace
   alias AiurWeb.ControlCenterPresenter
-  alias AiurWeb.ObservabilityPubSub
   alias AiurWeb.OperatorControlCenter.Overview
-  alias AiurWeb.OperatorControlCenter.UnitsPresenter
-  alias AiurWeb.Presenter
+  alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @endpoint AiurWeb.Endpoint
 
-  test "does not present untyped status rows as a healthy Units catalog" do
-    orchestrator_name = Module.concat(__MODULE__, :RenderOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
-
-    ci_wait_entry = %{
-      pid: self(),
-      ref: make_ref(),
-      identifier: "MT-900",
-      issue: %Issue{id: "issue-ci-wait", identifier: "MT-900", state: "ci-wait", title: "Row MT-900"},
-      worker_host: nil,
-      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
-      session_id: "thread-MT-900",
-      codex_app_server_pid: nil,
-      agent_input_tokens: 0,
-      agent_output_tokens: 0,
-      agent_total_tokens: 0,
-      started_at: DateTime.utc_now(),
-      last_codex_timestamp: DateTime.utc_now(),
-      last_codex_message: nil,
-      last_codex_event: nil,
-      paused_reason: :ci_wait
-    }
-
-    :sys.replace_state(pid, fn state ->
-      %{
-        state
-        | running: %{"issue-ci-wait" => ci_wait_entry},
-          retry_attempts: %{
-            "issue-retry" => %{
-              attempt: 2,
-              timer_ref: nil,
-              due_at_ms: System.monotonic_time(:millisecond) + 5_000,
-              identifier: "MT-902",
-              error: "temporary failure"
-            }
-          },
-          ci_lifecycle: %{
-            state.ci_lifecycle
-            | poll_cache: %{"MT-900" => %{decision: :pending, pr_number: 77, head_sha: "deadbeef"}}
-          },
-          last_polled_issues: %{
-            "issue-ci-wait" => %Issue{id: "issue-ci-wait", identifier: "MT-900", state: "ci-wait"},
-            "issue-idle" => %Issue{id: "issue-idle", identifier: "MT-901", state: "human-review", title: "Idle review"},
-            "issue-retry" => %Issue{id: "issue-retry", identifier: "MT-902", state: "rework", title: "Retrying"}
-          }
-      }
-    end)
-
-    payload = Presenter.state_payload(orchestrator_name, 1_000)
-    html = render_payload(payload)
-
-    assert html =~ "No active units"
-    refute html =~ "MT-900"
-    refute html =~ "Idle review"
-  end
-
-  test "refreshes a dashboard only after an orchestrator projection completes" do
-    orchestrator_name = Module.concat(__MODULE__, :ProjectedDashboardOrchestrator)
+  test "dashboard payload uses the endpoint startup clock" do
+    orchestrator_name = {:global, make_ref()}
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
+      SnapshotStore.forget(orchestrator_name)
     end)
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
-    {:ok, view, initial_html} = live(build_conn(), "/units")
-    # Before the first fleet view is available, keep counts unknown and label
-    # the state as startup loading rather than empty or unavailable.
-    assert initial_html =~ "Loading Units…"
-    refute Enum.any?(["0+", "Pause state unknown", "snapshot_unpublished", "No fleet data"], &String.contains?(initial_html, &1))
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 5,
+      control_center_cache: false,
+      units_startup_elapsed_ms_fun: fn -> 600_000 end
+    )
 
-    :ok = ObservabilityPubSub.subscribe()
-    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
-    assert RefreshTrace.count(fn -> :ok = StatusReport.notify_dashboard(:sys.get_state(pid)) end) == 0
-
-    assert eventually(fn -> assert_receive({:observability_updated, _event_id}, 1_000) && match?({:current, _, _}, SnapshotStore.read(orchestrator_name, 1_000)) end)
-    assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
+    assert %{units: %{status: :unavailable}} = PayloadLoader.load(:fresh)
   end
 
   test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
@@ -136,7 +64,7 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
     assert unknown_fault =~ "something_else"
   end
 
-  test "renders document navigation while keeping rollback destinations hidden" do
+  test "renders Commands navigation without retired destinations" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",
       counts: %{running: 0, retrying: 0, idle: 0},
@@ -160,8 +88,8 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
     commands = render_payload(available_payload, live_action: :decision)
 
     assert length(Floki.find(Floki.parse_document!(unavailable_units), ~s(nav[aria-label="Views"]))) == 1
-    assert Floki.find(Floki.parse_document!(unavailable_units), ~s(a[aria-current="page"])) == []
-    assert Floki.parse_document!(unavailable_units) |> Floki.find("#route-title") |> Floki.text() =~ "Units"
+    assert [_] = Floki.find(Floki.parse_document!(unavailable_units), ~s(a[href="/commands"][aria-current="page"]))
+    assert Floki.parse_document!(unavailable_units) |> Floki.find("#route-title") |> Floki.text() =~ "Commands"
     assert unavailable_units =~ ~s(href="/analytics")
     refute unavailable_units =~ ~s(href="/build-orders")
     assert unavailable_units =~ ~s(href="/")
@@ -296,44 +224,6 @@ defmodule AiurWeb.DashboardLive.OverviewTest do
     assert html =~ "Issue commands"
     assert html =~ "Partial Command counts"
     assert html =~ "Partial Command data"
-  end
-
-  test "cannot render an empty Units body while the same payload reports current agents and Commands" do
-    identity = units_identity()
-    fleet_payload = Map.put(units_orchestrator_snapshot(identity), :generated_at, "2026-07-17T12:00:00Z")
-
-    payload =
-      ControlCenterPresenter.state_payload(
-        :unused,
-        1,
-        fleet_fun: fn -> fleet_payload end,
-        decisions_fun: fn -> [] end
-      )
-      |> Map.put(:retained_counts, %{
-        open: 3,
-        blocking: 0,
-        needs_you: 3,
-        needs_you_blocking: 0,
-        scope: %{kind: :retained, label: "All retained decisions"},
-        health: %{status: :healthy, partial?: false, label: "Retained Decision data"}
-      })
-      |> then(fn payload ->
-        Map.put(
-          payload,
-          :units,
-          UnitsPresenter.load(payload,
-            membership_fun: fn -> %{units_membership(identity) | members: []} end,
-            activity_fun: fn -> %{entries: []} end
-          )
-        )
-      end)
-
-    html = render_payload(fleet_payload, payload: payload)
-
-    assert html =~ "3 Commands need you"
-    assert html =~ ~s(id="units-rows")
-    assert html =~ "Responsive Units interface"
-    refute html =~ "No units in this run yet in this run"
   end
 
   test "does not report a missing Decision as absent when retained replay is partial" do
