@@ -1,5 +1,5 @@
 defmodule AiurPushRelay.Store.SQLite do
-  @moduledoc "Single-owner SQLite connection with transactional writes and bounded retention."
+  @moduledoc "Owns the SQLite connection so registry, idempotency, and bucket writes stay atomic."
   use GenServer
   @behaviour AiurPushRelay.Store
   alias Exqlite.Sqlite3, as: DB

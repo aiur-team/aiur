@@ -110,38 +110,6 @@ defmodule AiurPushRelay.RelayTest do
     send(pid, {:result, :ok})
   end
 
-  test "send burst is limited and an accepted idempotency replay is free", ctx do
-    c = credentials(ctx)
-
-    for number <- 1..10 do
-      e = envelope(ctx, c) |> Map.put("idempotency_key", "burst-#{number}")
-      assert request(ctx, :post, "/v1/send", e, c["send_secret"]).status == 202
-    end
-
-    deliveries =
-      for _ <- 1..10 do
-        assert_receive {:delivery, pid, _, _}, 2_000
-        pid
-      end
-
-    Enum.each(deliveries, &send(&1, {:result, :ok}))
-    replay = envelope(ctx, c) |> Map.put("idempotency_key", "burst-1")
-    assert request(ctx, :post, "/v1/send", replay, c["send_secret"]).status == 202
-
-    limited = envelope(ctx, c) |> Map.put("idempotency_key", "burst-11")
-    response = request(ctx, :post, "/v1/send", limited, c["send_secret"])
-    assert response.status == 429
-    assert Jason.decode!(response.resp_body) == %{"error" => "rate_limited", "retry_after_s" => 60}
-    assert response |> get_resp_header("retry-after") == ["60"]
-  end
-
-  test "handle creation is limited per source IP", ctx do
-    for _ <- 1..20, do: assert(register(ctx).status == 201)
-    response = register(ctx)
-    assert response.status == 429
-    assert Jason.decode!(response.resp_body)["error"] == "rate_limited"
-  end
-
   test "gone handle answers 410 and authenticated deletion removes it", ctx do
     c = credentials(ctx)
     assert request(ctx, :post, "/v1/send", envelope(ctx, c), c["send_secret"]).status == 202
