@@ -15,6 +15,7 @@ if [ "\${1:-}" = rpc ]; then
   echo __AIUR_RECOVERED__
   exit 0
 fi
+if [ "$MODE" = crash-swept ] && ! grep -qx -- --ack "$AIUR_ARGV_FILE" 2>/dev/null; then exit 1; fi
 printf '%s\\n' "$$" > "$ROOT/daemon-pid"
 if [ -f "$ROOT/booted" ]; then
   [ "$MODE" = crash-loop ] || touch "$ROOT/recovered"
@@ -33,6 +34,8 @@ export AIUR_LOGS_ROOT="$ROOT/logs" ERL_CRASH_DUMP="$ROOT/erl_crash.dump"
 export AIUR_ALERT_LEDGER_PATH_FILE="$ROOT/ledger-path" AIUR_AGENT_TMPFILE="$ROOT/agents"
 export AIUR_WORKSPACE_ROOT_FILE="$ROOT/workspace-root" AIUR_TMUX_SOCKET="unused"
 export AIUR_BG_STATE_DIR="$ROOT/state" AIUR_RELEASE_DIR="$ROOT/release" RELEASE_NODE=test
+export AIUR_ARGV_FILE="$ROOT/aiur-argv.test"
+printf -- '--headless\\n--ack\\n' > "$AIUR_ARGV_FILE"
 mkdir -p "$ROOT/release/bin" "$ROOT/state"
 ln -s "$ROOT/daemon" "$ROOT/release/bin/aiur"
 printf '%s' "$ROOT/ledger.ndjson" > "$ROOT/ledger-path"
@@ -52,8 +55,10 @@ else
   printf 'ready\\n' >> "$ROOT/supervisor"
   old_pid="$(cat "$ROOT/daemon-pid")"
   if [ "$MODE" = stop ]; then touch "$(aiur_stop_sentinel_path)"; fi
+  # Another instance's launch sweeps /tmp/aiur-argv.* older than a day, live or not.
+  if [ "$MODE" = crash-swept ]; then rm -f "$AIUR_ARGV_FILE"; fi
   kill -KILL "$old_pid"
-  if [ "$MODE" = crash ]; then
+  if [ "$MODE" = crash ] || [ "$MODE" = crash-swept ]; then
     for ((i=0;i<500;i++)); do
       grep -q system.daemon.restarted "$ROOT/ledger.ndjson" 2>/dev/null && break
       sleep 0.01
@@ -103,5 +108,17 @@ test("a crash loop stops after the cap with one down alert and a gave-up alert",
     const alerts = readFileSync(path.join(root, "ledger.ndjson"), "utf8").trim().split("\n").map(JSON.parse);
     expect(alerts.map(alert => alert.name)).toEqual(["system.daemon.down", "system.daemon.gave-up"]);
     expect(readdirSync(root).filter(name => name.startsWith("erl_crash.dump."))).toHaveLength(1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// open-game-maker, 2026-11-20: the daemon had run for two days when it crashed.
+// Its argv file had been swept as stale /tmp debris, so every restart booted
+// without the guardrails acknowledgement, exited, and recovery gave up.
+test("a crash after the argv file was swept still restarts with the same arguments", () => {
+  const { root, result } = exercise("crash-swept");
+  try {
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(root, "recovered"), "utf8")).toBe("");
+    expect(readFileSync(path.join(root, "aiur-argv.test"), "utf8")).toBe("--headless\n--ack\n");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
