@@ -211,6 +211,10 @@ Only trust a `304` for a paginated read when the read was single-page (then page
 
 The open-PR branch lookup is a narrow exception: new PRs appear on page 1, so its validator changes. A later-page closure may remain visible until page 1 changes or a pull-request webhook arrives. This held listing serves only branch lookups, not general paginated-list queries.
 
+Dispatch authorization keeps one validator per timeline page and revalidates every page. A full last page is always read unconditionally, because a new event opens the next page without changing it. An unchanged timeline then costs no billable request, and a changed one costs one per changed page.
+
+The held open-PR listing drops REST URL templates (`_links` and `*_url` keys except `html_url`) so it fits the resource store's body cap and keeps its validator.
+
 Issue comments and PR changed files drain every page; single-list readers refuse a next page with `pagination_unexpected` rather than return a partial list.
 
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
