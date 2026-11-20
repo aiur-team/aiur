@@ -1,5 +1,6 @@
 defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
   use ExUnit.Case, async: true
+  alias Aiur.Experiments.Arms
   alias Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource
 
   test "production history reads unindexed boots but omits future facts and the current boot" do
@@ -77,5 +78,63 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
     live = Path.expand("../../../fixtures/experiments/telemetry/boot-b.ndjson", __DIR__)
     ctx = %{telemetry_enabled: true, boot_id: "current", telemetry_path: live, summary_boot_ids: fn -> ["legacy"] end, summary_path: fn _ -> path end}
     assert {:ok, %{partial?: true}} = TelemetrySource.load(%{start: ~U[2026-10-09 09:00:00Z], end: ~U[2026-10-09 14:00:00Z]}, ctx)
+  end
+
+  test "queue dispatch observations reach matching cohort arms and exclude missing facts" do
+    path = Path.join(System.tmp_dir!(), "delivery-cohort-#{System.unique_integer([:positive])}.ndjson")
+    on_exit(fn -> File.rm(path) end)
+
+    rows = [
+      {"1", "q-treatment", "pr_opened"},
+      {"2", "q-control", "pr_merged"},
+      {"3", nil, nil}
+    ]
+
+    records =
+      Enum.with_index(rows, 1)
+      |> Enum.map(fn {{ticket, queue_id, trigger}, sequence} ->
+        attrs = %{"ticket" => ticket, "event" => "dispatch", "boundary" => "point", "attempt_id" => "attempt-#{ticket}", "complexity" => 2}
+        attrs = if queue_id, do: Map.merge(attrs, %{"queue_id" => queue_id, "start_trigger" => trigger}), else: attrs
+        at = ~U[2026-10-09 10:00:00Z]
+
+        %{
+          "kind" => "lifecycle",
+          "boot_id" => "boot",
+          "timestamp" => DateTime.to_iso8601(at),
+          "timestamp_iso" => DateTime.to_iso8601(at),
+          "timestamp_ms" => DateTime.to_unix(at, :millisecond),
+          "recorded_at" => DateTime.to_iso8601(at),
+          "sequence" => sequence,
+          "record_id" => "dispatch:#{ticket}",
+          "schema_version" => 3,
+          "attributes" => attrs
+        }
+      end)
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    ctx = %{telemetry_enabled: true, boot_id: "boot", telemetry_path: path, summary_boot_ids: fn -> [] end, github_window: %{"pulls" => []}, include_github: false}
+    window = %{start: ~U[2026-10-09 09:00:00Z], end: ~U[2026-10-09 11:00:00Z]}
+    assert {:ok, data} = TelemetrySource.load(window, ctx)
+
+    observations =
+      Enum.map(data.tickets, fn {id, ticket} -> %{"unit_id" => id, "attrs" => ticket.attrs, "at" => DateTime.to_iso8601(ticket.at), "started_at" => DateTime.to_iso8601(ticket.at), "value" => 1} end)
+
+    spec = %{
+      "id" => "queue-cohort",
+      "design" => %{
+        "kind" => "ab",
+        "cohorts" => [
+          %{"id" => "treatment", "where" => %{"all" => [%{"attr" => "queue_id", "op" => "eq", "value" => "q-treatment"}, %{"attr" => "start_trigger", "op" => "eq", "value" => "pr_opened"}]}},
+          %{"id" => "control", "where" => %{"all" => [%{"attr" => "queue_id", "op" => "eq", "value" => "q-control"}, %{"attr" => "start_trigger", "op" => "eq", "value" => "pr_merged"}]}}
+        ]
+      },
+      "metrics" => [%{"ref" => "m"}],
+      "filters" => %{"attr" => "complexity", "op" => "eq", "value" => 2}
+    }
+
+    result = Arms.assign(spec, [{"window", %{metrics: %{"m" => %{"observations" => observations, "coverage" => %{}}}, source: :live}}])
+    assert Enum.map(result["arms"]["treatment"]["metrics"]["m"]["observations"], & &1["unit_id"]) == ["1"]
+    assert Enum.map(result["arms"]["control"]["metrics"]["m"]["observations"], & &1["unit_id"]) == ["2"]
+    assert result["excluded"]["filtered"] == 1
   end
 end
