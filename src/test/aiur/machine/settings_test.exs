@@ -28,8 +28,45 @@ defmodule Aiur.Machine.SettingsTest do
     assert settings.transport.allow_cleartext_overlay == false
     assert settings.transport.cleartext_overlay_cidrs == ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
     assert settings.transport.tls.cert_file == nil
+    assert settings.push.enabled == false
+    assert settings.push.send_timeout_ms == 5_000
+    assert settings.push.outbox.max_age_seconds == 86_400
+    assert settings.push.allow_loopback_relay == false
     put_yaml("")
     assert {:ok, ^settings} = Settings.load()
+  end
+
+  test "push settings validate keys and reload after a machine file change", %{home: home, path: path} do
+    workflow_config = Path.join(home, ".aiur/config")
+    File.mkdir_p!(Path.dirname(workflow_config))
+    File.write!(workflow_config, "push: {enabled: true}")
+    assert {:ok, defaults} = Settings.get()
+    refute defaults.push.enabled
+
+    put_yaml("""
+    push:
+      enabled: true
+      send_timeout_ms: 30000
+      outbox: {max_age_seconds: 604800}
+      allow_loopback_relay: true
+    """)
+
+    assert {:ok, loaded} = Settings.get()
+    assert loaded.push.enabled
+    assert loaded.push.send_timeout_ms == 30_000
+    assert loaded.push.outbox.max_age_seconds == 604_800
+    assert loaded.push.allow_loopback_relay
+
+    put_yaml("push: {typo: true}")
+    assert {:error, {:invalid, [{"push.typo", "unknown key"}]}} = Settings.load()
+
+    for yaml <- ["push: {send_timeout_ms: 499}", "push: {send_timeout_ms: 30001}", "push: {outbox: {max_age_seconds: 599}}", "push: {outbox: {max_age_seconds: 604801}}"] do
+      put_yaml(yaml)
+      assert {:error, {:invalid, errors}} = Settings.load()
+      assert Enum.any?(errors, fn {key, _message} -> key in ["push.send_timeout_ms", "push.outbox.max_age_seconds"] end)
+    end
+
+    assert path == Settings.path()
   end
 
   test "transport section parses all six keys and expands paths" do
