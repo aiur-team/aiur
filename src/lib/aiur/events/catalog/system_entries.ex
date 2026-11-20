@@ -53,6 +53,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded.resolved", "telemetry"},
     # aiur/memory_watchdog.ex
     {"system.daemon.memory_high", "telemetry"},
     # aiur/memory_watchdog.ex
