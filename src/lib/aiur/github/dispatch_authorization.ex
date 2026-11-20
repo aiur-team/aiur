@@ -205,8 +205,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
     if is_binary(token) and token != "" do
       case Timeline.fetch(request_fun, token, owner, repo, issue, opts) do
-        {:ok, events, new_etag, single_page?, per_page} ->
-          TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
+        {:ok, events, new_etag, single_page?, per_page, pages} ->
+          TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page, pages)
           decide_fetched_timeline(issue, label, prefix, events, owner, repo, opts)
 
         {:reused, events} ->
