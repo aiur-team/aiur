@@ -4,8 +4,8 @@
   "layer": 5,
   "kind": "package",
   "paths": [
-    "packages/aiur-conversation/**",
-    ".github/workflows/aiur-conversation.yml"
+    ".github/workflows/aiur-conversation.yml",
+    "packages/aiur-conversation/**"
   ],
   "facades": [
     "*"
