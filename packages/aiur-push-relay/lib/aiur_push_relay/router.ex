@@ -23,6 +23,7 @@ defmodule AiurPushRelay.Router do
 
   defp route(%{method: "POST", path_info: ["v1", "handles"]} = conn, opts) do
     with {:ok, params, conn} <- body(conn),
+         :ok <- limit_handle_creation(conn, opts),
          {:ok, result} <- Handles.create(opts.store, opts.pins, params) do
       json(conn, 201, result)
     else
@@ -56,6 +57,22 @@ defmodule AiurPushRelay.Router do
 
   defp route(conn, _), do: json(conn, 404, %{error: "not_found"})
 
+  defp limit_handle_creation(conn, opts) do
+    limits = Map.get(opts, :limits, %{handles_per_ip_hour: 20})
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+
+    case Store.call(opts.store, :consume, [
+           "ip:" <> ip,
+           limits.handles_per_ip_hour,
+           limits.handles_per_ip_hour,
+           System.system_time(:second)
+         ]) do
+      :ok -> :ok
+      {:limited, seconds} -> {:error, {:rate_limited, seconds}}
+      error -> error
+    end
+  end
+
   defp body(conn) do
     case read_body(conn, length: 8192, read_length: 8193) do
       {:ok, bytes, conn} when byte_size(bytes) <= 8192 -> decode(bytes, conn)
@@ -77,6 +94,12 @@ defmodule AiurPushRelay.Router do
       ["Bearer " <> secret] -> secret
       _ -> ""
     end
+  end
+
+  defp respond(conn, {:error, {:rate_limited, seconds}}) do
+    conn
+    |> put_resp_header("retry-after", to_string(seconds))
+    |> json(429, %{error: "rate_limited", retry_after_s: seconds})
   end
 
   defp respond(conn, {:error, reason}) do
