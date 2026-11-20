@@ -63,7 +63,7 @@ that declares `supervisor_allowed` or `supervisor_preferred` together with
 `reversible`.
 
 Operators may opt in to delegation for reversible legacy
- engineering Commands with `executor.allow_reversible_human_required_answers`;
+engineering Commands with `executor.allow_reversible_human_required_answers`;
 product, spend, publication, and security decisions remain human-only.
 
 Classification is consequence-based and defaults delegable: a Command that
