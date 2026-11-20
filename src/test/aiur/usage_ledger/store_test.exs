@@ -401,31 +401,24 @@ defmodule Aiur.UsageLedger.StoreTest do
     blocked = Task.async(fn -> Store.append(name, scaling_envelope(1)) end)
     assert_receive {:checkpoint_waiting, checkpoint_owner}, 2_000
 
-    queued = for offset <- 2..(Store.max_queued_appends() + 1), do: Task.async(fn -> Store.append(name, scaling_envelope(offset)) end)
-    wait_for_queue(pid, Store.max_queued_appends())
+    # Enqueue the waiting calls directly so the queue length is exact on return.
+    queued =
+      for offset <- 2..(Store.max_queued_appends() + 1) do
+        reference = make_ref()
+        send(pid, {:"$gen_call", {self(), reference}, {:append, scaling_envelope(offset)}})
+        reference
+      end
 
     assert {:error, :overloaded} = Store.append(name, scaling_envelope(10_000))
 
     send(checkpoint_owner, :continue_checkpoint)
     assert {:ok, %{position: 1}} = Task.await(blocked)
-    assert Enum.all?(Task.await_many(queued, 10_000), &match?({:ok, _ack}, &1))
-    GenServer.stop(pid)
-  end
 
-  defp wait_for_queue(pid, length, attempts \\ 500) do
-    {:message_queue_len, queued} = Process.info(pid, :message_queue_len)
-
-    cond do
-      queued >= length ->
-        :ok
-
-      attempts > 0 ->
-        Process.sleep(10)
-        wait_for_queue(pid, length, attempts - 1)
-
-      true ->
-        flunk("ledger queue reached #{queued}, expected #{length}")
+    for reference <- queued do
+      assert_receive {^reference, {:ok, _acknowledgement}}, 10_000
     end
+
+    GenServer.stop(pid)
   end
 
   defp scaling_envelope(offset) do
