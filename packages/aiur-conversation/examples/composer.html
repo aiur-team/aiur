@@ -27,8 +27,26 @@
   // Stand-ins for the host's own transport.
   composer.adapters = {
     upload: async (file) => (await wait(300), { name: file.name, id: crypto.randomUUID() }),
-    dictation: { start: async () => ({ stop: async () => 'dictated text', cancel() {} }) },
-    voice: { start: async () => ({ stop: async () => {} }) },
+    dictation: {
+      async start({ onPartial, onLevel }) {
+        const words = 'make the hero jump twice as high'.split(' ');
+        let heard = 0;
+        const timer = setInterval(() => {
+          onLevel(Math.random());
+          if (Math.random() < 0.25 && heard < words.length) onPartial(words.slice(0, ++heard).join(' '));
+        }, 80);
+        return {
+          stop: async () => (clearInterval(timer), words.slice(0, heard).join(' ')),
+          cancel: () => clearInterval(timer),
+        };
+      },
+    },
+    voice: {
+      async start({ initialText }) {
+        if (initialText) log.append(Object.assign(document.createElement('li'), { textContent: `(voice) ${initialText}` }));
+        return { stop: async () => {} };
+      },
+    },
   };
   composer.onSend = async (text, attachments) => {
     const item = document.createElement('li');

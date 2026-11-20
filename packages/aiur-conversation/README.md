@@ -43,14 +43,18 @@ and import `composer.mjs` from there.
       return response.json(); // must include `name`; it comes back on send
     },
     dictation: {
-      async start() {
-        const recording = await myRecorder.start();
-        return { stop: () => recording.transcribe(), cancel: () => recording.discard() };
+      async start({ onPartial, onLevel }) {
+        const recording = await myRecorder.start({
+          onTranscript: (textSoFar) => onPartial(textSoFar),
+          onVolume: (zeroToOne) => onLevel(zeroToOne),
+        });
+        return { stop: () => recording.finish(), cancel: () => recording.discard() };
       },
     },
     voice: {
-      async start({ onEnd }) {
+      async start({ onEnd, initialText }) {
         const session = await myVoice.connect({ onClose: onEnd });
+        if (initialText) session.say(initialText);
         return { stop: () => session.close() };
       },
     },
@@ -64,12 +68,34 @@ and import `composer.mjs` from there.
 Every adapter is optional. A button whose adapter is missing is not shown,
 so a host without voice gets a composer without the voice buttons.
 
+Idle, the composer is one row: + (attach), the text input, mic and send.
+Tapping the mic starts dictation and the row becomes a recording row, with
+the input above it: cancel ✕, a live waveform, two-way voice, stop ■ and send.
+The two-way voice button only appears in the recording row.
+
 | Button | Adapter | Behaviour |
 | --- | --- | --- |
 | + (attach) | `upload(file) → Promise<{ name, … }>` | Opens the file picker. Each file shows as a chip while it uploads. Send waits until every upload finishes. |
-| Mic | `dictation.start() → Promise<{ stop() → Promise<text>, cancel?() }>` | Press and hold to record. Releasing inserts the text at the cursor and does not send. Space or Enter also work when held. Escape cancels. |
-| Two-way voice | `voice.start({ onEnd }) → Promise<{ stop() }>` | A tap starts a live conversation and a second tap ends it. Call `onEnd` if the session closes by itself. |
-| Send | `onSend(text, attachments)` | Enter sends and Shift+Enter adds a new line. If `onSend` returns a promise, the draft stays until it resolves. A rejection keeps the draft. |
+| Mic | `dictation.start({ onPartial, onLevel }) → Promise<{ stop() → Promise<text>, cancel?() }>` | A tap starts dictation and it runs until stop, send or cancel. Holding the mic for 300 ms or more also works: letting go stops. The words go in at the cursor as they are heard. Enter or Space start it from the keyboard. |
+| ✕ (cancel) | `dictation` | Discards the dictated words, keeps what was typed and calls `cancel`. Escape does the same. |
+| ■ (stop) | `dictation` | Calls `stop` and leaves the final text in the input to edit. It never sends. |
+| Two-way voice | `voice.start({ onEnd, initialText }) → Promise<{ stop() }>` | In the recording row, it stops dictation and starts a live conversation. The draft so far moves out of the input into `initialText`, to send as the first turn. While the conversation is live the button replaces the mic, and a tap ends it. Call `onEnd` if the session closes by itself. If `start` rejects, the text goes back into the input. |
+| Send | `onSend(text, attachments)` | Enter sends and Shift+Enter adds a new line. In the recording row it stops dictation and sends the final text. If `onSend` returns a promise, the draft stays until it resolves. A rejection keeps the draft. |
+
+#### Dictation callbacks
+
+`dictation.start` receives two callbacks. Call them as often as your recognizer
+and microphone allow:
+
+- `onPartial(text)`: everything recognized so far in this dictation, not only
+  the new words. Each call replaces the previous partial in the input. The
+  input is read-only while dictation runs, so typing can't be overwritten.
+- `onLevel(level)`: the microphone loudness from 0 to 1. Each call moves the
+  waveform by one bar. With a `MediaStream`, read an `AnalyserNode` on each
+  animation frame and pass its RMS.
+
+`stop()` resolves to the final text, which replaces the last partial. If it
+resolves to an empty string, the last partial stays.
 
 Aiur's voice packages run on a server. `voice_transcribe` provides streaming
 speech-to-text and `voice_converse` provides the live voice session. Your
@@ -106,7 +132,7 @@ custom properties on the composer or on an ancestor:
 | `--aiur-composer-muted` (placeholder) | `--aiur-color-muted` |
 | `--aiur-composer-line` | `--aiur-color-line` |
 | `--aiur-composer-button-bg` | `--aiur-color-surface-2` |
-| `--aiur-composer-accent` (send, active voice) | `--aiur-color-accent` |
+| `--aiur-composer-accent` (send, waveform, active voice) | `--aiur-color-accent` |
 | `--aiur-composer-on-accent` | `#ffffff` |
 | `--aiur-composer-focus` | `--aiur-color-focus` |
 | `--aiur-composer-radius` | `--aiur-radius-xl` |
@@ -117,7 +143,9 @@ custom properties on the composer or on an ancestor:
 | `--aiur-composer-z` (pinned) | `10` |
 
 For anything else, use the exposed parts: `::part(card)`, `input`, `actions`,
-`attach`, `mic`, `voice`, `send`, `attachments` and `attachment`.
+`attach`, `mic`, `send`, `cancel`, `waveform`, `voice`, `stop`, `attachments`
+and `attachment`. While dictating, the element has a `data-recording`
+attribute, and during a voice conversation it has `data-voice-live`.
 
 ## React
 
