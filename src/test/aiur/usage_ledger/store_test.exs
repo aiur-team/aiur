@@ -346,6 +346,98 @@ defmodule Aiur.UsageLedger.StoreTest do
     GenServer.stop(pid)
   end
 
+  test "an oversized checkpoint still lands the append, backs off one interval, and alerts once", %{root: root, name: name} do
+    parent = self()
+
+    encode_fun = fn checkpoint, max_bytes ->
+      send(parent, {:checkpoint_encoded, checkpoint["position"]})
+      if checkpoint["position"] <= 4, do: {:error, :record_too_large}, else: Checkpoint.encode(checkpoint, max_bytes)
+    end
+
+    alert_fun = fn topic, opts -> send(parent, {:alert, topic, opts}) end
+
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 2, checkpoint_encode_fun: encode_fun, alert_fun: alert_fun)
+
+    for position <- 1..3, do: assert({:ok, %{position: ^position}} = append(name, scaling_envelope(position)))
+    assert_received {:checkpoint_encoded, 2}
+    refute_received {:checkpoint_encoded, 3}
+    assert_received {:alert, "system.usage_ledger.degraded", alert}
+    assert alert[:needs_attention] == true
+    assert {:degraded, :checkpoint_too_large} = health(name)
+
+    assert {:ok, %{position: 4}} = append(name, scaling_envelope(4))
+    assert_received {:checkpoint_encoded, 4}
+    refute_received {:alert, _topic, _opts}
+
+    for position <- 5..6, do: assert({:ok, %{position: ^position}} = append(name, scaling_envelope(position)))
+    assert_received {:checkpoint_encoded, 6}
+    assert_received {:alert, "system.usage_ledger.degraded.resolved", _resolved}
+    assert health(name) == :healthy
+    GenServer.stop(pid)
+
+    {:ok, restarted} = start_store(root, name)
+    assert {:ok, records} = scan(name)
+    assert Enum.map(records, & &1.position) == Enum.to_list(1..6)
+    GenServer.stop(restarted)
+  end
+
+  test "sheds appends instead of queueing behind a backed-up ledger", %{root: root, name: name} do
+    parent = self()
+
+    # Only the first checkpoint blocks, so the queue drains once it is released.
+    checkpoint_fun = fn path, checkpoint ->
+      unless Process.get(:checkpoint_released) do
+        send(parent, {:checkpoint_waiting, self()})
+
+        receive do
+          :continue_checkpoint -> Process.put(:checkpoint_released, true)
+        end
+      end
+
+      Checkpoint.overwrite_encoded(path, checkpoint)
+    end
+
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 1, checkpoint_fun: checkpoint_fun)
+    blocked = Task.async(fn -> Store.append(name, scaling_envelope(1)) end)
+    assert_receive {:checkpoint_waiting, checkpoint_owner}, 2_000
+
+    queued = for offset <- 2..(Store.max_queued_appends() + 1), do: Task.async(fn -> Store.append(name, scaling_envelope(offset)) end)
+    wait_for_queue(pid, Store.max_queued_appends())
+
+    assert {:error, :overloaded} = Store.append(name, scaling_envelope(10_000))
+
+    send(checkpoint_owner, :continue_checkpoint)
+    assert {:ok, %{position: 1}} = Task.await(blocked)
+    assert Enum.all?(Task.await_many(queued, 10_000), &match?({:ok, _ack}, &1))
+    GenServer.stop(pid)
+  end
+
+  defp wait_for_queue(pid, length, attempts \\ 500) do
+    {:message_queue_len, queued} = Process.info(pid, :message_queue_len)
+
+    cond do
+      queued >= length ->
+        :ok
+
+      attempts > 0 ->
+        Process.sleep(10)
+        wait_for_queue(pid, length, attempts - 1)
+
+      true ->
+        flunk("ledger queue reached #{queued}, expected #{length}")
+    end
+  end
+
+  defp scaling_envelope(offset) do
+    envelope(%{
+      idempotency_key: "codex:scaling-#{offset}",
+      source_event_id: "scaling-#{offset}",
+      source_sequence: 17 + offset,
+      tokens: token_values(10 + offset),
+      cost: nil
+    })
+  end
+
   test "recovers journal records after the checkpoint interval", %{root: root, name: name} do
     {:ok, pid} = start_store(root, name)
     first = envelope(%{})
