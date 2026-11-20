@@ -16,23 +16,26 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
       end
 
     case result do
-      {:error, {:github, kind, _} = reason} when kind in [:local_hold, :rate_limited] ->
-        {:defer, reason}
-
-      {:error, {:aiur, :locally_held, _} = reason} ->
-        {:defer, reason}
-
       # Boot-time budget timeouts starve the ancestry read; it is missing evidence, not a verdict.
       {:error, :review_base_ancestry_unavailable = reason} ->
         {:defer, reason}
 
-      {:error, {:github, :transport, %{reason: {:aiur, :locally_held, _}}} = reason} ->
-        {:defer, reason}
+      # The label check after the write can be held too; that is still a wait, not a failed attempt.
+      {:error, {:state_label_verification_failed, inner} = reason} ->
+        if budget_hold?(inner), do: {:defer, reason}, else: result
+
+      {:error, reason} ->
+        if budget_hold?(reason), do: {:defer, reason}, else: result
 
       other ->
         other
     end
   end
+
+  defp budget_hold?({:github, kind, _}) when kind in [:local_hold, :rate_limited], do: true
+  defp budget_hold?({:aiur, :locally_held, _}), do: true
+  defp budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _}}}), do: true
+  defp budget_hold?(_reason), do: false
 
   defp release(issue, opts) do
     case target(issue, opts) do
