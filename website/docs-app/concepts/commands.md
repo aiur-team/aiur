@@ -75,9 +75,8 @@ Known Command types carry an explicit policy
 (`src/lib/aiur/decision_command_type.ex`): a **re-review request**
 (`kind: "rework_review"`) classifies `supervisor_preferred` + `reversible`, a
 **PR/ticket sequencing** question (`kind: "sequencing"`) classifies
-`supervisor_allowed` + `reversible`. Legacy attention provenance identifies
-where a Command came from; newly projected engineering attentions use the same
-Executor-answerable defaults.
+`supervisor_allowed` + `reversible`. Attention origin does not override these
+defaults for engineering questions.
 
 Because omission defaults to the Executor floor, a Command that is genuinely
 irreversible, involves spend or external publication, or changes product
