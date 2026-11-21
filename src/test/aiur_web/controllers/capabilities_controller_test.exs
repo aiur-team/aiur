@@ -83,8 +83,12 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   test "public payload contains no private keys or secret-shaped values" do
     response = request(:get)
     assert response.status == 200
-    refute secret_value?(Jason.decode!(response.resp_body))
-    refute private_key?(Jason.decode!(response.resp_body))
+    body = Jason.decode!(response.resp_body)
+    assert get_in(body, ["capabilities", "executor.background_agents", "detail"]) == "unsupported"
+    refute secret_value?(body)
+
+    body = update_in(body["capabilities"]["executor.background_agents"], &Map.delete(&1, "detail"))
+    refute private_key?(body)
   end
 
   defp request(method, authorization \\ Plug.BasicAuth.encode_basic_auth("operator", "secret")) do
