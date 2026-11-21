@@ -214,11 +214,12 @@ Runs write the daemon dump beneath the run-log root by default. Operators may
 override its location with `ERL_CRASH_DUMP` and bound the write with
 `ERL_CRASH_DUMP_SECONDS`; Aiur creates the target directory and checks that the
 dump path is writable before launch. Both variables are removed from agent and
-build children so only the daemon owns that evidence. A native crash such as a
-segmentation fault cannot write an Erlang crash dump. Aiur raises the daemon's
-soft core-file limit to its inherited hard limit before starting the BEAM;
-whether the OS retains a core still depends on its `core_pattern` and
-systemd-coredump policy.
+build children so only the daemon owns that evidence.
+
+A native crash such as a segmentation fault cannot write an Erlang crash dump.
+Aiur raises the daemon's soft core-file limit to its inherited hard limit
+before starting the BEAM; whether the OS retains a core still depends on its
+`core_pattern` and systemd-coredump policy.
 
 ## Usage and account meters
 
