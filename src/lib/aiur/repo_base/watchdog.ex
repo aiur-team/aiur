@@ -56,7 +56,12 @@ defmodule Aiur.RepoBase.Watchdog do
   @doc false
   @spec stamp_phase(map()) :: map()
   def stamp_phase(%{phase: phase, phase_seen: phase} = state), do: state
-  def stamp_phase(state), do: %{state | phase_seen: state.phase, phase_since_ms: System.monotonic_time(:millisecond)}
+
+  # A few direct callers/tests provide the older minimal state shape. GenServer
+  # state includes these fields, but keep this helper robust for partial maps.
+  def stamp_phase(%{phase: phase} = state) do
+    Map.merge(state, %{phase_seen: phase, phase_since_ms: System.monotonic_time(:millisecond)})
+  end
 
   @doc false
   @spec phase_age(map()) :: non_neg_integer()
