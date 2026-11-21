@@ -50,7 +50,9 @@ defmodule Aiur.Executor.BackgroundAgents do
   @impl true
   def handle_info({:executor_hook, event}, state) do
     case support(Session.current()) do
-      {:ok, binding} when event.session_id == binding.provider_session_id ->
+      {:ok, binding}
+      when event.binding_id == binding.binding_id and event.generation == binding.generation and
+             event.session_id == binding.provider_session_id ->
         state = generation(state, binding.generation)
         {:noreply, reduce(state, event)}
 

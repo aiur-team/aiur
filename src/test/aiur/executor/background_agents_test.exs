@@ -87,6 +87,59 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
     assert finished.state == :finished
   end
 
+  test "queued hooks from a replaced binding generation are ignored" do
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    dispatch("SessionStart", %{"source" => "startup"})
+    assert_receive {:executor_hook, %{event: "SessionStart"}}, 1000
+    assert {:ok, original} = Session.current()
+
+    :ok = :sys.suspend(BackgroundAgents)
+    dispatch("SubagentStart", %{"agent_id" => "stale-child"})
+    assert_receive {:executor_hook, %{event: "SubagentStart", generation: old_generation}}, 1000
+    assert old_generation == original.generation
+
+    assert {:ok, replacement} = Session.attach(%{harness: "claude", takeover?: true})
+    dispatch("SessionStart", %{"source" => "startup"})
+    assert_receive {:executor_hook, %{event: "SessionStart", generation: new_generation}}, 1000
+    assert new_generation == replacement.generation
+
+    :ok = :sys.resume(BackgroundAgents)
+    assert {:ok, [], _} = BackgroundAgents.snapshot()
+
+    dispatch("SubagentStart", %{"agent_id" => "current-child"})
+    assert_receive {:executor_hook, %{event: "SubagentStart", generation: ^new_generation}}, 1000
+    assert {:ok, [row], _} = BackgroundAgents.snapshot()
+    assert row.agent_id == "current-child"
+  end
+
+  test "retains only the newest 200 agent rows", %{pubsub: pubsub} do
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    dispatch("SessionStart", %{"source" => "startup"})
+    assert_receive {:executor_hook, %{event: "SessionStart"}}, 1000
+    assert {:ok, binding} = Session.current()
+
+    for id <- 1..201 do
+      event = %{
+        event: "SubagentStart",
+        agent_id: "child-#{id}",
+        agent_type: nil,
+        last_assistant_message: nil,
+        session_id: binding.provider_session_id,
+        binding_id: binding.binding_id,
+        generation: binding.generation,
+        observed_at: DateTime.utc_now()
+      }
+
+      Phoenix.PubSub.broadcast(pubsub, "executor_hook", {:executor_hook, event})
+      assert_receive {:executor_hook, %{event: "SubagentStart"}}, 1000
+    end
+
+    assert {:ok, rows, _} = BackgroundAgents.snapshot()
+    assert length(rows) == 200
+    refute Enum.any?(rows, &(&1.agent_id == "child-1"))
+    assert List.last(rows).agent_id == "child-201"
+  end
+
   test "Codex reports fields as unverified and provider maps unavailable reason through closed enum" do
     assert {:ok, _} = Session.attach(%{harness: "codex"})
 
