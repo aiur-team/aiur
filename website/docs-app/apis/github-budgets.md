@@ -198,7 +198,7 @@ Identity order is GitHub Apps, machine PATs, then human PATs. Configure PATs
 under `tracker.github.credentials`. Within each tier, selection uses the
 highest remaining budget for that resource. A tier is skipped only when all its
 eligible credentials have an observed exhausted window. The built-in identity
-is an App or machine PAT, depending on how the daemon authenticates.
+follows the daemon's auth: App first, otherwise machine PAT.
 
 The global `GITHUB_APP_*` variables configure one App installation; distinct
 App installations per daemon are not yet supported. The default deployment
