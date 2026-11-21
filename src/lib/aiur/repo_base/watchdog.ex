@@ -14,7 +14,7 @@ defmodule Aiur.RepoBase.Watchdog do
   defp ensure_dispatch_watchdog(%{dispatch_watchdog: nil} = state) do
     ref = make_ref()
     timer = Process.send_after(self(), {:dispatch_hold_timeout, ref}, state.dispatch_hold_timeout_ms)
-    %{state | dispatch_watchdog: %{ref: ref, timer: timer}}
+    %{state | dispatch_watchdog: %{ref: ref, timer: timer, deadline: deadline(state)}}
   end
 
   defp ensure_dispatch_watchdog(state), do: state
@@ -36,23 +36,46 @@ defmodule Aiur.RepoBase.Watchdog do
     if is_reference(timer), do: Process.cancel_timer(timer)
     ref = make_ref()
     new_timer = Process.send_after(self(), {:dispatch_hold_timeout, ref}, state.dispatch_hold_timeout_ms)
-    %{state | dispatch_watchdog: %{state.dispatch_watchdog | ref: ref, timer: new_timer}}
+    %{state | dispatch_watchdog: %{state.dispatch_watchdog | ref: ref, timer: new_timer, deadline: deadline(state)}}
   end
 
   def rearm_dispatch_watchdog(state), do: state
+
+  # Dispatch calls this every tick so an overdue hold expires even when its
+  # timer message was lost (#8100). A duplicate expiry no longer matches the ref.
+  @doc false
+  @spec expire_overdue_watchdog(map()) :: map()
+  def expire_overdue_watchdog(%{dispatch_watchdog: %{ref: ref, deadline: deadline}} = state) do
+    if System.monotonic_time(:millisecond) >= deadline, do: send(self(), {:dispatch_hold_timeout, ref})
+    state
+  end
+
+  def expire_overdue_watchdog(state), do: state
+
+  # Records when the current phase was first observed, so status can report its age.
+  @doc false
+  @spec stamp_phase(map()) :: map()
+  def stamp_phase(%{phase: phase, phase_seen: phase} = state), do: state
+  def stamp_phase(state), do: %{state | phase_seen: state.phase, phase_since_ms: System.monotonic_time(:millisecond)}
+
+  @doc false
+  @spec phase_age(map()) :: non_neg_integer()
+  def phase_age(%{phase_since_ms: since}), do: System.monotonic_time(:millisecond) - since
+
+  defp deadline(state), do: System.monotonic_time(:millisecond) + state.dispatch_hold_timeout_ms
 
   @doc false
   @spec hold_phase?(term()) :: boolean()
   def hold_phase?(phase), do: phase in [:cloning, :fetching, :building, :checking]
 
+  # Only a live build worker counts. A `:checking` hold never does: each probe is
+  # bounded at 30 seconds and a dead one is respawned every tick, so a live probe
+  # at expiry proves nothing and would re-arm the hold forever (#8100).
   @doc false
   @spec hold_progress?(map()) :: boolean()
   def hold_progress?(%{phase: phase, build: %{pid: pid}})
       when phase in [:building, :cloning, :fetching] and is_pid(pid),
       do: Process.alive?(pid)
-
-  def hold_progress?(%{phase: :checking, probe: %{pid: pid}}) when is_pid(pid),
-    do: Process.alive?(pid)
 
   def hold_progress?(_state), do: false
 
