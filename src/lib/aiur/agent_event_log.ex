@@ -83,7 +83,12 @@ defmodule Aiur.AgentEventLog do
   end
 
   defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  # A crash reason can carry a turn's loop state: structs such as `%Aiur.Issue{}`
+  # are not enumerable, and pids, references and callbacks are not encodable
+  # (#7963).
+  defp json_safe(%_{} = value), do: value |> Map.from_struct() |> json_safe()
   defp json_safe(%{} = value), do: Map.new(value, fn {key, val} -> {json_safe_key(key), json_safe(val)} end)
+  defp json_safe(value) when is_pid(value) or is_reference(value) or is_function(value) or is_port(value), do: inspect(value)
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
   # Tuples (e.g. a `{:port_exit, 1}` crash reason) are not JSON-encodable and
   # would otherwise make `Jason.encode!/1` raise — swallowed by the rescue in
