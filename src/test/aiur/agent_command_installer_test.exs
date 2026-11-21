@@ -53,14 +53,15 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
 
-  # The 105,000-byte budget tracks recurring remote-install payload growth, not
+  # The 110,000-byte budget tracks recurring remote-install payload growth, not
   # an OS limit: SSH stages the script and feeds `bash -s` on stdin. The bounded
   # broker wait and signal cleanup add behavior worth the measured increase;
   # CI measured 98,740 bytes and the local checkout 99,412. The ownership fence
-  # fragments (git push, gh PR writes) raised CI to 104,269.
+  # fragments (git push, gh PR writes) raised CI to 104,269, and the
+  # cross-ticket dependency and label fence to 105,608.
   test "the remote install script stays inside its growth budget", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
-    growth_budget = 105_000
+    growth_budget = 110_000
 
     assert byte_size(script) < growth_budget,
            "remote install script is #{byte_size(script)} bytes; the growth budget is #{growth_budget}"

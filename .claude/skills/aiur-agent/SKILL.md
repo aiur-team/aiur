@@ -45,6 +45,9 @@ shared [dictated-input note](dictated-input.md).
   ticket too, so a label you name for removal may already be gone — the removal
   no-ops and the leftover second state label makes the ticket undispatchable
   (#2805). The tool makes your target the sole `agent:*` state label.
+- **Never write dependencies or labels on other tickets.** Use
+  `aiur_declare_blocker` for your own; raise a decision to the Executor for
+  anything else.
 - Right-size the CE loop to the work: large asks usually run
   `ce-brainstorm → ce-plan → ce-work → ce-code-review`; smaller asks may skip
   brainstorm, plan, or review, but err on the side of using them when in doubt.
