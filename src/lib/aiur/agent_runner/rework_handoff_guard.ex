@@ -243,7 +243,17 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         })
 
       {:error, reason} ->
-        {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
+        if reason == :no_open_pr and state == "human-review" and merged_round_waiting_on_creator?(issue, opts),
+          do: {:allow, []},
+          else:
+            {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
+    end
+  end
+
+  defp merged_round_waiting_on_creator?(issue, opts) do
+    case Application.get_env(:aiur, :merged_round_handoff_check) do
+      {module, function} -> apply(module, function, [issue.identifier, opts]) == true
+      nil -> false
     end
   end
 
