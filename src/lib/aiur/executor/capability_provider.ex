@@ -2,7 +2,7 @@ defmodule Aiur.Executor.CapabilityProvider do
   @moduledoc "Read-only Executor presence and wake availability."
   @behaviour Aiur.Capabilities.Provider
   alias Aiur.Capabilities.Provider
-  alias Aiur.Executor.{Claims, Roster}
+  alias Aiur.Executor.{Capability, Claims, Roster, Session}
 
   @impl true
   def capability_ids, do: ~w(executor.wakes executor.conversation)
@@ -14,10 +14,39 @@ defmodule Aiur.Executor.CapabilityProvider do
   def evaluate(_context, opts \\ []) do
     lookup = Keyword.get(opts, :lookup_fun, &Process.whereis/1)
 
+    conversation =
+      case current_binding() do
+        {:ok, binding} ->
+          snapshot =
+            Keyword.get(opts, :capability_fun, fn -> Capability.read(binding, ingest_status(), DateTime.utc_now()) end).()
+            |> then(fn capability ->
+              if binding.state == "attached", do: capability, else: %{capability | status: :unknown, reason: :awaiting_first_hook}
+            end)
+
+          snapshot
+          |> Capability.identity_entry()
+          |> Map.merge(%{route: "/executor", harness: binding.harness, session_ref: binding.provider_session_id})
+
+        :none ->
+          %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
+      end
+
     %{
       "executor.wakes" => if(lookup.(Aiur.ExecutorWakeInbox), do: %{state: :available}, else: %{state: :unavailable, reason: :not_running}),
-      "executor.conversation" => %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
+      "executor.conversation" => conversation
     }
+  end
+
+  defp current_binding do
+    if Process.whereis(Session), do: Session.current(), else: :none
+  catch
+    :exit, _reason -> :none
+  end
+
+  defp ingest_status do
+    if Process.whereis(Aiur.Executor.TranscriptIngest), do: Aiur.Executor.TranscriptIngest.status(), else: %{}
+  catch
+    :exit, _reason -> %{}
   end
 
   @impl true
