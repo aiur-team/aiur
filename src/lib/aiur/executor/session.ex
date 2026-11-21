@@ -135,8 +135,13 @@ defmodule Aiur.Executor.Session do
 
   def handle_call({:checkpoint, binding, offset, format}, _from, state) when is_integer(offset) and offset >= 0 do
     case offset_binding(state.binding, binding.binding_id, cursor_identity(binding)) do
-      :ok -> reply_saved(%{state | binding: Map.merge(state.binding, %{transcript_offset: offset, transcript_format: format})})
-      {:error, reason} -> reject(state, reason)
+      :ok ->
+        updated = %{state.binding | transcript_offset: offset, transcript_format: format}
+        updated = if is_binary(Map.get(format, :codex_cli_version)), do: Map.put(updated, :codex_cli_version, format.codex_cli_version), else: updated
+        reply_saved(%{state | binding: updated})
+
+      {:error, reason} ->
+        reject(state, reason)
     end
   end
 

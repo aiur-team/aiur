@@ -31,6 +31,8 @@ defmodule Aiur.Executor.SessionCLIIngestTest do
 
     status = status(opts)
     assert status["recording?"] == true
+    assert status["read_capability"]["status"] == "unknown"
+    assert status["read_capability"]["reason"] == "awaiting_first_hook"
     assert status["not_attached_count"] == 1
     assert status["foreign_session_count"] == 0
 
@@ -60,6 +62,7 @@ defmodule Aiur.Executor.SessionCLIIngestTest do
     assert Process.whereis(SessionIngest) == nil
     status = status(opts)
     assert status["recording?"] == false
+    assert status["read_capability"]["status"] == "unknown"
     assert Map.fetch!(status, "transcript_rejection") == "unknown"
     assert status["not_attached_count"] == nil
     assert status["foreign_session_count"] == nil

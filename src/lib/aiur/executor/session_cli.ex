@@ -1,6 +1,6 @@
 defmodule Aiur.Executor.SessionCLI do
   @moduledoc false
-  alias Aiur.Executor.{HarnessSession, Session, SessionIngest, TranscriptIngest}
+  alias Aiur.Executor.{Capability, HarnessSession, Session, SessionIngest, TranscriptIngest}
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(keyword()) :: :ok
@@ -18,12 +18,16 @@ defmodule Aiur.Executor.SessionCLI do
 
     status = Map.merge(binding, age(binding, now))
     status = Map.merge(status, transcript_status())
+    status = Map.put(status, :read_capability, Capability.capability(binding_snapshot(binding), now, Map.merge(Map.get(binding, :transcript_format) || %{}, transcript_status())))
     status = Map.merge(status, rejection_status())
     status = Map.put(status, :observed_at, DateTime.to_iso8601(now))
     status = Map.put(status, :harness_session, HarnessSession.current(Keyword.take(opts, [:now, :path])))
     IO.puts(if Keyword.get(opts, :json, false), do: Jason.encode!(status), else: render(status))
     0
   end
+
+  defp binding_snapshot(%{binding_id: _} = binding), do: binding
+  defp binding_snapshot(_binding), do: nil
 
   @spec age(map(), DateTime.t()) :: map()
   def age(binding, now) do

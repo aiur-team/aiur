@@ -131,7 +131,7 @@ See [listener modes](/guide/gui#conversations) and
 [hook delivery](#attached-session-lifecycle-hooks). An idle session is not woken
 by a delivery hook, and queued does not mean read.
 
-Use `aiur executor-session --json` for the binding, liveness, last-hook age and freshness.
+Use `aiur executor-session --json` for binding, liveness, age and freshness, plus `read_capability`: harness, CLI version, status, reason and tested range. Status is `proven`, `untested`, `unsupported` or `unknown`.
 `awaiting_first_hook` means waiting for the first hook, not proof of transcript recording.
 
 Check enabled
