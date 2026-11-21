@@ -392,6 +392,12 @@ defmodule Aiur.Orchestrator.ControlCLI do
         IO.puts("aiur: already running #{display_identifier(status)} (sleeping: its stream closed while idle; it wakes on its next event)")
         :ok
 
+      # The Orchestrator accepted the resume and its tracker write is still in
+      # flight; the worker resumes when that write lands.
+      {:ok, :pending} ->
+        IO.puts("aiur: resuming #{display_identifier(status)}; tracker write pending")
+        :ok
+
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
         IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{prior_state(status)})")
 
