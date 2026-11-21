@@ -8,7 +8,7 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias Aiur.VoiceConversation.BriefingSource, as: Executor
-  alias Aiur.VoiceConverse.Host.{Conversation, LiveContext, Worker}
+  alias Aiur.VoiceConverse.Host.{BriefingCard, Conversation, LiveContext, Worker}
   alias VoiceConverse.Briefing
 
   @impl true
@@ -25,12 +25,8 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
 
   def brief(%Worker{} = target, opts) do
     with {:ok, row} <- status(target, opts) do
-      {:ok,
-       %Briefing{
-         summary: field(row[:state], row),
-         current_task: field(row[:title], row),
-         gaps: if(row[:observed_at], do: [], else: ["Status observation time unavailable."])
-       }}
+      observed_at = observed_at(row[:observed_at]) || DateTime.utc_now()
+      {:ok, BriefingCard.build(row, target, opts, observed_at)}
     end
   end
 
@@ -89,8 +85,6 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
     key != nil and TrackerIdentity.github_key(row[:tracker_identity]) == key
   end
 
-  defp field(nil, _row), do: nil
-  defp field(value, row), do: %{value: value, observed_at: observed_at(row[:observed_at]), max_age_s: 30}
   defp observed_at(%DateTime{} = at), do: at
 
   defp observed_at(at) when is_binary(at) do

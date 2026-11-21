@@ -55,21 +55,34 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
     publish(ctx.exchange, "ticket.42.agent.progress.status", %{payload: %{unexpected: "ignore"}})
     refute_receive {:briefing, _}, 100
     publish(ctx.exchange, "ticket.42.agent.phase.work.end", %{})
-    assert_receive {:context_update, "Phase: work.end", []}, 1_000
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
+    refute_receive {:context_update, "Phase: work.end", []}, 100
   end
 
-  test "executor subscribes to system and executor namespaces", %{exchange: exchange} do
+  test "PR and CI events refresh the briefing without sending raw event text", ctx do
+    assert :ok = BriefingSource.subscribe(ctx.target, self(), exchange: ctx.exchange, orchestrator: :absent_test_orchestrator)
+
+    for topic <- ["ticket.42.pr.opened", "ticket.42.pr.review_comment", "ticket.42.ci.passed", "ticket.42.ci.failed", "ticket.42.ci.wait"] do
+      publish(ctx.exchange, topic, %{})
+      assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
+      refute_receive {:context_update, _, _}, 50
+    end
+  end
+
+  test "executor refreshes its briefing on system and target changes", %{exchange: exchange} do
     assert :ok = LiveContext.subscribe(:executor, self(), :briefing, exchange: exchange, capabilities: Capabilities)
     publish(exchange, "system.build_order.root.progress", %{percent: 50})
-    assert_receive {:context_update, "Build order progress: 50%", []}, 1_000
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
     publish(exchange, "system.capabilities.changed", %{revision: 2})
     assert_receive {:context_update, "Executor state: idle", []}, 1_000
     publish(exchange, "ticket.42.queue.attention.prerequisite_failed", %{blocked: ["43", "44", "45"]})
-    assert_receive {:context_update, "Failed prerequisite blocks 3 tickets", []}, 1_000
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
     publish(exchange, "ticket.42.queue.attention.prerequisite_failed.resolved", %{})
-    assert_receive {:context_update, "Failed prerequisite cleared", []}, 1_000
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
     publish(exchange, "ticket.42.pr.opened", %{})
-    refute_receive {:context_update, "PR opened", []}, 100
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
+    publish(exchange, "executor.decision.requested", %{})
+    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
   end
 
   test "unavailable Executor state is explicit after a capability change", %{exchange: exchange} do
