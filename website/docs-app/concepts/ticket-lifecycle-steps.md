@@ -445,6 +445,13 @@ The agent never self-merges.
   `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
   and `reset_at`. The next committed dispatch, a retry for any other reason, or
   a released claim resolves it.
+- **GitHub down (5xx, timeout, DNS, TLS, dropped connection).** The ticket
+  keeps its claim and workspace. A running worker keeps its session and retries
+  its state refresh with backoff, capped at 2 minutes. A worker waiting to
+  retry keeps polling, with the backoff capped at `agent.max_retry_backoff_ms`.
+  After 15 minutes Aiur raises one `ticket.<id>.agent.attention.tracker-outage`.
+  A rate limit, a budget hold, or a refusal such as 401, 403 or 404 keeps its
+  own handling. A refusal still releases the claim after three failed polls.
 
 ## Runtime reason labels
 

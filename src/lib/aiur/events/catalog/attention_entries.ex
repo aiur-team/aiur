@@ -102,6 +102,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.stranded-requeued", "orchestration"},
     # aiur/agent_resource_guard.ex
     {"ticket.*.agent.attention.synthetic-load", "agent-sandbox"},
+    # aiur/agent_runner/tracker_outage.ex
+    {"ticket.*.agent.attention.tracker-outage", "agent-runner"},
     # aiur/orchestrator/ready_for_review_transitions.ex
     {"ticket.*.agent.attention.unreviewed_ready_pr", "orchestration"},
     # aiur/agent_runner/session_startup.ex

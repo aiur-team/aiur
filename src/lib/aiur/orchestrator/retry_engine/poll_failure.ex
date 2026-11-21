@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
 
   require Logger
 
+  alias Aiur.AgentRunner.TrackerOutage
   alias Aiur.Config
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -16,9 +17,9 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   @max_retry_poll_failures 3
 
   @doc false
-  @spec record_claim_release(State.t(), String.t(), term()) :: State.t()
-  def record_claim_release(%State{} = state, issue_id, reason) when is_binary(issue_id) do
-    {cause, details} = claim_release_reason(reason)
+  @spec record_claim_release(State.t(), String.t(), term(), :tracker | :agent) :: State.t()
+  def record_claim_release(%State{} = state, issue_id, reason, source \\ :tracker) when is_binary(issue_id) do
+    {cause, details} = claim_release_reason(reason, source)
 
     release = %{
       cause: cause,
@@ -61,8 +62,43 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   end
 
   defp handle_generic_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+    if TrackerOutage.outage?(reason),
+      do: defer_retry_poll_for_tracker_outage(state, issue_id, attempt, metadata, reason),
+      else: release_after_retry_poll_failures(state, issue_id, attempt, metadata, reason)
+  end
+
+  # A GitHub outage (5xx, timeout, dropped connection) says nothing about the
+  # ticket, so the claim and the workspace stay put and the poll keeps backing
+  # off; releasing would send the ticket back through dispatch the moment
+  # GitHub answers, while its workspace still holds the work.
+  defp defer_retry_poll_for_tracker_outage(state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
-    retry_poll_failures = Scheduling.normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
+    now_ms = metadata[:now_ms] || System.monotonic_time(:millisecond)
+    outage = TrackerOutage.note(metadata[:tracker_outage], identifier, reason, now_ms)
+
+    Logger.warning(
+      "Retry poll hit a tracker outage for issue_id=#{issue_id} issue_identifier=#{identifier} outage_failure=#{outage.failures} " <>
+        "agent_attempt=#{attempt} tracker_error=#{inspect(reason)}; keeping the claim"
+    )
+
+    Scheduling.schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        delay_type: :precondition,
+        error: "retry poll failed: #{inspect(reason)}",
+        retry_poll_failures: outage.failures,
+        tracker_outage: outage
+      })
+    )
+  end
+
+  defp release_after_retry_poll_failures(%State{} = state, issue_id, attempt, metadata, reason) do
+    identifier = metadata[:identifier] || issue_id
+    # Outage failures counted toward the backoff, not toward this release.
+    prior_failures = if metadata[:tracker_outage], do: 0, else: metadata[:retry_poll_failures]
+    retry_poll_failures = Scheduling.normalize_retry_poll_failures(prior_failures) + 1
 
     Logger.warning(
       "Retry poll failed for issue_id=#{issue_id} issue_identifier=#{identifier} retry_poll_failure=#{retry_poll_failures}/#{@max_retry_poll_failures} agent_attempt=#{attempt} tracker_error=#{inspect(reason)}"
@@ -89,6 +125,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
           delay_type: :precondition,
           error: "retry poll failed: #{inspect(reason)}",
           retry_poll_failures: retry_poll_failures,
+          tracker_outage: nil,
           terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
         })
       )
@@ -172,13 +209,22 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
 
   @doc false
   @spec emit_claim_released_alert(State.t(), String.t(), String.t(), integer(), term(), map()) :: term()
+  # `metadata[:source]` is `:agent` when the agent's own retries ran out (a
+  # stalled or crashed worker), so the alert does not send the reader looking
+  # for a GitHub failure that never happened.
   def emit_claim_released_alert(state, issue_id, identifier, attempt, reason, metadata) do
-    {reason_code, details} = claim_release_reason(reason)
+    source = Map.get(metadata, :source, :tracker)
+    {reason_code, details} = claim_release_reason(reason, source)
     auto_reclaim = Map.get(state.auto_resume, issue_id)
     recovery = claim_recovery_message(auto_reclaim)
 
+    failures =
+      if source == :agent,
+        do: "#{attempt} failed agent attempts (last error: #{format_last_error(reason)})",
+        else: "#{@max_retry_poll_failures} tracker failures"
+
     message =
-      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{failures} " <>
         "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
@@ -197,12 +243,16 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
     )
   end
 
-  defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
+  defp claim_release_reason({:github, :rate_limited, details}, _source) when is_map(details), do: {:rate_limit_exhausted, details}
 
-  defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}) when is_integer(timeout_ms),
+  defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}, _source) when is_integer(timeout_ms),
     do: {:workspace_hook_timeout, %{hook: "before_run", timeout_ms: timeout_ms}}
 
-  defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+  defp claim_release_reason(_reason, :agent), do: {:agent_retry_exhausted, %{}}
+  defp claim_release_reason(_reason, _source), do: {:tracker_retry_exhausted, %{}}
+
+  defp format_last_error(reason) when is_binary(reason), do: reason
+  defp format_last_error(reason), do: inspect(reason)
 
   @doc false
   @spec recovery_delay_options(term()) :: keyword()
