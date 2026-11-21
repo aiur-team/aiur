@@ -34,4 +34,69 @@ defmodule Aiur.AgentRunner.CiWaitTransitionTest do
       assert error["message"] =~ "Mark the draft pull request ready"
     end
   end
+
+  describe "#8102 ci-wait requires published work" do
+    setup do
+      previous_adapters = Application.fetch_env!(:aiur, :tracker_adapters)
+      Application.put_env(:aiur, :tracker_adapters, %{"test" => DraftCodeHostTracker, "linear" => DraftCodeHostTracker})
+      on_exit(fn -> Application.put_env(:aiur, :tracker_adapters, previous_adapters) end)
+
+      workspace = Path.join(System.tmp_dir!(), "ci-wait-transition-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(workspace)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+      git!(workspace, ["init", "-q"])
+      git!(workspace, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"])
+      %{workspace: workspace, head: String.trim(git!(workspace, ["rev-parse", "HEAD"]))}
+    end
+
+    test "refuses ci-wait with no open PR", %{workspace: workspace} do
+      assert_unpublished(set_ci_wait(workspace, {:ok, nil}), "no open pull request")
+    end
+
+    test "refuses ci-wait with uncommitted work even when a PR is open", %{workspace: workspace, head: head} do
+      File.write!(Path.join(workspace, "new.ex"), "untracked")
+      assert_unpublished(set_ci_wait(workspace, {:ok, pr(head)}), "uncommitted or untracked")
+    end
+
+    test "refuses ci-wait when the PR head is not the local HEAD", %{workspace: workspace} do
+      assert_unpublished(set_ci_wait(workspace, {:ok, pr(String.duplicate("a", 40))}), "is not the PR head")
+    end
+
+    test "allows ci-wait when the open PR head is the clean local HEAD", %{workspace: workspace, head: head} do
+      response = set_ci_wait(workspace, {:ok, pr(head)}, fn _id, "ci-wait" -> :ok end)
+      assert response["success"] == true
+    end
+
+    test "still allows human-review with no PR", %{workspace: workspace} do
+      response = executor(workspace, {:ok, nil}, fn _id, "human-review" -> :ok end).("aiur_set_ticket_state", %{"state" => "human-review"})
+      assert response["success"] == true
+    end
+  end
+
+  defp pr(head), do: %{"number" => 8102, "draft" => false, "head" => %{"sha" => head}}
+
+  defp set_ci_wait(workspace, fetched, writer \\ fn _id, _state -> flunk("unpublished work must not enter ci-wait") end),
+    do: executor(workspace, fetched, writer).("aiur_set_ticket_state", %{"state" => "ci-wait"})
+
+  defp executor(workspace, fetched, writer) do
+    ToolExecutor.build(%Issue{id: "8102", identifier: "8102"}, workspace, nil, %{},
+      coordination_runner: fn _key, operation, _opts -> operation.() end,
+      ci_wait_pr_fetcher: fn "8102" -> fetched end,
+      ticket_state_writer: writer,
+      override_handoff_recorder: fn _, _, _, _, _, _ -> :ok end
+    )
+  end
+
+  defp assert_unpublished(response, why) do
+    error = Jason.decode!(response["output"])["error"]
+    assert response["success"] == false
+    assert error["reason"] == "ci_wait_work_unpublished"
+    assert error["message"] =~ why
+    assert error["message"] =~ "Commit, push and open the PR"
+  end
+
+  defp git!(workspace, args) do
+    {out, 0} = System.cmd("git", ["-C", workspace | args], stderr_to_stdout: true)
+    out
+  end
 end

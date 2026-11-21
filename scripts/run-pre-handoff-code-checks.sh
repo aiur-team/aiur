@@ -174,13 +174,14 @@ PY
 while IFS= read -r line; do
   case "$line" in
     "cd src && mise exec -- mix test --max-cases 4 "*)
-      python3 - "${line#cd src && mise exec -- }" >> "$tests_file" <<'PY'
+      # stdin, not argv: a wide selection exceeds the kernel's 128 KiB single-argument limit.
+      printf '%s' "${line#cd src && mise exec -- }" | python3 -c '
 import shlex, sys
-command = shlex.split(sys.argv[1])
+command = shlex.split(sys.stdin.read())
 if command[:4] != ["mix", "test", "--max-cases", "4"]:
     raise SystemExit("unexpected affected-test command")
 print("\n".join(command[4:]))
-PY
+' >> "$tests_file"
       ;;
     "cd src && mise exec -- make ci"*)
       reason="$(sed -n 's/^# full suite recommended: //p' "$scratch/selection" | head -n 1)"
