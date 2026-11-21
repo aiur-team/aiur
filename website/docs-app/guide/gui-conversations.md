@@ -84,12 +84,12 @@ Write verbs return 405; sends continue through the listener path.
 
 ## The Executor thread for a host app
 
-A host app, such as a game maker that keeps the operator's conversation in its
-own UI, reads and posts to the operator↔Executor thread through
-`/api/v1/executor/thread`. Callers use a thread grant, a client token, or the
-dashboard session. A dashboard-session send also needs `X-Aiur-Request: 1`, and
-a client token needs the `executor` category to send. Responses set
-`Cache-Control: no-store`.
+A host app reads and posts to the operator↔Executor thread through
+`/api/v1/executor/thread`. Responses set `Cache-Control: no-store`.
+
+Callers use a thread grant, a client token, or the dashboard session. A
+dashboard-session send also needs `X-Aiur-Request: 1`. A client token needs the
+`executor` category to send.
 
 | Method | Path | Result |
 | --- | --- | --- |
@@ -103,22 +103,23 @@ delivery}`. `role` is `operator` or `executor`. `delivery` is `queued`,
 `delivered`, `outcome_unknown`, or null for Executor messages.
 
 `messages` comes from the Executor conversation, so a sent message appears
-there once the Executor session records it. Until then it is in `queued`, which
-lists every operator message still waiting for a session on each read,
-whatever `after` is. Both carry the send's `request_id`, so a host can match
-its own copy. Pass the last `next_after` to fetch only newer messages.
+there once the Executor session records it. Until then it is in `queued`.
+That list includes every operator message still waiting for a session, whatever
+`after` is. Both carry the send's `request_id`, so a host can match its own copy.
+Pass the last `next_after` to fetch only newer messages.
 
 Queued messages survive a daemon restart, with their `client_request_id`, so
 a retry after the restart still matches. A message is removed from the saved
 queue only when it is handed to an Executor session, so a restart never sends
 it twice.
 
-A send to a live Executor is queued for its session. With no Executor
-attached, the message waits for the next attached session and records an
-`executor.thread.message` wake for `aiur executor-wait`. Repeating a
-`client_request_id` with the same text returns the same message; with
-different text it returns 409 `client_request_id_conflict`. A read-only
-instance, or one without Executor delivery, returns 409
+A send to a live Executor is queued for its session. With no Executor attached,
+the message waits for the next session and records an `executor.thread.message`
+wake for `aiur executor-wait`.
+
+Repeating a `client_request_id` with the same text returns the same message.
+Different text returns 409 `client_request_id_conflict`. A read-only instance
+or one without Executor delivery returns 409
 `{"error": "executor_unavailable", "reason": ...}`.
 
 A thread grant is minted by the instance supervisor (`AIUR_SUPERVISOR_TOKEN`)
