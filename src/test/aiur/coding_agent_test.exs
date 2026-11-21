@@ -33,6 +33,13 @@ defmodule Aiur.CodingAgentTest do
              }
     end
 
+    test "the backend usage contract selects accounting-owned adapters" do
+      assert %{provider: :codex, backend: :app_server, transport: :app_server} = usage = CodingAgent.usage_context("codex")
+
+      assert [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage] =
+               Catalog.adapters_for(usage.provider)
+    end
+
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"

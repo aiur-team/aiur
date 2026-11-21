@@ -3,10 +3,10 @@ defmodule Aiur.Claude.Repl.Adoption do
 
   alias Aiur.Claude.Repl.Reaper
   alias Aiur.{ProcessReaper, Tmux}
-  alias Aiur.Tmux.Socket
+  alias Aiur.Tmux
 
   @spec socket_name(map()) :: String.t() | nil
-  def socket_name(session), do: Socket.name(session.tmux)
+  def socket_name(session), do: Tmux.socket_name(session.tmux)
 
   @spec rebind(map(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, term()}
   def rebind(session, socket, actor_meta \\ []) do
@@ -16,7 +16,7 @@ defmodule Aiur.Claude.Repl.Adoption do
 
     with true <- Regex.match?(~r/^%\d+$/, pane),
          {:ok, _} <- Tmux.command(tmux, "rename-window -t #{pane} #{Reaper.default_repl_name()}") do
-      ProcessReaper.register(:agent, Socket.pane_ref(tmux, pane), actor_meta)
+      ProcessReaper.register(:agent, Tmux.pane_ref(tmux, pane), actor_meta)
       if session[:os_pid], do: ProcessReaper.register(:agent, {:os_pid, session.os_pid}, [comm: "claude"] ++ actor_meta)
       {:ok, session}
     else

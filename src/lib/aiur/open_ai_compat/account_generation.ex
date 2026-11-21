@@ -2,14 +2,13 @@ defmodule Aiur.OpenAICompat.AccountGeneration do
   @moduledoc false
 
   alias Aiur.{CodingAgent, ProviderAccountGeneration}
-  alias Aiur.ProviderAccountGeneration.Context
 
   @backend :openai_compat
 
   @spec new_binding(String.t(), GenServer.server()) :: map()
   def new_binding(backend, server) do
     provider = provider(backend)
-    binding = Context.new_binding(provider, @backend, server)
+    binding = ProviderAccountGeneration.new_context(provider, @backend, server)
 
     %{
       account_generation_binding: binding.binding,
@@ -24,7 +23,8 @@ defmodule Aiur.OpenAICompat.AccountGeneration do
 
   @spec bind(map()) :: :ok
   def bind(session) do
-    with {:ok, server, binding, authority, topic} <- Context.fetch(session),
+    with {:ok, server, binding, authority, topic} <-
+           ProviderAccountGeneration.fetch_context(session),
          provider when is_atom(provider) <- session[:account_generation_provider],
          source when is_atom(source) <- session[:account_generation_source],
          :ok <- recover(server, provider, binding, authority, topic) do
@@ -41,17 +41,23 @@ defmodule Aiur.OpenAICompat.AccountGeneration do
 
   @spec snapshot(map()) :: map()
   def snapshot(session) do
-    with {:ok, server, binding, _authority, _topic} <- Context.fetch(session),
+    with {:ok, server, binding, _authority, _topic} <-
+           ProviderAccountGeneration.fetch_context(session),
          provider when is_atom(provider) <- session[:account_generation_provider] do
       ProviderAccountGeneration.lookup(server, provider, @backend, binding)
     else
-      _ -> ProviderAccountGeneration.Snapshot.unavailable(session[:account_generation_provider] || :unknown, @backend)
+      _ ->
+        ProviderAccountGeneration.unavailable_snapshot(
+          session[:account_generation_provider] || :unknown,
+          @backend
+        )
     end
   end
 
   @spec process_stopped(map()) :: :ok
   def process_stopped(session) do
-    with {:ok, server, binding, authority, topic} <- Context.fetch(session),
+    with {:ok, server, binding, authority, topic} <-
+           ProviderAccountGeneration.fetch_context(session),
          provider when is_atom(provider) <- session[:account_generation_provider],
          source when is_atom(source) <- session[:account_generation_source],
          :ok <- recover(server, provider, binding, authority, topic) do
@@ -64,8 +70,11 @@ defmodule Aiur.OpenAICompat.AccountGeneration do
     end
 
     case session[:account_generation_provider] do
-      provider when is_atom(provider) -> Context.clear(provider, @backend, session)
-      _ -> :ok
+      provider when is_atom(provider) ->
+        ProviderAccountGeneration.clear_context(provider, @backend, session)
+
+      _ ->
+        :ok
     end
 
     :ok

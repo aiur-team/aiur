@@ -87,6 +87,10 @@ defmodule Aiur.Application do
       Application.put_env(:aiur, :booted_instance_role, instance_role)
       Application.put_env(:aiur, :booted_instance_mode, instance_mode)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
+      Application.put_env(:aiur, :claude_hook_activity_callback, &note_claude_hook_activity/1)
+      Application.put_env(:aiur, :review_thread_replier, &Aiur.GitHub.Client.reply_to_review_thread/3)
+      Application.put_env(:aiur, :review_thread_resolver, &Aiur.GitHub.Client.resolve_review_thread/2)
+      Application.put_env(:aiur, :linear_graphql_client, &Aiur.Linear.Client.graphql/3)
 
       children =
         child_specs(
@@ -257,6 +261,15 @@ defmodule Aiur.Application do
   end
 
   defp maybe_start_distribution, do: start_distribution()
+
+  defp note_claude_hook_activity(identifier) do
+    if GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)),
+      do: Aiur.Orchestrator.note_agent_activity(identifier)
+
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
 
   # Resolve the GitHub token once at boot — before the Orchestrator /
   # GithubFirehose children that need GitHub auth start — preferring a valid

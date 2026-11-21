@@ -3,9 +3,9 @@ defmodule Aiur.AgentTools.MCP do
 
   use GenServer
 
-  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AgentTools.MCP.Router
   alias Aiur.AppServer.ToolCallLedger
+  alias Aiur.CodingAgent.Backend.ToolInvocation
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
@@ -196,7 +196,7 @@ defmodule Aiur.AgentTools.MCP do
     ToolCallLedger.execute(
       {:muse_mcp, invocation},
       fingerprint,
-      fn -> ToolExecutor.execute(executor, name, args, invocation) end,
+      fn -> ToolInvocation.execute(executor, name, args, invocation) end,
       ledger
     )
   end

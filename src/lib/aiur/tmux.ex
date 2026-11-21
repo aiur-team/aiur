@@ -19,6 +19,7 @@ defmodule Aiur.Tmux do
   alias Aiur.Tmux.Socket
 
   @type command_response :: {:ok, [String.t()]} | {:error, term()}
+  @type server :: Socket.server()
 
   # Public API ----------------------------------------------------------------
 
@@ -29,6 +30,22 @@ defmodule Aiur.Tmux do
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
+
+  @doc false
+  @spec agents_server() :: server()
+  defdelegate agents_server(), to: Socket, as: :agents
+
+  @doc false
+  @spec socket_name(term()) :: String.t() | nil
+  defdelegate socket_name(server), to: Socket, as: :name
+
+  @doc false
+  @spec pane_ref(term(), String.t()) :: tuple()
+  defdelegate pane_ref(server, pane_id), to: Socket
+
+  @doc false
+  @spec attach_command(map()) :: String.t() | nil
+  defdelegate attach_command(entry), to: Socket
 
   @spec command(Socket.server(), String.t(), timeout()) :: command_response()
   def command(server \\ __MODULE__, command, timeout \\ 5_000) when is_binary(command) do
