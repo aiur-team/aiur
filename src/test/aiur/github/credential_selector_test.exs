@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CredentialSelectorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{Budget, Credential, CredentialRegistry, CredentialSelector, Transport}
+  alias Aiur.GitHub.{AppTokenRefresher, Budget, Credential, CredentialRegistry, CredentialSelector, Transport}
 
   @now ~U[2026-08-20 12:00:00Z]
 
@@ -22,6 +22,19 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
     System.put_env(credential.token_env, token)
     on_exit(fn -> System.delete_env(credential.token_env) end)
     credential
+  end
+
+  defp with_app_token(token) do
+    key = {AppTokenRefresher, :installation_token}
+    previous = :persistent_term.get(key, :unset)
+    AppTokenRefresher.cache_token(token, DateTime.add(DateTime.utc_now(), 3_600), %{})
+
+    on_exit(fn ->
+      case previous do
+        :unset -> AppTokenRefresher.clear_token()
+        cached -> :persistent_term.put(key, cached)
+      end
+    end)
   end
 
   defp window(remaining, limit \\ 5_000) do
@@ -114,6 +127,43 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
                CredentialSelector.choose("graphql", :read, credentials: [primary, spare], windows: windows, now: @now)
     end
 
+    test "App credentials are the first identity tier, with headroom balancing inside it" do
+      with_app_token("app-selector-token")
+      primary = with_token(credential("primary", kind: :machine_user, source: :env, primary?: true, writes?: true), "primary-token")
+      app = credential("app", kind: :app_installation, source: :app)
+      apple = with_token(credential("applekid", []), "apple-token")
+      everdred = with_token(credential("everdred", kind: :human), "everdred-token")
+      app2 = credential("app-2", kind: :app_installation, source: :app)
+      credentials = [primary, everdred, apple, app2, app]
+
+      windows = %{
+        Credential.identity_key(app2) => %{"core" => window(900)},
+        Credential.token_key(app) => %{"core" => window(300)},
+        Credential.token_key(primary) => %{"core" => window(4_900)},
+        Credential.token_key(apple) => %{"core" => window(4_800)},
+        Credential.token_key(everdred) => %{"core" => window(4_700)}
+      }
+
+      opts = [credentials: credentials, windows: windows, now: @now]
+
+      assert %Credential{id: "app-2"} = CredentialSelector.choose("core", :read, opts)
+
+      windows = Map.put(windows, Credential.token_key(app), %{"core" => window(0)})
+      windows = Map.put(windows, Credential.identity_key(app2), %{"core" => window(0)})
+      windows = Map.put(windows, Credential.token_key(primary), %{"core" => window(0)})
+      assert %Credential{id: "applekid"} = CredentialSelector.choose("core", :read, Keyword.put(opts, :windows, windows))
+    end
+
+    test "label-applier requests stay pinned to the legacy actor", %{primary: primary, spare: spare} do
+      with_app_token("app-selector-token")
+      app = credential("app", kind: :app_installation, source: :app)
+      request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "primary-token", github_intent: :label_applier}
+
+      assert %Credential{id: "primary"} = CredentialSelector.select(request, credentials: [primary, spare, app], now: @now)
+      assigned = CredentialSelector.assign(request, credentials: [primary, spare, app], now: @now)
+      assert assigned.token == "primary-token"
+    end
+
     test "ties resolve to the primary", %{primary: primary, spare: spare} do
       windows = %{
         Credential.token_key(primary) => %{"core" => window(2_000)},
@@ -122,6 +172,46 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
 
       assert %Credential{id: "primary"} =
                CredentialSelector.choose("core", :read, credentials: [primary, spare], windows: windows, now: @now)
+    end
+
+    test "App credentials outrank PATs until the App credential is exhausted" do
+      with_app_token("app-selector-token")
+      primary = with_token(credential("primary", primary?: true, writes?: true), "primary-token")
+      app = credential("app", kind: :app_installation, source: :app)
+      pat = with_token(credential("applekid", writes?: true), "applekid-token")
+      fallback = with_token(credential("everdred", kind: :human), "everdred-token")
+
+      windows = %{
+        Credential.token_key(app) => %{"core" => window(1)},
+        Credential.token_key(primary) => %{"core" => window(4_900)},
+        Credential.token_key(pat) => %{"core" => window(4_800)},
+        Credential.token_key(fallback) => %{"core" => window(5_000)}
+      }
+
+      opts = [credentials: [primary, fallback, pat, app], windows: windows, now: @now]
+
+      assert %Credential{id: "app"} = CredentialSelector.choose("core", :read, opts)
+
+      exhausted_apps = Map.put(windows, Credential.token_key(app), %{"core" => window(0)})
+      exhausted_apps = Map.put(exhausted_apps, Credential.token_key(primary), %{"core" => window(0)})
+      opts = Keyword.put(opts, :windows, exhausted_apps)
+      assert %Credential{id: "applekid"} = CredentialSelector.choose("core", :read, opts)
+
+      assigned =
+        CredentialSelector.assign(
+          %{method: :get, url: "https://api.github.com/repos/o/r", token: "primary-token"},
+          opts
+        )
+
+      assert assigned.token == "applekid-token"
+    end
+
+    test "label-applier intent is pinned to the primary identity", %{primary: primary, spare: spare} do
+      app = with_token(credential("app", kind: :app_installation, source: :env, writes?: true), "app-token")
+      request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "primary-token", github_intent: :label_applier}
+
+      assert %Credential{id: "primary"} =
+               CredentialSelector.choose("core", CredentialSelector.intent(request), credentials: [primary, spare, app], now: @now)
     end
   end
 
@@ -142,13 +232,13 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
                CredentialSelector.choose("core", :write, credentials: [primary, human], windows: windows, now: @now)
     end
 
-    test "a human credential does carry reads", %{primary: primary, human: human} do
+    test "a human credential carries reads only after higher-priority credentials exhaust", %{primary: primary, human: human} do
       windows = %{
         Credential.token_key(primary) => %{"core" => window(1)},
         Credential.token_key(human) => %{"core" => window(5_000)}
       }
 
-      assert %Credential{id: "human"} =
+      assert %Credential{id: "primary"} =
                CredentialSelector.choose("core", :read, credentials: [primary, human], windows: windows, now: @now)
     end
 
@@ -187,7 +277,7 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
         Credential.token_key(human) => %{"core" => window(5_000)}
       }
 
-      %{credentials: credentials, human: human, windows: windows}
+      %{credentials: credentials, human: human, machine_a: machine_a, machine_b: machine_b, windows: windows}
     end
 
     test "never returns a human credential for a write", context do
@@ -232,12 +322,17 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
       refute Map.has_key?(assigned, :credential_id)
     end
 
-    # Reads are unaffected: every credential is read-eligible, so the human
-    # may still absorb read traffic, which is the entire point of the pool.
-    test "reads still use the human credential", context do
-      %{credentials: credentials, human: human} = context
+    # If the configured machine PAT is absent, the human identity remains the
+    # final usable fallback for reads.
+    test "reads use the human credential after machine PATs are exhausted", context do
+      %{credentials: credentials, human: human, machine_a: machine_a, machine_b: machine_b} = context
 
-      assert CredentialSelector.choose("core", :read, credentials: credentials, windows: %{}, now: @now) == human
+      windows = %{
+        Credential.token_key(machine_a) => %{"core" => window(0)},
+        Credential.token_key(machine_b) => %{"core" => window(0)}
+      }
+
+      assert CredentialSelector.choose("core", :read, credentials: credentials, windows: windows, now: @now) == human
     end
   end
 

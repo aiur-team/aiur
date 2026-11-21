@@ -1,7 +1,30 @@
 defmodule Aiur.GitHub.HoldPressureTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.GitHub.HoldPressure
+  alias Aiur.GitHub.{Credential, HoldPressure}
+
+  test "status shows remaining headroom for each configured credential" do
+    now = DateTime.utc_now()
+    primary = %Credential{id: "primary", kind: :machine_user, identity: "applekid", source: :env, token_env: "AIUR_HOLD_PRIMARY"}
+    spare = %Credential{id: "spare", kind: :machine_user, identity: "everdred", source: :env, token_env: "AIUR_HOLD_SPARE"}
+    System.put_env("AIUR_HOLD_PRIMARY", "primary-test-token")
+    System.put_env("AIUR_HOLD_SPARE", "spare-test-token")
+
+    on_exit(fn ->
+      System.delete_env("AIUR_HOLD_PRIMARY")
+      System.delete_env("AIUR_HOLD_SPARE")
+    end)
+
+    windows = %{
+      Credential.identity_key(primary) => %{"core" => %{remaining: 2_300, limit: 5_000}},
+      Credential.identity_key(spare) => %{"graphql" => %{remaining: 700, limit: 5_000}}
+    }
+
+    assert HoldPressure.credential_budget_lines(credentials: [primary, spare], windows: windows, now: now) == [
+             "GITHUB BUDGET primary core=2300/5000 left graphql=unknown",
+             "GITHUB BUDGET spare core=unknown graphql=700/5000 left"
+           ]
+  end
 
   setup do
     name = Module.concat(__MODULE__, "Server#{System.unique_integer([:positive])}")
