@@ -1,6 +1,6 @@
 # MP-R7 C4 status
 
-Historical disposition updated 2026-11-20 UTC by MP-R7-C4-T03 (#3478).
+Historical disposition updated 2026-11-21 UTC by MP-R7-C4-T03 (#3478).
 This bounded record replaces no historical chunks outside C4.
 
 ## MP-R7-C4 — Physical package: blocked (no-go)
