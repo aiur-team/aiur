@@ -6,7 +6,7 @@ defmodule Aiur.Codex.Handshake do
   require Logger
 
   alias Aiur.AppServer.Messages
-  alias Aiur.Codex.{Frames, Rpc}
+  alias Aiur.Codex.{Frames, Rpc, TurnOverrides}
   alias Aiur.Perf
 
   @account_read_timeout_ms 1_000
@@ -188,7 +188,8 @@ defmodule Aiur.Codex.Handshake do
         prompt,
         issue
       ) do
-    frame = Frames.turn_start_frame(thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy)
+    overrides = TurnOverrides.params(session, issue)
+    frame = Frames.turn_start_frame(thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy, overrides)
     Rpc.send_message(port, frame)
 
     case Rpc.await_startup_response(port, Frames.turn_start_id(), on_notification: Map.get(session, :account_generation_notification_handler, fn _payload -> :ignore end)) do

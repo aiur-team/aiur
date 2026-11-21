@@ -202,6 +202,10 @@ could not be read — and which model ran instead.
 `model:<family>` for each family your CLIs report. It creates no version-specific labels
 and never deletes ones a repository already has; those keep working as exact pins.
 
+On Codex, the effort and a `model:codex*` pin are read again before every turn, so
+changing `model:low` to `model:xhigh` takes effect on the ticket's next turn without
+a new thread. Other backends pick up a label change at their next session start.
+
 ## Build queue
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
