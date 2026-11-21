@@ -62,6 +62,12 @@ case "$*" in
       printf '\n'
       exit 0
     fi
+    if [[ "$CHANGED_PATHS" == *overarg* ]]; then
+      printf 'cd src && mise exec -- mix test --max-cases 4'
+      for i in $(seq 1 1600); do printf ' test/aiur/overarg_%04d_%090d_test.exs' "$i" "$i"; done
+      printf '\n'
+      exit 0
+    fi
     if [[ "$(printf '%s' "${AIUR_CI_CHANGED_PATHS_B64:-}" | base64 --decode)" == '[]' ]]; then
       printf '%s\n' 'cd src && mise exec -- mix test --max-cases 4'
       exit 0
@@ -232,6 +238,14 @@ grep -F '401 affected files exceed the 400-file worker limit' "$tmp/over_cap.log
 [[ "$(grep -c '^partition:' "$tmp/over_cap.commands")" == 4 ]]
 [[ "$(grep -c '^makeargs:--max-cases 4$' "$tmp/over_cap.commands")" == 4 ]]
 grep -Fx 'timeout:--signal=TERM --kill-after=60s 15m mise exec -- mix dialyzer' "$tmp/over_cap.commands" >/dev/null
+
+if ! run_check over_arg_limit src/lib/aiur/overarg.ex false false; then
+  cat "$tmp/over_arg_limit.log" >&2
+  echo 'test-run-pre-handoff-code-checks: selector output above the per-argument limit was rejected' >&2
+  exit 1
+fi
+grep -F '1600 affected files exceed the 400-file worker limit' "$tmp/over_arg_limit.log" >/dev/null
+[[ "$(grep -c '^partition:' "$tmp/over_arg_limit.commands")" == 4 ]]
 
 if ! run_check shared_support src/test/support/test_support.exs false false; then
   cat "$tmp/shared_support.log" >&2
