@@ -20,14 +20,24 @@ defmodule Aiur.RepoBase.Probe do
       end)
 
     timer = Process.send_after(self(), {:probe_timeout, ref}, @remote_probe_timeout_ms)
-    %{state | probe: %{pid: pid, ref: ref, timer: timer}}
+    deadline = System.monotonic_time(:millisecond) + @remote_probe_timeout_ms
+    %{state | probe: %{pid: pid, ref: ref, timer: timer, deadline: deadline}}
   end
 
-  def ensure_probe(%{probe: %{pid: pid}} = state, repo_url) do
-    if Process.alive?(pid), do: state, else: state |> clear_probe() |> ensure_probe(repo_url)
+  # The deadline is re-checked on every refresh so an overdue probe fails even
+  # when its `:probe_timeout` message was lost (#8100).
+  def ensure_probe(%{probe: %{pid: pid} = probe} = state, repo_url) do
+    cond do
+      not Process.alive?(pid) -> state |> clear_probe() |> ensure_probe(repo_url)
+      overdue?(probe) -> state |> abort_probe() |> probe_failed(:timeout)
+      true -> state
+    end
   end
 
   def ensure_probe(state, _repo_url), do: state
+
+  defp overdue?(%{deadline: deadline}), do: System.monotonic_time(:millisecond) >= deadline
+  defp overdue?(_probe), do: false
 
   @doc false
   @spec probe_freshness(map(), String.t()) :: map()
