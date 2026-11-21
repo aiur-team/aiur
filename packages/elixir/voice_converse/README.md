@@ -146,9 +146,10 @@ of requesting `getUserMedia` or streaming PCM to the provider.
 The package's standalone CI runs the Chromium acceptance suite from `test/browser/`:
 
 ```sh
+cd packages/elixir
 npm ci
 npx playwright install chromium
-npm run test:browser -- --config test/browser/playwright.config.mjs
+npm run test:voice-converse-browser
 ```
 
 ### OpenAI Realtime prototype

@@ -136,6 +136,12 @@ application with a browser page at `http://127.0.0.1:4100/`. It requires no Aiur
 application or agent CLI. Run `mix deps.get` and `mix run --no-halt` from that
 directory, then click **Converse**.
 
+Open `/talk` for the focused conversation page. Start voice capture from its
+button, or switch to text-only mode; optional browser speech recognition can
+show live dictation and interrupt assistant playback. Confirm, edit or discard
+draft cards before delivery. The page uses the same build-free client as host
+integrations and displays only the session details the host provides.
+
 The default fake provider is silent and
 uses no credentials; the example README documents real-provider setup.
 
