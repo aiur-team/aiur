@@ -135,7 +135,8 @@ export default withMermaid(defineConfig({
             { text: 'Embedded Commands', link: '/guide/embedded-commands' },
             { text: 'Daily newsletter', link: '/guide/newsletter' },
             { text: 'Stream Deck', link: '/guide/stream-deck' },
-            { text: 'Mobile local builds', link: '/guide/mobile' }
+            { text: 'Mobile local builds', link: '/guide/mobile' },
+            { text: 'Push relay operations', link: '/guide/push-relay' }
           ]
         },
         {

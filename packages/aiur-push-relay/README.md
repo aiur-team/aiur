@@ -25,6 +25,17 @@ Run these commands from `packages/aiur-push-relay`. To start with `mix run --no-
 | `AIUR_RELAY_DATABASE` | SQLite file, default `relay.sqlite3` |
 | `AIUR_RELAY_PORT` | HTTP port, default `4001` |
 | `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` | Optional Firebase service-account JSON file; its group and other permission bits must be unset. Without it, FCM sends return `503 provider_unavailable`. |
+| `AIUR_RELAY_SEND_PER_HOUR` | Per-handle token refill, default `60` sends/hour |
+| `AIUR_RELAY_SEND_BURST` | Per-handle burst capacity, default `10` |
+| `AIUR_RELAY_HANDLES_PER_IP_HOUR` | Handle creation burst and refill per source IP, default `20`/hour |
+| `AIUR_RELAY_LOG_RETENTION_DAYS` | Send-log retention, default `7`; values above `7` prevent startup |
+
+Rate-limit exhaustion returns `429 {"error":"rate_limited","retry_after_s":N}` and a
+matching `Retry-After` header. Replaying an accepted idempotency key does not consume a
+send token. SQLite persists token buckets across restarts; store failures fail closed with
+`503`. The relay rejects request bodies above 8 KiB and sealed envelopes above 3,400
+bytes. Idempotency rows expire after 24 hours; metadata-only send logs expire after the
+configured retention period (at most seven days).
 
 Topic slugs uppercase the topic and replace each non-ASCII-alphanumeric character with `_`.
 Fallback title and body together must be at most 200 UTF-8 bytes. Missing or invalid pins

@@ -7,11 +7,26 @@ defmodule AiurPushRelay.Provider.Router do
   def new(providers, health), do: %{providers: Map.new(providers), health: health}
 
   def health(%{health: health}), do: health
+  def health, do: GenServer.call(__MODULE__, :health)
   def provider, do: GenServer.call(__MODULE__, :provider)
   def set_provider(provider), do: GenServer.call(__MODULE__, {:set_provider, provider})
 
   @impl true
-  def init(_opts), do: {:ok, %{provider: new([], "unconfigured")}}
+  def init(_opts) do
+    apns_provider =
+      Application.get_env(:aiur_push_relay, :provider, AiurPushRelay.Provider.Disabled)
+
+    {fcm_provider, fcm_health} =
+      case Application.get_env(:aiur_push_relay, :fcm_provider) do
+        nil -> configure_fcm()
+        provider -> {provider, "test"}
+      end
+
+    {:ok,
+     %{
+       provider: new(%{"apns" => apns_provider, "fcm" => fcm_provider}, fcm_health)
+     }}
+  end
 
   def deliver(%{platform: platform} = row, envelope, state) do
     case Map.get(state.providers, platform) do
@@ -46,7 +61,21 @@ defmodule AiurPushRelay.Provider.Router do
   def handle_call(:provider, _from, state), do: {:reply, state.provider.providers["fcm"], state}
 
   @impl true
+  def handle_call(:health, _from, state), do: {:reply, health(state.provider), state}
+
+  @impl true
   def handle_call({:deliver, row, envelope}, _from, %{provider: provider} = state) do
     {:reply, deliver(row, envelope, provider), state}
+  end
+
+  defp configure_fcm do
+    case AiurPushRelay.Provider.Fcm.configure() do
+      {:ok, account, auth_pid} ->
+        {{AiurPushRelay.Provider.Fcm, account, auth_pid,
+          Application.get_env(:aiur_push_relay, :fcm_request_fun, &Req.post/1)}, "ok"}
+
+      result ->
+        result
+    end
   end
 end
