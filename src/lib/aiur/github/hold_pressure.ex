@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.HoldPressure do
 
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent, as: AgentConfig
-  alias Aiur.GitHub.{Access, CredentialSelector}
+  alias Aiur.GitHub.Access
 
   @rate_window_ms 60_000
   @resources ["core", "graphql", "search"]
@@ -62,7 +62,7 @@ defmodule Aiur.GitHub.HoldPressure do
   @doc "Per-credential core and GraphQL remaining-budget lines for `aiur status`."
   @spec credential_budget_lines(keyword()) :: [String.t()]
   def credential_budget_lines(opts \\ []) when is_list(opts) do
-    rows = CredentialSelector.headroom(opts)
+    rows = Access.credential_headroom(opts)
 
     if length(rows) > 1 do
       Enum.map(rows, fn row ->
