@@ -194,22 +194,19 @@ tracker:
 
 An empty list — the default — is the single-credential setup and is unchanged by any of this.
 
-Identity priority is GitHub App installations first, machine PATs second, and
-human PATs last. Configure PAT identities under
-`tracker.github.credentials`; within a tier, the daemon picks the eligible
-credential with the most remaining budget for that request's resource. It falls
-to the next tier when every eligible credential in the current tier has an
-observed exhausted window. The built-in daemon credential is in the App tier
-when it authenticates as an App, and in the machine tier when it authenticates
-as `GITHUB_TOKEN`.
+Identity priority is GitHub App installations, machine PATs, then human PATs.
+Configure PAT identities under `tracker.github.credentials`. Within a tier,
+the daemon picks the eligible credential with the most remaining budget for
+that resource. It falls to the next tier after every eligible credential in
+the current tier has an observed exhausted window. The built-in identity is
+in the App tier when it authenticates as an App, and in the machine tier when
+it authenticates as `GITHUB_TOKEN`.
 
-The current configuration supports one App installation through the global
-`GITHUB_APP_*` environment variables. Multiple PAT identities can be pooled;
-multiple distinct App installations are not yet configurable. In the default
-Aiur deployment, the OGM App is the preferred installation for core and OGM,
-and the aiur App is the preferred installation for aiur, archon and khala; the
-`its-applekid` and `its-everdred` PATs are the later fallbacks where configured
-and authorized for those repositories.
+The global `GITHUB_APP_*` variables configure one App installation; distinct
+App installations per daemon are not yet supported. The default deployment
+uses the OGM App for core and OGM, and the aiur App for aiur, archon and khala.
+Configured `its-applekid` and `its-everdred` PATs are later fallbacks where
+they have repository access.
 
 The timeline read used to verify who applied a dispatch label stays pinned to
 the built-in daemon identity. This preserves the `allowed_users` dispatch

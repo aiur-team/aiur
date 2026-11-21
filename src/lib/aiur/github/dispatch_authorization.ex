@@ -205,12 +205,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      # The timeline request is part of deciding whether a trusted actor's
-      # label authorizes dispatch. Keep it on the daemon identity whose labels
-      # are also accepted as Aiur's own transitions; a pooled fallback identity
-      # must not change that authorization boundary.
-      request_fun = fn request -> request_fun.(Map.put(request, :github_intent, :label_applier)) end
-
       case Timeline.fetch(request_fun, token, owner, repo, issue, opts) do
         {:ok, events, new_etag, single_page?, per_page} ->
           TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
