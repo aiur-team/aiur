@@ -55,11 +55,13 @@ defmodule Aiur.Orchestrator.DispatchOutcome do
   end
 
   defp ticket_declines(state, issues, stop_reason) do
-    Enum.reduce(issues, state.dispatch_declines, fn issue, declines ->
+    # A running ticket was dispatched, not declined (dispatch_decision reports it :already_running).
+    issues
+    |> Enum.reject(&Map.has_key?(state.running, &1.id))
+    |> Enum.reduce(state.dispatch_declines, fn issue, declines ->
       case DispatchPolicy.dispatch_decision(DependencyGate.cached_issue(issue), state) do
         {:skip, reason} -> Map.put_new(declines, issue.id, reason)
-        :dispatch when not is_map_key(state.running, issue.id) -> Map.put_new(declines, issue.id, stop_reason || :unknown)
-        :dispatch -> declines
+        :dispatch -> Map.put_new(declines, issue.id, stop_reason || :unknown)
       end
     end)
   end
