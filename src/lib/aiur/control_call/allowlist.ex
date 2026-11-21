@@ -244,6 +244,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:pause, 1, :agents, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
     {:resume, 1, :agents, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
     {:park, 1, :agents, [:string_list], %{}},
+    {:blocker, 1, :agents, [:keyword], %{action: {:enum, [:confirm, :dismiss]}, ticket: {:regex, ~r/^[1-9][0-9]{0,9}$/}, blocker: {:regex, ~r/^[1-9][0-9]{0,9}$/}}},
     {:take, 2, :tickets, [:string_list, :string], %{}},
     {:release, 2, :tickets, [:string_list, :string], %{}},
     {:recover_workspace, 2, :agents, [:string, :positive], %{}},

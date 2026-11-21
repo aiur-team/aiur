@@ -409,6 +409,10 @@ readiness from `branch.push` alone. Record the concrete inspected reason if the
 explicitly-unblocked dependency is still unusable; otherwise remove any
 temporary stub and stack on the blocker branch.
 
+A declared blocker is advisory: it never pauses you or holds re-dispatch
+unless the Executor confirms it. Keep working against N's branch and don't emit
+a dependency `pause.request`.
+
 `aiur_declare_blocker(N)` returns `pending` after the ordered declaration is
 admitted, not after GitHub confirms the dependency. Background failures are
 terminal in daemon diagnostics. If admission is indeterminate, inspect the

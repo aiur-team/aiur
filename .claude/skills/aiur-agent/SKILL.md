@@ -80,7 +80,9 @@ shared [dictated-input note](dictated-input.md).
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
   `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
-  `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
+  `ticket.N.*` and never pauses you unless the Executor confirms it, so keep
+  working and don't emit a dependency pause; `blocked` / `unblocked` are
+  single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with
   `ticket.<literal-id>.` — `executor.*`, `system.*`, bare wildcards, and
   wildcard ticket ids are refused before the binding is created.

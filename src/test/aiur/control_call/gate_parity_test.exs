@@ -83,6 +83,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :pause, [1], ~w(pause)},
     {:agent, :resume, [1], ~w(resume)},
     {:agent, :park, [1], ~w(park)},
+    {:agent, :blocker, [1], ~w(blocker)},
     {:agent, :take, [2], ~w(take)},
     {:agent, :release, [2], ~w(release)},
     {:agent, :recover_workspace, [2], ~w(workspace-recover)},
