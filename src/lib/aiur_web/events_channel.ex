@@ -27,7 +27,7 @@ defmodule AiurWeb.EventsChannel do
   @impl true
   def handle_info(:backlog, socket) do
     Process.send_after(self(), :heartbeat, 25_000)
-    drain(socket)
+    if starting?(Export.status()), do: {:noreply, assign(socket, waiting: true)}, else: drain(socket)
   end
 
   def handle_info(:replay, socket), do: drain(socket)
@@ -36,6 +36,10 @@ defmodule AiurWeb.EventsChannel do
 
   def handle_info(:heartbeat, socket) do
     case live(socket) do
+      {:noreply, %{assigns: %{waiting: true}} = socket} ->
+        Process.send_after(self(), :heartbeat, 25_000)
+        {:noreply, socket}
+
       {:noreply, socket} ->
         push(socket, "heartbeat", %{head_seq: Export.status().head_seq, observed_at: DateTime.to_iso8601(DateTime.utc_now())})
         Process.send_after(self(), :heartbeat, 25_000)
@@ -83,11 +87,24 @@ defmodule AiurWeb.EventsChannel do
 
     cond do
       not Export.enabled?() -> stop_error(socket, "feature_disabled")
+      starting?(status) -> {:noreply, socket}
       status.state != :available -> stop_error(socket, "events_unavailable")
+      socket.assigns[:waiting] -> resume(socket, status)
       socket.assigns.replaying -> {:noreply, socket}
       status.head_seq - socket.assigns.last_pushed_seq > 2_000 -> reset(socket, status)
       true -> drain(socket)
     end
+  end
+
+  # After a restart the exporter recovers its journal before it serves reads,
+  # which took over two minutes on a 19 MB journal. Erroring then made clients
+  # rejoin every second for the whole recovery; a joined client now waits and
+  # replays from its cursor once the exporter's first append lands.
+  defp starting?(%{state: :unavailable, reason: nil}), do: true
+  defp starting?(_status), do: false
+
+  defp resume(socket, status) do
+    socket |> assign(waiting: false, last_pushed_seq: socket.assigns.last_pushed_seq || status.head_seq) |> drain()
   end
 
   defp drain(socket) do
