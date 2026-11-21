@@ -6,11 +6,11 @@ defmodule Aiur.Commands do
   """
   @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
-
+  @spec describe_refusal(term()) :: String.t() | nil
+  defdelegate describe_refusal(reason), to: Aiur.Commands.Media, as: :describe
   @doc "Accepts an override and resolves routing before entering the serialized store."
   @spec override(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate override(id, payload, opts \\ [], server \\ Aiur.DecisionStore), to: Aiur.DecisionStore
-
   @doc "The active override's effective work ticket, retaining the original Command identity."
   @spec override_target_ticket(Aiur.Decision.t()) :: map()
   defdelegate override_target_ticket(decision), to: Aiur.Commands.Overrides, as: :target_ticket

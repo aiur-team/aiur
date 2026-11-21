@@ -80,7 +80,14 @@ defmodule Aiur.AgentRunner.DecisionAttention do
          }}
 
       {:error, reason} ->
-        {:error, {:decision_rejected, reason}}
+        {:error, rejected(reason)}
+    end
+  end
+
+  defp rejected(reason) do
+    case Commands.describe_refusal(reason) do
+      nil -> {:decision_rejected, reason}
+      hint -> {:decision_rejected, reason, hint}
     end
   end
 

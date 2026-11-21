@@ -223,14 +223,8 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
-  def payload({:decision_rejected, reason}) do
-    %{
-      "error" => %{
-        "message" => "Decision request was rejected by the durable DecisionStore.",
-        "reason" => inspect(reason)
-      }
-    }
-  end
+  def payload({:decision_rejected, reason}), do: %{"error" => %{"message" => "Decision request was rejected by the durable DecisionStore.", "reason" => inspect(reason)}}
+  def payload({:decision_rejected, reason, hint}), do: put_in(payload({:decision_rejected, reason}), ["error", "hint"], hint)
 
   def payload({:decision_lifecycle_rejected, reason}) do
     %{
