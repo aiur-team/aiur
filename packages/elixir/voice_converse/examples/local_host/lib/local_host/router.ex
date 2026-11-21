@@ -44,12 +44,23 @@ defmodule LocalHost.Router do
     conn |> put_resp_content_type("text/javascript") |> send_file(200, path)
   end
 
+  defp route(%{method: "GET", request_path: "/voice_converse_audio.js"} = conn),
+    do: send_client_asset(conn, "voice_converse_audio.js")
+
+  defp route(%{method: "GET", request_path: "/voice_converse_status.js"} = conn),
+    do: send_client_asset(conn, "voice_converse_status.js")
+
   defp route(%{method: "GET", request_path: "/voice"} = conn) do
     opts = [instance: LocalHost.Voice, token_issuer: VoiceConverse.TokenIssuer.Hmac]
     VoiceConverse.Transport.WebSock.Plug.call(conn, opts)
   end
 
   defp route(conn), do: send_resp(conn, 404, "Not found")
+
+  defp send_client_asset(conn, name) do
+    path = Path.join(:code.priv_dir(:voice_converse), "static/#{name}")
+    conn |> put_resp_content_type("text/javascript") |> send_file(200, path)
+  end
 
   defp talk_page(conn) do
     {:ok, token, _expires} =

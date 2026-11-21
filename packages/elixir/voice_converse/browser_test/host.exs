@@ -27,6 +27,12 @@ defmodule VoiceConverse.BrowserTestRouter do
       "/voice_converse_client.js" ->
         static(conn, "voice_converse_client.js", "text/javascript")
 
+      "/voice_converse_audio.js" ->
+        static(conn, "voice_converse_audio.js", "text/javascript")
+
+      "/voice_converse_status.js" ->
+        static(conn, "voice_converse_status.js", "text/javascript")
+
       "/" ->
         static(conn, "talk.html", "text/html")
 

@@ -1,7 +1,27 @@
 defmodule VoiceConverse.Session.Info do
   @moduledoc false
 
-  alias VoiceConverse.{Events, TranscriptIndex}
+  alias VoiceConverse.{Events, LiveContext, TranscriptIndex}
+  alias VoiceConverse.Session.Runtime
+
+  def broadcast(state) do
+    state.event_broadcast.(state.subscribers, state.id, {:session_info, frame(state)})
+    state
+  end
+
+  def provider_ready(state, transition) do
+    state
+    |> Runtime.flush_consult_context()
+    |> transition.(:listening)
+    |> LiveContext.ready()
+    |> broadcast()
+  end
+
+  def after_turn(state, event, check_daily_cap) do
+    if match?(%Events.AgentText{final?: true}, event),
+      do: state |> broadcast() |> check_daily_cap.(),
+      else: {:noreply, state}
+  end
 
   def frame(state) do
     descriptor = state.provider.descriptor()

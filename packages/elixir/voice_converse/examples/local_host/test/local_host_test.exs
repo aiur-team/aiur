@@ -86,6 +86,14 @@ defmodule LocalHostTest do
 
     assert client.status == 200
     assert client.resp_body =~ "class VoiceConverseClient"
+
+    for asset <- ["voice_converse_audio.js", "voice_converse_status.js"] do
+      response =
+        LocalHost.Router.call(Plug.Test.conn(:get, "http://127.0.0.1:4187/#{asset}"), [])
+
+      assert response.status == 200
+      assert response.resp_body != ""
+    end
   end
 
   test "real page and socket: briefing, listening, draft, confirmation, one outbox record", %{

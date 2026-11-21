@@ -1,14 +1,16 @@
 // A no-build browser client for the v1 VoiceConverse wire protocol.
+import {
+  PCM_RATE,
+  WORKLET_SOURCE,
+  base64ToBytes,
+  bytesToBase64,
+  graphemeLength,
+  resamplePcm16,
+  sliceGraphemes,
+} from "./voice_converse_audio.js";
+import { renderSessionInfo } from "./voice_converse_status.js";
+
 const VERSION = 1;
-const PCM_RATE = 16_000;
-const WORKLET_SOURCE = `class VoiceCaptureProcessor extends AudioWorkletProcessor {
-  process(inputs) {
-    const channel = inputs[0]?.[0];
-    if (channel) this.port.postMessage(channel.slice());
-    return true;
-  }
-}
-registerProcessor("voice-capture", VoiceCaptureProcessor);`;
 
 export class VoiceConverseClient {
   constructor({ url, target, draftContainer, view = globalThis.document, onFrame = () => {}, onError = () => {} }) {
@@ -453,19 +455,7 @@ export class VoiceConverseClient {
   }
 
   renderSessionInfo(frame) {
-    const values = {
-      option: frame.label,
-      cost: frame.cost_estimate_usd === undefined ? null : `Estimated cost: $${Number(frame.cost_estimate_usd).toFixed(2)}`,
-      session: frame.session_seconds_left === undefined ? null : `${Math.ceil(frame.session_seconds_left / 60)} min session time left`,
-      daily: frame.minutes_left_today === undefined ? null : `${frame.minutes_left_today} min left today`,
-      replay: frame.fork_mode === "replay" ? "Answer uses a saved summary" : null,
-    };
-    for (const [field, value] of Object.entries(values)) {
-      const element = this.view?.querySelector(`[data-session-info="${field}"]`);
-      if (!element) continue;
-      element.textContent = value || "";
-      element.hidden = !value;
-    }
+    renderSessionInfo(this.view, frame);
     this.localBargeIn = frame.interruption_supported === false;
   }
 
@@ -501,39 +491,4 @@ export class VoiceConverseClient {
     if (message) message.textContent = error.message;
     this.onError(error);
   }
-}
-
-function resamplePcm16(samples, sourceRate, targetRate) {
-  const outputLength = Math.max(1, Math.round((samples.length * targetRate) / sourceRate));
-  const output = new Int16Array(outputLength);
-  for (let index = 0; index < outputLength; index += 1) {
-    const position = (index * sourceRate) / targetRate;
-    const left = Math.floor(position);
-    const right = Math.min(left + 1, samples.length - 1);
-    const sample = samples[left] + (samples[right] - samples[left]) * (position - left);
-    output[index] = Math.max(-1, Math.min(1, sample)) * 32767;
-  }
-  return output;
-}
-
-function bytesToBase64(bytes) {
-  let text = "";
-  bytes.forEach((byte) => (text += String.fromCharCode(byte)));
-  return btoa(text);
-}
-
-function base64ToBytes(value) {
-  const text = atob(value);
-  return Uint8Array.from(text, (character) => character.charCodeAt(0));
-}
-
-function graphemeLength(text) {
-  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
-}
-
-function sliceGraphemes(text, length) {
-  return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)]
-    .slice(0, length)
-    .map((part) => part.segment)
-    .join("");
 }
