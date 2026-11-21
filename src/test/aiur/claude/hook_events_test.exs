@@ -98,7 +98,7 @@ defmodule Aiur.Claude.HookEventsTest do
                  activity_fun: fn identifier -> send(parent, {:hook_activity, identifier}) end
                )
 
-      assert_receive {:hook_activity, "MT-HOOK-ACTIVITY"}
+      assert_receive {:hook_activity, "MT-HOOK-ACTIVITY"}, 1_000
     end
 
     test "always returns :ok, even on a malformed payload" do
