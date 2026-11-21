@@ -28,6 +28,33 @@ defmodule VoiceConverse.SessionTest do
     assert {:error, :cloud_disclosure_accepted} = VoiceConverse.start_session(name, %{id: "target"}, [])
   end
 
+  test "session status is sent after provider startup and each assistant turn", %{root: root, name: name} do
+    start_instance(config!(root, name))
+    {:ok, id} = start!(name)
+    assert_receive {:voice_conversation_state, ^id, :connecting}
+    assert_receive {:voice_conversation_state, ^id, :listening}
+    assert_receive {:voice_conversation, ^id, {:session_info, initial}}
+    assert initial.option_id == "fake"
+    assert initial.label == "Fake"
+    assert initial.interruption_supported
+    assert is_integer(initial.session_seconds_left)
+    assert initial.minutes_left_today == 60
+
+    {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
+
+    :ok =
+      FakeProvider.emit(:sys.get_state(session).provider_ref, %Events.AgentText{
+        turn_id: "turn-1",
+        text: "hello",
+        final?: true
+      })
+
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{final?: true}}
+    assert_receive {:voice_conversation, ^id, {:session_info, after_turn}}
+    assert after_turn.option_id == initial.option_id
+    assert after_turn.label == initial.label
+  end
+
   test "a final user turn is durable before a subscriber receives it", %{root: root, name: name} do
     config = config!(root, name)
     start_instance(config)

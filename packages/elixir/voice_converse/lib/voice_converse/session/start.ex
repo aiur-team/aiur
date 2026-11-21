@@ -33,6 +33,7 @@ defmodule VoiceConverse.Session.Start do
          consult: nil,
          consult_confirmed?: false,
          replay_disclosed?: false,
+         fork_mode: nil,
          last_user_at: started_at,
          pending_consult_context: [],
          provider: provider,

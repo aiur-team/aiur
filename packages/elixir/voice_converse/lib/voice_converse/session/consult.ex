@@ -242,7 +242,9 @@ defmodule VoiceConverse.Session.Consult do
     persist_answer!(state, id, text, :fork)
     state = transition(state, id, :sent) |> transition(id, :delivered)
     state = VoiceConverse.Session.SideQuery.answer(state, id, ref, text, mode, usage)
-    state |> Map.put(:consult, nil) |> set_state(:listening)
+    state = state |> Map.put(:consult, nil) |> set_state(:listening)
+    state.event_broadcast.(state.subscribers, state.id, {:session_info, VoiceConverse.Session.Info.frame(state)})
+    state
   end
 
   def event({:consult_fork_timeout, id, ref}, %{consult: %{id: id, delivery_id: ref, phase: :fork_waiting}} = state) do

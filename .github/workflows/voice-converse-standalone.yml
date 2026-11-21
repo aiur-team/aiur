@@ -33,10 +33,17 @@ jobs:
         with:
           node-version: '24.x'
           cache: npm
-          cache-dependency-path: packages/aiur-contracts/package-lock.json
+          cache-dependency-path: |
+            packages/aiur-contracts/package-lock.json
+            packages/elixir/voice_converse/package-lock.json
       - name: Install contract validator
         working-directory: packages/aiur-contracts
         run: npm ci
+      - name: Install browser test dependencies
+        working-directory: packages/elixir/voice_converse
+        run: npm ci
+      - name: Install Chromium
+        run: npx --prefix packages/elixir/voice_converse playwright install --with-deps chromium
       - name: No aiur reference
         run: scripts/check-voice-converse-isolation.sh
       - name: Compile and test the package alone
@@ -46,6 +53,9 @@ jobs:
           mise exec -- mix compile --warnings-as-errors
           mise exec -- mix format --check-formatted
           mise exec -- mix test
+      - name: Test conversation page in Chromium
+        working-directory: packages/elixir/voice_converse
+        run: npm run test:browser -- --config test/browser/playwright.config.mjs
       - name: Test the example as an outside path consumer
         shell: bash
         run: |

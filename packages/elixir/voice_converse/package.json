@@ -1,0 +1,12 @@
+{
+  "name": "@aiur/voice-converse-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.3",
+    "@playwright/test": "1.61.1"
+  }
+}

@@ -13,7 +13,12 @@ defmodule VoiceConverse.Session.SideQuery do
         else: "Here is what the agent's notes say: "
 
     state = state |> Runtime.consult_context(prefix <> text) |> VoiceConverse.LiveContext.announce(prefix <> text)
-    %{state | replay_disclosed?: state.replay_disclosed? or mode == :replay}
+
+    %{
+      state
+      | replay_disclosed?: state.replay_disclosed? or mode == :replay,
+        fork_mode: if(mode == :replay, do: :replay, else: :native)
+    }
   end
 
   defp record(state, id, ref, text, mode, usage) do

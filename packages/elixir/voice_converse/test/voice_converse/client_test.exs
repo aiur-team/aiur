@@ -15,7 +15,7 @@ defmodule VoiceConverse.ClientTest do
       addEventListener(name, callback) { this.handlers[name] = callback; }
       remove() { this.removed = true; }
     }
-    globalThis.document = { createElement: () => new Element() };
+    globalThis.document = { createElement: () => new Element(), querySelector: () => null };
     const container = new Element();
     const sent = [];
     const client = new VoiceConverseClient({ url: '', target: {}, draftContainer: container });

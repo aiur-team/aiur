@@ -90,10 +90,11 @@ defmodule VoiceConverse.Session do
   end
 
   @impl true
-  def handle_info(:provider_ready, state),
-    do:
-      {:noreply,
-       state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()}
+  def handle_info(:provider_ready, state) do
+    state = state |> Runtime.flush_consult_context() |> transition(:listening) |> VoiceConverse.LiveContext.ready()
+    broadcast(state, {:session_info, VoiceConverse.Session.Info.frame(state)})
+    {:noreply, state}
+  end
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
@@ -268,7 +269,13 @@ defmodule VoiceConverse.Session do
             else: :speaking
 
         state = state |> reset_idle_timer() |> transition(next)
-        if match?(%Events.AgentText{final?: true}, event), do: check_daily_cap(state), else: {:noreply, state}
+
+        if match?(%Events.AgentText{final?: true}, event) do
+          broadcast(state, {:session_info, VoiceConverse.Session.Info.frame(state)})
+          check_daily_cap(state)
+        else
+          {:noreply, state}
+        end
 
       {:error, state} ->
         stop_unknown(state)

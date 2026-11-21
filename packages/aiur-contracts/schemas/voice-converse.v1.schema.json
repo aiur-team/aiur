@@ -3,7 +3,7 @@
   "$id": "https://aiur.team/schemas/voice-converse.v1.schema.json",
   "title": "VoiceConverseFrame",
   "oneOf": [
-    { "$ref": "#/$defs/playback_state" }, { "$ref": "#/$defs/agent_text_timing" },
+    { "$ref": "#/$defs/playback_state" }, { "$ref": "#/$defs/agent_text_timing" }, { "$ref": "#/$defs/session_info" },
     { "$ref": "#/$defs/start" }, { "$ref": "#/$defs/audio" }, { "$ref": "#/$defs/text" },
     { "$ref": "#/$defs/confirm_draft" }, { "$ref": "#/$defs/discard_draft" }, { "$ref": "#/$defs/end" },
     { "$ref": "#/$defs/state" }, { "$ref": "#/$defs/transcript" }, { "$ref": "#/$defs/agent_text" },
@@ -14,6 +14,7 @@
     "base": { "type": "object", "additionalProperties": true, "properties": { "v": { "const": 1 }, "type": { "type": "string" } }, "required": ["v", "type"] },
     "playback_state": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "playback_state" }, "state": { "enum": ["playing", "stopped"] }, "turn_id": { "type": "string" }, "played_until_ms": { "type": "integer", "minimum": 0 } }, "required": ["state"], "dependentRequired": { "played_until_ms": ["turn_id"] } }] },
     "agent_text_timing": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "agent_text_timing" }, "turn_id": { "type": "string" }, "text": { "type": "string" }, "audio_offset_ms": { "type": "integer", "minimum": 0 }, "estimated": { "type": "boolean" }, "chars": { "type": ["array", "null"], "items": { "type": "object", "properties": { "offset_ms": { "type": "integer", "minimum": 0 }, "length": { "type": "integer", "minimum": 1 } }, "required": ["offset_ms", "length"] } } }, "required": ["turn_id", "text", "audio_offset_ms", "estimated"] }] },
+    "session_info": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "session_info" }, "option_id": { "type": "string" }, "label": { "type": "string" }, "interruption_supported": { "type": "boolean" }, "cost_estimate_usd": { "type": "number", "minimum": 0 }, "session_seconds_left": { "type": "integer", "minimum": 0 }, "minutes_left_today": { "type": "integer", "minimum": 0 }, "fork_mode": { "enum": ["native", "replay"] } }, "required": ["option_id", "label", "interruption_supported"] }] },
     "start": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "start" }, "target": { "type": "object" } }, "required": ["target"] }] },
     "audio": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "audio" }, "data_b64": { "type": "string" } }, "required": ["data_b64"] }] },
     "text": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "text" }, "text": { "type": "string" } }, "required": ["text"] }] },

@@ -88,6 +88,14 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
                Socket.handle_in({~s({"v":1,"type":"start","target":"target-1"}), [opcode: :text]}, state)
     end
 
+    test "a text frame reaches the session text input" do
+      test_pid = self()
+      state = WebSock.socket_state(api: start_api(test_pid)) |> Map.put(:conversation_id, "conversation-target-1")
+
+      assert {:ok, ^state} = Socket.handle_in({~s({"v":1,"type":"text","text":"dictated"}), :text}, state)
+      assert_receive {:push_text, _instance, "conversation-target-1", "dictated"}
+    end
+
     test "rejects binary frames delivered in the Bandit keyword-list opcode shape" do
       state = WebSock.socket_state([], true)
 
@@ -324,7 +332,11 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
           {:ok, "conversation-" <> target}
         end,
         subscribe: fn _instance, _conversation_id, _subscriber -> :ok end,
-        unsubscribe: fn _instance, _conversation_id, _subscriber -> :ok end
+        unsubscribe: fn _instance, _conversation_id, _subscriber -> :ok end,
+        push_text: fn instance, conversation_id, text ->
+          send(test_pid, {:push_text, instance, conversation_id, text})
+          :ok
+        end
       }
     end
 

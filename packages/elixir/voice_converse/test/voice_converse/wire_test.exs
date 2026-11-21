@@ -27,6 +27,43 @@ defmodule VoiceConverse.WireTest do
     assert {:error, :invalid_frame} = Wire.decode(~s({"v":1,"type":"audio"}))
   end
 
+  test "session status requires an option and rejects invalid estimates or fork modes" do
+    assert {:error, :invalid_frame} = Wire.encode(%{v: 1, type: "session_info", option_id: "fake", label: "Fake"})
+
+    assert {:error, :invalid_frame} =
+             Wire.encode(%{v: 1, type: "session_info", option_id: "fake", label: "Fake", interruption_supported: "yes"})
+
+    assert {:error, :invalid_frame} =
+             Wire.encode(%{
+               v: 1,
+               type: "session_info",
+               option_id: "fake",
+               label: "Fake",
+               interruption_supported: true,
+               cost_estimate_usd: -0.01
+             })
+
+    assert {:error, :invalid_frame} =
+             Wire.encode(%{
+               v: 1,
+               type: "session_info",
+               option_id: "fake",
+               label: "Fake",
+               interruption_supported: true,
+               fork_mode: "summary"
+             })
+
+    assert {:error, :invalid_frame} =
+             Wire.encode(%{
+               v: 1,
+               type: "session_info",
+               option_id: "fake",
+               label: "Fake",
+               interruption_supported: true,
+               fork_mode: nil
+             })
+  end
+
   test "returns an error when a valid-shape frame cannot be JSON encoded" do
     assert {:error, :invalid_frame} =
              Wire.encode(%{"v" => 1, "type" => "agent_text", "turn_id" => "turn-1", "text" => self(), "final" => true})

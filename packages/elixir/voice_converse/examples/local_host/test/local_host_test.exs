@@ -62,6 +62,32 @@ defmodule LocalHostTest do
     %{root: root}
   end
 
+  test "the focused conversation page and assets are served with a scoped socket token" do
+    Application.put_env(:local_host, :port, 4187)
+
+    :ok =
+      VoiceConverse.TokenIssuer.Hmac.put_secret(LocalHost.Voice, :crypto.strong_rand_bytes(32))
+
+    page = LocalHost.Router.call(Plug.Test.conn(:get, "http://127.0.0.1:4187/talk"), [])
+    assert page.status == 200
+    assert page.resp_body =~ "title>Voice conversation"
+    refute page.resp_body =~ "__TOKEN__"
+    refute page.resp_body =~ "__TARGET__"
+
+    css = LocalHost.Router.call(Plug.Test.conn(:get, "http://127.0.0.1:4187/talk.css"), [])
+    assert css.status == 200
+    assert css.resp_body =~ ".conversation"
+
+    client =
+      LocalHost.Router.call(
+        Plug.Test.conn(:get, "http://127.0.0.1:4187/voice_converse_client.js"),
+        []
+      )
+
+    assert client.status == 200
+    assert client.resp_body =~ "class VoiceConverseClient"
+  end
+
   test "real page and socket: briefing, listening, draft, confirmation, one outbox record", %{
     root: root
   } do
