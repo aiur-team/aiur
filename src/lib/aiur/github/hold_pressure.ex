@@ -80,10 +80,11 @@ defmodule Aiur.GitHub.HoldPressure do
 
   @doc false
   @spec print_status() :: :ok
-  def print_status do
+  @spec print_status(keyword()) :: :ok
+  def print_status(opts \\ []) when is_list(opts) do
     Access.print_status()
     IO.puts(status_line())
-    Enum.each(credential_budget_lines(), &IO.puts/1)
+    Enum.each(credential_budget_lines(opts), &IO.puts/1)
   end
 
   defp remaining(%{remaining: remaining, limit: limit}), do: "#{remaining}/#{limit} left"

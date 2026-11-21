@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.HoldPressureTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Aiur.GitHub.{Credential, HoldPressure}
 
   test "status shows remaining headroom for each configured credential" do
@@ -20,10 +22,13 @@ defmodule Aiur.GitHub.HoldPressureTest do
       Credential.identity_key(spare) => %{"graphql" => %{remaining: 700, limit: 5_000}}
     }
 
-    assert HoldPressure.credential_budget_lines(credentials: [primary, spare], windows: windows, now: now) == [
-             "GITHUB BUDGET primary core=2300/5000 left graphql=unknown",
-             "GITHUB BUDGET spare core=unknown graphql=700/5000 left"
-           ]
+    output =
+      capture_io(fn ->
+        HoldPressure.print_status(credentials: [primary, spare], windows: windows, now: now)
+      end)
+
+    assert output =~ "GITHUB BUDGET primary core=2300/5000 left graphql=unknown"
+    assert output =~ "GITHUB BUDGET spare core=unknown graphql=700/5000 left"
   end
 
   setup do
