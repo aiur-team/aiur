@@ -89,6 +89,10 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
+  # Handoff needs the exact provider pids now; a retained snapshot can lag a publish interval.
+  @spec live_snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
+  def live_snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
+
   @spec status_api() :: [map()] | :timeout | :unavailable
   def status_api, do: status_api(Aiur.Project.whereis(Aiur.Orchestrator), 5_000)
 
