@@ -35,6 +35,10 @@ defmodule AiurPushRelay.Provider.ApnsConfigTest do
     refute Registry.available?("apns")
     assert Registry.deliver(%{platform: "apns"}, %{}) == {:error, :provider_unavailable}
     assert Registry.deliver(%{platform: "fcm"}, %{}) == {:error, :provider_unavailable}
+    assert {:ok, state} = AiurPushRelay.Provider.Router.init([])
+    assert state.provider.providers["apns"] == AiurPushRelay.Provider.Disabled
+    assert state.provider.providers["fcm"] == AiurPushRelay.Provider.Disabled
+    assert state.fcm_health == "unconfigured"
     opts = AiurPushRelay.Router.init(providers: Registry, pins: %{}, store: {__MODULE__, nil})
     health = conn(:get, "/healthz") |> AiurPushRelay.Router.call(opts)
     assert Jason.decode!(health.resp_body) == %{"store" => "ok", "apns" => "unavailable"}
@@ -77,6 +81,8 @@ defmodule AiurPushRelay.Provider.ApnsConfigTest do
     )
 
     assert Registry.available?("apns")
+    assert {:ok, state} = AiurPushRelay.Provider.Router.init([])
+    assert state.provider.providers["apns"] == AiurPushRelay.Provider.Apns
     row = %{platform: "apns", app_topic: "topic", environment: "sandbox", push_token: "device"}
 
     envelope = %{
@@ -87,6 +93,10 @@ defmodule AiurPushRelay.Provider.ApnsConfigTest do
     }
 
     assert Registry.deliver(row, envelope) == {:gone, "Unregistered"}
+
+    assert AiurPushRelay.Provider.Router.deliver(row, envelope, state.provider) ==
+             {:gone, "Unregistered"}
+
     assert_receive {:apns_request, request}, 1000
     assert Jason.decode!(request.body)["aps"]["alert"] == pin
     opts = AiurPushRelay.Router.init(providers: Registry, store: {__MODULE__, nil})

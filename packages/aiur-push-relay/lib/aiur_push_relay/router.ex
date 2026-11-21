@@ -45,6 +45,7 @@ defmodule AiurPushRelay.Router do
          true <- is_map(params),
          {:ok, row} <- Handles.authenticate(opts.store, params["handle"], bearer(conn)),
          false <- row.gone,
+         :ok <- provider_available(opts, row),
          {:ok, envelope} <- Envelope.validate(params, Map.get(opts.pins, row.app_topic)),
          {:ok, status} <- Send.enqueue(opts.sender, row, envelope) do
       json(conn, status, %{status: "accepted"})
@@ -57,18 +58,46 @@ defmodule AiurPushRelay.Router do
 
   defp route(conn, _), do: json(conn, 404, %{error: "not_found"})
 
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{platform: platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
   defp provider_available(%{providers: registry}, %{"platform" => platform})
        when platform in ["apns", "fcm"] do
     if registry.available?(platform), do: :ok, else: {:error, :provider_unavailable}
   end
 
-  defp provider_available(_, _), do: :ok
+  defp provider_available(opts, %{platform: "fcm"}) do
+    allow_test_fcm = Application.get_env(:aiur_push_relay, :allow_test_fcm, false)
+
+    case opts[:fcm_health] do
+      "ok" -> :ok
+      "test" when allow_test_fcm -> :ok
+      _ -> {:error, :provider_unavailable}
+    end
+  end
+
+  defp provider_available(_opts, _row), do: :ok
+
+  defp health(%{providers: AiurPushRelay.Provider.Router}, store) do
+    Map.merge(%{store: store}, AiurPushRelay.Provider.Router.health())
+  end
 
   defp health(%{providers: registry}, store) do
     %{store: store, apns: if(registry.available?("apns"), do: "available", else: "unavailable")}
   end
 
-  defp health(_, store), do: %{store: store}
+  defp health(opts, store), do: %{store: store, fcm: opts[:fcm_health] || "unconfigured"}
 
   defp body(conn) do
     case read_body(conn, length: 8192, read_length: 8193) do
@@ -101,6 +130,7 @@ defmodule AiurPushRelay.Router do
         :handle_gone -> 410
         :too_large -> 413
         reason when reason in [:schema, :fallback_mismatch] -> 422
+        :provider_unavailable -> 503
         _ -> 503
       end
 

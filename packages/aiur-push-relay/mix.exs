@@ -22,7 +22,8 @@ defmodule AiurPushRelay.MixProject do
       {:jason, "~> 1.4"},
       {:exqlite, "~> 0.27"},
       {:finch, "~> 0.20"},
-      {:jose, "~> 1.11"}
+      {:jose, "~> 1.11"},
+      {:req, "~> 0.7"}
     ]
   end
 end

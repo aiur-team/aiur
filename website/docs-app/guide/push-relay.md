@@ -17,7 +17,7 @@ Set these in the relay process environment, then restart the relay:
 Missing, unreadable, invalid or incorrectly permissioned credentials disable APNs.
 `GET /healthz` then reports `"apns":"unavailable"`; APNs handle registration returns
 `503 provider_unavailable`. Store health still determines the health endpoint's HTTP
-status. FCM registration remains unavailable until its adapter is configured.
+status. FCM registration is unavailable until its service account is configured.
 
 Configure `AIUR_RELAY_APP_TOPICS` and a JSON fallback pin in
 `AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>` for each topic. The relay uses that pin for
@@ -34,3 +34,14 @@ a 5-second hint. Retry scheduling is not yet supplied by this package.
 
 Apple sandbox acceptance with real credentials is a separate deployment check.
 Keep signing keys outside Git and do not expose tokens or sealed content in logs.
+
+## Firebase credentials
+
+To enable FCM, set `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` to a Firebase service-account
+JSON file with no group or world permissions, then restart the relay. Missing credentials
+report `"fcm":"unconfigured"`; invalid credentials report `"fcm":"degraded"`. FCM
+handle registration and sends return `503 provider_unavailable` until the credentials load.
+Keep this file outside Git and restrict access to the relay process.
+
+FCM sends sealed data only. They do not include notification text; priority and TTL follow
+the envelope, and unregistered tokens mark the handle gone.
