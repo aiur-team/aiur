@@ -172,6 +172,8 @@ defmodule AiurWeb.RouterTableTest do
     {:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :show, [:client_token_read], :debug},
     {:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/capacity", AiurWeb.CapacityApiController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/capacity", AiurWeb.CapacityApiController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/conversations/resolve", AiurWeb.ConversationApiController, :resolve, [:client_token_read], :debug},
     {:get, "/api/v1/conversations/:conversation_id/entries", AiurWeb.ConversationApiController, :entries, [:client_token_read], :debug},
     {:get, "/api/v1/conversations/:conversation_id/sessions", AiurWeb.ConversationApiController, :sessions, [:client_token_read], :debug},
