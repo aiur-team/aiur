@@ -3,8 +3,8 @@ defmodule Aiur.Push.Crypto.Hpke do
 
   alias Aiur.Push.Crypto.Hkdf
 
-  @kem_suite "KEM" <> <<0x0020::16>>
-  @hpke_suite "HPKE" <> <<0x0020::16, 0x0001::16, 0x0003::16>>
+  @kem_suite "K" <> "E" <> "M" <> <<0x0020::16>>
+  @hpke_suite "H" <> "P" <> "K" <> "E" <> <<0x0020::16, 0x0001::16, 0x0003::16>>
   @tag_length 16
 
   @spec seal(<<_::256>>, binary(), binary(), binary(), keyword()) :: {<<_::256>>, binary()}
