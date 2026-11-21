@@ -37,6 +37,7 @@
     "src/lib/aiur/system_cgroup.ex",
     "src/lib/aiur/system_pressure.ex",
     "src/lib/aiur/test_run_state.ex",
+    "src/lib/aiur/token_usage.ex",
     "src/lib/aiur/tracker_identity.ex",
     "src/lib/aiur/yaml.ex",
     "src/priv/pidfd_reap.py"

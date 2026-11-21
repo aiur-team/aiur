@@ -29,7 +29,6 @@ R-optional	Aiur.ProviderMeters.HostObservations	baseline 22b2fa407c5d4218d25d63b
 R-optional	Aiur.ProviderMeters.ProbeCrash	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
-R-optional	Aiur.TokenUsage	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Usage.PriceTable	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope.RelationshipRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
