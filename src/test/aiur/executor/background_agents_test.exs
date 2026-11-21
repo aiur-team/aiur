@@ -2,7 +2,7 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Conversation.TestSupport
-  alias Aiur.Executor.{BackgroundAgents, Session, SessionIngest}
+  alias Aiur.Executor.{BackgroundAgents, CapabilityProvider, Session, SessionIngest}
 
   setup context do
     context = TestSupport.setup(context)
@@ -71,11 +71,11 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
     assert {:ok, _} = Session.attach(%{harness: "codex"})
 
     assert %{state: :degraded, reason: :unknown, detail: "fields_unverified"} =
-             Aiur.Executor.CapabilityProvider.evaluate(%{}, background_agents_fun: &BackgroundAgents.snapshot/0)["executor.background_agents"]
+             CapabilityProvider.evaluate(%{}, background_agents_fun: &BackgroundAgents.snapshot/0)["executor.background_agents"]
   end
 
   defp dispatch(event, extra) do
     raw = Map.merge(%{"hook_event_name" => event, "session_id" => "session", "pid" => "123"}, extra)
-    Aiur.Executor.SessionIngest.dispatch(raw, "claude")
+    SessionIngest.dispatch(raw, "claude")
   end
 end
