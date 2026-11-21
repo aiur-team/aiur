@@ -9,6 +9,7 @@ defmodule Aiur.DecisionStore.Requests do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Persistence
+  alias Aiur.DecisionStore.Siblings
   alias Aiur.DecisionValidation
   alias Aiur.Events
   alias Aiur.ExecutorCommandAttention
@@ -285,10 +286,16 @@ defmodule Aiur.DecisionStore.Requests do
   @spec accept(term(), term(), keyword()) :: term()
   def accept(decision, state, opts \\ []) do
     case Events.reserve_durable_id() do
-      {:ok, event_id} -> Persistence.persist_and_notify({decision, RequestAttributes.from_opts(opts)}, event_id, state)
+      {:ok, event_id} -> {decision, RequestAttributes.from_opts(opts)} |> Persistence.persist_and_notify(event_id, state) |> supersede_older_questions()
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
     end
   end
+
+  # Only a new Command replaces older ones; a later version of the same Command does not.
+  defp supersede_older_questions({:reply, {:ok, %{status: :accepted, decision: %{version: 1} = decision}} = reply, state}),
+    do: {:reply, reply, Siblings.supersede_creator_questions(state, decision)}
+
+  defp supersede_older_questions(reply), do: reply
 
   @spec resolve_executor_escalation(term()) :: term()
   def resolve_executor_escalation(decision) do
