@@ -27,7 +27,10 @@ defmodule Aiur.DecisionStore.DedupTest do
                    "question" => "  SHOULD PR #1820 push its existing `merge`.  ",
                    "blocking" => false,
                    "kind" => "legacy_attention",
-                   "source_id" => "legacy_attention:push-question"
+                   "source_id" => "legacy_attention:push-question",
+                   "authority" => "human_required",
+                   "reversibility" => "irreversible",
+                   "context" => %{"authority_basis" => "external_publication"}
                  },
                  source: %{@source | agent_id: "agent-2"}
                )
@@ -278,7 +281,10 @@ defmodule Aiur.DecisionStore.DedupTest do
                  "question" => "Reclassify ticket #2071 for fresh implementation?",
                  "blocking" => false,
                  "kind" => "legacy_attention",
-                 "source_id" => "legacy_attention:2071-reclassify"
+                 "source_id" => "legacy_attention:2071-reclassify",
+                 "authority" => "human_required",
+                 "reversibility" => "irreversible",
+                 "context" => %{"authority_basis" => "product"}
                })
 
       refute attention.decision_id == first.decision_id

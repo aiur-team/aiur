@@ -12,8 +12,10 @@ defmodule Aiur.DecisionCommandType do
   Consequence-based, not topic-based: a re-review request and a PR/ticket
   sequencing question are reversible engineering calls the Executor is
   positioned to answer, so they classify delegable. The pre-OCC
-  `legacy_attention` projection keeps its original fail-closed policy so the
-  legacy import path is unchanged. Kinds not listed here fall back to the
+  `legacy_attention` provenance identifies the origin, not the consequence;
+  newly projected attentions therefore use ordinary Executor-answerable
+  defaults. Historical `legacy_attention` records remain human-required via
+  their persisted authority. Kinds not listed here fall back to the
   request defaults in `Aiur.DecisionValidation` (`supervisor_allowed` +
   `reversible`); a genuinely irreversible, spend, external-publication, or
   product-direction Command must declare that explicitly.
@@ -31,9 +33,6 @@ defmodule Aiur.DecisionCommandType do
     # PR/ticket sequencing: how to split work, which PR carries a shared change,
     # what to rebase onto. Reversible engineering calls.
     "sequencing" => %{authority: :supervisor_allowed, reversibility: :reversible},
-    # Pre-OCC attention projections are informational visibility signals that were
-    # always human-scoped; keep them fail-closed through the legacy import path.
-    "legacy_attention" => %{authority: :human_required, reversibility: :irreversible},
     # A peer gateway's write grant: only a signed-in human confirms it (Aiur.Gateway.GrantConfirmation); revoking undoes it.
     "gateway_grant" => %{authority: :human_required, reversibility: :reversible}
   }

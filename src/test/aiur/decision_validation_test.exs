@@ -153,14 +153,6 @@ defmodule Aiur.DecisionValidationTest do
       assert decision.reversibility == :reversible
     end
 
-    test "a legacy attention keeps the fail-closed human_required classification" do
-      payload = %{"question" => "Reclassify #2071?", "blocking" => false, "kind" => "legacy_attention"}
-
-      assert {:ok, decision} = normalize(payload)
-      assert decision.authority == :human_required
-      assert decision.reversibility == :irreversible
-    end
-
     test "an explicitly declared authority wins over the type classification" do
       payload = %{
         "question" => "Sequencing but the operator must decide?",
