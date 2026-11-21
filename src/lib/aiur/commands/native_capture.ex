@@ -9,9 +9,9 @@ defmodule Aiur.Commands.NativeCapture do
 
   require Logger
 
+  alias Aiur.Codex.UserInputAnswers
   alias Aiur.Commands.NativeCapture.{Claude, Codex, Release}
   alias Aiur.Commands.RequestContent
-  alias Aiur.Codex.UserInputAnswers
   alias Aiur.DecisionStore
   alias Aiur.Signal
 
