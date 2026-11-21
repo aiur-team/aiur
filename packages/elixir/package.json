@@ -1,9 +1,9 @@
 {
-  "name": "@aiur/voice-converse-browser-tests",
+  "name": "@aiur/elixir-test-tools",
   "private": true,
   "type": "module",
   "scripts": {
-    "test:browser": "playwright test"
+    "test:voice-converse-browser": "playwright test --config voice_converse/test/browser/playwright.config.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",
