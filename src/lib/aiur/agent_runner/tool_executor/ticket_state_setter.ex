@@ -36,7 +36,8 @@ defmodule Aiur.AgentRunner.ToolExecutor.TicketStateSetter do
 
     fn id, target ->
       receipt = fn pr -> recorder.(identifier, target, pr, workspace, worker_host, opts) end
-      CiWaitTransition.write(Map.put(coordination, :worker_handoff_receipt, receipt), id, target)
+      coordination = Map.merge(coordination, %{worker_handoff_receipt: receipt, handoff_workspace: workspace})
+      CiWaitTransition.write(coordination, id, target)
     end
   end
 
