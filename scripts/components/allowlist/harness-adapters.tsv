@@ -4,13 +4,11 @@ R-declared	Aiur.Events.AgentSubscriptionPolicy	baseline 4aba33f8aae03cdaec432d66
 R-declared	Aiur.GitHub.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Linear.Client	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.GitMetadata	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Commands.NativeCapture	#6409 pre-R7 release hooks; constrained to lifecycle paths by the native capture release seam
-R-down	Aiur.Orchestrator	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
 R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

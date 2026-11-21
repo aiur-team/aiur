@@ -89,6 +89,18 @@ defmodule Aiur.Claude.HookEventsTest do
       refute_receive {:claude_hook, _, _}, 50
     end
 
+    test "dispatch reports hook activity through the injected composition callback", %{pubsub: pubsub} do
+      parent = self()
+
+      assert :ok =
+               HookEvents.dispatch("MT-HOOK-ACTIVITY", %{"hook_event_name" => "PostToolUse"},
+                 pubsub: pubsub,
+                 activity_fun: fn identifier -> send(parent, {:hook_activity, identifier}) end
+               )
+
+      assert_receive {:hook_activity, "MT-HOOK-ACTIVITY"}
+    end
+
     test "always returns :ok, even on a malformed payload" do
       assert HookEvents.dispatch("MT-HOOK", %{}) == :ok
       assert HookEvents.dispatch("MT-HOOK", "not a map") == :ok

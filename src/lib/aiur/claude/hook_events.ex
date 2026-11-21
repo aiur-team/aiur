@@ -25,7 +25,6 @@ defmodule Aiur.Claude.HookEvents do
   require Logger
 
   alias Aiur.Claude.HookSpool
-  alias Aiur.Orchestrator
 
   @pubsub Aiur.PubSub
 
@@ -68,13 +67,14 @@ defmodule Aiur.Claude.HookEvents do
 
   def dispatch(identifier, raw, opts) when is_binary(identifier) and is_map(raw) do
     pubsub = Keyword.get(opts, :pubsub, @pubsub)
+    activity_fun = Keyword.get(opts, :activity_fun)
 
     if is_binary(raw["aiur_hook_id"]) do
       # Only the turn consumer advances the cursor. A POST during daemon boot
       # must leave its event pending until that consumer has reattached.
       do_broadcast(pubsub, topic(identifier), {:claude_hook_available, identifier})
     else
-      publish(identifier, raw, pubsub)
+      publish(identifier, raw, pubsub, activity_fun)
     end
   end
 
@@ -85,13 +85,14 @@ defmodule Aiur.Claude.HookEvents do
   @spec replay(String.t(), non_neg_integer(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def replay(identifier, from_offset, opts \\ []) when is_binary(identifier) and is_integer(from_offset) and from_offset >= 0 do
     pubsub = Keyword.get(opts, :pubsub, @pubsub)
-    HookSpool.replay(identifier, from_offset, &publish(identifier, &1, pubsub))
+    activity_fun = Keyword.get(opts, :activity_fun)
+    HookSpool.replay(identifier, from_offset, &publish(identifier, &1, pubsub, activity_fun))
   end
 
   @spec clear_spool(String.t()) :: :ok | {:error, term()}
   def clear_spool(identifier), do: HookSpool.clear(identifier)
 
-  defp publish(identifier, raw, pubsub) do
+  defp publish(identifier, raw, pubsub, activity_fun) do
     event = normalize(raw)
 
     Logger.info(
@@ -103,7 +104,7 @@ defmodule Aiur.Claude.HookEvents do
     # orchestrator's stall-watchdog liveness so a long, hook-driven turn is not
     # killed as "stalled without codex activity" (RC-claude emits no codex
     # updates). Fire-and-forget; never let it disrupt claude.
-    note_agent_liveness(identifier)
+    note_agent_liveness(identifier, activity_fun)
 
     do_broadcast(pubsub, topic(identifier), {:claude_hook, identifier, event})
   end
@@ -134,9 +135,12 @@ defmodule Aiur.Claude.HookEvents do
 
   # Best-effort liveness ping to the orchestrator's stall watchdog. Guarded so
   # a missing orchestrator (early boot / tests) can never crash the hook path.
-  defp note_agent_liveness(identifier) do
-    if GenServer.whereis(Aiur.Project.whereis(Aiur.Orchestrator)), do: Orchestrator.note_agent_activity(identifier)
+  defp note_agent_liveness(identifier, activity_fun) do
+    activity_fun = activity_fun || Application.get_env(:aiur, :claude_hook_activity_callback)
+    if is_function(activity_fun, 1), do: activity_fun.(identifier)
     :ok
+  rescue
+    _error -> :ok
   catch
     :exit, _ -> :ok
   end
