@@ -48,17 +48,22 @@ defmodule Aiur.OpenAICompat.Transport do
         end
 
       {:error, {:http_error, 402, detail}} ->
-        if CreditLimit.error?(detail) do
-          retry_with(
-            config,
-            messages,
-            tools,
-            stage,
-            {:error, :credit_limited},
-            CreditLimit.retry_cap(cap, detail)
-          )
-        else
-          {:error, {:http_error, 402, detail}}
+        cond do
+          CreditLimit.key_limit?(detail) ->
+            {:error, :credit_limited}
+
+          CreditLimit.error?(detail) ->
+            retry_with(
+              config,
+              messages,
+              tools,
+              stage,
+              {:error, :credit_limited},
+              CreditLimit.retry_cap(cap, detail)
+            )
+
+          true ->
+            {:error, {:http_error, 402, detail}}
         end
 
       {:error, _reason} = error ->
