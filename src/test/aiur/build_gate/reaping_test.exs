@@ -158,6 +158,46 @@ defmodule Aiur.BuildGate.ReapingTest do
   end
 
   @tag skip: :os.type() != {:unix, :linux}
+  test "a reaper pass that never finishes is killed instead of holding the build and spinning" do
+    # The gate runs the reaper in the foreground before every gated build, so
+    # a pass that never returns wedges that build and keeps burning CPU after
+    # it is abandoned.
+    lib_dir = Path.expand("../../../priv/build_gate", __DIR__)
+    root = Path.join(System.tmp_dir!(), "aiur-build-gate-stuck-reaper-#{System.unique_integer([:positive])}")
+    gate_dir = Path.join(root, "gate")
+    pid_path = Path.join(root, "spinner.pid")
+    spinner = Path.join(root, "python3")
+    File.mkdir_p!(gate_dir)
+    File.write!(spinner, "#!/bin/sh\necho $$ > \"#{pid_path}\"\nwhile :; do :; done\n")
+    File.chmod!(spinner, 0o755)
+
+    on_exit(fn ->
+      with {:ok, pid} <- File.read(pid_path), do: System.cmd("kill", ["-KILL", String.trim(pid)], stderr_to_stdout: true)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    script = ~S"""
+    aiur_build_gate_log() { printf 'aiur_build_gate %s\n' "$*"; }
+    source "$1/run_linux.bash"
+    aiur_build_gate_reap_orphan_publications "$2" "$3"
+    """
+
+    {elapsed_us, {output, status}} =
+      :timer.tc(fn ->
+        System.cmd("timeout", ["20", "bash", "-c", script, "bash", lib_dir, gate_dir, spinner],
+          env: [{"AIUR_BUILD_GATE_REAPER_SECONDS", "1"}],
+          stderr_to_stdout: true
+        )
+      end)
+
+    assert status == 0, "gate stayed blocked on the stuck reaper: #{output}"
+    assert output =~ "orphan_reaper_failed"
+    assert elapsed_us < 15_000_000
+    spinner_pid = pid_path |> File.read!() |> String.trim()
+    refute File.exists?("/proc/#{spinner_pid}"), "stuck reaper outlived the gate"
+  end
+
+  @tag skip: :os.type() != {:unix, :linux}
   test "republishing a lease keeps its acquired_at and a new token resets it" do
     lib_dir = Path.expand("../../../priv/build_gate", __DIR__)
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-acquired-#{System.unique_integer([:positive])}")

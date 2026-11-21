@@ -1,9 +1,13 @@
 # Loaded by build_gate.bash. Linux flock admission through the detached lease holder.
 aiur_build_gate_reap_orphan_publications() {
-  local gate_dir=$1 python_binary=$2 reaper_path
+  local gate_dir=$1 python_binary=$2 reaper_path limit=${AIUR_BUILD_GATE_REAPER_SECONDS:-30} bound=()
   reaper_path="$(dirname "${BASH_SOURCE[0]}")/../build_gate_reaper.py"
+  [[ $limit =~ ^[1-9][0-9]*$ ]] || limit=30
+  # A pass takes about a second. Bound it so a stuck pass cannot hold this
+  # build, or outlive it burning CPU; KILL follows TERM for one that ignores it.
+  [[ -n $(type -P timeout) ]] && bound=(timeout --foreground -k 5 "$limit")
   if [[ -r $reaper_path && -n $python_binary ]]; then
-    "$python_binary" "$reaper_path" "$gate_dir" "${AIUR_BUILD_GATE_LOCK_DIR:-}" ||
+    "${bound[@]}" "$python_binary" "$reaper_path" "$gate_dir" "${AIUR_BUILD_GATE_LOCK_DIR:-}" ||
       aiur_build_gate_log "orphan_reaper_failed path=$reaper_path"
   else
     aiur_build_gate_log "orphan_reaper_unavailable path=$reaper_path python3=${python_binary:-missing}"
