@@ -105,6 +105,9 @@ for provider configuration, credentials and ElevenLabs client-tool setup.
 The reusable voice session receives worker status notes, Commands and phase/PR
 milestones while you talk. Updates enter context silently, coalesced over five
 seconds; agent answers and refreshed notes can be spoken at the next pause.
+For worker targets, the opening briefing includes the current phase and progress,
+the agent's note with its age, CI and listener state, open Commands, and recent
+alert milestones. Values Aiur cannot observe are shown as not reported.
 
 Each event is redacted and saved before delivery. When a Command resolves elsewhere,
 unconfirmed instruction drafts become stale so you can review them against the new
