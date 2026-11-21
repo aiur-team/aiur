@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   alias Aiur.{Config, Issue, Signal}
   alias Aiur.Events.BranchRefStore
-  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State, TicketTransition}
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, OperatorMessages, PauseResume, RetryEngine, State, TicketTransition}
   alias Aiur.Orchestrator.CiLifecycle.{ReviewHandoff, Transition}
 
   @interrupted_turn_grace_ms 30_000
@@ -415,6 +415,13 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     AgentTeardown.terminate_running_issue(state, issue_id, false)
   end
 
+  # The stall kill skips the runner's queue settlement, so messages handed to the
+  # hung session would stay delivered and never reach the retry (#644's rework notes).
+  defp restore_delivered_items(state, identifier) do
+    {:reply, _reply, next_state} = OperatorMessages.restore_delivered_queue_items_call(state, to_string(identifier))
+    next_state
+  end
+
   defp maybe_restart_stalled_entry(state, _issue_id, %{native_hold: hold}, _now, _timeout_ms) when is_map(hold), do: state
 
   defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
@@ -443,6 +450,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
 
       state
+      |> restore_delivered_items(identifier)
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
         identifier: identifier,

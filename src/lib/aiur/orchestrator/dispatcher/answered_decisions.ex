@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher.AnsweredDecisions do
         action_id: decision.active_action_id,
         question: decision.question,
         answer: answer_text(decision, answer),
+        operator_words: Map.get(answer, :operator_quote),
         actor: answer_actor(answer),
         accepted_at: answer.accepted_at
       }
