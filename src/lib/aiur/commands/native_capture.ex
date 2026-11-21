@@ -9,9 +9,9 @@ defmodule Aiur.Commands.NativeCapture do
 
   require Logger
 
-  alias Aiur.Codex.UserInputAnswers
-  alias Aiur.Commands.NativeCapture.Release
+  alias Aiur.Commands.NativeCapture.{Claude, Codex, Release}
   alias Aiur.Commands.RequestContent
+  alias Aiur.Codex.UserInputAnswers
   alias Aiur.DecisionStore
   alias Aiur.Signal
 
@@ -98,22 +98,22 @@ defmodule Aiur.Commands.NativeCapture do
   @doc "Handles one Claude native question through its provider adapter."
   @spec handle_claude(port() | pid(), term(), map(), map()) :: term()
   def handle_claude(port, id, params, ctx),
-    do: Aiur.Commands.NativeCapture.Claude.handle(port, id, params, ctx)
+    do: Claude.handle(port, id, params, ctx)
 
   @doc "Releases stale Claude questions through its provider adapter."
   @spec release_stale_claude(map(), map()) :: :ok
   def release_stale_claude(session, issue),
-    do: Aiur.Commands.NativeCapture.Claude.release_stale(session, issue)
+    do: Claude.release_stale(session, issue)
 
   @doc "Handles one Codex native question through its provider adapter."
   @spec handle_codex(port() | pid(), term(), map(), map()) :: term()
   def handle_codex(port, id, params, ctx),
-    do: Aiur.Commands.NativeCapture.Codex.handle(port, id, params, ctx)
+    do: Codex.handle(port, id, params, ctx)
 
   @doc "Replies to one held Codex native question through its provider adapter."
   @spec reply_codex(port() | pid(), term(), map()) :: :ok | {:error, :port_closed}
   def reply_codex(port, request_id, answers),
-    do: Aiur.Commands.NativeCapture.Codex.reply(port, request_id, answers)
+    do: Codex.reply(port, request_id, answers)
 
   defp record(normalized, ctx) do
     with {:ok, payload, opts} <- to_request(normalized, ctx),
