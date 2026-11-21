@@ -12,6 +12,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.auto_resume_deferred", "orchestration"},
     # aiur/orchestrator/auto_resume.ex
     {"ticket.*.agent.auto_resume_exhausted", "orchestration"},
+    # aiur/executor_attention/decision_escalation.ex
+    {"ticket.*.agent.command.requested", "executor-attention"},
     # aiur/orchestrator/push_routing/cleared_dependency.ex
     {"ticket.*.agent.dependency_cleared", "orchestration"},
     # aiur/agent_runner/turn_alerts.ex

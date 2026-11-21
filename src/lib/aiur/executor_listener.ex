@@ -260,7 +260,7 @@ defmodule Aiur.ExecutorListener do
   defp deliver_executor_event(event, inbox, _state) do
     scrubbed = ExecutorEvents.scrub_untrusted_output(event)
     if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
-    wake_blocking_decision(event, inbox)
+    wake_requested_decision(event, inbox)
   end
 
   defp deliver_projection(event, inbox) do
@@ -313,8 +313,12 @@ defmodule Aiur.ExecutorListener do
   end
 
   # Another instance's ticket wakes that instance's Executor, not this one (#5803).
+  # A stopped inbox drops the wake, as `ExecutorWakeInbox.enqueue_attention/3`
+  # does, instead of crashing the listener before it advances its watermark.
   defp enqueue_wake(record, inbox) do
     if Aiur.Instance.skip?(record["ticket"], nil, :executor_wake), do: :ok, else: ExecutorWakeInbox.enqueue(stamp_gateway(record), inbox)
+  catch
+    :exit, _reason -> :ok
   end
 
   # Every wake names the gateway whose daemon observed it; nil when the identity is unavailable (MPG-502).
@@ -326,14 +330,20 @@ defmodule Aiur.ExecutorListener do
   # A structured Decision reaches the Executor only as `executor.decision.requested`,
   # and that topic used to stop at the journal: no wake was written and the
   # Command alert above is off outside Executor mode. A blocking Decision on
-  # #3141 therefore waited 6.2 hours unseen (#4567). Every blocking request now
-  # wakes the Executor the way an agent's `operator_decision` pause does.
-  defp wake_blocking_decision(event, inbox) do
+  # #3141 therefore waited 6.2 hours unseen (#4567). Every request now wakes the
+  # Executor once, so `executor-wait` replaces polling `aiur commands` for new
+  # ids. Only blocking ones also climb the re-wake ladder. A non-blocking
+  # Command the Executor raised itself is not news to it.
+  defp wake_requested_decision(event, inbox) do
     issue = value(event, :issue_identifier)
+    blocking = value(event, :blocking) == true
 
-    if event_topic(event) == "executor.decision.requested" and value(event, :blocking) == true and is_binary(issue) do
+    if event_topic(event) == "executor.decision.requested" and is_binary(issue) and (blocking or value(event, :requested_by_executor) != true) do
       record =
-        DecisionEscalation.wake_record(issue, value(event, :decision_id), value(event, :title), value(event, :recommendation), event_id: event_id(event))
+        DecisionEscalation.wake_record(issue, value(event, :decision_id), value(event, :title), value(event, :recommendation),
+          event_id: event_id(event),
+          blocking: blocking
+        )
 
       enqueue_wake(record, inbox)
     else
