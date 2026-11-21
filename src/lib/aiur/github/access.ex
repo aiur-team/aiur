@@ -81,6 +81,7 @@ defmodule Aiur.GitHub.Access do
 
   defdelegate identity_key(credential), to: Aiur.GitHub.Credential
   defdelegate token_type(token), to: Aiur.GitHub.Credential
+  defdelegate credential_headroom(opts \\ []), to: Aiur.GitHub.CredentialSelector, as: :headroom
   defdelegate credential_pool(opts \\ []), to: Aiur.GitHub.CredentialUsage, as: :pool
   defdelegate credential_usage(opts \\ []), to: Aiur.GitHub.CredentialUsage, as: :rows
   defdelegate end_cycle(), to: Aiur.GitHub.CycleFetchCache

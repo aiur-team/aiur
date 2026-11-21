@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.TimelineLimitsTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentPubSub
-  alias Aiur.GitHub.DispatchAuthorization
+  alias Aiur.GitHub.{Credential, CredentialSelector, DispatchAuthorization}
 
   setup do
     DispatchAuthorization.clear_cache()
@@ -72,6 +72,45 @@ defmodule Aiur.GitHub.DispatchAuthorization.TimelineLimitsTest do
     assert authorized.dispatch_authorized?
     requested = sizes |> Agent.get(&Enum.reverse(&1)) |> Enum.uniq()
     assert requested == ["50", "20"]
+  end
+
+  test "dispatch authorization marks timeline reads for primary-identity pinning" do
+    parent = self()
+    selector_key = :github_credential_selector_options
+    previous_selector_options = Application.get_env(:aiur, selector_key)
+    primary = %Credential{id: "primary", kind: :machine_user, source: :env, token_env: "AIUR_TIMELINE_PRIMARY", primary?: true, writes?: true}
+    alternate = %Credential{id: "alternate", kind: :machine_user, source: :env, token_env: "AIUR_TIMELINE_ALTERNATE", writes?: true}
+    System.put_env("AIUR_TIMELINE_PRIMARY", "primary-token")
+    System.put_env("AIUR_TIMELINE_ALTERNATE", "alternate-token")
+    Application.put_env(:aiur, selector_key, credentials: [primary, alternate])
+
+    on_exit(fn ->
+      System.delete_env("AIUR_TIMELINE_PRIMARY")
+      System.delete_env("AIUR_TIMELINE_ALTERNATE")
+
+      case previous_selector_options do
+        nil -> Application.delete_env(:aiur, selector_key)
+        options -> Application.put_env(:aiur, selector_key, options)
+      end
+    end)
+
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+
+    request_fun = fn request ->
+      assigned = CredentialSelector.assign(request, Application.get_env(:aiur, selector_key, []))
+      send(parent, {:timeline_intent, request[:github_intent], assigned[:token]})
+      {:ok, %{status: 200, body: events, headers: []}}
+    end
+
+    authorized =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    assert authorized.dispatch_authorized?
+    assert_receive {:timeline_intent, :label_applier, "primary-token"}, 1_000
   end
 
   # The security invariant is untouched: when the evidence cannot be obtained at

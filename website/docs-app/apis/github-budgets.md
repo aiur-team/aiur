@@ -194,8 +194,21 @@ tracker:
 
 An empty list — the default — is the single-credential setup and is unchanged by any of this.
 
-For each request the daemon picks the eligible credential with the most
-remaining budget for that request's resource.
+Identity order is GitHub Apps, machine PATs, then human PATs. Configure PATs
+under `tracker.github.credentials`. Within each tier, selection uses the
+most remaining budget. A tier is skipped only when all eligible credentials
+have an observed exhausted window. The built-in identity follows the daemon's
+auth: App first, otherwise machine PAT.
+
+The global `GITHUB_APP_*` variables configure one App installation; distinct
+App installations per daemon are not yet supported. The default deployment
+uses the OGM App for core and OGM, and the aiur App for aiur, archon and khala.
+Configured `its-applekid` and `its-everdred` PATs are later fallbacks where
+they have repository access.
+
+The timeline read used to verify who applied a dispatch label stays pinned to
+the built-in daemon identity. This preserves the `allowed_users` dispatch
+authorization rule when other identities are available for ordinary reads.
 
 Core and GraphQL are chosen separately. They are separate budgets on separate
 windows, so REST core sitting near-idle is not headroom a GraphQL query can spend.
@@ -215,8 +228,11 @@ identified as the primary credential.
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.
 
-`aiur usage github` includes the observed credential windows and pool totals
-when those observations are available.
+`aiur status` prints a `GITHUB BUDGET <id>` line for each configured identity
+with its observed remaining Core and GraphQL budget; an unobserved window is
+shown as `unknown`. It also prints the per-resource GitHub hold rate. The
+`aiur github-usage` report includes the same remaining figures alongside
+credential identity and admissions.
 
 #### Writes stay on their own identity
 
