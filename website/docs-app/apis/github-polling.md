@@ -107,7 +107,7 @@ Agent pushes and `gh pr update-branch` check ticket labels via REST and refuse i
 
 Draft PRs remain pending even with green checks. Mark completed work ready before CI wait; `ci gate` requires fast checks on PRs and full checks in the merge queue, or on policy-forced PRs. Main has no `ci` push run.
 
-`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait. `aiur status` shows `draft_pr`.
+`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft, or a CI-wait ticket with no open PR, raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait; after an hour it moves to `rework`. A worker's own `ci-wait` hand-off is refused unless an open PR's head is its clean, committed local `HEAD`. `aiur status` shows `draft_pr`.
 
 Review polling keeps a per-ticket cursor seeded from its first cutoff. Issue comments cannot advance it; disabled or failed reads retain it.
 
