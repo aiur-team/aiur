@@ -50,6 +50,38 @@ defmodule Aiur.Executor.TranscriptIngestTest do
     assert binding.transcript_offset == File.stat!(path).size
   end
 
+  test "Codex binding tails the rollout fixture into the executor journal", context do
+    path = Path.join([context.home, ".codex/sessions", "rollout-2026-11-20T06-33-22-01a1f7a8-e19e-7391-8261-031fe1edff1f.jsonl"])
+    File.mkdir_p!(Path.dirname(path))
+    File.cp!(Path.expand("../../fixtures/codex_rollouts/0.171/tui-main.jsonl", __DIR__), path)
+    assert {:ok, binding} = Session.attach(%{harness: "codex"})
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "01a1f7a8-e19e-7391-8261-031fe1edff1f", transcript_path: path})
+
+    start_ingest(context)
+    assert :ok = TranscriptIngest.poll()
+    assert :ok = flush(context.ref)
+    entries = rows(context.dir)
+    assert Enum.any?(entries, &(&1["kind"] == "operator_message"))
+    assert Enum.any?(entries, &(&1["kind"] == "command" and &1["body"] == "<redacted> <redacted> <redacted>"))
+    assert [session] = sessions(context.dir)
+    assert session["harness"] == "codex"
+    assert session["transcript_source"] == %{"kind" => "provider_file", "locator_hash" => hash(path)}
+  end
+
+  test "Codex binding refuses an unpinned rollout before writing transcript content", context do
+    path = Path.join([context.home, ".codex/sessions", "rollout-2026-11-20T06-33-22-unsupported.jsonl"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, encode([%{"type" => "session_meta", "payload" => %{"cli_version" => "0.172.0"}}, assistant("secret", "must not be written")]))
+    assert {:ok, binding} = Session.attach(%{harness: "codex"})
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "unsupported", transcript_path: path})
+
+    start_ingest(context)
+    assert :ok = TranscriptIngest.poll()
+    assert :ok = flush(context.ref)
+    assert [%{"kind" => "gap", "meta" => %{"reason" => "source_unreadable"}}] = rows(context.dir)
+    assert TranscriptIngest.status() == %{transcript_rejection: :unsupported_layout}
+  end
+
   test "restart resumes the saved cursor, replays uncheckpointed overlap without duplicates, and keeps partial lines", context do
     timer = start_supervised!({Agent, fn -> 0 end})
     context = Map.put(context, :clock, fn -> Agent.get(timer, & &1) end)
