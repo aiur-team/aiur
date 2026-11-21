@@ -132,6 +132,26 @@ is echo-cancelled and resampled to 16 kHz PCM. The client and the socket exchang
 frames defined by `VoiceConverse.Wire` and the JSON Schema in
 `packages/aiur-contracts/schemas/voice-converse.v1.schema.json`.
 
+`priv/static/talk.html` and `talk.css` provide a focused voice and text-only conversation page.
+Hosts can serve these files alongside the shared client and replace the `__TOKEN__` and
+`__TARGET__` placeholders with their short-lived socket token and target. The page supports timed
+assistant text, interruption reporting, editable draft cards, optional browser speech recognition
+and speech synthesis, and hides session status fields the host does not provide. A host configured
+for `:browser_stt` sets `?browser_stt=true`; the page shows interim recognition text, sends final
+transcriptions as text frames, and uses the recognition `speechstart` event to interrupt playback.
+It prefers on-device recognition when the browser exposes `processLocally`; otherwise it tells the
+user that the browser vendor may receive audio. This mode uses the browser recognition mic instead
+of requesting `getUserMedia` or streaming PCM to the provider.
+
+The package's standalone CI runs the Chromium acceptance suite from `test/browser/`:
+
+```sh
+cd packages/elixir
+npm ci
+npx playwright install chromium
+npm run test:voice-converse-browser
+```
+
 ### OpenAI Realtime prototype
 
 `VoiceConverse.Providers.OpenAIRealtime` implements the provider behaviour and is

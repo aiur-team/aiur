@@ -18,3 +18,4 @@
 {"audio_offset_ms":0,"estimated":true,"text":"x","turn_id":"turn-1","type":"agent_text_timing","v":1}
 {"state":"stopped","type":"playback_state","v":1}
 {"played_until_ms":50,"state":"stopped","turn_id":"turn-1","type":"playback_state","v":1}
+{"interruption_supported":true,"label":"Fake","option_id":"fake","type":"session_info","v":1}

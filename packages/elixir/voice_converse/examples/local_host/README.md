@@ -16,6 +16,10 @@ files. No Aiur daemon, dashboard, agent CLI, or parent application is needed.
    Click **End conversation** when finished. Reload the page to get a fresh
    token after five minutes, or before opening a new session.
 
+The compact chat-style page is at <http://127.0.0.1:4100/talk>. It offers voice
+and text-only modes, keeps microphone access behind the Start action, and uses
+the same package client and authenticated WebSocket as the example home page.
+
 ## Configuration
 
 `config/runtime.exs` is the host's configuration file. It reads these variables;

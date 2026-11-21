@@ -18,5 +18,6 @@
   {"v": 1, "type": "agent_text_timing", "turn_id": "turn-1", "text": "é👋", "chars": [{"offset_ms": 0, "length": 1}, {"offset_ms": 50, "length": 1}], "audio_offset_ms": 0, "estimated": false},
   {"v": 1, "type": "agent_text_timing", "turn_id": "turn-1", "text": "x", "audio_offset_ms": 0, "estimated": true},
   {"v": 1, "type": "playback_state", "state": "stopped"},
-  {"v": 1, "type": "playback_state", "state": "stopped", "turn_id": "turn-1", "played_until_ms": 50}
+  {"v": 1, "type": "playback_state", "state": "stopped", "turn_id": "turn-1", "played_until_ms": 50},
+  {"v": 1, "type": "session_info", "option_id": "fake", "label": "Fake", "interruption_supported": true}
 ]
