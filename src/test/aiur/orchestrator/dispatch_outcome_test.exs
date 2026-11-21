@@ -52,4 +52,14 @@ defmodule Aiur.Orchestrator.DispatchOutcomeTest do
     assert recorded.dispatch_declines[held.id] == :dependency
     assert recorded.dispatch_declines[ready.id] == :unknown
   end
+
+  test "foreign state prefixes have their own per-ticket decline instead of a dependency pool hold" do
+    issue = %Issue{id: "foreign-3", identifier: "repo#3", title: "Routed elsewhere", state: "todo", labels: ["human:todo"], state_labels: ["todo"], dispatch_authorized?: true}
+    state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, blocked_ticket_ids: MapSet.new()}
+
+    recorded = DispatchOutcome.record(state, state, [issue], fn _ -> flunk("a foreign state label is not a ready candidate") end)
+
+    assert recorded.dispatch_declines[issue.id] == :inactive_state
+    assert recorded.dispatch_selection_hold == nil
+  end
 end
