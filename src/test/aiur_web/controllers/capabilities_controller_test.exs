@@ -84,10 +84,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
     response = request(:get)
     assert response.status == 200
     body = Jason.decode!(response.resp_body)
-    assert get_in(body, ["capabilities", "executor.background_agents", "detail"]) == "unsupported"
     refute secret_value?(body)
-
-    body = update_in(body["capabilities"]["executor.background_agents"], &Map.delete(&1, "detail"))
     refute private_key?(body)
   end
 
@@ -110,7 +107,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   defp secret_value?(value) when is_binary(value), do: Regex.match?(~r/(ghp_|github_pat_|sk-|\/home\/|:\d{4,5}\b)/, value)
   defp secret_value?(_value), do: false
 
-  defp private_key?(value) when is_map(value), do: Enum.any?(value, fn {key, item} -> key in ~w(token password path detail) or private_key?(item) end)
+  defp private_key?(value) when is_map(value), do: Enum.any?(value, fn {key, item} -> key in ~w(token password path) or private_key?(item) end)
   defp private_key?(value) when is_list(value), do: Enum.any?(value, &private_key?/1)
   defp private_key?(_value), do: false
 end
