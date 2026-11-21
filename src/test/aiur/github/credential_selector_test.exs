@@ -159,8 +159,16 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
       app = credential("app", kind: :app_installation, source: :app)
       request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "primary-token", github_intent: :label_applier}
 
-      assert %Credential{id: "primary"} = CredentialSelector.select(request, credentials: [primary, spare, app], now: @now)
-      assigned = CredentialSelector.assign(request, credentials: [primary, spare, app], now: @now)
+      windows = %{
+        Credential.token_key(primary) => %{"core" => window(0)},
+        Credential.token_key(spare) => %{"core" => window(4_900)},
+        Credential.identity_key(app) => %{"core" => window(4_800)}
+      }
+
+      opts = [credentials: [primary, spare, app], windows: windows, now: @now]
+
+      assert %Credential{id: "primary"} = CredentialSelector.select(request, opts)
+      assigned = CredentialSelector.assign(request, opts)
       assert assigned.token == "primary-token"
     end
 
