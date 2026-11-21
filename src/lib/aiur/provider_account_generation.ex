@@ -7,8 +7,7 @@ defmodule Aiur.ProviderAccountGeneration do
   provider response data.
   """
 
-  alias Aiur.ProviderAccountGeneration.{Owner, Snapshot}
-  alias Aiur.ProviderAccountGeneration.Context
+  alias Aiur.ProviderAccountGeneration.{Context, Owner, Snapshot}
 
   @pubsub Aiur.PubSub
 

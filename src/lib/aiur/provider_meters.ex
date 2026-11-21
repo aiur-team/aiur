@@ -60,7 +60,7 @@ defmodule Aiur.ProviderMeters do
         HostObservations.attach(host_server, provider, backend, owner)
 
       test_server ->
-        apply(test_server, :attach, [provider, backend, owner])
+        test_server.attach(provider, backend, owner)
     end
   end
 
@@ -69,7 +69,7 @@ defmodule Aiur.ProviderMeters do
   def observe_host(scope, observation, server \\ __MODULE__) do
     case host_server(server) do
       HostObservations = host_server -> HostObservations.observe(host_server, scope, observation)
-      test_server -> apply(test_server, :observe, [scope, observation])
+      test_server -> test_server.observe(scope, observation)
     end
   end
 
@@ -81,7 +81,7 @@ defmodule Aiur.ProviderMeters do
         HostObservations.fail(host_server, scope, reason, attempted_at)
 
       test_server ->
-        apply(test_server, :fail, [scope, reason])
+        test_server.fail(scope, reason)
     end
   end
 
@@ -90,7 +90,7 @@ defmodule Aiur.ProviderMeters do
   def retire_host(scope, server \\ __MODULE__) do
     case host_server(server) do
       HostObservations = host_server -> HostObservations.retire(host_server, scope)
-      test_server -> apply(test_server, :retire, [scope])
+      test_server -> test_server.retire(scope)
     end
   end
 
