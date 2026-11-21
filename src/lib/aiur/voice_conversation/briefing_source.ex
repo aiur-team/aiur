@@ -1,5 +1,12 @@
 defmodule Aiur.VoiceConversation.BriefingSource do
-  @moduledoc "Read-only Executor prototype briefing, delegated by the Aiur voice host."
+  @moduledoc """
+  Read-only Executor briefing sources, delegated by the Aiur voice host.
+
+  This module stays cohesive above 200 lines because it owns the Executor's
+  bounded transcript, agent notes, open Commands, blocker list, and Build Order
+  projection in one snapshot. Each section has an independent reader and the
+  shared compact renderer keeps all rows within the voice context budget.
+  """
   @behaviour VoiceConverse.Ports.BriefingSource
 
   alias Aiur.{AgentStatusNote, BuildOrdersCLI, Commands, Orchestrator}
