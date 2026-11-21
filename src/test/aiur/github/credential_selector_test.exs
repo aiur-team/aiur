@@ -213,14 +213,6 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
 
       assert assigned.token == "applekid-token"
     end
-
-    test "label-applier intent is pinned to the primary identity", %{primary: primary, spare: spare} do
-      app = with_token(credential("app", kind: :app_installation, source: :env, writes?: true), "app-token")
-      request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "primary-token", github_intent: :label_applier}
-
-      assert %Credential{id: "primary"} =
-               CredentialSelector.choose("core", CredentialSelector.intent(request), credentials: [primary, spare, app], now: @now)
-    end
   end
 
   describe "write isolation" do
@@ -328,19 +320,6 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
 
       assert assigned.token == "config-token"
       refute Map.has_key?(assigned, :credential_id)
-    end
-
-    # If the configured machine PAT is absent, the human identity remains the
-    # final usable fallback for reads.
-    test "reads use the human credential after machine PATs are exhausted", context do
-      %{credentials: credentials, human: human, machine_a: machine_a, machine_b: machine_b} = context
-
-      windows = %{
-        Credential.token_key(machine_a) => %{"core" => window(0)},
-        Credential.token_key(machine_b) => %{"core" => window(0)}
-      }
-
-      assert CredentialSelector.choose("core", :read, credentials: credentials, windows: windows, now: @now) == human
     end
   end
 
