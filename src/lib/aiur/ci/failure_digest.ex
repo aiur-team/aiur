@@ -111,9 +111,25 @@ defmodule Aiur.CI.FailureDigest do
       truncated: truncated,
       derived_from: if(proven and tests == [], do: upstream, else: []),
       flake_only: direct_test_proof and known_tests?(tests),
-      test_only: direct_test_proof and test_list?(tests)
+      test_only: direct_test_proof and test_list?(tests),
+      errors: error_lines(annotations)
     }
   end
+
+  @error_lines 3
+  @error_line_max 200
+
+  # The first failure messages the check reported, so a rework reason can quote them;
+  # GitHub's own exit-code annotation says nothing the check name does not.
+  defp error_lines(annotations) when is_list(annotations) do
+    annotations
+    |> Enum.filter(&(&1["annotation_level"] == "failure" and is_binary(&1["message"])))
+    |> Enum.map(&(&1["message"] |> String.trim() |> String.split("\n", parts: 2) |> hd() |> String.slice(0, @error_line_max)))
+    |> Enum.reject(&(&1 == "" or Regex.match?(~r/\AProcess completed with exit code \d+\.\z/, &1)))
+    |> Enum.take(@error_lines)
+  end
+
+  defp error_lines(_annotations), do: []
 
   defp proven?(run, unknown, truncated, annotations), do: run["conclusion"] == "failure" and not unknown and not truncated and not other_failures?(annotations)
 
@@ -211,7 +227,7 @@ defmodule Aiur.CI.FailureDigest do
     status
     |> Map.get("statuses", [])
     |> Enum.filter(&(&1["state"] in ~w(failure error)))
-    |> Enum.map(&%{id: nil, name: &1["context"], url: &1["target_url"], tests: [], truncated: false, flake_only: false, test_only: false})
+    |> Enum.map(&%{id: nil, name: &1["context"], url: &1["target_url"], tests: [], truncated: false, flake_only: false, test_only: false, errors: []})
   end
 
   defp new_tests(%{tests: :unknown}), do: []

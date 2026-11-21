@@ -18,6 +18,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.cgroup_memory_threshold` | float or nil | 0.8 | Holds new dispatch when cgroup v2 `memory.current - inactive_file` exceeds this share of `memory.max`. Null disables the container gate. |
+| `agent.ci_failed_rework` | boolean | true | Reworks a ticket on a failed CI verdict; set `false` when CI runs outside hosted Actions. |
 | `agent.ci_recovery_enabled` | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
 | `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |

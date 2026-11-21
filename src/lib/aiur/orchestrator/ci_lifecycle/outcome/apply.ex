@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
       true ->
         state
         |> clear_ci_test_failure_retry(issue)
-        |> transition_ci_failure(issue, result)
+        |> transition_ci_failure(issue, FailureComment.with_error_lines(result))
     end
   end
 
