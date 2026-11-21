@@ -8,6 +8,7 @@ defmodule Aiur.Experiments.Store do
     AnalysisProvenance,
     AnalysisRecovery,
     AnalysisRequests,
+    BaselineImport,
     Catalog,
     Checkpoint,
     Evaluation,
@@ -138,6 +139,10 @@ defmodule Aiur.Experiments.Store do
       :ok -> Evaluation.start(state, from, fn -> Snapshot.prepare(id, window, opts) end, fn result -> commit_result(result, &Snapshot.commit_prepared/1) end)
       error -> {:reply, error, state}
     end
+  end
+
+  def handle_call({:import_baseline, id, bytes, sha256, opts}, _from, state) do
+    {:reply, BaselineImport.run(id, bytes, sha256, Keyword.put_new(opts, :context, state.catalog_context)), state}
   end
 
   def handle_call({:export_analysis_input, id}, from, state) do
