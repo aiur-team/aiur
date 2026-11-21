@@ -25,6 +25,19 @@ defmodule Aiur.Experiments.PredicateTest do
     assert Predicate.matches?(Map.put(predicate, "value", false), %{})
   end
 
+  test "queue selectors are accepted and missing queue facts stay excluded" do
+    selectors = [
+      %{"attr" => "queue_id", "op" => "eq", "value" => "q-optimistic"},
+      %{"attr" => "start_trigger", "op" => "eq", "value" => "pr_opened"}
+    ]
+
+    Enum.each(selectors, &assert(Predicate.validate(&1) == []))
+    assert Predicate.matches?(hd(selectors), %{"queue_id" => "q-optimistic"})
+    refute Predicate.matches?(hd(selectors), %{})
+    assert Predicate.matches?(List.last(selectors), %{"start_trigger" => "pr_opened"})
+    refute Predicate.matches?(List.last(selectors), %{"start_trigger" => "pr_merged"})
+  end
+
   test "any, neq and in evaluate values without executing code" do
     predicate = %{"any" => [%{"attr" => "backend", "op" => "in", "value" => ["claude", "codex"]}, %{"attr" => "complexity", "op" => "neq", "value" => 1}]}
     assert Predicate.matches?(predicate, %{"backend" => "codex", "complexity" => 1})
