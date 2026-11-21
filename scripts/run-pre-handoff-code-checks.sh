@@ -174,9 +174,12 @@ PY
 while IFS= read -r line; do
   case "$line" in
     "cd src && mise exec -- mix test --max-cases 4 "*)
-      python3 - "${line#cd src && mise exec -- }" >> "$tests_file" <<'PY'
+      printf '%s\n' "${line#cd src && mise exec -- }" > "$scratch/selected-command"
+      python3 - "$scratch/selected-command" >> "$tests_file" <<'PY'
 import shlex, sys
-command = shlex.split(sys.argv[1])
+from pathlib import Path
+
+command = shlex.split(Path(sys.argv[1]).read_text(encoding="utf-8").strip())
 if command[:4] != ["mix", "test", "--max-cases", "4"]:
     raise SystemExit("unexpected affected-test command")
 print("\n".join(command[4:]))
