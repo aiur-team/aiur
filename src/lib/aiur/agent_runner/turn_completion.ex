@@ -7,7 +7,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   alias Aiur.AgentCompaction.Handoff
   alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.CodingAgent.CapacityGate
-  alias Aiur.{Config, Issue}
+  alias Aiur.{Commands, Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
 
@@ -78,29 +78,38 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     {verdict, progress} = TurnProgress.observe(TurnProgress.from_opts(opts), witness)
     cap = noop_turn_cap(opts)
 
-    cond do
-      verdict == :noop and is_integer(cap) and progress.consecutive_noops >= cap ->
-        stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap)
+    if verdict == :noop do
+      continue_after_optional_command(turn_context, refreshed_issue, fn ->
+        handle_noop_turn(turn_context, app_session, refreshed_issue, progress, witness, cap, message_handler)
+      end)
+    else
+      continue_productive_turn(turn_context, app_session, refreshed_issue, progress, turn_number, max_turns, opts)
+    end
+  end
 
-      verdict == :noop ->
-        NoopWait.park(turn_context, app_session, message_handler, refreshed_issue, progress)
+  defp continue_productive_turn(turn_context, app_session, issue, progress, turn_number, max_turns, opts) do
+    Logger.info(
+      "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{issue.identifier} turn=#{turn_number + 1}/#{TurnLoop.max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
+    )
 
-      true ->
-        Logger.info(
-          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{TurnLoop.max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
-        )
+    Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(issue)} after normal turn completion turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}")
 
-        Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}")
+    TurnLoop.continue_issue_turn(
+      %{
+        turn_context
+        | issue: issue,
+          turn_number: turn_number + 1,
+          opts: Keyword.put(opts, :turn_progress, progress)
+      },
+      app_session
+    )
+  end
 
-        TurnLoop.continue_issue_turn(
-          %{
-            turn_context
-            | issue: refreshed_issue,
-              turn_number: turn_number + 1,
-              opts: Keyword.put(opts, :turn_progress, progress)
-          },
-          app_session
-        )
+  defp handle_noop_turn(turn_context, app_session, issue, progress, witness, cap, message_handler) do
+    if is_integer(cap) and progress.consecutive_noops >= cap do
+      stop_on_noop_bound(turn_context, issue, progress, witness, cap)
+    else
+      NoopWait.park(turn_context, app_session, message_handler, issue, progress)
     end
   end
 
@@ -188,6 +197,24 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
       :ok -> {:ok, %{issue | state: "human-review"}}
       {:error, reason} -> {:error, {:state, reason}}
+    end
+  end
+
+  # An optional Command asks for operator input without blocking the worker.
+  # If the no-op bound would park the ticket, retain its active state and leave
+  # a durable reason for the next dispatched recommendation.
+  defp continue_after_optional_command(turn_context, issue, otherwise) do
+    case Commands.nonblocking_question_pause?(issue.identifier) do
+      {:ok, true} ->
+        reason = "An optional Command is still open; continue on your recommendation while awaiting the Executor's answer."
+
+        case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
+          :ok -> TurnLoop.return_completed(turn_context, issue)
+          {:error, comment_reason} -> {:error, {:optional_command_requeue_comment_failed, comment_reason}}
+        end
+
+      _other ->
+        otherwise.()
     end
   end
 
