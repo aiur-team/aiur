@@ -93,8 +93,14 @@ defmodule Aiur.Capacity.ViewTest do
     assert %{state: "available", level: 0.4, binding_source: "claude", freshness: "fresh", age_ms: 40_000} = view.energy
     assert %{state: "available", accounts: [account]} = source(view, "claude")
     assert %{reserved: true, remaining_percent: 90.0, projected_percent: 70.0, reserve_percent: 30, open_holds: 1} = account
-    # Dispatch passes no spend, so a set limit holds the source on unknown spend, here as there.
-    assert %{state: "held", reason: "spend_unknown", limits: [%{period: "daily", spent_usd: nil, freshness: "unknown"}]} = source(view, "openrouter")
+    # Dispatch defers this last-resort source while Claude is allowed; its spend is still unknown.
+    assert %{
+             state: "last_resort",
+             reason: "last_resort",
+             detail: "deferred while another source is allowed",
+             limits: [%{period: "daily", spent_usd: nil, freshness: "unknown"}]
+           } = source(view, "openrouter")
+
     assert %{state: "last_resort", reason: "last_resort"} = opts(capacity_policy: put_in(@policy.sources["openrouter"][:limits], nil)) |> View.build() |> valid!() |> source("openrouter")
   end
 
