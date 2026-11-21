@@ -153,17 +153,19 @@ declared on the harness backend contract, removing type-only references to
 instead of the setup-wizard wrapper. Tool-call invocation context now lives in
 `Aiur.CodingAgent.Backend.ToolInvocation`; event-humanizer behavior and shared
 helpers were moved behind the harness and kernel owners. The final census is
-**65 live keys: 36 outgoing and 29 incoming**, down from 83 on the integration
-base and 94 in the #3477 record. The harness-adapters allowlist itself has 36
-entries. The requested ≤40 total live-key target is not met, so criterion 1
-remains a fail. Criterion 5 remains not established: no second consumer or
-independent-release need is recorded.
+**63 live keys: 34 outgoing and 29 incoming**, down from 83 on the integration
+base and 94 in the #3477 record. Dispatch now supplies pricing schedule and
+window-classifier callbacks from the app-level toolchain composition point,
+removing two harness-to-accounting keys without changing routing behavior.
+The harness-adapters allowlist itself has 34 entries. The requested ≤40 total
+live-key target is not met, so criterion 1 remains a fail. Criterion 5 remains
+not established: no second consumer or independent-release need is recorded.
 
 | Promotion criterion | Re-run result | Evidence |
 | --- | --- | --- |
-| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 65 live keys remain (36 out, 29 in); no two qualifying post-rule releases are recorded. |
+| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 63 live keys remain (34 out, 29 in); no two qualifying post-rule releases are recorded. |
 | 2. Component declares children and boot ordering; root composes | PASS | The existing `Aiur.Claude.Telemetry` child and provider `init_order: 0` remain declared and composed by the root; this change does not alter supervision. |
-| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,287 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
+| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,529 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
 | 4. Config section owned in manifest | PASS | `harness-adapters` remains the sole owner of `agent` config. |
 | 5. Second consumer exists/planned, or independent release is needed | NOT ESTABLISHED | No qualifying second consumer or independent-release need is recorded. |
 

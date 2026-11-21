@@ -13,7 +13,7 @@ record is evidence of the decision, not permission to start the moves.
 | --- | --- |
 | C4-T01 (#3476) | Merged: component-declared supervision children (#5200) |
 | C4-T02 (#3477) | No-go record; this change |
-| C4-T03 (#3478) | Re-scoped in-tree repair; no-go for physical package move. Current boundary census: 65 live keys (36 out, 29 in), down from 94 at #3477; the harness-adapters allowlist has 36 entries. Provider-family usage, setup-I/O, invocation context, and event-humanizer behavior/helpers now use harness or kernel contracts; the config-owned dotenv parser replaces the setup-wizard wrapper. The no-start harness subset passes (1,287 tests, 0 failures, 3 excluded). The ≤40 total live-key target remains unmet; the full-suite run timed out after 2,530 tests. See [recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21). |
+| C4-T03 (#3478) | Re-scoped in-tree repair; no-go for physical package move. Current boundary census: 63 live keys (34 out, 29 in), down from 94 at #3477; the harness-adapters allowlist has 34 entries. Provider-family usage, setup-I/O, invocation context, event-humanizer behavior/helpers, and pricing-window routing dependencies now use harness/kernel contracts or app-level composition; the config-owned dotenv parser replaces the setup-wizard wrapper. The no-start harness subset passes (1,529 tests, 0 failures, 3 excluded). The ≤40 total live-key target remains unmet; the full-suite run timed out after 2,530 tests. See [recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21). |
 | C4-T04 (#3479) | Blocked: adapter moves |
 | C4-T05 (#3480) | Blocked: physical package release/boot check |
 

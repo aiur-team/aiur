@@ -6,6 +6,7 @@ defmodule Aiur.ToolchainTest do
   alias Aiur.Toolchain.Probe
 
   @now ~U[2026-11-01 12:00:00Z]
+  @peak_weekday_now ~U[2026-08-24 02:00:00Z]
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-toolchain-#{System.unique_integer([:positive])}")
@@ -64,6 +65,20 @@ defmodule Aiur.ToolchainTest do
   # Route selection with an explicit priority chain and availability state.
   defp select(issue, opts \\ []),
     do: Toolchain.select_for_dispatch(issue, Keyword.merge([backends: ["claude", "codex"], configured_backends: ["claude", "codex"], state: %{}], opts))
+
+  test "dispatch composes the provider price schedule into routing" do
+    issue = unpinned()
+
+    assert {:ok, %Issue{selected_backend: "openrouter"}} =
+             Toolchain.select_for_dispatch(issue,
+               backends: ["deepseek", "openrouter:anthropic/claude-opus-5"],
+               configured_backends: ["deepseek", "openrouter"],
+               api_key_fetcher: fn _ -> "test-key" end,
+               state: %{"backends" => %{}},
+               avoid_peak_pricing: true,
+               now: @peak_weekday_now
+             )
+  end
 
   defp attentions, do: Enum.filter(AlertFeed.list(needs_attention: true), &(&1["topic"] == Toolchain.alert_name()))
 
