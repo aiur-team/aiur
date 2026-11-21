@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
-  alias Aiur.Commands.{RequestAttributes, SuggestedResponses}
+  alias Aiur.Commands.{OptionMedia, RequestAttributes, SuggestedResponses}
   alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
@@ -162,7 +162,8 @@ defmodule Aiur.DecisionStore.Requests do
          {:ok, opts} <- RequestAttributes.normalize_opts(opts),
          {:ok, opts} <- RequestAttributes.put_tags(opts, payload),
          {:ok, decision} <- DecisionValidation.normalize(payload, opts),
-         :ok <- SuggestedResponses.validate(decision, opts) do
+         :ok <- SuggestedResponses.validate(decision, opts),
+         :ok <- OptionMedia.validate(decision, opts) do
       decision
       |> evaluate_and_apply(requested_version, state, opts)
       |> SuggestedResponses.warn_once(state, opts)
