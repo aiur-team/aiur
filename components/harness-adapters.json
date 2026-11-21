@@ -34,6 +34,7 @@
     "Aiur.AppServer.TurnLoop",
     "Aiur.Claude.TranscriptTailer",
     "Aiur.Codex.UserInputAnswers",
+    "Aiur.Codex.RolloutTranscript",
     "Aiur.CodexProber",
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",
