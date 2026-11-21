@@ -37,11 +37,13 @@ Keep signing keys outside Git and do not expose tokens or sealed content in logs
 
 ## Firebase credentials
 
-To enable FCM, set `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` to a Firebase service-account
-JSON file with no group or world permissions, then restart the relay. Missing credentials
-report `"fcm":"unconfigured"`; invalid credentials report `"fcm":"degraded"`. FCM
-handle registration and sends return `503 provider_unavailable` until the credentials load.
-Keep this file outside Git and restrict access to the relay process.
+Set `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` to a Firebase service-account JSON file with no
+group or world permissions, then restart the relay. Keep the file outside Git and restrict
+access to the relay process.
 
-FCM sends sealed data only. They do not include notification text; priority and TTL follow
-the envelope, and unregistered tokens mark the handle gone.
+Missing credentials report `"fcm":"unconfigured"`; invalid credentials report
+`"fcm":"degraded"`. Handle registration and sends return `503 provider_unavailable`
+until credentials load.
+
+FCM sends sealed data only, without notification text. Priority and TTL follow the envelope;
+unregistered tokens mark the handle gone.
