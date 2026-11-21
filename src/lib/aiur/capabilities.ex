@@ -39,6 +39,7 @@ defmodule Aiur.Capabilities do
         Map.new(report.capabilities, fn {id, entry} ->
           fields = ~w(state reason depends_on version observed_at route mode v retention)a
           fields = if id == "voice.conversation", do: fields ++ ~w(preferred_provider preference_state provider_reason)a, else: fields
+          fields = if id == "executor.background_agents", do: fields ++ ~w(detail)a, else: fields
           {id, Map.take(entry, fields)}
         end)
     })

@@ -199,10 +199,10 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
     ]
 
     assert Enum.take(mods, -7) == [
-             Aiur.BuildOrder.Estimates,
              Aiur.BuildOrder.History.LabelBackfill,
              Aiur.Executor.Session,
              Aiur.Executor.SessionIngest,
+             Aiur.Executor.BackgroundAgents,
              DynamicSupervisor,
              Aiur.Executor.TranscriptIngest,
              Aiur.ControlCLI.PendingCommands
