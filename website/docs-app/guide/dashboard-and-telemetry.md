@@ -147,8 +147,12 @@ Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur u
 With an `openrouter:` route configured, the provider row shows the key's
 remaining credit against the limit it was bought with, and
 `aiur usage openrouter` lists each route's spend per route and model beside that
-reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
-the row reports an unknown reading rather than zero credit.
+reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`. Aiur also
+polls OpenRouter's `GET /key` endpoint with the route key at most every five
+minutes, and reports it under `key` as `reported`: USD used, the key's limit
+and its remaining amount (when a limit is set), and `observed_at`. Without a
+management key, that limit stands in for the credit reading. A failed poll
+reports `no_reading` with a reason, never zero. The key itself is never printed.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
