@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.WaitingReason.Owners
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -22,6 +23,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :run_paused
           | :awaiting_dispatch
           | :paused_operator
+          | :parked
           | :paused_transient
           | :provider_limited
           | :latched_lifetime
@@ -35,37 +37,10 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :workspace_ownership_waiting
           | :active
 
-  # JSON-safe names identify the part that can clear the wait.
-  @owners %{
-    waiting_for_human: "Executor",
-    waiting_for_supervisor: "Executor",
-    waiting_for_dependency: "DispatchPolicy",
-    queue_set_order: "DispatchPolicy",
-    optimistic_share: "DispatchPolicy",
-    waiting_for_ci: "CiLifecycle",
-    waiting_for_review: "Executor",
-    paused: "PauseResume",
-    run_paused: "PauseResume",
-    awaiting_dispatch: "Dispatcher",
-    paused_operator: "PauseResume",
-    paused_transient: "AutoResume",
-    provider_limited: "RateLimitFallback",
-    latched_lifetime: "Dispatcher",
-    tracker_unavailable: "Dispatcher",
-    backing_off: "RetryEngine",
-    unresponsive: "RuntimeWatchdog",
-    claim_released: "AutoResume",
-    orphaned_claim: "StartupClaimReconciler",
-    stale_claim: "Reconciler",
-    workspace_ownership_waiting: "Workspace.Ownership",
-    workspace_retained: "Workspace.Ownership",
-    active: "AgentRunner"
-  }
-
   @spec describe(t(), map()) :: map()
   def describe(reason, facts) do
     {cause, since} = evidence(reason, facts)
-    owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Map.fetch!(@owners, reason)
+    owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Owners.fetch!(reason)
     %{reason: reason, owner: owner, cause: cause || :unknown, since: since} |> dependency_details(reason, facts)
   end
 
@@ -368,6 +343,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
       Keyword.get(opts, :tracker_paused, false) ->
         :paused_operator
+
+      Keyword.get(opts, :parked, false) ->
+        :parked
 
       Keyword.get(opts, :auto_resume_retry_in_ms) != nil ->
         :paused_transient
