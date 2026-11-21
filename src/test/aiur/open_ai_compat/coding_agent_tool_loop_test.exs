@@ -112,7 +112,8 @@ defmodule Aiur.OpenAICompat.CodingAgentToolLoopTest do
     assert_receive {:event, %{event: :tool_result, payload: %{output: output}}}, 1000
     assert output =~ "workspace evidence"
     assert_receive {:event, %{event: :assistant, payload: %{text: "The workspace contains the expected evidence."}}}, 1000
-    assert_receive {:event, %{event: :usage, usage: %{"total_tokens" => 48}}}, 1000
+    # #7958: the daemon's own request is dated when it completes, so its spend lands in a period.
+    assert_receive {:event, %{event: :usage, usage: %{"total_tokens" => 48}, payload: %{"completed_at" => %DateTime{}}}}, 1000
 
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
