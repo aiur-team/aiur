@@ -16,9 +16,10 @@ defmodule AiurPushRelay.Application do
   defp start_relay(pins, limits) do
     AiurPushRelay.LogFilter.install()
     store = AiurPushRelay.Store.SQLite
-    opts = [store: {store, store}, pins: pins, sender: AiurPushRelay.Send, limits: limits]
 
     children = [
+      {DynamicSupervisor, strategy: :one_for_one, name: AiurPushRelay.Provider.Supervisor},
+      {AiurPushRelay.Provider.Router, []},
       {store,
        path: System.get_env("AIUR_RELAY_DATABASE") || "relay.sqlite3",
        name: store,
@@ -29,8 +30,12 @@ defmodule AiurPushRelay.Application do
        name: AiurPushRelay.Send,
        store: {store, store},
        tasks: AiurPushRelay.Deliveries,
-       provider: Application.get_env(:aiur_push_relay, :provider, AiurPushRelay.Provider.Disabled)},
-      {Bandit, plug: {AiurPushRelay.Router, opts}, port: port()}
+       provider: AiurPushRelay.Provider.Router},
+      {Bandit,
+       plug:
+         {AiurPushRelay.Router,
+          [store: {store, store}, pins: pins, sender: AiurPushRelay.Send, limits: limits]},
+       port: port()}
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__)
