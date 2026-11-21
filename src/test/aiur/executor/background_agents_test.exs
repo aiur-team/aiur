@@ -1,3 +1,5 @@
+Code.require_file("../conversation/journal_support.exs", __DIR__)
+
 defmodule Aiur.Executor.BackgroundAgentsTest do
   use ExUnit.Case, async: false
 
