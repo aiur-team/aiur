@@ -3,7 +3,7 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
 
   alias Aiur.{CodingAgent, ProviderMeterSnapshot}
   alias Aiur.OpenAICompat.{BalanceBaseline, Concurrency, MeterWindows}
-  alias Aiur.ProviderMeters.{Events, ProbeCrash}
+  alias Aiur.ProviderMeters
 
   @backend :openai_compat
   @source_versions %{deepseek: 144_003, openrouter: 144_004}
@@ -26,15 +26,27 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
       {:error, reason} -> outcome(provider, false, reason)
     end
   rescue
-    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
+    error ->
+      outcome(
+        provider,
+        false,
+        ProviderMeters.log_probe_crash(provider, :error, error, __STACKTRACE__)
+      )
   catch
-    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+    kind, reason ->
+      outcome(
+        provider,
+        false,
+        ProviderMeters.log_probe_crash(provider, kind, reason, __STACKTRACE__)
+      )
   end
 
   defp publish(provider, windows, opts) do
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
     source_version = Map.fetch!(@source_versions, provider)
-    broadcast = Keyword.get(opts, :provider_meter_broadcast_fun, &Events.broadcast/1)
+
+    broadcast =
+      Keyword.get(opts, :provider_meter_broadcast_fun, &ProviderMeters.broadcast_snapshot/1)
 
     broadcast.(%ProviderMeterSnapshot{
       provider: provider,

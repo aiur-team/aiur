@@ -8,7 +8,7 @@ defmodule Aiur.Muse.Session do
   alias Aiur.Muse.{Protocol, Transport}
   alias Aiur.PauseContainment
   alias Aiur.ProcessReaper
-  alias Aiur.ProviderMeters.HostObservations
+  alias Aiur.ProviderMeters
 
   @default_timeout_ms 30_000
 
@@ -46,14 +46,25 @@ defmodule Aiur.Muse.Session do
 
   defp start_port(workspace, gateway, opts) do
     command = Keyword.fetch!(opts, :command)
-    command = if Keyword.fetch!(opts, :trust_workspace), do: command <> " --trust-workspace", else: command
+
+    command =
+      if Keyword.fetch!(opts, :trust_workspace),
+        do: command <> " --trust-workspace",
+        else: command
+
     opts = safe_callbacks(opts)
 
     case Transport.start(workspace, command, opts) do
       {:ok, port} ->
         try do
           metadata = Transport.metadata(port)
-          ProcessReaper.register(:agent, {:os_pid, metadata[:provider_pid]}, comm: "muse", ticket: Keyword.get(opts, :identifier), backend: "muse")
+
+          ProcessReaper.register(:agent, {:os_pid, metadata[:provider_pid]},
+            comm: "muse",
+            ticket: Keyword.get(opts, :identifier),
+            backend: "muse"
+          )
+
           containment = register_containment(opts, metadata, workspace)
           establish(port, gateway, containment, metadata, workspace, opts)
         rescue
@@ -78,7 +89,8 @@ defmodule Aiur.Muse.Session do
     version = Application.spec(:aiur, :vsn) |> to_string()
 
     outcome =
-      with {:ok, initialized} <- Transport.request(port, Protocol.initialize_frame(1, version), timeout),
+      with {:ok, initialized} <-
+             Transport.request(port, Protocol.initialize_frame(1, version), timeout),
            {:ok, _} <- Protocol.initialize_result(initialized),
            :ok <- Transport.send_frame(port, Protocol.initialized_frame()),
            {:ok, result, resumed?} <- start_or_resume(port, workspace, mcp_config, timeout, opts) do
@@ -101,7 +113,7 @@ defmodule Aiur.Muse.Session do
 
     case outcome do
       {:ok, session} ->
-        session = Meters.attach(session, Keyword.get(opts, :host_observations, HostObservations))
+        session = Meters.attach(session, Keyword.get(opts, :host_observations, ProviderMeters))
         Meters.refresh(session)
         {:ok, session}
 
@@ -114,10 +126,12 @@ defmodule Aiur.Muse.Session do
   defp start_or_resume(port, workspace, mcp_config, timeout, opts) do
     case Keyword.get(opts, :resume_thread_id) do
       session_id when is_binary(session_id) and session_id != "" ->
-        frame = Protocol.session_resume_frame(2, session_id, config: mcp_config, exclude_items: true)
+        frame =
+          Protocol.session_resume_frame(2, session_id, config: mcp_config, exclude_items: true)
 
         with {:ok, result} <- Transport.request(port, frame, timeout),
-             {:ok, %{"session" => %{"sessionId" => ^session_id}}} <- Protocol.session_result(result) do
+             {:ok, %{"session" => %{"sessionId" => ^session_id}}} <-
+               Protocol.session_result(result) do
           {:ok, result, true}
         else
           {:error, {:msp_error, %{"code" => -32_020}}} ->
@@ -136,11 +150,27 @@ defmodule Aiur.Muse.Session do
   end
 
   defp fresh_start(port, workspace, mcp_config, timeout, opts) do
-    frame_opts = [config: mcp_config, approval_mode: Keyword.get(opts, :approval_mode, Defaults.approval_mode())]
-    frame_opts = if Keyword.get(opts, :model), do: Keyword.put(frame_opts, :model_id, Keyword.fetch!(opts, :model)), else: frame_opts
-    frame_opts = if Keyword.get(opts, :provider_id), do: Keyword.put(frame_opts, :provider_id, Keyword.fetch!(opts, :provider_id)), else: frame_opts
+    frame_opts = [
+      config: mcp_config,
+      approval_mode: Keyword.get(opts, :approval_mode, Defaults.approval_mode())
+    ]
 
-    with {:ok, result} <- Transport.request(port, Protocol.session_start_frame(3, workspace, frame_opts), timeout),
+    frame_opts =
+      if Keyword.get(opts, :model),
+        do: Keyword.put(frame_opts, :model_id, Keyword.fetch!(opts, :model)),
+        else: frame_opts
+
+    frame_opts =
+      if Keyword.get(opts, :provider_id),
+        do: Keyword.put(frame_opts, :provider_id, Keyword.fetch!(opts, :provider_id)),
+        else: frame_opts
+
+    with {:ok, result} <-
+           Transport.request(
+             port,
+             Protocol.session_start_frame(3, workspace, frame_opts),
+             timeout
+           ),
          {:ok, result} <- Protocol.session_result(result) do
       {:ok, result, false}
     end
@@ -151,7 +181,8 @@ defmodule Aiur.Muse.Session do
          pid when is_binary(pid) <- metadata[:provider_pid],
          group when is_integer(group) <- metadata[:agent_process_group_id],
          {root_pid, ""} <- Integer.parse(pid),
-         {:ok, containment} <- PauseContainment.register(identifier, root_pid, group, workspace: workspace) do
+         {:ok, containment} <-
+           PauseContainment.register(identifier, root_pid, group, workspace: workspace) do
       containment
     else
       _ -> nil
@@ -176,7 +207,9 @@ defmodule Aiur.Muse.Session do
         provider_id: {"provider_id", nil}
       ],
       opts,
-      fn {key, {config_key, default}}, acc -> Keyword.put_new(acc, key, Map.get(config, config_key, default)) end
+      fn {key, {config_key, default}}, acc ->
+        Keyword.put_new(acc, key, Map.get(config, config_key, default))
+      end
     )
   end
 
