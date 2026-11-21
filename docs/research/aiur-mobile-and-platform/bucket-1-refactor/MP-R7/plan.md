@@ -159,6 +159,17 @@ entries. The requested ≤40 total live-key target is not met, so criterion 1
 remains a fail. Criterion 5 remains not established: no second consumer or
 independent-release need is recorded.
 
+| Promotion criterion | Re-run result | Evidence |
+| --- | --- | --- |
+| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 65 live keys remain (36 out, 29 in); no two qualifying post-rule releases are recorded. |
+| 2. Component declares children and boot ordering; root composes | PASS | The existing `Aiur.Claude.Telemetry` child and provider `init_order: 0` remain declared and composed by the root; this change does not alter supervision. |
+| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,529 tests and 2 properties (3 excluded). The separate full suite did not complete in this workspace. |
+| 4. Config section owned in manifest | PASS | `harness-adapters` remains the sole owner of `agent` config. |
+| 5. Second consumer exists/planned, or independent release is needed | NOT ESTABLISHED | No qualifying second consumer or independent-release need is recorded. |
+
+The refreshed assessment remains **NO-GO** for physical promotion: criteria 1
+and 5 do not pass.
+
 The structural ratchet already runs in the CI lint-guards action via
 `scripts/check-components-ci.sh`; `scripts/test-check-components.sh` includes
 `new_violation_beside_allowlist_fails`, which proves a new unallowlisted
