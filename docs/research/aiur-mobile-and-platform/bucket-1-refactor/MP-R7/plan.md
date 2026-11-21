@@ -163,7 +163,7 @@ independent-release need is recorded.
 | --- | --- | --- |
 | 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 65 live keys remain (36 out, 29 in); no two qualifying post-rule releases are recorded. |
 | 2. Component declares children and boot ordering; root composes | PASS | The existing `Aiur.Claude.Telemetry` child and provider `init_order: 0` remain declared and composed by the root; this change does not alter supervision. |
-| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,529 tests and 2 properties (3 excluded). The separate full suite did not complete in this workspace. |
+| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,287 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
 | 4. Config section owned in manifest | PASS | `harness-adapters` remains the sole owner of `agent` config. |
 | 5. Second consumer exists/planned, or independent release is needed | NOT ESTABLISHED | No qualifying second consumer or independent-release need is recorded. |
 
@@ -183,8 +183,15 @@ application's registry without starting Aiur:
 
 ```text
 env -C src mise exec -- mix test --no-start --max-cases 4 test/aiur/codex test/aiur/claude test/aiur/muse test/aiur/open_ai_compat test/aiur/coding_agent test/aiur/app_server test/aiur/agent_tools test/aiur/coding_agent_test.exs
-2 properties, 1,529 tests, 0 failures (3 excluded)
+2 properties, 1,287 tests, 0 failures (3 excluded)
 ```
+
+The full `mise exec -- mix test --max-cases 4` run hit the shared build-gate
+timeout (exit 124) after reporting 2,530 tests, with earlier workspace Git
+guard failures and a test guard finding that `tools_test.exs` started the
+application-owned `Aiur.TaskSupervisor`. That test now injects a private
+supervisor name; focused tests for it pass. The full suite has not been rerun
+after that repair.
 
 Re-run assessment: **NO-GO for the physical package move**. Boundary criterion 1
 is still above the re-scoped target, and criterion 5 still has no qualifying
