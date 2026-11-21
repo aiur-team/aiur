@@ -84,12 +84,10 @@ Write verbs return 405; sends continue through the listener path.
 
 ## The Executor thread for a host app
 
-A host app reads and posts to the operator↔Executor thread through
-`/api/v1/executor/thread`. Responses set `Cache-Control: no-store`.
-
-Callers use a thread grant, a client token, or the dashboard session. A
-dashboard-session send also needs `X-Aiur-Request: 1`. A client token needs the
-`executor` category to send.
+Host apps read and post at `/api/v1/executor/thread` with a thread grant, client
+token, or dashboard session; dashboard-session sends require
+`X-Aiur-Request: 1`; client tokens need the `executor` category to send;
+responses set `Cache-Control: no-store`.
 
 | Method | Path | Result |
 | --- | --- | --- |
@@ -102,11 +100,10 @@ A message is `{id, pos, request_id, role, text, attachments, created_at,
 delivery}`. `role` is `operator` or `executor`. `delivery` is `queued`,
 `delivered`, `outcome_unknown`, or null for Executor messages.
 
-`messages` comes from the Executor conversation, so a sent message appears
-there once the Executor session records it. Until then it is in `queued`.
-That list includes every operator message still waiting for a session, whatever
-`after` is. Both carry the send's `request_id`, so a host can match its own copy.
-Pass the last `next_after` to fetch only newer messages.
+`messages` comes from the Executor conversation after a session records it.
+Until then, `queued` lists every operator message waiting for a session,
+regardless of `after`. Both include `request_id` for matching host copies.
+Pass `next_after` to fetch newer messages.
 
 Queued messages survive a daemon restart, with their `client_request_id`, so
 a retry after the restart still matches. A message is removed from the saved
