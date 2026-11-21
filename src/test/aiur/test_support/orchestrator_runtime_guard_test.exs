@@ -21,6 +21,6 @@ defmodule Aiur.TestSupport.OrchestratorRuntimeGuardTest do
     }
 
     assert :ok = OrchestratorRuntimeGuard.verify_restored!(%{}, callbacks)
-    assert_receive :active_turns_restarted
+    assert_receive :active_turns_restarted, 1_000
   end
 end
