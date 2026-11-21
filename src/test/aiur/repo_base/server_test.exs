@@ -159,7 +159,7 @@ defmodule Aiur.RepoBase.ServerTest do
       assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
     end
 
-    test "a dead checking probe is restarted and the fresh probe keeps the hold", %{server: pid, cfg: cfg} do
+    test "a respawned checking probe cannot re-arm the hold forever", %{server: pid, cfg: cfg} do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
       {dead_probe, dead_ref} = spawn_monitor(fn -> :ok end)
@@ -181,12 +181,55 @@ defmodule Aiur.RepoBase.ServerTest do
       assert fresh_probe != dead_probe
       assert Process.alive?(fresh_probe)
 
-      # A live probe self-resolves via its own 30-second timeout, so the idle
-      # watchdog must not release the hold while it is alive.
-      Process.sleep(150)
-      assert %{phase: :checking, probe: %{pid: ^fresh_probe}} = :sys.get_state(pid)
-      assert Process.alive?(fresh_probe)
-      refute_receive {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _}}}, 100
+      # Each tick respawns a lost probe, so a live probe at expiry proves no
+      # progress (#8100): the watchdog releases the hold and kills the probe.
+      assert_receive {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :checking}}}, 2_000
+      assert %{phase: {:error, {:repo_base_dispatch_hold_stalled, :checking}}, probe: nil} = :sys.get_state(pid)
+      refute Process.alive?(fresh_probe)
+    end
+
+    test "an overdue probe fails on the next dispatch even when its timeout message is lost", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, [])
+      :sys.replace_state(pid, fn state -> %{state | phase: :ready, freshness: :unknown} end)
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{probe: %{pid: probe_pid}} = :sys.get_state(pid)
+
+      # Drop the timer and push the deadline into the past.
+      :sys.replace_state(pid, fn %{probe: probe} = state ->
+        Process.cancel_timer(probe.timer)
+        %{state | probe: %{probe | timer: nil, deadline: System.monotonic_time(:millisecond) - 1}}
+      end)
+
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+      assert phase == {:error, {:repo_base_remote_probe_failed, :timeout}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+      assert %{probe: nil} = :sys.get_state(pid)
+      refute Process.alive?(probe_pid)
+    end
+
+    test "an overdue dispatch hold is released even when its watchdog message is lost", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 60_000)
+      :sys.replace_state(pid, fn state -> %{state | phase: :ready, freshness: :unknown} end)
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+
+      :sys.replace_state(pid, fn %{dispatch_watchdog: watchdog} = state ->
+        Process.cancel_timer(watchdog.timer)
+        %{state | dispatch_watchdog: %{watchdog | timer: nil, deadline: System.monotonic_time(:millisecond) - 1}}
+      end)
+
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+      assert phase == {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+    end
+
+    test "phase_age_ms reports how long the current phase has lasted", %{server: pid} do
+      assert {:idle, nil} = GenServer.call(pid, :status)
+      Process.sleep(20)
+      assert GenServer.call(pid, :phase_age_ms) >= 20
+
+      :sys.replace_state(pid, fn state -> %{state | phase: :checking} end)
+      assert GenServer.call(pid, :phase_age_ms) < 20
     end
 
     test "a lost build is released by the dispatch watchdog", %{server: pid, cfg: cfg} do
