@@ -301,6 +301,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
       orchestrator_leak: &leak/0,
       restore_orchestrator: &restore/1,
       restore_and_report_pubsub: &restore_and_report_pubsub/2,
+      active_turns_owner_missing: &active_turns_owner_missing?/0,
       restore_and_report_active_turns: &restore_and_report_active_turns/2,
       verify_shared_state_restored: &verify_shared_state_restored!/1,
       decision_store_leaks: &decision_store_leaks/0,

@@ -47,13 +47,13 @@ defmodule Aiur.Claude.HookEvents do
 
   @doc "Subscribe the calling process to an agent's hook-event topic."
   @spec subscribe(String.t()) :: :ok | {:error, term()}
-  @spec subscribe(String.t(), GenServer.server()) :: :ok | {:error, term()}
+  @spec subscribe(String.t(), atom()) :: :ok | {:error, term()}
   def subscribe(identifier, pubsub \\ @pubsub) when is_binary(identifier) do
     Phoenix.PubSub.subscribe(pubsub, topic(identifier))
   end
 
   @spec unsubscribe(String.t()) :: :ok
-  @spec unsubscribe(String.t(), GenServer.server()) :: :ok
+  @spec unsubscribe(String.t(), atom()) :: :ok
   def unsubscribe(identifier, pubsub \\ @pubsub) when is_binary(identifier) do
     Phoenix.PubSub.unsubscribe(pubsub, topic(identifier))
   end
