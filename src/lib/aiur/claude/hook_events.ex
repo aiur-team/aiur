@@ -47,13 +47,15 @@ defmodule Aiur.Claude.HookEvents do
 
   @doc "Subscribe the calling process to an agent's hook-event topic."
   @spec subscribe(String.t()) :: :ok | {:error, term()}
-  def subscribe(identifier) when is_binary(identifier) do
-    Phoenix.PubSub.subscribe(@pubsub, topic(identifier))
+  @spec subscribe(String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def subscribe(identifier, pubsub \\ @pubsub) when is_binary(identifier) do
+    Phoenix.PubSub.subscribe(pubsub, topic(identifier))
   end
 
   @spec unsubscribe(String.t()) :: :ok
-  def unsubscribe(identifier) when is_binary(identifier) do
-    Phoenix.PubSub.unsubscribe(@pubsub, topic(identifier))
+  @spec unsubscribe(String.t(), GenServer.server()) :: :ok
+  def unsubscribe(identifier, pubsub \\ @pubsub) when is_binary(identifier) do
+    Phoenix.PubSub.unsubscribe(pubsub, topic(identifier))
   end
 
   @doc """
@@ -61,28 +63,35 @@ defmodule Aiur.Claude.HookEvents do
   the agent topic. Always `:ok` — never raises, so a hook POST cannot disrupt claude.
   """
   @spec dispatch(String.t(), map()) :: :ok
-  def dispatch(identifier, raw) when is_binary(identifier) and is_map(raw) do
+  @spec dispatch(String.t(), map(), keyword()) :: :ok
+  def dispatch(identifier, raw, opts \\ [])
+
+  def dispatch(identifier, raw, opts) when is_binary(identifier) and is_map(raw) do
+    pubsub = Keyword.get(opts, :pubsub, @pubsub)
+
     if is_binary(raw["aiur_hook_id"]) do
       # Only the turn consumer advances the cursor. A POST during daemon boot
       # must leave its event pending until that consumer has reattached.
-      do_broadcast(topic(identifier), {:claude_hook_available, identifier})
+      do_broadcast(pubsub, topic(identifier), {:claude_hook_available, identifier})
     else
-      publish(identifier, raw)
+      publish(identifier, raw, pubsub)
     end
   end
 
-  def dispatch(_identifier, _raw), do: :ok
+  def dispatch(_identifier, _raw, _opts), do: :ok
 
   @doc "Replay spooled hook events through the live hook topic, returning the processed byte offset."
   @spec replay(String.t(), non_neg_integer()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def replay(identifier, from_offset) when is_binary(identifier) and is_integer(from_offset) and from_offset >= 0 do
-    HookSpool.replay(identifier, from_offset, &publish(identifier, &1))
+  @spec replay(String.t(), non_neg_integer(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def replay(identifier, from_offset, opts \\ []) when is_binary(identifier) and is_integer(from_offset) and from_offset >= 0 do
+    pubsub = Keyword.get(opts, :pubsub, @pubsub)
+    HookSpool.replay(identifier, from_offset, &publish(identifier, &1, pubsub))
   end
 
   @spec clear_spool(String.t()) :: :ok | {:error, term()}
   def clear_spool(identifier), do: HookSpool.clear(identifier)
 
-  defp publish(identifier, raw) do
+  defp publish(identifier, raw, pubsub) do
     event = normalize(raw)
 
     Logger.info(
@@ -96,7 +105,7 @@ defmodule Aiur.Claude.HookEvents do
     # updates). Fire-and-forget; never let it disrupt claude.
     note_agent_liveness(identifier)
 
-    do_broadcast(topic(identifier), {:claude_hook, identifier, event})
+    do_broadcast(pubsub, topic(identifier), {:claude_hook, identifier, event})
   end
 
   @doc "Map a raw claude hook payload to the normalized `event/0` shape."
@@ -134,9 +143,9 @@ defmodule Aiur.Claude.HookEvents do
 
   # Defensive guard mirrors AgentPubSub: producers must not crash if the PubSub
   # registry is absent (early boot / test teardown).
-  defp do_broadcast(topic, message) do
-    case Process.whereis(@pubsub) do
-      pid when is_pid(pid) -> Phoenix.PubSub.broadcast(@pubsub, topic, message)
+  defp do_broadcast(pubsub, topic, message) do
+    case Process.whereis(pubsub) do
+      pid when is_pid(pid) -> Phoenix.PubSub.broadcast(pubsub, topic, message)
       _ -> :ok
     end
   end

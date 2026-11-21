@@ -81,7 +81,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
           cache_creation_input: %{context_tier: [:not_applicable], cache_write_duration: [:five_minutes, :one_hour]}
         }
       },
-      usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
+      usage: %{provider: :claude},
       meter_probe: &ProviderMeterProbe.probe_usage_api/3,
       run_telemetry: &Signal.decode_claude_operation/1,
       account_generation: %{

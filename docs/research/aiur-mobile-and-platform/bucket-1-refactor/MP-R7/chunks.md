@@ -1,11 +1,11 @@
 # MP-R7 C4 status
 
-Updated 2026-10-21 UTC by MP-R7-C4-T02 (#3477).
+Historical disposition updated 2026-11-20 UTC by MP-R7-C4-T03 (#3478).
 This bounded record replaces no historical chunks outside C4.
 
 ## MP-R7-C4 — Physical package: blocked (no-go)
 
-The [promotion scorecard](plan.md) does not pass criteria 1, 3 or 5.
+The [promotion scorecard](plan.md) recheck still fails criterion 1 and does not establish criterion 5. The prescribed no-start tests now pass; the physical package remains parked.
 Keep harness-adapters as a logical in-app component. A merged promotion
 record is evidence of the decision, not permission to start the moves.
 
@@ -13,7 +13,7 @@ record is evidence of the decision, not permission to start the moves.
 | --- | --- |
 | C4-T01 (#3476) | Merged: component-declared supervision children (#5200) |
 | C4-T02 (#3477) | No-go record; this change |
-| C4-T03 (#3478) | Blocked: physical package skeleton and core move |
+| C4-T03 (#3478) | Re-scoped in-tree repair; no-go for physical package move. Current boundary census: 65 live keys (36 out, 29 in), down from 94 at #3477; the harness-adapters allowlist has 36 entries. Provider-family usage, setup-I/O, invocation context, and event-humanizer behavior/helpers now use harness or kernel contracts; the config-owned dotenv parser replaces the setup-wizard wrapper. The no-start harness subset passes (1,529 tests, 0 failures, 3 excluded). The ≤40 total live-key target remains unmet; see [recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21). |
 | C4-T04 (#3479) | Blocked: adapter moves |
 | C4-T05 (#3480) | Blocked: physical package release/boot check |
 

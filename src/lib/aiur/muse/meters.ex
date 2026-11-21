@@ -5,10 +5,18 @@ defmodule Aiur.Muse.Meters do
   alias Aiur.ProviderMeters.HostObservations
 
   @spec attach(map()) :: map()
-  def attach(session) do
-    case HostObservations.attach(:muse, :app_server, self()) do
-      {:ok, scope} -> Map.put(session, :meter_scope, scope)
-      {:error, _reason} -> session
+  def attach(session), do: attach(session, HostObservations)
+
+  @spec attach(map(), module()) :: map()
+  def attach(session, host_observations) do
+    case host_observations.attach(:muse, :app_server, self()) do
+      {:ok, scope} ->
+        session
+        |> Map.put(:meter_scope, scope)
+        |> Map.put(:host_observations, host_observations)
+
+      {:error, _reason} ->
+        session
     end
   catch
     :exit, _reason -> session
@@ -17,7 +25,7 @@ defmodule Aiur.Muse.Meters do
   @spec refresh(map(), keyword()) :: :ok
   def refresh(session, opts \\ [])
 
-  def refresh(%{meter_scope: scope, port: port}, opts) do
+  def refresh(%{meter_scope: scope, port: port} = session, opts) do
     frame = %{"jsonrpc" => "2.0", "id" => System.unique_integer([:positive]), "method" => "usage/read", "params" => %{}}
     timeout = Keyword.get(opts, :timeout_ms, 1_000)
 
@@ -26,8 +34,8 @@ defmodule Aiur.Muse.Meters do
     end
 
     case MeterProbe.read(request, scope) do
-      {:ok, observation} -> HostObservations.observe(scope, observation)
-      {:error, reason} -> HostObservations.fail(scope, reason)
+      {:ok, observation} -> host_observations(session).observe(scope, observation)
+      {:error, reason} -> host_observations(session).fail(scope, reason)
     end
 
     :ok
@@ -52,12 +60,14 @@ defmodule Aiur.Muse.Meters do
   def observe(_session, _frame), do: :ok
 
   @spec retire(map()) :: :ok
-  def retire(%{meter_scope: scope}) do
-    HostObservations.retire(scope)
+  def retire(%{meter_scope: scope} = session) do
+    host_observations(session).retire(scope)
     :ok
   catch
     :exit, _reason -> :ok
   end
 
   def retire(_session), do: :ok
+
+  defp host_observations(session), do: Map.get(session, :host_observations, HostObservations)
 end

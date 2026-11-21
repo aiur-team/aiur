@@ -6,7 +6,9 @@ defmodule Aiur.Muse.Session do
   alias Aiur.Muse.Defaults
   alias Aiur.Muse.Meters
   alias Aiur.Muse.{Protocol, Transport}
-  alias Aiur.{PauseContainment, ProcessReaper}
+  alias Aiur.PauseContainment
+  alias Aiur.ProcessReaper
+  alias Aiur.ProviderMeters.HostObservations
 
   @default_timeout_ms 30_000
 
@@ -99,7 +101,7 @@ defmodule Aiur.Muse.Session do
 
     case outcome do
       {:ok, session} ->
-        session = Meters.attach(session)
+        session = Meters.attach(session, Keyword.get(opts, :host_observations, HostObservations))
         Meters.refresh(session)
         {:ok, session}
 

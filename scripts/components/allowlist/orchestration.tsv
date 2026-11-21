@@ -5,7 +5,6 @@ R-declared	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the exi
 R-declared	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
-R-declared	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.Handoff.CLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -30,7 +29,6 @@ R-down	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the existin
 R-down	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-down	Aiur.ControlCLI.Reasons	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
-R-down	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.Handoff.CLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-down	Aiur.HttpServer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.Init.AgentCli	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -46,7 +44,6 @@ R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Alerts.ClosedTicket	#5867 Resolve ordinary closed-ticket attentions from workspace cleanup while retaining actionable failed state-write alerts.
 R-optional	Aiur.CIApprovalStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-optional	Aiur.Events.BranchRefStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubCIPoller	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubCIPoller.CancelledRun	#6050 share cancellation semantics between poll evaluation and merge-group failure classification

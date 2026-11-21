@@ -21,6 +21,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
   alias Aiur.TestSupport.CodeownersGuardState
   alias Aiur.TestSupport.OrchestratorChild
+  alias Aiur.TestSupport.OrchestratorRuntimeGuard
   alias Aiur.TestSupport.SupervisorExit
 
   alias Aiur.TestSupport.RuntimeChildren
@@ -28,6 +29,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   # persistent_term, not GenServer state: after_suite callbacks run once formatters have stopped.
   @suite_leaks_key {__MODULE__, :suite_leaks}
   @runtime_child_leaks_key {__MODULE__, :runtime_child_leaks}
+  @runtime_children_expected_key {__MODULE__, :runtime_children_expected?}
   @instance_key_key {__MODULE__, :instance_key}
   @app_env_key {__MODULE__, :app_env}
   @codeowners_key {__MODULE__, :codeowners}
@@ -39,6 +41,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     Process.register(self(), __MODULE__)
     :persistent_term.put(@suite_leaks_key, [])
     :persistent_term.put(@runtime_child_leaks_key, [])
+    :persistent_term.put(@runtime_children_expected_key, is_pid(Process.whereis(Aiur.Supervisor)))
     :persistent_term.put(@instance_key_key, System.get_env("AIUR_INSTANCE_KEY"))
     :persistent_term.put(@app_env_key, capture_app_env())
     :persistent_term.put(@codeowners_key, :unset)
@@ -96,7 +99,12 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   defp suite_errors do
-    suite_state_errors() ++ suite_orchestrator_errors() ++ suite_runtime_child_errors()
+    runtime_errors =
+      if :persistent_term.get(@runtime_children_expected_key, true),
+        do: suite_orchestrator_errors() ++ suite_runtime_child_errors(),
+        else: []
+
+    suite_state_errors() ++ runtime_errors
   end
 
   defp suite_state_errors do
@@ -105,7 +113,12 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
     app_env_leaks = app_env_leaks()
     instance_key_leak = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
-    store_leaks = decision_store_leaks()
+
+    store_leaks =
+      if :persistent_term.get(@runtime_children_expected_key, true),
+        do: decision_store_leaks(),
+        else: []
+
     state_leaks = app_env_leaks ++ instance_key_leak ++ codeowners_leaks() ++ store_leaks
 
     if state_leaks == [] do
@@ -160,7 +173,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     {runtime_child_leaks, prior_test} = record_missing_runtime_children()
 
     try do
-      if runtime_child_leaks == [] do
+      if runtime_child_leaks == [] and :persistent_term.get(@runtime_children_expected_key, true) do
         store_leaks = decision_store_leaks()
         store_recovery = recover_decision_store(store_leaks)
         report_before_test_leaks(context, prior_test, state_leaks, store_leaks, store_recovery)
@@ -211,11 +224,15 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   defp missing_runtime_children do
-    []
-    |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
-    |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
-    |> maybe_missing(if(active_turns_owner_missing?(), do: nil, else: :running), "Aiur.Opencode.ActiveTurns")
-    |> maybe_missing(Process.whereis(Aiur.DecisionStore), "Aiur.DecisionStore")
+    if :persistent_term.get(@runtime_children_expected_key, true) do
+      []
+      |> maybe_missing(Process.whereis(Aiur.Supervisor), "Aiur.Supervisor")
+      |> maybe_missing(Process.whereis(Aiur.PubSub), "Aiur.PubSub")
+      |> maybe_missing(if(active_turns_owner_missing?(), do: nil, else: :running), "Aiur.Opencode.ActiveTurns")
+      |> maybe_missing(Process.whereis(Aiur.DecisionStore), "Aiur.DecisionStore")
+    else
+      []
+    end
   end
 
   defp restore_missing_runtime_children do
@@ -244,6 +261,10 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   @doc "Restores a missing or stood-in orchestrator before a test and reports the test that ran before it."
   @spec ensure_running(map()) :: :ok | :error
   def ensure_running(context) do
+    if :persistent_term.get(@runtime_children_expected_key, true), do: ensure_runtime_running(context), else: :ok
+  end
+
+  defp ensure_runtime_running(context) do
     # Async neighbours may hold the name briefly; only a sync setup proves the previous test leaked it.
     leak = if context[:async], do: if(is_nil(Process.whereis(Aiur.Orchestrator)), do: "down"), else: leak()
 
@@ -266,43 +287,28 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   def verify_restored!(%{async: true}), do: :ok
 
   def verify_restored!(context) do
-    # A call on the supervisor processes any child exit already in its mailbox.
-    RuntimeChildren.supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor), 1_000)
+    if :persistent_term.get(@runtime_children_expected_key, true) do
+      OrchestratorRuntimeGuard.verify_restored!(context, runtime_guard_callbacks())
+    else
+      shared_leaks = verify_shared_state_restored!(context)
+      if shared_leaks != [], do: raise(Enum.join(shared_leaks, "\n"))
+      :ok
+    end
+  end
 
-    pubsub_leak = is_nil(Process.whereis(Aiur.PubSub))
-    active_turns_leak = active_turns_owner_missing?()
-    orchestrator_leak = leak()
-    orchestrator_restore = if orchestrator_leak, do: restore(orchestrator_leak)
-    pubsub_errors = restore_and_report_pubsub(pubsub_leak, context)
-    active_turns_errors = restore_and_report_active_turns(active_turns_leak, context)
-    shared_leaks = verify_shared_state_restored!(context)
-    store_leaks = decision_store_leaks()
-    store_recovery = recover_decision_store(store_leaks)
-
-    orchestrator_errors =
-      if orchestrator_leak do
-        [
-          "#{test_name(context)} left Aiur.Orchestrator #{orchestrator_leak} (restore: #{inspect(orchestrator_restore)}). Restore it in on_exit with Aiur.TestSupport.ensure_orchestrator_running/0 or await_supervised_restart/3."
-        ]
-      else
-        []
-      end
-
-    recovery_errors = recovery_errors(store_recovery)
-
-    shared_state_errors =
-      if shared_leaks == [] and store_leaks == [] and recovery_errors == [],
-        do: [],
-        else: [
-          "#{test_name(context)} left shared test state changed (#{if(recovery_errors == [], do: "restored", else: "restore failed")}): #{Enum.join(shared_leaks ++ store_leaks ++ recovery_errors, "; ")}"
-        ]
-
-    errors = orchestrator_errors ++ pubsub_errors ++ active_turns_errors ++ shared_state_errors
-    if active_turns_leak, do: restart_active_turns()
-
-    if errors != [], do: raise(Enum.join(errors, "\n"))
-
-    :ok
+  defp runtime_guard_callbacks do
+    %{
+      orchestrator_leak: &leak/0,
+      restore_orchestrator: &restore/1,
+      restore_and_report_pubsub: &restore_and_report_pubsub/2,
+      restore_and_report_active_turns: &restore_and_report_active_turns/2,
+      verify_shared_state_restored: &verify_shared_state_restored!/1,
+      decision_store_leaks: &decision_store_leaks/0,
+      recover_decision_store: &recover_decision_store/1,
+      test_name: &test_name/1,
+      recovery_errors: &recovery_errors/1,
+      restart_active_turns: &restart_active_turns/0
+    }
   end
 
   defp restore_and_report_pubsub(false, _context), do: []
@@ -433,6 +439,9 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_instance_key(value), do: System.put_env("AIUR_INSTANCE_KEY", value)
 
   # nil when the name belongs to the supervised child, which is what every test expects to find.
+  @doc false
+  def orchestrator_leak, do: leak()
+
   defp leak do
     case {Process.whereis(Aiur.Orchestrator), OrchestratorChild.supervised_pid()} do
       {nil, _child} -> "down"
@@ -440,6 +449,9 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
       {pid, _child} -> "held by a stand-in #{inspect(pid)}"
     end
   end
+
+  @doc false
+  def restore_orchestrator(reason), do: restore(reason)
 
   defp restore("down"), do: RuntimeChildren.ensure_orchestrator_running()
 
@@ -463,5 +475,6 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     :exit, _reason -> nil
   end
 
-  defp test_name(context), do: "#{inspect(context[:module])}: #{context[:test]}"
+  @doc false
+  def test_name(context), do: "#{inspect(context[:module])}: #{context[:test]}"
 end

@@ -140,6 +140,45 @@ The exact prescribed roots are used, including the sibling
 owned by the expanded component has independent test coverage. No code,
 tests, durable state, recovery, or migration files are moved by this record.
 
+## C4-T03 in-tree recheck (2026-11-21)
+
+Issue #3478 was re-scoped to repair the logical component without creating a
+physical package. The #3477 record measured 94 live allowlisted keys (54
+outgoing, 40 incoming). The integration base had 83 (54 outgoing, 29 incoming),
+an 11-key reduction before this ticket's code. This change moves the provider
+family identity into `Aiur.CodingAgent.Backend` and keeps the adapter-module map
+inside accounting, removing seven outgoing keys. The shared setup-I/O type is
+declared on the harness backend contract, removing type-only references to
+`Aiur.Init`; OpenAI-compatible config now uses the config-owned dotenv parser
+instead of the setup-wizard wrapper. Tool-call invocation context now lives in
+`Aiur.CodingAgent.Backend.ToolInvocation`; event-humanizer behavior and shared
+helpers were moved behind the harness and kernel owners. The final census is
+**65 live keys: 36 outgoing and 29 incoming**, down from 83 on the integration
+base and 94 in the #3477 record. The harness-adapters allowlist itself has 36
+entries. The requested ≤40 total live-key target is not met, so criterion 1
+remains a fail. Criterion 5 remains not established: no second consumer or
+independent-release need is recorded.
+
+The structural ratchet already runs in the CI lint-guards action via
+`scripts/check-components-ci.sh`; `scripts/test-check-components.sh` includes
+`new_violation_beside_allowlist_fails`, which proves a new unallowlisted
+cross-boundary reference fails. The gate checks all components, including
+harness-adapters.
+
+The prescribed no-start selection passes in this workspace after isolating
+the OpenAI decision-media test's durable store, ensuring its event ID
+generator is available, and giving per-test PubSub instances the dependency
+application's registry without starting Aiur:
+
+```text
+env -C src mise exec -- mix test --no-start --max-cases 4 test/aiur/codex test/aiur/claude test/aiur/muse test/aiur/open_ai_compat test/aiur/coding_agent test/aiur/app_server test/aiur/agent_tools test/aiur/coding_agent_test.exs
+2 properties, 1,529 tests, 0 failures (3 excluded)
+```
+
+Re-run assessment: **NO-GO for the physical package move**. Boundary criterion 1
+is still above the re-scoped target, and criterion 5 still has no qualifying
+need. No package-move follow-up is filed. The logical component stays in `src/`.
+
 ### E. Consumer/release need and manual acceptance
 
 Read migration-plan §5 and DESIGN-R7 at the revisions linked above with

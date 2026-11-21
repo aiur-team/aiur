@@ -1,6 +1,10 @@
 Code.require_file("support/test_environment.ex", __DIR__)
 Aiur.TestEnvironment.clear_inherited!()
 
+# Phoenix.PubSub instances can run independently of the Aiur application, but
+# its adapter relies on the dependency application's local process registry.
+{:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)
+
 # Container probes must never observe the host's real cgroup from tests unless
 # a test explicitly installs its own fake cgroup tree.
 test_cgroup_root = Path.join(System.tmp_dir!(), "aiur-test-cgroup-disabled-#{System.unique_integer([:positive])}")
@@ -120,6 +124,7 @@ Code.require_file("support/test_support/orchestrator_child.exs", __DIR__)
 Code.require_file("support/test_support/codeowners_guard_state.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
 Code.require_file("support/test_support/supervisor_exit.exs", __DIR__)
+Code.require_file("support/test_support/orchestrator_runtime_guard.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_guard.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_support/runner_tasks.exs", __DIR__)

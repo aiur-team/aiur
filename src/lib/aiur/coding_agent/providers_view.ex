@@ -259,21 +259,20 @@ defmodule Aiur.CodingAgent.ProvidersView do
   """
   @spec provider_family_map() :: %{String.t() => atom()}
   def provider_family_map do
-    for {backend, %{family: family, usage: %{adapters: adapters}}} <- backends(),
-        is_list(adapters),
-        adapters != [],
+    for {backend, %{usage: %{provider: provider}}} <- backends(),
         into: %{},
-        do: {backend, String.to_atom(family)}
+        do: {backend, provider}
   end
 
   @doc "Registry-owned usage backend and transport for a headless backend."
-  @spec usage_context(backend()) :: %{backend: atom(), transport: atom()} | nil
+  @spec usage_context(backend()) :: %{provider: atom(), backend: atom(), transport: atom()} | nil
   def usage_context(backend) when is_binary(backend) do
     case Map.get(backends(), backend) do
-      %{usage: %{adapters: adapters}} = entry when is_list(adapters) and adapters != [] ->
+      %{usage: %{provider: provider} = usage} = entry ->
         %{
-          backend: Map.get(entry, :usage_backend, :app_server),
-          transport: Map.get(entry, :usage_transport, :app_server)
+          provider: provider,
+          backend: Map.get(usage, :backend, Map.get(entry, :usage_backend, :app_server)),
+          transport: Map.get(usage, :transport, Map.get(entry, :usage_transport, :app_server))
         }
 
       _ ->

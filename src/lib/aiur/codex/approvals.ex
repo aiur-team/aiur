@@ -3,10 +3,11 @@ defmodule Aiur.Codex.Approvals do
   Codex approval request and tool-call servicing for app-server turn methods.
   """
 
-  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Messages, ToolCallIdentity, ToolCallLedger}
   alias Aiur.Codex.{Rpc, UserInputAnswers}
   alias Aiur.Commands.NativeCapture.Codex, as: NativeCapture
+
+  alias Aiur.CodingAgent.Backend.ToolInvocation
 
   # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
 
@@ -318,7 +319,7 @@ defmodule Aiur.Codex.Approvals do
   defp execute_tool_call(context, params, tool_name, arguments, invocation_id, tool_executor) do
     execute = fn ->
       tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+      |> ToolInvocation.execute(tool_name, arguments, invocation_id)
       |> Messages.normalize_tool_result(context)
     end
 

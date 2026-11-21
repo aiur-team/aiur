@@ -75,7 +75,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
           default: %{context_tier: [:short_context, :long_context], cache_write_duration: [:not_applicable]}
         }
       },
-      usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
+      usage: %{provider: :codex},
       meter_probe: &ProviderMeterProbe.probe_session/3,
       run_telemetry: &Signal.decode_codex_operation/1,
       account_generation: %{
