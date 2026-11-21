@@ -122,7 +122,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
-      open_decision_count_health: open_decision_count_health
+      open_decision_count_health: open_decision_count_health,
+      capacity_reason: capacity_choice(entry)
     }
     |> WaitingReason.attach(state, entry)
   end
@@ -305,6 +306,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           end
         end),
       waiting_reason: waiting_reason,
+      capacity_reason: capacity_waiting(state, waiting_reason),
       dispatch_latch: idle_evidence.dispatch_latch,
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,

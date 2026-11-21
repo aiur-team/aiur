@@ -34,5 +34,10 @@ defmodule Aiur.AgentRunner.MergePolicyPrompt do
     "Your PR may merge before CI finishes, on this evidence. A missing or stale `Local tests` section makes it wait for CI."
   end
 
+  defp ci_note("external") do
+    "CI is external: GitHub check results are not a gate here and Aiur does not watch them. " <>
+      "When the work is complete and the PR is ready, move straight to `agent:human-review`; do not use `agent:ci-wait`."
+  end
+
   defp ci_note("wait"), do: "Full required CI must pass before human-review handoff."
 end

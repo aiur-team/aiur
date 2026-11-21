@@ -59,6 +59,13 @@
             "null"
           ]
         },
+        "capacity_reason": {
+          "description": "Why the capacity policy chose this worker's source, with the reading taken at dispatch; null without a dispatch record.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "skill_preload": {
           "description": "Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).",
           "oneOf": [

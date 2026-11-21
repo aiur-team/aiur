@@ -21,6 +21,10 @@ export interface AgentsStatusEntry {
   codex_app_server_pid?: number | null;
   adopted_from: string | null;
   /**
+   * Why the capacity policy chose this worker's source, with the reading taken at dispatch; null without a dispatch record.
+   */
+  capacity_reason?: string | null;
+  /**
    * Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).
    */
   skill_preload?: null | AgentsSkillPreload;

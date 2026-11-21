@@ -138,6 +138,15 @@ from running agents. Labels such as `agent:ci-red` and
 `agent:paused-usage-limit` appear on cards and in agent-state filters. Tickets
 with spent retry latches have no live agent and are left out of Now.
 
+In List view, a Now row's agent cell ends with the capacity policy's reason for
+its source, the same text `aiur agents` prints, for example
+`codex/default (preferred; 62% left at dispatch, reading 40s old)`. The
+reading is the one taken when the ticket was dispatched.
+
+When the capacity policy allows no source, each queued ticket's card shows a
+`no authorized source` cue; hover it for one clause per held source. In List
+view the same text fills the queued row's agent cell.
+
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 
 In Gantt, history card height represents elapsed run time; idle gaps over three hours fold into hatched bands.

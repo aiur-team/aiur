@@ -21,6 +21,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
       family: family,
       complexity: Map.get(row, :complexity),
       model: model_label(row),
+      # The capacity policy's reason for the source, or why a queued ticket has none (#7892).
+      capacity: Map.get(row, :capacity_reason),
       priority: priority,
       priority_class: priority_class
     }

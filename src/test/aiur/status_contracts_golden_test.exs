@@ -74,6 +74,7 @@ defmodule Aiur.StatusContractsGoldenTest do
           provider_pid: 12_345,
           codex_app_server_pid: nil,
           adopted_from: "handoff-7",
+          capacity_reason: "codex/default (preferred; 62% left at dispatch, reading 40s old)",
           skill_preload: %{
             mapped: [%{name: "pixel-art", reason: "lane:art"}],
             over_budget: false,
@@ -107,7 +108,8 @@ defmodule Aiur.StatusContractsGoldenTest do
         started_at: @now,
         last_codex_timestamp: @now,
         worker_host: "worker.example",
-        workspace_path: "/var/lib/aiur/5698"
+        workspace_path: "/var/lib/aiur/5698",
+        capacity_reason: "codex/default (preferred; 62% left at dispatch, reading 40s old)"
       })
 
     ExtensionsTestSupport.static_snapshot()

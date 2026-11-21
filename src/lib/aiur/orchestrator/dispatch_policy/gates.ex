@@ -275,13 +275,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
 
       queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
         provider_opts = Map.get(probes, :provider_gate_opts, [])
+        threshold = provider_hold_threshold(provider_backends, provider_opts)
 
         {:hold,
          %{
            signal: :provider,
            measured: provider_backends,
            detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
-           threshold: provider_hold_threshold(provider_backends, provider_opts)
+           threshold: threshold,
+           # Each source's verdict, so queued rows can name why every one is held (#7892).
+           capacity: if(threshold == :no_authorized_source, do: CapacityGate.record(provider_backends, provider_opts))
          }}
 
       true ->

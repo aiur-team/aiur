@@ -77,6 +77,7 @@
           "tool_result"
         ]
       },
+      "capacity_reason": "codex/default (preferred; 62% left at dispatch, reading 40s old)",
       "ci": null,
       "issue_id": "I_5698",
       "issue_identifier": "5698",
