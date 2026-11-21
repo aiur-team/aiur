@@ -67,6 +67,24 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
     assert row.last_message == "done"
   end
 
+  test "Claude task hooks use task_id and retain completed tasks" do
+    assert {:ok, _} = Session.attach(%{harness: "claude"})
+    dispatch("SessionStart", %{"source" => "startup"})
+    assert {:ok, _} = Session.current()
+
+    dispatch("TaskCreated", %{"task_id" => "task-42"})
+    assert_receive {:executor_hook, %{event: "TaskCreated", task_id: "task-42"}}, 1000
+    assert {:ok, [running], _} = BackgroundAgents.snapshot()
+    assert running.agent_id == "task-42"
+    assert running.state == :running
+
+    dispatch("TaskCompleted", %{"task_id" => "task-42"})
+    assert_receive {:executor_hook, %{event: "TaskCompleted", task_id: "task-42"}}, 1000
+    assert {:ok, [finished], _} = BackgroundAgents.snapshot()
+    assert finished.agent_id == "task-42"
+    assert finished.state == :finished
+  end
+
   test "Codex reports fields as unverified and provider maps unavailable reason through closed enum" do
     assert {:ok, _} = Session.attach(%{harness: "codex"})
 
