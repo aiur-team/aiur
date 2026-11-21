@@ -36,6 +36,7 @@ defmodule Aiur.Claude.TranscriptTailer do
 
   @type option ::
           {:path, Path.t()}
+          | {:extractor, (map(), String.t() | nil -> [Aiur.AgentEvents.transcript_event()])}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
           | {:on_backfill_message, (Aiur.AgentEvents.transcript_event() -> any())}
           | {:on_turn_end, (turn_end_signal() -> any())}
@@ -73,6 +74,7 @@ defmodule Aiur.Claude.TranscriptTailer do
     on_backfill_message = Keyword.get(opts, :on_backfill_message, on_message)
     on_turn_end = Keyword.get(opts, :on_turn_end, fn _reason -> :ok end)
     turn_id = Keyword.get(opts, :turn_id)
+    extractor = Keyword.get(opts, :extractor, &Transcript.extract_disk_record/2)
     interval_ms = Keyword.get(opts, :interval_ms, @default_interval_ms)
 
     offset =
@@ -85,6 +87,7 @@ defmodule Aiur.Claude.TranscriptTailer do
 
     state = %{
       path: path,
+      extractor: extractor,
       offset: offset,
       on_record: Keyword.get(opts, :on_record, fn _ -> :ok end),
       on_offset: Keyword.get(opts, :on_offset, fn _ -> :ok end),
@@ -221,7 +224,7 @@ defmodule Aiur.Claude.TranscriptTailer do
       case decode(line) do
         {:ok, record} ->
           state.on_record.(record)
-          events = Transcript.extract_disk_record(record, state.turn_id)
+          events = state.extractor.(record, state.turn_id)
           Enum.each(events, callback)
           maybe_fire_turn_end(state, record)
           {emitted + length(events), next_cursor}

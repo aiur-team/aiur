@@ -52,6 +52,23 @@ defmodule AiurPushRelay.RelayTest do
     )
   end
 
+  defp register_fcm(ctx) do
+    request(ctx, :post, "/v1/handles", %{
+      "platform" => "fcm",
+      "push_token" => "private-fcm-token",
+      "app_topic" => ctx.topic,
+      "environment" => "production"
+    })
+  end
+
+  test "FCM sends return provider unavailable when credentials are absent", ctx do
+    credentials = Jason.decode!(register_fcm(ctx).resp_body)
+    params = envelope(ctx, credentials)
+    assert request(ctx, :post, "/v1/send", params, credentials["send_secret"]).status == 503
+    assert Jason.decode!(request(ctx, :get, "/healthz").resp_body)["fcm"] == "unconfigured"
+    refute_receive {:delivery, _, _, _}
+  end
+
   defp credentials(ctx), do: Jason.decode!(register(ctx).resp_body)
 
   defp envelope(ctx, credentials) do
@@ -214,7 +231,7 @@ defmodule AiurPushRelay.RelayTest do
     response = read_socket(socket, "")
     :gen_tcp.close(socket)
     assert response =~ "HTTP/1.1 200"
-    assert response =~ ~s({"store":"ok"})
+    assert response =~ ~s({"store":"ok","fcm":"unconfigured"})
   end
 
   defp read_socket(socket, result) do
@@ -252,7 +269,7 @@ defmodule AiurPushRelay.RelayTest do
       assert register(ctx).status == 503
       response = request(ctx, :get, "/healthz")
       assert response.status == 503
-      assert Jason.decode!(response.resp_body) == %{"store" => "error"}
+      assert Jason.decode!(response.resp_body) == %{"store" => "error", "fcm" => "unconfigured"}
     after
       Exqlite.Sqlite3.execute(db, "ROLLBACK")
       Exqlite.Sqlite3.close(db)
