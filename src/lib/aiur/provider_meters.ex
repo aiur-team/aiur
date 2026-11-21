@@ -7,6 +7,8 @@ defmodule Aiur.ProviderMeters do
   account generation before accepting, retaining, or broadcasting it.
   """
 
+  alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.{Events, HostObservations, ProbeCrash, Store}
   alias Aiur.ProviderMeterSnapshot
 
@@ -18,6 +20,11 @@ defmodule Aiur.ProviderMeters do
 
   @spec record_failure(map()) :: {:ok, ProviderMeterSnapshot.t()} | {:error, atom()}
   def record_failure(failure), do: Store.record_failure(Store, failure)
+
+  @doc "Build the typed snapshot contract for a provider observation."
+  @spec observation_snapshot(map()) :: ProviderMeterSnapshot.t()
+  def observation_snapshot(attributes) when is_map(attributes),
+    do: struct!(ProviderMeterSnapshot, attributes)
 
   @spec snapshot(provider(), backend(), reference() | map()) :: ProviderMeterSnapshot.t()
   def snapshot(provider, backend, binding), do: Store.snapshot(Store, provider, backend, binding)
@@ -50,6 +57,18 @@ defmodule Aiur.ProviderMeters do
   @spec log_probe_crash(atom(), atom(), term(), Exception.stacktrace()) :: :probe_crashed
   def log_probe_crash(provider, kind, error, stacktrace),
     do: ProbeCrash.log(provider, kind, error, stacktrace)
+
+  @doc "Run the registered account-session probe for one provider."
+  @spec probe_session(atom(), String.t(), keyword()) :: ProviderMeterProbe.outcome()
+  def probe_session(provider, backend, opts), do: ProviderMeterProbe.probe_session(provider, backend, opts)
+
+  @doc "Read the Claude usage endpoint for one provider."
+  @spec probe_usage_api(atom(), String.t(), keyword()) :: ProviderMeterProbe.outcome()
+  def probe_usage_api(provider, backend, opts), do: ProviderMeterProbe.probe_usage_api(provider, backend, opts)
+
+  @doc "Return the retained display projection for one provider."
+  @spec provider_view(ProviderMeterProjection.provider()) :: ProviderMeterProjection.view()
+  def provider_view(provider), do: ProviderMeterProjection.provider_view(provider)
 
   @doc "Attach a live host to the display-only, unverified meter projection."
   @spec attach_host(atom(), atom(), pid(), GenServer.server()) ::

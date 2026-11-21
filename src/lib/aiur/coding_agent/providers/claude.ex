@@ -3,7 +3,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
 
   alias Aiur.Claude.CodingAgent.Handshake
   alias Aiur.ModelCatalog
-  alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeters
   alias Aiur.Signal
 
   @spec headless() :: Aiur.CodingAgent.Backend.capabilities()
@@ -82,7 +82,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
         }
       },
       usage: %{provider: :claude},
-      meter_probe: &ProviderMeterProbe.probe_usage_api/3,
+      meter_probe: &ProviderMeters.probe_usage_api/3,
       run_telemetry: &Signal.decode_claude_operation/1,
       account_generation: %{
         backends: [:app_server],

@@ -14,7 +14,7 @@ defmodule Aiur.Claude.Repl.Reaper do
   alias Aiur.Claude.HookEvents
   alias Aiur.ProcessTree
   alias Aiur.Tmux
-  alias Aiur.Tmux.Socket
+  alias Aiur.Tmux
 
   # REPL panes live in their own tmux window named `aiur-repl-<beam_os_pid>-<n>`.
   # Embedding the owning BEAM's os pid lets the boot reaper kill only panes
@@ -74,7 +74,7 @@ defmodule Aiur.Claude.Repl.Reaper do
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
 
     if result == {:ok, :cleanup_proven} do
-      unregister_fun.(Socket.pane_ref(tmux, pane_id))
+      unregister_fun.(Tmux.pane_ref(tmux, pane_id))
       unregister_fun.({:os_pid, os_pid})
       clear_spool(session[:identifier])
     end
@@ -103,7 +103,7 @@ defmodule Aiur.Claude.Repl.Reaper do
   `Aiur.Claude.RemoteControl.reap_orphaned_servers/0`.
   """
   @spec reap_orphaned_panes(GenServer.server()) :: :ok
-  def reap_orphaned_panes(tmux \\ Socket.agents()) do
+  def reap_orphaned_panes(tmux \\ Tmux.agents_server()) do
     sweep_repl_panes(tmux, fn owner_pid -> not os_pid_alive?(owner_pid) end)
   end
 
@@ -116,11 +116,11 @@ defmodule Aiur.Claude.Repl.Reaper do
   this BEAM's os pid so a side-by-side aiur instance is never touched.
   """
   @spec sweep_own_panes(GenServer.server()) :: :ok
-  def sweep_own_panes(tmux \\ Socket.agents()), do: sweep_own_panes(tmux, [])
+  def sweep_own_panes(tmux \\ Tmux.agents_server()), do: sweep_own_panes(tmux, [])
 
   @doc false
   @spec sweep_own_panes(GenServer.server() | nil, keyword()) :: :ok
-  def sweep_own_panes(nil, opts), do: sweep_own_panes(Socket.agents(), opts)
+  def sweep_own_panes(nil, opts), do: sweep_own_panes(Tmux.agents_server(), opts)
 
   def sweep_own_panes(tmux, opts) do
     self_pid = beam_os_pid()
@@ -184,7 +184,7 @@ defmodule Aiur.Claude.Repl.Reaper do
     end
   end
 
-  @spec sweep_repl_panes(Socket.server(), (integer() -> boolean()), [tuple()]) :: :ok
+  @spec sweep_repl_panes(Tmux.server(), (integer() -> boolean()), [tuple()]) :: :ok
   defp sweep_repl_panes(tmux, owner_match?, protected_refs \\ []) do
     protected = MapSet.new(protected_refs)
 
@@ -192,7 +192,7 @@ defmodule Aiur.Claude.Repl.Reaper do
       {:ok, windows} ->
         windows
         |> Enum.filter(fn {name, _pane} -> String.starts_with?(name, @repl_window_prefix) end)
-        |> Enum.reject(fn {_name, pane_id} -> MapSet.member?(protected, Socket.pane_ref(tmux, pane_id)) end)
+        |> Enum.reject(fn {_name, pane_id} -> MapSet.member?(protected, Tmux.pane_ref(tmux, pane_id)) end)
         |> Enum.each(fn {name, pane_id} ->
           maybe_kill_repl_pane(tmux, name, pane_id, owner_match?)
         end)

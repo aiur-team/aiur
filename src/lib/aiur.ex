@@ -88,6 +88,9 @@ defmodule Aiur.Application do
       Application.put_env(:aiur, :booted_instance_mode, instance_mode)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
       Application.put_env(:aiur, :claude_hook_activity_callback, &note_claude_hook_activity/1)
+      Application.put_env(:aiur, :review_thread_replier, &Aiur.GitHub.Client.reply_to_review_thread/3)
+      Application.put_env(:aiur, :review_thread_resolver, &Aiur.GitHub.Client.resolve_review_thread/2)
+      Application.put_env(:aiur, :linear_graphql_client, &Aiur.Linear.Client.graphql/3)
 
       children =
         child_specs(

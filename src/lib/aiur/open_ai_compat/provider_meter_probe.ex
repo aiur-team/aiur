@@ -1,7 +1,7 @@
 defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, ProviderMeterSnapshot}
+  alias Aiur.CodingAgent
   alias Aiur.OpenAICompat.{BalanceBaseline, Concurrency, MeterWindows}
   alias Aiur.ProviderMeters
 
@@ -48,27 +48,29 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
     broadcast =
       Keyword.get(opts, :provider_meter_broadcast_fun, &ProviderMeters.broadcast_snapshot/1)
 
-    broadcast.(%ProviderMeterSnapshot{
-      provider: provider,
-      backend: @backend,
-      provider_account_generation: nil,
-      observed_at: observed_at,
-      ingested_at: observed_at,
-      auth_mode: :api_key,
-      source: meter_source(provider),
-      source_version: source_version,
-      update_kind: :patch,
-      freshness: :fresh,
-      health: %{
-        state: :healthy,
-        failure: nil,
-        last_observed_at: observed_at,
-        last_source_version: source_version,
-        last_attempt_at: nil,
-        consecutive_failures: 0
-      },
-      windows: Map.new(windows, &{&1.limit_id, Map.delete(&1, :limit_id)})
-    })
+    broadcast.(
+      ProviderMeters.observation_snapshot(%{
+        provider: provider,
+        backend: @backend,
+        provider_account_generation: nil,
+        observed_at: observed_at,
+        ingested_at: observed_at,
+        auth_mode: :api_key,
+        source: meter_source(provider),
+        source_version: source_version,
+        update_kind: :patch,
+        freshness: :fresh,
+        health: %{
+          state: :healthy,
+          failure: nil,
+          last_observed_at: observed_at,
+          last_source_version: source_version,
+          last_attempt_at: nil,
+          consecutive_failures: 0
+        },
+        windows: Map.new(windows, &{&1.limit_id, Map.delete(&1, :limit_id)})
+      })
+    )
   end
 
   defp config(backend) do

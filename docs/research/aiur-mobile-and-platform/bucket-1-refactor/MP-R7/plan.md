@@ -163,19 +163,24 @@ allowlist was pruned of those stale rows. Claude and Codex native-capture calls
 now use the shared Commands facade, removing two further outgoing keys; those
 stale rows were pruned as well. The Claude hook liveness notification now uses
 a callback installed by the application composition root, removing the
-harness-to-Orchestrator dependency. The current census is **54 live keys: 25
-outgoing and 29 incoming**, down from 83 on the integration base and 94 in the
-#3477 record. The harness-adapters allowlist itself has 24 entries; the
-remaining NativeCapture facade key is declared as a seam. The
-requested ≤40 total live-key target is not met, so criterion 1 remains a fail.
+harness-to-Orchestrator dependency. Review-thread writes and Linear GraphQL now
+use callbacks installed by the application composition root instead of
+importing GitHub and Linear clients. Subscription policy and tool-result
+exclusion now route through existing event and workspace facades. The current
+census is **40 live keys: 11 outgoing and 29 incoming**, down from 83 on the
+integration base and 94 in the #3477 record. The harness-adapters allowlist
+itself has 11 entries; the remaining NativeCapture facade key is declared as
+a seam. The re-scoped ≤40 total live-key target is met. Physical promotion
+criterion 1 still fails because the zero-allowlisted-violation release streak
+is not established; criterion 5 also remains unestablished.
 Criterion 5 remains not established: no second consumer or independent-release
 need is recorded.
 
 | Promotion criterion | Re-run result | Evidence |
 | --- | --- | --- |
-| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 54 live keys remain (25 out, 29 in); no two qualifying post-rule releases are recorded. |
+| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 40 live keys remain (11 out, 29 in); no two qualifying zero-violation releases are recorded. |
 | 2. Component declares children and boot ordering; root composes | PASS | The existing `Aiur.Claude.Telemetry` child and provider `init_order: 0` remain declared and composed by the root; this change does not alter supervision. |
-| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,529 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
+| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,532 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
 | 4. Config section owned in manifest | PASS | `harness-adapters` remains the sole owner of `agent` config. |
 | 5. Second consumer exists/planned, or independent release is needed | NOT ESTABLISHED | No qualifying second consumer or independent-release need is recorded. |
 

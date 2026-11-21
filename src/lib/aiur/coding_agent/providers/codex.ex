@@ -3,7 +3,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
 
   alias Aiur.Codex.SessionRecovery
   alias Aiur.ModelCatalog
-  alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeters
   alias Aiur.Signal
 
   @spec entry() :: Aiur.CodingAgent.Backend.capabilities()
@@ -76,7 +76,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
         }
       },
       usage: %{provider: :codex},
-      meter_probe: &ProviderMeterProbe.probe_session/3,
+      meter_probe: &ProviderMeters.probe_session/3,
       run_telemetry: &Signal.decode_codex_operation/1,
       account_generation: %{
         backends: [:app_server],
