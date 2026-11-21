@@ -198,16 +198,16 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   # or merges its PR). No `pending_reactivation` flag — the existing
   # `max_concurrent_agents` gate is the natural backpressure.
   @doc false
-  @spec reactivate_issue(State.t(), map()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
-  def reactivate_issue(%State{} = state, running_entry) do
+  @spec reactivate_issue(State.t(), map(), keyword()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
+  def reactivate_issue(%State{} = state, running_entry, opts \\ []) do
     if Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) do
       {{:error, :max_concurrent_agents_reached}, state}
     else
-      do_reactivate(state, running_entry)
+      do_reactivate(state, running_entry, opts)
     end
   end
 
-  defp do_reactivate(%State{} = state, running_entry) do
+  defp do_reactivate(%State{} = state, running_entry, opts) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     existing_control = Map.get(running_entry, :control, %{})
     worker_host = Map.get(running_entry, :worker_host)
@@ -227,7 +227,7 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
     state = Dispatcher.reset_thrash_budget(state, issue_id)
 
     dispatched_state =
-      Dispatcher.do_dispatch_issue(state, issue, nil, worker_host, prior_work: Config.agent_prior_work_continuation?())
+      Dispatcher.do_dispatch_issue(state, issue, nil, worker_host, Keyword.put(opts, :prior_work, Config.agent_prior_work_continuation?()))
 
     case Map.get(dispatched_state.running, issue_id) do
       %{pid: pid} when is_pid(pid) ->
@@ -237,15 +237,25 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
 
         {{:ok, :reactivated}, dispatched_state}
 
+      # A rework start writes its guarded `in-progress` claim as an async
+      # tracker task and spawns only if this entry is unchanged when the claim
+      # lands, so keep it `:working`; an Executor message queues on it.
       _ ->
-        # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
-        # decline a dispatch after the entry is optimistically made `:working`.
-        # Restore the parked entry so the tracker still shows it as needing a
-        # wake and the comment path can emit its durable Executor alert.
-        reason = reactivation_failure_reason(dispatched_state, issue, worker_host)
-        restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
-        {{:error, {:dispatch_failed, reason}}, TrackedSet.refresh(restored_state)}
+        if TrackerTasks.issue_pending?(dispatched_state, issue_id),
+          do: {{:ok, :reactivated}, dispatched_state},
+          else: restore_parked(dispatched_state, running_entry, issue, worker_host)
     end
+  end
+
+  defp restore_parked(dispatched_state, running_entry, issue, worker_host) do
+    # `select_worker_host/2`, the thrash breaker, or Task.Supervisor can
+    # decline a dispatch after the entry is optimistically made `:working`.
+    # Restore the parked entry so the tracker still shows it as needing a
+    # wake and the comment path can emit its durable Executor alert.
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    reason = reactivation_failure_reason(dispatched_state, issue, worker_host)
+    restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
+    {{:error, {:dispatch_failed, reason}}, TrackedSet.refresh(restored_state)}
   end
 
   defp reactivation_failure_reason(state, issue, worker_host) do
