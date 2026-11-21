@@ -44,6 +44,7 @@ defmodule AiurWeb.ExperimentsLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
 
