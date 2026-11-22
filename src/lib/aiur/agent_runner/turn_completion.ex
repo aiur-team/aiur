@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{MergedNoop, NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.CodingAgent.CapacityGate
   alias Aiur.{Commands, Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
@@ -106,10 +106,15 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   end
 
   defp handle_noop_turn(turn_context, app_session, issue, progress, witness, cap, message_handler) do
-    if is_integer(cap) and progress.consecutive_noops >= cap do
-      stop_on_noop_bound(turn_context, issue, progress, witness, cap)
-    else
-      NoopWait.park(turn_context, app_session, message_handler, issue, progress)
+    case MergedNoop.handoff(turn_context, issue, progress) do
+      {:handoff, result} ->
+        result
+
+      :none when is_integer(cap) and progress.consecutive_noops >= cap ->
+        stop_on_noop_bound(turn_context, issue, progress, witness, cap)
+
+      :none ->
+        NoopWait.park(turn_context, app_session, message_handler, issue, progress)
     end
   end
 

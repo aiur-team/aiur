@@ -169,6 +169,9 @@ defmodule Aiur.GitHub.Client do
     end
   end
 
+  @spec fetch_merged_pull_request_for_branch(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def fetch_merged_pull_request_for_branch(branch, opts \\ []), do: PullRequests.fetch_merged_pull_request_for_branch(branch, opts)
+
   @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
