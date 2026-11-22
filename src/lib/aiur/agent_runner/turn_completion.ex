@@ -29,7 +29,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     backend = SessionIdentity.session_backend_label(app_session)
     CapacityGate.turn_ended(issue, backend, turn_context.opts)
 
-    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher) do
+    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher, Map.get(turn_context, :opts, [])) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
         continue_within_limits(turn_context, app_session, refreshed_issue, message_handler, backend)
 
