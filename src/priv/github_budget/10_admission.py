@@ -355,17 +355,28 @@ def reconcile(args):
         conn.close()
 
 
+# A governed gh call is killed at 120 s, so no honest lease outlives this. A
+# renewer orphaned by an older guard is cut off here instead of holding its
+# slot until the host restarts.
+LEASE_MAX_AGE_MS = 10 * 60 * 1000
+
+
 def renew(args):
     conn = connection(args.db)
     _ensure_writable(conn)
     _prepare_writable(conn)
     try:
-        conn.execute(
-            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ?",
-            (now_ms() + args.lease_ttl_ms, args.lease_id),
-        )
+        now = now_ms()
+        renewed = conn.execute(
+            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ? AND NOT EXISTS "
+            "(SELECT 1 FROM admissions WHERE lease_id = ? AND admitted_at_ms <= ?)",
+            (now + args.lease_ttl_ms, args.lease_id, args.lease_id, now - LEASE_MAX_AGE_MS),
+        ).rowcount
     finally:
         conn.close()
+    if renewed == 0:
+        # Released, expired or past its age: the failure stops the renewer.
+        raise LookupError("lease is not renewable")
 
 
 def hold(args):
