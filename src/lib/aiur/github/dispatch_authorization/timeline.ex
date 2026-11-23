@@ -81,11 +81,11 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
     url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/events?per_page=#{@issue_events_per_page}"
 
-    case fetch_timeline(request_fun, token, url, nil, @max_issue_event_pages) do
-      {:ok, events, _etag, _single_page?} ->
+    case fetch_timeline(request_fun, token, url, nil, @issue_events_per_page, @max_issue_event_pages) do
+      {:ok, events, _etag, _single_page?, _pages} ->
         # No validator is kept: a multi-page read is never reused on a `304`,
         # and a single events page must not answer for the timeline's URL.
-        {:ok, events, nil, false, @issue_events_per_page}
+        {:ok, events, nil, false, @issue_events_per_page, nil}
 
       {:error, reason} = error ->
         if size_limit?(reason), do: timeline_error, else: error
@@ -142,8 +142,8 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
   # also reports the new `rel="next"` link. Unchanged full pages are then free,
   # and a refetch of a busy ticket's timeline costs one billable page rather
   # than one per page.
-  defp fetch_timeline(request_fun, token, url, held, per_page) do
-    walk_timeline(request_fun, token, url, held_pages(held, url), page_budget(per_page), per_page, [])
+  defp fetch_timeline(request_fun, token, url, held, per_page, pages \\ nil) do
+    walk_timeline(request_fun, token, url, held_pages(held, url), pages || page_budget(per_page), per_page, [])
   end
 
   defp walk_timeline(_request_fun, _token, _url, _held_pages, 0, _per_page, _pages), do: {:error, :timeline_page_limit_exceeded}

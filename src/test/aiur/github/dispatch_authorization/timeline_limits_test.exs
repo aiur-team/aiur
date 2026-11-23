@@ -135,6 +135,18 @@ defmodule Aiur.GitHub.DispatchAuthorization.TimelineLimitsTest do
       assert_received {:events_requested, _path}
     end
 
+    # open-games, 2026-11-23: the events read returned the timeline walk's newer
+    # result shape and crashed every resume and status poll of a ticket with a
+    # long history. A history past four pages must still be read to the end.
+    test "authorizes from issue events that run past four pages" do
+      label = labeled_event(9_000, "agent:todo", "trusted", "2026-01-02T00:00:00Z")
+      history = for id <- 1..450, do: labeled_event(id, "area:engine", "trusted", "2026-01-01T00:00:00Z")
+
+      authorized = authorize_split(fat_comment_timeline(450, 10) ++ [label], history ++ [label])
+
+      assert authorized.dispatch_authorized?
+    end
+
     # The fallback reads label evidence, it does not skip it: the newest applier
     # in the issue events still decides.
     test "an untrusted latest applier in the issue events is still not authorized" do
