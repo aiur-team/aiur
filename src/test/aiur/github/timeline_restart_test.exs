@@ -82,19 +82,27 @@ defmodule Aiur.GitHub.TimelineRestartTest do
            end).dispatch_authorized?
   end
 
-  test "multi-page persisted evidence cannot use a page-one validator" do
-    next = ~s(<https://api.github.com/repos/owner/repo/issues/42/timeline?per_page=50&page=2>; rel="next")
+  test "multi-page persisted evidence revalidates each page with its own validator" do
+    page_2 = "https://api.github.com/repositories/7/issues/42/timeline?per_page=50&page=2"
+    link = {"link", ~s(<#{page_2}>; rel="next")}
 
     assert authorize(fn request ->
-             if request.url =~ "page=2", do: response("trusted"), else: {:ok, %{status: 200, body: [], headers: [{"etag", "timeline-v1"}, {"link", next}]}}
+             if request.url == page_2,
+               do: put_etag(response("trusted"), "p2"),
+               else: {:ok, %{status: 200, body: [], headers: [{"etag", "p1"}, link]}}
            end).dispatch_authorized?
 
     assert {:ok, %{data: %{"single_page" => false}}} = ResourceStore.fetch(ResourceStore.key(:issue_timeline, "owner", "repo", 42))
     reboot()
 
     refute authorize(fn request ->
-             refute Map.has_key?(request, :etag)
-             response("outsider")
+             if request.url == page_2 do
+               assert request.etag == "p2"
+               response("outsider")
+             else
+               assert request.etag == "p1"
+               {:ok, %{status: 304, headers: [link]}}
+             end
            end).dispatch_authorized?
   end
 
@@ -166,6 +174,8 @@ defmodule Aiur.GitHub.TimelineRestartTest do
     event = %{"id" => 10, "event" => "labeled", "label" => %{"name" => "agent:todo"}, "actor" => %{"login" => actor}, "created_at" => "2026-01-01T00:00:00Z"}
     {:ok, %{status: 200, body: [event], headers: [{"etag", "timeline-v1"}]}}
   end
+
+  defp put_etag({:ok, response}, etag), do: {:ok, %{response | headers: [{"etag", etag}]}}
 
   defp reboot do
     :ok = ResourceStore.flush()

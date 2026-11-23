@@ -81,8 +81,10 @@ When the no-op turn bound or normal turn limit stops an agent, a newly opened or
 moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
 finishes, the ticket goes to `human-review`.
 
-At the no-op bound, verified rework with no new PR head becomes `error`. Other
-no-op-bound tickets keep their state and receive an alert. A normal turn limit
+At the no-op bound, verified rework with no new PR head becomes `error`, and so
+does a ticket whose open PR fails the PR body check, such as a draft. Kept
+active, it would be redispatched into the same no-op turns. Other no-op-bound
+tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
@@ -116,6 +118,14 @@ A worker's `human-review` handback
 goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
+
+A draft PR cannot enter `ci-wait` or `human-review`. The one exception is a
+draft blocked from outside the ticket, such as a stop rule or a gate the ticket
+cannot pass.
+
+The worker passes the cause as `outside_blocker`, the ticket goes to
+`human-review` with its PR still a draft, and the reviewer gets a
+`ticket.<id>.agent.draft_handoff` alert naming the PR and the cause.
 
 The state tool reports the applied `state` and the
 `requested_state` separately. An approval redirect includes

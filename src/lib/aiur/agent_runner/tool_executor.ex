@@ -154,14 +154,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, []))
         end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
-        ticket_state_setter: fn state_name, review_findings ->
+        ticket_state_setter: fn state_name, review_findings, outside_blocker ->
           TicketStateSetter.write(
             issue,
             state_name,
             coordination,
             workspace,
             worker_host,
-            Keyword.put(opts, :review_findings, review_findings),
+            opts |> Keyword.put(:review_findings, review_findings) |> Keyword.put(:outside_blocker, outside_blocker),
             &ToolCoordination.ticket_coordination_key/1,
             &ToolCoordination.coordination_operation_opts/1
           )
