@@ -476,13 +476,18 @@ budget_start_renewal() {
   budget_renew_interval=$((budget_lease_ttl_ms / 3 / 1000))
   [ "$budget_renew_interval" -gt 0 ] || budget_renew_interval=1
 
+  # The renewer stops with the call that owns the lease. A call killed before its
+  # release (a deadline, a killed agent) left this loop renewing forever, and two
+  # such leases filled the token's `pulls` slots for every daemon and agent.
+  # `$$` in the subshell is the owning shell's pid.
+  budget_renewal_owner=$$
   (
-    while sleep "$budget_renew_interval"; do
+    while sleep "$budget_renew_interval" && kill -0 "$budget_renewal_owner" 2>/dev/null; do
       budget_command renew --lease-id "$budget_lease" --lease-ttl-ms "$budget_lease_ttl_ms" >/dev/null 2>&1 || exit 0
     done
   ) >/dev/null 2>&1 &
   budget_renewal_pid=$!
-  unset budget_renew_interval
+  unset budget_renew_interval budget_renewal_owner
 }
 
 budget_hold() {
