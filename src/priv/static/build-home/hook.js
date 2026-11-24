@@ -22,6 +22,7 @@ import './band.js';
 import './states.js';
 import './list.js';
 import './build-order.js';
+import './kanban.js';
 import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
 import './modal/live.js';

@@ -85,6 +85,7 @@ function relayoutImpl({ live = false } = {}) {
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
   syncHistory();
   if (S.view === 'list') return fx.renderList();
+  if (S.view === 'kanban') return fx.renderKanban();
   if (!ctx.content) viewport();
   const dims = { vpW: ctx.vp.clientWidth, vpH: ctx.vp.clientHeight, gut: gutW() };
   Object.assign(S, measureFlow(ctx.D, dims));
@@ -168,7 +169,7 @@ function renderSection(s, keep, keepL, focused) {
   return created;
 }
 function updateImpl(force) {
-  if (!ctx.L || !ctx.content || S.loading || S.view === 'list' || S.view === 'build-order') return;
+  if (!ctx.L || !ctx.content || S.loading || S.view === 'list' || S.view === 'kanban' || S.view === 'build-order') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;

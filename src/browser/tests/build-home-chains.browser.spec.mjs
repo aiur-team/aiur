@@ -356,7 +356,7 @@ test('B11 Escape closes the ticket before the dependency tree', async ({ page })
 test('B12 browser Back disabling trees clears a lock', async ({ page }) => {
   await open(page, { trees: false })
   await page.evaluate(() => window.liveSocket.pushHistoryPatch(new Event('click'), '/build', 'push', null))
-  await expect(page).toHaveURL(/\/build$/)
+  await expect(page).toHaveURL(/\/build(\?view=graph)?$/)
   await page.evaluate(() => window.liveSocket.pushHistoryPatch(new Event('click'), '/build?trees=1', 'push', null))
   await expect.poll(() => page.evaluate(() => st.S.trees)).toBe(true)
   await lock(page, '9012')

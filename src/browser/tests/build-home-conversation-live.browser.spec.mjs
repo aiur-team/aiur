@@ -309,7 +309,7 @@ test('L23: three reopens retain one live registration set and one map rebuild fo
   const ticket = await page.evaluate(() => window.buildConversation.MS.t)
   for (let i = 0; i < 3; i++) {
     await page.locator('#bd-tk-close').click()
-    await expect(page).toHaveURL(/\/build$/)
+    await expect(page).toHaveURL(/\/build(\?view=graph)?$/)
     expect(await page.evaluate(() => ({
       listeners: window.liveAudit.listeners.filter(r => r.active && !r.target.isConnected).length,
       observers: window.liveAudit.observers.flatMap(o => [...o.targets]).filter(el => /^cv-/.test(el.id) && !el.isConnected).length,

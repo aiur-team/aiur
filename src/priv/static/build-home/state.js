@@ -9,10 +9,11 @@ export const onReset = fn => resets.push(fn);
 export function resetState(urlState = {}) {
   for (const key of Object.keys(S)) delete S[key];
   Object.assign(S, {
-    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus', fsort: 'goal',
+    view: 'kanban', list: 'tickets', span: 1, feature: null, fmode: 'focus', fsort: 'goal',
     f: { type: [], model: [], feature: [], lane: [], tstate: [], astate: [] },
     pop: null, loading: true, ready: false, flow: false, K: 2,
     density: 'card', trees: false, liveMin: false, ticket: null,
+    kCols: null, kSize: null, kDone: null,
   });
   fromServer(urlState);
   for (const key of Object.keys(ctx)) delete ctx[key];
@@ -56,7 +57,7 @@ export const fx = {
   activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
-  drawEdges() {}, renderBand() {}, renderList() {}, mountBuildOrder() {}, openModal() {}, onHover() {}, setHover() {},
+  drawEdges() {}, renderBand() {}, renderList() {}, renderKanban() {}, mountBuildOrder() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
   appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, disposeLive() {}, conversationApplied() {}, updateTyping() {}, onConversation() {}, reconnectConversation() {},
   renderCommand() {}, placeCommand() {},

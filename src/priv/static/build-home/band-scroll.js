@@ -35,7 +35,7 @@ export function scrollVP(y, smooth) {
   ctx.life.frame('scrollVP:' + seq, step);
 }
 export function jumpNow(instant) {
-  if (S.view === 'list') { scrollVP(0, !instant); return; }
+  if (S.view === 'list' || S.view === 'kanban') { scrollVP(0, !instant); return; }
   if (!ctx.secs.hist || !ctx.L) return;
   scrollVP(ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - LH, !instant);
   if (instant) fx.update();

@@ -47,6 +47,8 @@ function lane(key) {
   return { key: 'unsorted', unsorted: true };
 }
 export function cardDetail(it) {
+  // A Kanban card's tier is the board's size choice, not a timeline geometry.
+  if (it.kb) return it.det;
   const L = ctx.L;
   if (!it.gantt && !it.gt && !(S.view === 'gantt' && it.sec === 'hist')) return L.det;
   const fs = L.fs, tiers = ['bar', 'mini', 'line', 'full'];
@@ -110,7 +112,7 @@ export function makeCard(it) {
   if (hue !== null) el.style.setProperty('--h', hue);
   if (e.unsorted && hue === null) el.style.setProperty('--ec', 'var(--muted)');
   if (pg?.known) { el.style.setProperty('--pct', t.pct + '%'); el.style.setProperty('--ph', Math.round(42 + t.pct * 1.03)); }
-  if ((det === 'mini' && it.h > 34) || (det === 'line' && it.h > 3.2 * ctx.L.fs)) el.classList.add('tall');
+  if (!it.kb && ((det === 'mini' && it.h > 34) || (det === 'line' && it.h > 3.2 * ctx.L.fs))) el.classList.add('tall');
   const glow = glowHTML(t), sr = srHTML(t, ctx.snap);
   const id = isUnfiled(t) ? '<span title="Not filed yet">—</span>' : '#' + number(t.num, 'num', 'Ticket number unknown');
   const tip = refText(t) + ' · ' + t.title + (ag ? ' · ' + ag.label : '') + (startUnknown ? ' · start unknown' : '') + (estUnknown ? ' · estimate unknown' : '');
