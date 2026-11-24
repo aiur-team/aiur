@@ -17,13 +17,48 @@ defmodule Aiur.AlertFeed do
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
     opts
-    |> AlertLedger.paths()
-    |> Enum.flat_map(&read_alerts(&1, opts))
-    |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
-    |> collapse_repeated_resolutions()
-    |> Projection.resolve()
+    |> projected()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
     |> maybe_filter_agents(Keyword.get(opts, :agents))
+  end
+
+  # The orchestrator reads the feed several times a minute and it changes about once a
+  # minute. Decoding and projecting a full 8 MiB ledger each time held the orchestrator
+  # past control-call deadlines under CPU pressure (open-games, 2026-11-24), so a
+  # caller reuses its projection until a ledger file's inode, size or mtime changes.
+  @projection_cache {__MODULE__, :projection}
+
+  defp projected(opts) do
+    paths = AlertLedger.paths(opts)
+    key = {paths, Enum.map(paths, &identity/1), Keyword.take(opts, [:strict, :roots, :max_bytes]), configured_workspace_root()}
+
+    case Process.get(@projection_cache) do
+      {^key, alerts} ->
+        alerts
+
+      _stale ->
+        alerts =
+          paths
+          |> Enum.flat_map(&read_alerts(&1, opts))
+          |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
+          |> collapse_repeated_resolutions()
+          |> Projection.resolve()
+
+        Process.put(@projection_cache, {key, alerts})
+        alerts
+    end
+  end
+
+  # Raw, so the check never queues behind the node's file server.
+  defp identity(path) do
+    case :file.read_file_info(String.to_charlist(path), [:raw, {:time, :posix}]) do
+      {:ok, info} ->
+        %File.Stat{inode: inode, size: size, mtime: mtime} = File.Stat.from_record(info)
+        {inode, size, mtime}
+
+      {:error, reason} ->
+        {:missing, reason}
+    end
   end
 
   @doc false
