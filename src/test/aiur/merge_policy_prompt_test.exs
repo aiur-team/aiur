@@ -32,6 +32,10 @@ defmodule Aiur.MergePolicyPromptTest do
     assert partial =~ "tests that still use a name you deleted"
     assert partial =~ "may merge before CI finishes"
     assert partial =~ "missing or stale `Local tests` section"
+
+    external = MergePolicyPrompt.build(%{local_tests: "partial", ci: "external"})
+    assert external =~ "CI is external"
+    assert external =~ "move straight to `agent:human-review`; do not use `agent:ci-wait`"
   end
 
   test "cold, resumed, rework and subsequent turns use current config", %{path: path} do

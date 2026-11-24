@@ -4,10 +4,15 @@ defmodule Aiur.UsageLedger.Recovery do
   alias Aiur.{Config, Fs, Journal}
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor, RetiredRecovery}
 
+  # The checkpoint carries the retained counter state: absolute high-water
+  # marks and stream kinds keyed by ~400-byte identities, one set per
+  # session/thread/model. It reached 1 MiB after about 15k appends on busy
+  # nodes, so 1 MiB left no headroom; 8 MiB does, and an oversized checkpoint
+  # now backs off and alerts instead of blocking appends.
   @default_limits %{
     max_record_bytes: 32_768,
     max_segment_bytes: 16_777_216,
-    max_checkpoint_bytes: 1_048_576,
+    max_checkpoint_bytes: 8_388_608,
     max_idempotency_entries: 50_000
   }
 
