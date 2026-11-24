@@ -118,7 +118,8 @@ test('fixture endpoint picks only known datasets and carries query strings', asy
   for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'hold', 'unavailable']) {
     const response = await request.get(`/build-fixture/${dataset}?ticket=12`, { maxRedirects: 0 })
     expect(response.status()).toBe(302)
-    expect(response.headers().location).toBe('/build?ticket=12')
+    // Fixture pages open the timeline; Kanban is the product default.
+    expect(response.headers().location).toBe('/build?ticket=12&view=graph')
   }
   for (const dataset of ['manifest', 'usage-sets', 'nope', '..%2Flive']) {
     expect((await request.get(`/build-fixture/${dataset}`, { maxRedirects: 0 })).status()).toBe(404)

@@ -383,7 +383,7 @@ test('a feature outside the six filter options focuses from its URL without pagi
 test('reduced motion disables the focus fade and retains design inner color timing', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.request.get('/build-fixture/live')
-  await page.goto('/?feature=pag')
+  await page.goto('/?view=graph&feature=pag')
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
   const fade = await page.locator('.bd-card').first().evaluate(el => Math.max(...getComputedStyle(el).transitionDuration.split(',').map(parseFloat)))
   expect(fade).toBeLessThanOrEqual(0.00001)
