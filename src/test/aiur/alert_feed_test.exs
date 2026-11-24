@@ -444,6 +444,27 @@ defmodule Aiur.AlertFeedTest do
              AlertFeed.list_decision_attentions(ledger_paths: [ledger])
   end
 
+  # open-games, 2026-11-24: each orchestrator read decoded and projected the whole 8 MiB
+  # ledger, holding control calls past their deadline under CPU pressure.
+  test "an unchanged ledger is projected once per reader", %{ledger: ledger} do
+    write_ledger!(ledger, alert_line("ticket.42.agent.paused", "2026-06-25T01:00:00Z", true, "paused"))
+
+    first = AlertFeed.list(ledger_paths: [ledger])
+    again = AlertFeed.list(ledger_paths: [ledger])
+
+    assert :erts_debug.same(first, again)
+    assert [%{"topic" => "ticket.42.agent.paused"}] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+  end
+
+  test "an appended alert reaches the next read", %{ledger: ledger} do
+    write_ledger!(ledger, alert_line("ticket.42.agent.paused", "2026-06-25T01:00:00Z", true, "paused"))
+    assert [_] = AlertFeed.list(ledger_paths: [ledger])
+
+    File.write!(ledger, alert_line("ticket.43.agent.paused", "2026-06-25T01:01:00Z", true, "paused"), [:append])
+
+    assert ["ticket.42.agent.paused", "ticket.43.agent.paused"] = Enum.map(AlertFeed.list(ledger_paths: [ledger]), & &1["topic"])
+  end
+
   defp write_ledger!(path, contents) do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, contents)
