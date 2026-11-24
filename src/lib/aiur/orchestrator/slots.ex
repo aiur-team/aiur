@@ -389,9 +389,27 @@ defmodule Aiur.Orchestrator.Slots do
     fleet_slot_available? =
       if is_integer(reservation_limit),
         do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0,
-        else: available_slots(state) > slot_waiters(state, issue.id)
+        else: available_slots(state) > slot_waiters(state, issue.id) + retry_holds(state, issue)
 
     fleet_slot_available? and DispatchPolicy.state_slots_available?(issue, state)
+  end
+
+  # A higher-priority ticket whose agent just failed is retried after a short backoff.
+  # Its freed slot went to the next fresh candidate in that gap, and the retry then
+  # waited for capacity behind lower-priority work (open-games #4 behind #996,
+  # 2026-11-24). Retries due within this window keep a slot from lower-priority
+  # candidates; longer waits (budget holds, dependencies) hold nothing.
+  @retry_hold_window_ms 60_000
+
+  defp retry_holds(state, %Issue{id: issue_id, priority: priority}) do
+    rank = DispatchPolicy.priority_rank(priority)
+    due_by = System.monotonic_time(:millisecond) + @retry_hold_window_ms
+
+    Enum.count(state.retry_attempts, fn {id, retry} ->
+      id != issue_id and not Map.has_key?(state.running, id) and
+        DispatchPolicy.priority_rank(Map.get(retry, :priority)) < rank and
+        is_integer(Map.get(retry, :due_at_ms)) and retry.due_at_ms <= due_by
+    end)
   end
 
   # A usage-limit pause releases its slot, but once it is ready to reroute or

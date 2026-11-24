@@ -160,6 +160,7 @@ defmodule Aiur.ControlCLI.Reasons do
         park_pending: "park marker write is still pending; wait for it before resume",
         park_marker_clear_failed: "park marker could not be cleared",
         agent_not_paused: "agent is not paused; pause it first",
+        pause_pending: "the pause has not reached the agent yet; retry when `aiur status` shows it paused",
         resume_pending: "a resume is pending for this agent",
         reservation_not_held: "this operation requires an active fleet reservation",
         worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
