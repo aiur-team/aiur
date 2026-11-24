@@ -3,7 +3,7 @@ import { openVisualRoute } from '../support/visual.mjs'
 import { selectProductDataset } from '../support/build-home-product.mjs'
 
 test('harness self-check: live ticket shimmer keeps its phase across a live diff', async ({ page }) => {
-  await openVisualRoute(page, { theme: 'dark', palette: 'gruvbox', route: '/build', mode: 'writable' })
+  await openVisualRoute(page, { theme: 'dark', palette: 'gruvbox', route: '/build?view=graph', mode: 'writable' })
   await selectProductDataset(page, 'live')
   const card = page.locator('.bd-card.ag-active').first()
   await expect(card).toBeVisible()
