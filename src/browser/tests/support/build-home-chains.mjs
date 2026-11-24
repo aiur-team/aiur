@@ -23,7 +23,7 @@ export async function open(page, { trees = true, dataset = 'chains', modal = fal
   if (trees || minimize) {
     // Nested fixture forwarding drops queries; navigate the real LiveView URL.
     await page.evaluate(({ trees, minimize }) => {
-      const query = new URLSearchParams()
+      const query = new URLSearchParams({ view: 'graph' })
       if (trees) query.set('trees', '1')
       if (minimize) query.set('live', 'min')
       window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?' + query, null)

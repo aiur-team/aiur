@@ -184,7 +184,8 @@ test('real LiveView URL history and server diff retain selected view and focused
   await expect(page).toHaveURL(/\?view=gantt$/)
   // Toolbar URL writes deliberately replace the current entry (BuildLive.patch_url).
   await page.getByRole('tab', { name: 'Timeline' }).click()
-  await expect(page).toHaveURL(/\/build$/)
+  // Kanban is the default, so the timeline is named in the URL.
+  await expect(page).toHaveURL(/\/build\?view=graph$/)
   await page.evaluate(() => {
     const link = document.createElement('a'); link.href = '/build?view=gantt'; link.textContent = 'History Gantt'
     link.setAttribute('data-phx-link', 'patch'); link.setAttribute('data-phx-link-state', 'push'); document.body.prepend(link)

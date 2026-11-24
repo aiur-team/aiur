@@ -16,7 +16,7 @@ export async function runTarget({ page, baseURL, record }) {
   const frames = { resync: null, loadEarlier: 0, events: [] }
   page.on('websocket', socket => observeFrames(socket, frames))
   await page.addInitScript(() => sessionStorage.setItem('bd-perf', '1'))
-  await page.goto(new URL('/', baseURL).href)
+  await page.goto(new URL('/?view=graph', baseURL).href)
   await page.locator('#build-root').waitFor({ state: 'attached', timeout: 30_000 })
   await page.locator('#bd-content .bd-card').first().waitFor({ state: 'visible', timeout: 30_000 })
 
