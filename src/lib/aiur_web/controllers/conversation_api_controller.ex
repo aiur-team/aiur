@@ -39,6 +39,50 @@ defmodule AiurWeb.ConversationApiController do
     end
   end
 
+  @thread_kinds ~w(message operator_message)
+
+  @doc "A ticket's operator/agent message thread, oldest first, with Command anchors in the same span."
+  @spec thread(Conn.t(), map()) :: Conn.t()
+  def thread(conn, %{"issue_identifier" => ticket} = params) do
+    with {:ok, opts} <- ConversationApiParams.thread(params),
+         {:ok, id} <- thread_conversation(resolve_worker(nil, nil, ticket)),
+         {:ok, page} <- History.list_entries(id, opts ++ [kinds: @thread_kinds, principal: principal(conn)]) do
+      after_pos = Keyword.fetch!(opts, :after)
+      next_after = page.next_cursor || page.head_pos
+      entries = for(%{kind: kind} = entry <- page.entries, kind in @thread_kinds, do: thread_entry(entry)) ++ command_entries(id, after_pos, next_after)
+
+      json(conn, %{
+        issue_identifier: ticket,
+        conversation_id: id,
+        entries: Enum.sort_by(entries, & &1.pos),
+        next_after: next_after,
+        head_pos: page.head_pos,
+        observed_at: page.observed_at
+      })
+    else
+      {:error, :ambiguous_subject, _ids} = error -> resolved(conn, error, "worker")
+      error -> failure(conn, error)
+    end
+  end
+
+  defp thread_conversation({:error, :not_found}), do: {:error, :thread_not_found}
+  defp thread_conversation(result), do: result
+
+  defp thread_entry(entry) do
+    refs = entry.refs || %{}
+    %{pos: entry.pos, role: entry.role, kind: entry.kind, text: entry.body, at: entry.occurred_at || entry.observed_at, delivery_id: refs[:delivery_id] || refs["delivery_id"]}
+  end
+
+  # Anchors are an overlay: a missing or unreadable anchors file leaves the thread readable.
+  defp command_entries(id, after_pos, last_pos) when last_pos > after_pos do
+    case History.list_anchors(id, kinds: ["command_requested"], pos_range: {after_pos + 1, last_pos}) do
+      {:ok, anchors} -> for %{"pos" => pos} = anchor <- anchors, do: %{pos: pos, kind: "command", decision_id: get_in(anchor, ["subject_ref", "decision_id"])}
+      _unavailable -> []
+    end
+  end
+
+  defp command_entries(_id, _after_pos, _last_pos), do: []
+
   @spec resolve(Conn.t(), map()) :: Conn.t()
   def resolve(conn, params) do
     case ConversationApiParams.subject(params) do
@@ -78,6 +122,7 @@ defmodule AiurWeb.ConversationApiController do
     end
   end
 
+  # A nil owner or repository matches any: the ticket thread route knows only the identifier.
   defp resolve_worker(owner, repository, identifier) do
     # The current Units projection can carry a newer display locator than subject.json.
     units = EndpointConfig.get(:conversation_units_fun, fn -> Map.get(PayloadLoader.load(:cached), :units, %{}) end)
@@ -86,10 +131,8 @@ defmodule AiurWeb.ConversationApiController do
 
     current =
       for %{identity: identity} <- rows,
-          is_binary(identity.owner),
-          is_binary(identity.repository),
-          String.downcase(identity.owner) == String.downcase(owner),
-          String.downcase(identity.repository) == String.downcase(repository),
+          same?(identity.owner, owner),
+          same?(identity.repository, repository),
           identity.identifier == identifier,
           {:ok, ref} <- [Ref.worker(identity)],
           do: Ref.conversation_id(ref)
@@ -104,6 +147,9 @@ defmodule AiurWeb.ConversationApiController do
       error -> error
     end
   end
+
+  defp same?(actual, nil), do: is_binary(actual)
+  defp same?(actual, wanted), do: is_binary(actual) and String.downcase(actual) == String.downcase(wanted)
 
   defp unique_subject(ids) do
     case Enum.sort(Enum.uniq(ids)) do
@@ -143,6 +189,7 @@ defmodule AiurWeb.ConversationApiController do
       case reason do
         :not_found -> {404, "conversation_not_found"}
         :subject_not_found -> {404, "subject_not_found"}
+        :thread_not_found -> {404, "thread_not_found"}
         :unavailable -> {503, "conversation_unavailable"}
         :method_not_allowed -> {405, "method_not_allowed"}
         reason when reason in [:invalid_cursor, :invalid_limit, :invalid_subject, :invalid_range, :invalid_kinds] -> {422, Atom.to_string(reason)}

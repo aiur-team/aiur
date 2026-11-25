@@ -11,6 +11,17 @@ defmodule AiurWeb.ConversationApiParams do
     end
   end
 
+  @doc "`after` defaults to 0, so an unparameterised read starts at the oldest message. Validated before the ticket resolves."
+  @spec thread(map()) :: {:ok, keyword()} | {:error, atom()}
+  def thread(params) do
+    with {:ok, cursor} <- numbers(params, [:after], :invalid_cursor),
+         {:ok, limit} <- numbers(params, [:limit], :invalid_limit) do
+      if Keyword.get(limit, :limit, 50) in 1..200,
+        do: {:ok, [after: Keyword.get(cursor, :after, 0)] ++ limit},
+        else: {:error, :invalid_limit}
+    end
+  end
+
   @spec anchors(map()) :: {:ok, keyword()} | {:error, atom()}
   def anchors(params) do
     with {:ok, range} <- numbers(params, [:pos_from, :pos_to], :invalid_range),
