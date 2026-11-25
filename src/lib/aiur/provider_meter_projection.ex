@@ -25,6 +25,7 @@ defmodule Aiur.ProviderMeterProjection do
 
   alias Aiur.Instance.LeaseStore
   alias Aiur.ProviderMeterProjection.SharedRefresh
+  alias Aiur.ProviderMeterProjection.Windows
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
@@ -322,14 +323,14 @@ defmodule Aiur.ProviderMeterProjection do
     )
   end
 
-  defp project_view(view, snapshot, _provider, _now, probe_status, state) do
+  defp project_view(view, snapshot, _provider, now, probe_status, state) do
     freshness = observation_freshness(snapshot, view.age_seconds, state.probe_interval_seconds)
 
     %{
       view
       | freshness: freshness,
         plan: project_plan(view.plan, freshness),
-        windows: project_windows(view.windows, freshness),
+        windows: Windows.project(view.windows, freshness, now),
         health: projected_health(view.health, snapshot, freshness, probe_status)
     }
   end
@@ -345,16 +346,10 @@ defmodule Aiur.ProviderMeterProjection do
         age_seconds: age,
         freshness: freshness,
         health: health,
-        windows: project_windows(snapshot.windows, freshness),
+        windows: Windows.project(snapshot.windows, freshness, now),
         plan: project_plan(snapshot.plan, freshness)
     }
   end
-
-  defp project_windows(windows, :stale) when is_map(windows) do
-    Map.new(windows, fn {limit_id, window} -> {limit_id, Map.put(window, :freshness, :stale)} end)
-  end
-
-  defp project_windows(windows, _freshness), do: windows
 
   defp project_plan(plan, :stale) when is_map(plan), do: Map.put(plan, :freshness, :stale)
   defp project_plan(plan, _freshness), do: plan

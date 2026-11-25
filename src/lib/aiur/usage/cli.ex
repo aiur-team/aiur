@@ -44,14 +44,14 @@ defmodule Aiur.Usage.CLI do
 
   @spec render(map(), binary() | nil) :: String.t()
   def render(%{"providers" => snapshot}, nil) do
-    header = ["PROVIDER  FRESHNESS  AGE       SOURCE"]
+    header = ["PROVIDER  FRESHNESS  AGE       SOURCE                     NEXT_CHECK"]
     rows = Enum.map(Aiur.Usage.providers(), fn provider -> row(provider, Map.fetch!(snapshot, Atom.to_string(provider))) end)
     Enum.join(header ++ rows ++ UsageReadings.failure_lines(), "\n")
   end
 
   def render(payload, provider) do
     item = payload["provider"]
-    header = "#{provider}  #{item["freshness"] || "unknown"}  #{age(item["age_ms"])}  #{item["source"] || "unknown"}"
+    header = "#{provider}  #{item["freshness"] || "unknown"}  #{age(item["age_ms"])}  #{item["source"] || "unknown"}  next_check #{next_check(item)}"
     details = item["fields"] |> Enum.sort_by(&elem(&1, 0)) |> Enum.map_join("\n", fn {key, value} -> "  #{key}: #{inspect(value)}" end)
     details = if provider == "netlify", do: netlify_summary(item["fields"]) <> if(details == "", do: "", else: "\n" <> details), else: details
     details = if provider == "openrouter", do: openrouter_summary(item["fields"]), else: details
@@ -130,7 +130,13 @@ defmodule Aiur.Usage.CLI do
     end
   end
 
-  defp row(provider, record), do: "#{String.pad_trailing(to_string(provider), 8)}  #{String.pad_trailing(to_string(record["freshness"]), 10)}  #{age(record["age_ms"])}  #{record["source"]}"
+  defp row(provider, record),
+    do:
+      "#{String.pad_trailing(to_string(provider), 8)}  #{String.pad_trailing(to_string(record["freshness"]), 10)}  #{age(record["age_ms"])}  #{String.pad_trailing(to_string(record["source"]), 25)}  #{next_check(record)}"
+
+  # When the refresher will next re-read the provider; "-" when nothing schedules it.
+  defp next_check(%{"fields" => %{"next_check_at" => at}}) when is_binary(at), do: at
+  defp next_check(_record), do: "-"
   defp age(age) when is_integer(age), do: "#{age}ms"
   defp age(_), do: "unknown"
 end
