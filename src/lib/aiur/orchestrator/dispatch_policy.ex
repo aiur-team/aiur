@@ -255,14 +255,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state, active_states, terminal_states, blocked_ticket_ids) do
     case dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) do
-      :dispatch ->
-        case Slots.dispatch_slot_decision(issue, state) do
-          :ok -> :dispatch
-          reason -> {:skip, reason}
-        end
-
-      {:skip, _reason} = declined ->
-        declined
+      :dispatch -> Slots.dispatch_slot_decision(issue, state)
+      {:skip, _reason} = declined -> declined
     end
   end
 

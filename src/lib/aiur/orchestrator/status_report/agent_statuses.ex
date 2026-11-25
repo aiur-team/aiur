@@ -12,7 +12,6 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
-  alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.ReservedSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
@@ -288,7 +287,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         idle_reason(waiting_reason, identifier, fn ->
           cond do
             waiting_reason in [:optimistic_share, :queue_set_order, :reserved_slot] ->
-              slot_wait_reason(waiting_reason, issue, state)
+              ReservedSlots.slot_wait_reason(waiting_reason, issue, state)
 
             owner = Issue.executor_owner(issue) ->
               {:executor_owned, owner}
@@ -411,9 +410,6 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     do: :claim_released
 
   def idle_evidence_waiting_reason(%{waiting_reason: fallback}, _release), do: fallback
-
-  defp slot_wait_reason(:reserved_slot, issue, state), do: ReservedSlots.waiting_text(issue, state)
-  defp slot_wait_reason(reason, issue, state), do: QueueSetSlots.waiting_reason(reason, issue.id, state)
 
   defp idle_status_reason(
          _work_state,

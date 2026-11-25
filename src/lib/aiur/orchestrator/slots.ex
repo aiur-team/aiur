@@ -362,28 +362,28 @@ defmodule Aiur.Orchestrator.Slots do
   def resume_worker_slot_available?(%State{}, _worker_host), do: true
 
   @spec dispatch_slots_available?(Issue.t(), State.t()) :: boolean()
-  def dispatch_slots_available?(%Issue{} = issue, %State{} = state), do: dispatch_slot_decision(issue, state) == :ok
+  def dispatch_slots_available?(%Issue{} = issue, %State{} = state), do: dispatch_slot_decision(issue, state) == :dispatch
 
   @doc "Whether `issue` may take a fleet slot now, and if not, whether a label reserve (`agent.reserved_slots`) is what refuses it."
-  @spec dispatch_slot_decision(Issue.t(), State.t()) :: :ok | :fleet_capacity | :reserved_slot
+  @spec dispatch_slot_decision(Issue.t(), State.t()) :: :dispatch | {:skip, :fleet_capacity | :reserved_slot}
   def dispatch_slot_decision(%Issue{} = issue, %State{} = state) do
     reservation_limit = Map.get(state.priority_dispatch_reservations, issue.id)
 
     fleet =
       if is_integer(reservation_limit),
-        do: if(used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0, do: :ok, else: :fleet_capacity),
+        do: if(used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0, do: :dispatch, else: {:skip, :fleet_capacity}),
         else: unreserved_slot_decision(issue, state)
 
-    if fleet == :ok and not DispatchPolicy.state_slots_available?(issue, state), do: :fleet_capacity, else: fleet
+    if fleet == :dispatch and not DispatchPolicy.state_slots_available?(issue, state), do: {:skip, :fleet_capacity}, else: fleet
   end
 
   defp unreserved_slot_decision(issue, state) do
     free = available_slots(state) - slot_waiters(state, issue.id)
 
     cond do
-      free <= 0 -> :fleet_capacity
-      free <= ReservedSlots.held_for_others(issue, state) -> :reserved_slot
-      true -> :ok
+      free <= 0 -> {:skip, :fleet_capacity}
+      free <= ReservedSlots.held_for_others(issue, state) -> {:skip, :reserved_slot}
+      true -> :dispatch
     end
   end
 

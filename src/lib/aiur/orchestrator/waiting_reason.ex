@@ -125,9 +125,6 @@ defmodule Aiur.Orchestrator.WaitingReason do
     Map.put(row, :waiting, waiting)
   end
 
-  defp reserved_slot_wait(%{waiting_reason: :reserved_slot, issue_id: id}, state), do: ReservedSlots.waiting_text(state.last_polled_issues[id], state)
-  defp reserved_slot_wait(_row, _state), do: nil
-
   defp wait_facts(row, state, now) do
     release = Map.get(state.released_claims, row.issue_id) || %{}
     resume = Map.get(state.auto_resume, row.issue_id) || %{}
@@ -135,7 +132,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     %{
       queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
-      reserved_slot_wait: reserved_slot_wait(row, state),
+      reserved_slot_wait: ReservedSlots.wait_fact(row, state),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
@@ -292,30 +289,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def for_retry, do: :backing_off
 
   @spec render(t()) :: String.t()
-  def render(:waiting_for_human), do: "waiting_for_human"
-  def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
-  def render(:queue_set_order), do: "queue_set_order"
-  def render(:optimistic_share), do: "optimistic_share"
-  def render(:reserved_slot), do: "reserved_slot"
-  def render(:waiting_for_dependency), do: "waiting_for_dependency"
-  def render(:waiting_for_ci), do: "waiting_for_ci"
-  def render(:waiting_for_review), do: "waiting_for_review"
-  def render(:paused), do: "paused"
-  def render(:run_paused), do: "run_paused"
-  def render(:awaiting_dispatch), do: "awaiting_dispatch"
-  def render(:paused_operator), do: "paused_operator"
-  def render(:paused_transient), do: "paused_transient"
-  def render(:provider_limited), do: "provider_limited"
-  def render(:latched_lifetime), do: "latched_lifetime"
-  def render(:tracker_unavailable), do: "tracker_unavailable"
-  def render(:backing_off), do: "backing_off"
-  def render(:unresponsive), do: "unresponsive"
-  def render(:claim_released), do: "claim_released"
-  def render(:orphaned_claim), do: "orphaned_claim"
-  def render(:workspace_ownership_waiting), do: "workspace_ownership_waiting"
-  def render(:stale_claim), do: "stale_claim"
-  def render(:active), do: "active"
-  def render(other), do: to_string(other)
+  def render(reason), do: to_string(reason)
 
   @doc """
   Classifies a tracker-active row with no live running process.

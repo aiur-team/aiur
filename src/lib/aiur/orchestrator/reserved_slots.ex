@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.ReservedSlots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots, State}
 
   @doc "Slots `issue` must leave free for labels it does not carry."
   @spec held_for_others(Issue.t(), State.t()) :: non_neg_integer()
@@ -31,13 +31,23 @@ defmodule Aiur.Orchestrator.ReservedSlots do
   def waiting_text(%Issue{} = issue, %State{} = state), do: waiting(issue, state) || generic()
   def waiting_text(_issue, _state), do: generic()
 
+  @doc "Status text for a ticket declined for a slot by a queue set, optimistic share or a label reserve."
+  @spec slot_wait_reason(:optimistic_share | :queue_set_order | :reserved_slot, Issue.t(), State.t()) :: String.t()
+  def slot_wait_reason(:reserved_slot, issue, state), do: waiting_text(issue, state)
+  def slot_wait_reason(reason, issue, state), do: QueueSetSlots.waiting_reason(reason, issue.id, state)
+
+  @doc "The `reserved_slot_wait` fact of a waiting row; nil unless the row waits on a reserve."
+  @spec wait_fact(map(), State.t()) :: String.t() | nil
+  def wait_fact(%{waiting_reason: :reserved_slot, issue_id: id}, state), do: waiting_text(state.last_polled_issues[id], state)
+  def wait_fact(_row, _state), do: nil
+
   defp generic, do: "reserved_slot: waiting for a slot held for a labelled ticket"
 
   defp holds(issue, state) do
     own = labels(issue)
 
     for {label, count} <- Enum.sort(Config.settings!().agent.reserved_slots),
-        not MapSet.member?(own, label),
+        label not in own,
         held = outstanding(label, count, state),
         held > 0,
         do: {label, held}
@@ -56,9 +66,9 @@ defmodule Aiur.Orchestrator.ReservedSlots do
     end)
   end
 
-  defp carries?(%Issue{} = issue, label), do: MapSet.member?(labels(issue), label)
+  defp carries?(%Issue{} = issue, label), do: label in labels(issue)
   defp carries?(_issue, _label), do: false
 
-  defp labels(%Issue{labels: labels}) when is_list(labels), do: MapSet.new(labels, &String.downcase/1)
-  defp labels(_issue), do: MapSet.new()
+  defp labels(%Issue{labels: labels}) when is_list(labels), do: Enum.map(labels, &String.downcase/1)
+  defp labels(_issue), do: []
 end
