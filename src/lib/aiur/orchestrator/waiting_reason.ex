@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots, ReservedSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :waiting_for_supervisor
           | :queue_set_order
           | :optimistic_share
+          | :reserved_slot
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -42,6 +43,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     waiting_for_dependency: "DispatchPolicy",
     queue_set_order: "DispatchPolicy",
     optimistic_share: "DispatchPolicy",
+    reserved_slot: "DispatchPolicy",
     waiting_for_ci: "CiLifecycle",
     waiting_for_review: "Executor",
     paused: "PauseResume",
@@ -98,6 +100,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
   defp evidence(:queue_set_order, facts), do: {facts[:queue_set_wait], nil}
   defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
+  defp evidence(:reserved_slot, facts), do: {facts[:reserved_slot_wait], nil}
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
@@ -129,6 +132,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     %{
       queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
+      reserved_slot_wait: if(row.waiting_reason == :reserved_slot, do: ReservedSlots.waiting_text(state.last_polled_issues[row.issue_id], state)),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
@@ -183,7 +187,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render_wait(_row), do: ""
 
   defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
-  defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
+  defp render_dependency(%{reason: reason, cause: cause}) when reason in [:queue_set_order, :reserved_slot] and is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
   # `inspect/1` reads a small printable-byte list as a charlist (`[10]` -> `~c"\n"`).
@@ -289,6 +293,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
   def render(:queue_set_order), do: "queue_set_order"
   def render(:optimistic_share), do: "optimistic_share"
+  def render(:reserved_slot), do: "reserved_slot"
   def render(:waiting_for_dependency), do: "waiting_for_dependency"
   def render(:waiting_for_ci), do: "waiting_for_ci"
   def render(:waiting_for_review), do: "waiting_for_review"
@@ -394,6 +399,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     cond do
       Keyword.get(opts, :queue_set_order?, false) -> :queue_set_order
       Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :reserved_slot?, false) -> :reserved_slot
       Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
       true -> idle_by_tracker_state(tracker_state, opts)
     end

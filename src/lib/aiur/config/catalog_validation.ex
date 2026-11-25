@@ -18,6 +18,8 @@ defmodule Aiur.Config.CatalogValidation do
     |> AgentValidation.validate_backend_configs()
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
+    |> update_change(:reserved_slots, &AgentValidation.normalize_reserved_slots/1)
+    |> AgentValidation.validate_reserved_slots(:reserved_slots)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
     |> AgentValidation.split_routing_candidates()

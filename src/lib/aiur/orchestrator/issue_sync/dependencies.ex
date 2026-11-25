@@ -334,7 +334,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
   end
 
   defp queued_undispatched?(%Issue{} = issue, state) do
-    DispatchPolicy.dispatch_decision(issue, state) in [:dispatch, {:skip, :fleet_capacity}]
+    DispatchPolicy.dispatch_decision(issue, state) in [:dispatch, {:skip, :fleet_capacity}, {:skip, :reserved_slot}]
   end
 
   defp update_dependency_circular_wait(previous, wait, now_ms) do
