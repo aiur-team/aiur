@@ -108,6 +108,25 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
                select(ticket(), usage_snapshot: meters(%{"default" => {40, 100}, "everdred" => {36, 10}}))
     end
 
+    # A meter read before its five-hour window reset still says 100%; dispatch must
+    # read that window as unknown, or the account stays parked until the next probe.
+    test "a Claude window whose reset has passed does not exhaust the account" do
+      reset_passed = DateTime.add(@now, -3600, :second)
+
+      snapshot = fn
+        "claude", _names ->
+          %{
+            "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 20}, %{window: "five_hour", used_percent: 100, resets_at: reset_passed}]}, observed_at: @now, freshness: :fresh},
+            "everdred" => %{reading: %{windows: [%{window: "seven_day", used_percent: 36}, %{window: "five_hour", used_percent: 10}]}, observed_at: @now, freshness: :fresh}
+          }
+
+        _harness, _names ->
+          %{}
+      end
+
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"}} = select(ticket(), usage_snapshot: snapshot)
+    end
+
     test "with all Claude exhausted it picks Codex, and the Codex route's model and effort apply" do
       assert {:ok, %Issue{selected_backend: "codex", selected_account: nil} = issue} =
                select(ticket(), usage_snapshot: meters(%{"default" => {100, 0}, "everdred" => {12, 100}}))

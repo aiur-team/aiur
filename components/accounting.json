@@ -16,6 +16,7 @@
     "src/lib/aiur/provider_meter_projection.ex",
     "src/lib/aiur/provider_meter_projection/**",
     "src/lib/aiur/provider_meter_refresh.ex",
+    "src/lib/aiur/provider_meter_refresh/**",
     "src/lib/aiur/provider_meter_snapshot.ex",
     "src/lib/aiur/provider_meters.ex",
     "src/lib/aiur/provider_meters/**",

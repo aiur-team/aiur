@@ -250,6 +250,17 @@ defmodule Aiur.UsageTest do
     assert text =~ "codex  unknown  unknown  provider_meter_projection"
   end
 
+  test "the summary shows when each meter is next re-read" do
+    next_check = DateTime.add(DateTime.utc_now(), 600, :second) |> DateTime.truncate(:second)
+    summary = Aiur.Usage.json_snapshot(meter_views: %{}, next_checks: %{codex: next_check}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{actors: []}, ticket_usage: %{})
+
+    assert summary["providers"]["codex"]["fields"]["next_check_at"] == DateTime.to_iso8601(next_check)
+    text = CLI.render(summary, nil)
+    assert text =~ "NEXT_CHECK"
+    assert text =~ ~r/codex .* #{Regex.escape(DateTime.to_iso8601(next_check))}/
+    assert text =~ ~r/claude .* -$/m
+  end
+
   test "each adapter returns its provider-specific read-model struct" do
     assert %Claude{provider: :claude} = Claude.read(meter_views: %{})
     assert %Codex{provider: :codex} = Codex.read(meter_views: %{})

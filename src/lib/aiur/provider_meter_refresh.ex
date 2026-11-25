@@ -28,6 +28,12 @@ defmodule Aiur.ProviderMeterRefresh do
     session, and a fleet consuming nothing cannot have moved its own usage.
     Claude is a cached HTTPS read of the account usage endpoint, so it refreshes
     whenever anyone is looking.
+  - **Resets and exhaustion are watchers too.** A reading that hit its limit
+    only changes when the window resets, and nothing else observes an idle
+    provider, so a provider is re-read just after a recorded `resets_at`, with
+    backoff until the new window shows, and every 15 minutes while it is
+    exhausted (`Aiur.ProviderMeterRefresh.Schedule`). Without this the meter
+    kept reporting an exhausted provider until the daemon restarted.
 
   The observer and clock are injected. This module owns cadence and gating only.
   """
@@ -37,6 +43,8 @@ defmodule Aiur.ProviderMeterRefresh do
   alias Aiur.Config
   alias Aiur.Config.UsageCadence
   alias Aiur.ProviderMeterProbe
+  alias Aiur.ProviderMeterProjection
+  alias Aiur.ProviderMeterRefresh.Schedule
 
   # Matches polling.usage_interval_seconds's measured 300s default: the
   # provider usage endpoint allows roughly one request per two minutes.
@@ -46,6 +54,9 @@ defmodule Aiur.ProviderMeterRefresh do
   @default_baseline_delay_ms 5_000
   # How long polling continues after the last watcher looks away.
   @default_grace_ms 5 * 60_000
+  # Floor for the due-check timer, so a provider that stays due while a probe is
+  # in flight is retried promptly without spinning.
+  @min_due_delay_ms 5_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -83,6 +94,14 @@ defmodule Aiur.ProviderMeterRefresh do
   @spec watching_stopped(GenServer.server()) :: :ok
   def watching_stopped(server \\ __MODULE__), do: GenServer.cast(server, {:watching_stopped, self()})
 
+  @doc "The next scheduled re-read per provider; empty when the refresher is not running."
+  @spec next_checks(GenServer.server()) :: %{atom() => DateTime.t()}
+  def next_checks(server \\ __MODULE__) do
+    if GenServer.whereis(server), do: GenServer.call(server, :next_checks, 5_000), else: %{}
+  catch
+    :exit, _reason -> %{}
+  end
+
   @impl true
   def init(opts) do
     state = %{
@@ -97,7 +116,12 @@ defmodule Aiur.ProviderMeterRefresh do
       watchers: %{},
       last_watched_at: nil,
       baseline_done?: false,
-      probe_ref: nil
+      probe_ref: nil,
+      wall_clock: Keyword.get(opts, :wall_clock, &DateTime.utc_now/0),
+      snapshot_fun: Keyword.get(opts, :snapshot_fun, &ProviderMeterProjection.snapshot/0),
+      attempts: %{},
+      next_checks: %{},
+      due_timer: nil
     }
 
     baseline_delay = Keyword.get(opts, :baseline_delay_ms, @default_baseline_delay_ms)
@@ -134,11 +158,13 @@ defmodule Aiur.ProviderMeterRefresh do
 
     schedule_refresh(state)
 
-    {:noreply, state}
+    {:noreply, check_due(state)}
   end
 
+  def handle_info(:due_check, state), do: {:noreply, check_due(%{state | due_timer: nil})}
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{probe_ref: ref} = state) do
-    {:noreply, %{state | probe_ref: nil}}
+    {:noreply, check_due(%{state | probe_ref: nil})}
   end
 
   # A watcher that closed its tab or crashed stops being one, without needing a
@@ -148,6 +174,9 @@ defmodule Aiur.ProviderMeterRefresh do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def handle_call(:next_checks, _from, state), do: {:reply, state.next_checks, state}
 
   @impl true
   def handle_cast(:observe, state) do
@@ -234,6 +263,55 @@ defmodule Aiur.ProviderMeterRefresh do
     _error -> :ok
   catch
     _kind, _reason -> :ok
+  end
+
+  # Re-reads every provider the schedule says is due, whether or not anything is
+  # watching, then arms a timer for the earliest next check. A probe already in
+  # flight defers the due providers to that timer rather than queueing a second.
+  defp check_due(state) do
+    now = state.wall_clock.()
+    views = safe_views(state.snapshot_fun)
+    attempts = settle_attempts(state.attempts, views, now)
+    due = Schedule.due(Schedule.next_checks(views, now, attempts), now)
+
+    {state, attempts} =
+      if due != [] and is_nil(state.probe_ref) do
+        {observe(state, due_target(due)), Enum.reduce(due, attempts, &Map.update(&2, &1, %{at: now, count: 1}, fn a -> %{at: now, count: a.count + 1} end))}
+      else
+        {state, attempts}
+      end
+
+    arm_due_timer(%{state | attempts: attempts, next_checks: Schedule.next_checks(views, now, attempts)}, now)
+  end
+
+  # Backoff counts only while a provider still waits for its reset to show.
+  defp settle_attempts(attempts, views, now) do
+    Map.new(attempts, fn {provider, attempt} ->
+      if Schedule.awaiting_reset?(Map.get(views, provider, %{}), now), do: {provider, attempt}, else: {provider, %{attempt | count: 0}}
+    end)
+  end
+
+  defp due_target([provider]), do: provider
+  defp due_target(_providers), do: :all
+
+  defp arm_due_timer(state, now) do
+    if state.due_timer, do: Process.cancel_timer(state.due_timer)
+
+    case Enum.min(Map.values(state.next_checks), DateTime, fn -> nil end) do
+      nil -> %{state | due_timer: nil}
+      at -> %{state | due_timer: Process.send_after(self(), :due_check, max(DateTime.diff(at, now, :millisecond), @min_due_delay_ms))}
+    end
+  end
+
+  defp safe_views(snapshot_fun) do
+    case snapshot_fun.() do
+      views when is_map(views) -> views
+      _other -> %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    _kind, _reason -> %{}
   end
 
   defp schedule_refresh(state), do: Process.send_after(self(), :refresh, state.interval_fun.())

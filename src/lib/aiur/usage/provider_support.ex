@@ -17,13 +17,14 @@ defmodule Aiur.Usage.ProviderSupport do
   def meter(module, provider, opts) do
     views = Keyword.get_lazy(opts, :meter_views, &Aiur.ProviderMeterProjection.snapshot/0)
     view = Map.get(views, provider, %{state: :unknown, observed_at: nil, freshness: :unknown})
+    next_checks = Keyword.get_lazy(opts, :next_checks, &Aiur.ProviderMeterRefresh.next_checks/0)
 
     record(
       module,
       provider,
       Map.get(view, :observed_at),
       Map.get(view, :freshness, :unknown),
-      Map.drop(view, [:provider, :observed_at, :freshness, :age_seconds]),
+      view |> Map.drop([:provider, :observed_at, :freshness, :age_seconds]) |> Map.put(:next_check_at, Map.get(next_checks, provider)),
       "provider_meter_projection"
     )
   rescue

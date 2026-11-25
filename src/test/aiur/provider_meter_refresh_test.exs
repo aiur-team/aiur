@@ -332,7 +332,9 @@ defmodule Aiur.ProviderMeterRefreshTest do
         headroom_fun: fn -> Keyword.get(opts, :headroom?, false) end,
         interval_fun: fn -> interval_ms end,
         baseline_delay_ms: Keyword.get(opts, :baseline_delay_ms, 10),
-        grace_ms: Keyword.get(opts, :grace_ms, 60_000)
+        grace_ms: Keyword.get(opts, :grace_ms, 60_000),
+        # No readings, so nothing the reset schedule watches can add an observation.
+        snapshot_fun: fn -> %{} end
       )
 
     pid
