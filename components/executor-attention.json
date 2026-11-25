@@ -8,6 +8,8 @@
     "src/lib/aiur/alert_feed/**",
     "src/lib/aiur/alert_ledger/**",
     "src/lib/aiur/alerts.ex",
+    "src/lib/aiur/operator_notify.ex",
+    "src/lib/aiur_web/controllers/operator_notify_controller.ex",
     "src/lib/aiur/alerts/**",
     "src/lib/aiur/executor/**",
     "src/lib/aiur/executor_*.ex",
