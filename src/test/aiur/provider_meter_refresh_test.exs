@@ -129,7 +129,10 @@ defmodule Aiur.ProviderMeterRefreshTest do
         name: nil,
         observer: fn target -> send(test, {:observed, target}) end,
         agents_running_fun: fn -> false end,
-        baseline_delay_ms: 10
+        baseline_delay_ms: 10,
+        # No readings: an exhausted reading left in the shared projection would
+        # schedule its own probe and take the slot these observations assert on.
+        snapshot_fun: fn -> %{} end
       )
 
     assert_receive {:observed, :all}, 1_000
@@ -147,7 +150,10 @@ defmodule Aiur.ProviderMeterRefreshTest do
         name: nil,
         observer: fn target -> send(test, {:observed, target}) end,
         interval_fun: fn -> 30 end,
-        baseline_delay_ms: 10
+        baseline_delay_ms: 10,
+        # No readings: an exhausted reading left in the shared projection would
+        # schedule its own probe and take the slot these observations assert on.
+        snapshot_fun: fn -> %{} end
       )
 
     # Baseline still fires (it ignores agent state by design)...
