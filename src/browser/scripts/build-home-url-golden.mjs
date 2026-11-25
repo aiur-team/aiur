@@ -36,7 +36,7 @@ const rows = [
   ['feature=%3Cscript%3E', '', 'Feature slugs are shape-checked.'],
   ['v=1&conditions=alert', 'astate=error,retries,command,native_question', 'Legacy Units keys map to home presets.'],
   ['zoom=2&density=compact', ''],
-  ['view=graph&span=1&fmode=compact', ''],
+  ['view=graph&span=1&fmode=compact', 'view=graph', 'Default view: the daemon opens on Kanban, so it names the timeline; the design opened on the timeline and dropped view=graph.'],
 ];
 const cases = rows.map(([query, canonical, differs]) => {
   let output;
