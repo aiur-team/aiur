@@ -38,8 +38,8 @@ defmodule AiurWeb.Routes.Api do
         match(:*, "/api/v1/pane/hide", AiurWeb.ObservabilityApiController, :method_not_allowed)
         post("/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :claude_hook)
         match(:*, "/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :method_not_allowed)
-        post("/api/v1/operator/notify", AiurWeb.OperatorNotifyController, :create)
-        match(:*, "/api/v1/operator/notify", AiurWeb.OperatorNotifyController, :method_not_allowed)
+        post("/api/v1/operator/notify", AiurWeb.OperatorNotifyApiController, :create)
+        match(:*, "/api/v1/operator/notify", AiurWeb.OperatorNotifyApiController, :method_not_allowed)
       end
     end
   end

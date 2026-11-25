@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorNotifyController do
+defmodule AiurWeb.OperatorNotifyApiController do
   @moduledoc "`POST /api/v1/operator/notify`: the daemon API behind `aiur notify`."
 
   use Phoenix.Controller, formats: [:json]

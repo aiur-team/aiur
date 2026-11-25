@@ -1,4 +1,4 @@
-defmodule AiurWeb.OperatorNotifyControllerTest do
+defmodule AiurWeb.OperatorNotifyApiControllerTest do
   # `POST /api/v1/operator/notify` is how a host app or script reaches the
   # operator's devices without a shell on the daemon host.
   use Aiur.TestSupport
@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorNotifyControllerTest do
   import Phoenix.ConnTest, only: [json_response: 2]
   import Plug.Test, only: [conn: 3]
 
-  alias AiurWeb.OperatorNotifyController
+  alias AiurWeb.OperatorNotifyApiController
 
   test "a valid notification is published and answered with its event id" do
     :ok = Aiur.Events.subscribe("operator.notify.live")
@@ -30,5 +30,5 @@ defmodule AiurWeb.OperatorNotifyControllerTest do
     refute_receive {:event, %{topic: "operator.notify.info"}}, 200
   end
 
-  defp notify(params), do: :post |> conn("/api/v1/operator/notify", params) |> OperatorNotifyController.call(:create)
+  defp notify(params), do: :post |> conn("/api/v1/operator/notify", params) |> OperatorNotifyApiController.call(:create)
 end
