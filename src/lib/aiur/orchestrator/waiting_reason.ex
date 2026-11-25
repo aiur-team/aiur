@@ -125,6 +125,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
     Map.put(row, :waiting, waiting)
   end
 
+  defp reserved_slot_wait(%{waiting_reason: :reserved_slot, issue_id: id}, state), do: ReservedSlots.waiting_text(state.last_polled_issues[id], state)
+  defp reserved_slot_wait(_row, _state), do: nil
+
   defp wait_facts(row, state, now) do
     release = Map.get(state.released_claims, row.issue_id) || %{}
     resume = Map.get(state.auto_resume, row.issue_id) || %{}
@@ -132,7 +135,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     %{
       queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
-      reserved_slot_wait: if(row.waiting_reason == :reserved_slot, do: ReservedSlots.waiting_text(state.last_polled_issues[row.issue_id], state)),
+      reserved_slot_wait: reserved_slot_wait(row, state),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
