@@ -2,7 +2,7 @@ defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
   alias Aiur.Config.Paths
-  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalAnchors, JournalImport, JournalSessions, ProviderReplay, Ref}
+  alias Aiur.Conversation.{Entry, HeadTable, Ingest, JournalAnchors, JournalImport, JournalSessions, ProviderReplay, Ref, ThreadEvents}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -443,6 +443,7 @@ defmodule Aiur.Conversation.Journal do
     cache_head(state)
     topic = "conversation:" <> state.id
     if entries != [], do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:entries_appended, state.id, entries})
+    ThreadEvents.appended(state.ref, entries)
     for session <- sessions, do: Phoenix.PubSub.broadcast(state.pubsub, topic, {:session_changed, state.id, session})
   end
 

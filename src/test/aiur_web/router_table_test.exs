@@ -188,6 +188,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :show, [:client_token_read], :debug},
     {:*, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/state", AiurWeb.ObservabilityApiController, :state, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/thread", AiurWeb.ConversationApiController, :thread, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/thread", AiurWeb.ConversationApiController, :method_not_allowed_or_not_found, [:client_token_read], :debug},
     {:get, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events, [:client_token_read], :debug},
     {:*, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :issue, [:client_token_read], :debug},

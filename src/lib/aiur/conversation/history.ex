@@ -23,7 +23,7 @@ defmodule Aiur.Conversation.History do
           observed_at: DateTime.t()
         }
 
-  @spec resolve_worker(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()} | {:error, :ambiguous_subject, [String.t()]}
+  @spec resolve_worker(String.t() | nil, String.t() | nil, String.t()) :: {:ok, String.t()} | {:error, atom()} | {:error, :ambiguous_subject, [String.t()]}
   defdelegate resolve_worker(owner, repository, identifier), to: Aiur.Conversation.SubjectIndex, as: :resolve
 
   @spec resolve_executor() :: {:ok, String.t()} | {:error, atom()}

@@ -198,7 +198,7 @@ defmodule Aiur.Events.CatalogTest do
       ticket.*.lifecycle.changed ticket.*.usage.changed ticket.*.usage.spend_cap_reached ticket.*.cancel.result
       ticket.*.agent.command ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
       ticket.*.queue.removed ticket.*.queue.attention.# system.queue.*.progress system.queue.attention.# system.build_order.*.progress
-      ticket.*.agent.listen-mode.changed system.capabilities.changed system.#),
+      ticket.*.agent.listen-mode.changed ticket.*.agent.thread.changed system.capabilities.changed system.#),
       &Events.matches?(&1, pattern)
     )
   end

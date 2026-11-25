@@ -56,6 +56,8 @@ defmodule AiurWeb.Routes.Api do
         get("/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :show)
         match(:*, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :method_not_allowed)
         get("/api/v1/state", AiurWeb.ObservabilityApiController, :state)
+        get("/api/v1/:issue_identifier/thread", AiurWeb.ConversationApiController, :thread)
+        match(:*, "/api/v1/:issue_identifier/thread", AiurWeb.ConversationApiController, :method_not_allowed_or_not_found)
         get("/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events)
         match(:*, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :method_not_allowed)
         get("/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :issue)

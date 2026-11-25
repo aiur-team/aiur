@@ -24,6 +24,7 @@ These registered namespaces freeze producer ownership before every producer ship
 | `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
 | `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
 | `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
+| `ticket.<id>.agent.thread.changed` | Conversations / #8082 | Re-read `GET /api/v1/<id>/thread`. |
 | `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
 | `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
 
@@ -130,6 +131,17 @@ Consumers re-read listener-mode state. Default agent bindings exclude this topic
 IssueLog attributes these events to the payload actor rather than the agent.
 Publication failures are logged without rolling back the saved mode or local
 broadcast; missed hints are not replayed.
+
+## Ticket thread changes
+
+`ticket.<id>.agent.thread.changed` is a live hint published once per journal
+write that adds an agent or operator message to the ticket's worker
+conversation. Its payload carries only `head_pos` and the newest message
+`kind`, never message text. Consumers re-read `GET /api/v1/<id>/thread`.
+
+Publication is best-effort and never delays the journal write; missed hints are
+not replayed, so a consumer resumes from its last `next_after`. Default agent
+bindings exclude this topic.
 
 ## Queue transitions
 

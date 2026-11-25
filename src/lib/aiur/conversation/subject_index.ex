@@ -19,7 +19,8 @@ defmodule Aiur.Conversation.SubjectIndex do
 
   def put(_dir, _ref), do: :ok
 
-  @spec resolve(String.t(), String.t(), String.t()) ::
+  @doc "A nil owner or repository matches any; the bare ticket thread route knows only the identifier."
+  @spec resolve(String.t() | nil, String.t() | nil, String.t()) ::
           {:ok, String.t()} | {:error, atom()} | {:error, :ambiguous_subject, [String.t()]}
   def resolve(owner, repository, identifier) do
     with {:ok, root} <- Paths.conversation_state_dir(),
@@ -28,7 +29,7 @@ defmodule Aiur.Conversation.SubjectIndex do
       ids =
         :ets.match(
           @table,
-          {{root, String.downcase(owner), String.downcase(repository), identifier, :"$1"}, true}
+          {{root, key_part(owner), key_part(repository), identifier, :"$1"}, true}
         )
         |> List.flatten()
         |> Enum.sort()
@@ -38,6 +39,9 @@ defmodule Aiur.Conversation.SubjectIndex do
       _ -> {:error, :unavailable}
     end
   end
+
+  defp key_part(nil), do: :_
+  defp key_part(value), do: String.downcase(value)
 
   defp readable(ids) do
     Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, acc} ->
