@@ -8,6 +8,12 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-stale-human-review-wake")
+    # Name the repo: resolved from origin, it is whatever an earlier test left
+    # cached, and a cached nil makes every projection key nil (:invalid_key).
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/aiur", workspace_root: root)
+    origin_key = {Aiur.GitHub.Config, :resolved_origin_repo}
+    previous_origin = :persistent_term.get(origin_key, :unset)
+    :persistent_term.put(origin_key, nil)
 
     opts = [
       name: __MODULE__,
@@ -17,7 +23,11 @@ defmodule Aiur.ExecutorWakeInbox.StaleHumanReviewTest do
       pending_path: Path.join(root, "pending.json")
     ]
 
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    on_exit(fn ->
+      if previous_origin == :unset, do: :persistent_term.erase(origin_key), else: :persistent_term.put(origin_key, previous_origin)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
     %{opts: opts}
   end
 

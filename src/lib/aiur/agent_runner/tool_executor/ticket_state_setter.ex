@@ -38,8 +38,7 @@ defmodule Aiur.AgentRunner.ToolExecutor.TicketStateSetter do
       receipt = fn pr -> recorder.(identifier, target, pr, workspace, worker_host, opts) end
 
       coordination
-      |> Map.put(:worker_handoff_receipt, receipt)
-      |> Map.put(:outside_blocker, Keyword.get(opts, :outside_blocker))
+      |> Map.merge(%{worker_handoff_receipt: receipt, handoff_workspace: workspace, outside_blocker: Keyword.get(opts, :outside_blocker)})
       |> CiWaitTransition.write(id, target)
       |> tap(&alert_draft_handoff(&1, identifier, workspace, worker_host))
     end

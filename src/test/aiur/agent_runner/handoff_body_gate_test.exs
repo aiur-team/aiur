@@ -64,7 +64,7 @@ defmodule Aiur.AgentRunner.HandoffBodyGateTest do
 
   # Open-Games #286/#302/#310: a refused body at the no-op bound crashed the run
   # (CaseClauseError), burned all three retries and released the claim.
-  test "a no-op bound whose pushed-rework handoff is refused stops the run instead of crashing" do
+  test "a no-op bound whose pushed-rework handoff is refused ends in error instead of crashing" do
     identifier = "7822-bound-#{System.unique_integer([:positive])}"
     use_memory_tracker!(self())
     issue = %Aiur.Issue{id: "gid-#{identifier}", identifier: identifier, state: "in-progress", labels: ["agent:in-progress"]}

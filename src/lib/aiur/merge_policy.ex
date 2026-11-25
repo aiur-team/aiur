@@ -8,6 +8,10 @@ defmodule Aiur.MergePolicy do
     policy |> Map.from_struct() |> Map.put(:main_watch, Map.from_struct(policy.main_watch))
   end
 
+  @doc "Whether an external gate decides merge readiness, so GitHub checks never drive ticket state or wakes."
+  @spec external_ci?() :: boolean()
+  def external_ci?, do: Aiur.Config.settings!().merge_policy.ci == "external"
+
   @doc "Whether the configured base-CI policy gives a ticket fixer priority."
   @spec fixer_ticket?(term(), map()) :: boolean()
   def fixer_ticket?(issue, watch \\ current().main_watch)
