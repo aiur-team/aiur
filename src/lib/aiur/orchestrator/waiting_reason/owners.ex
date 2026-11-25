@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason.Owners do
     waiting_for_dependency: "DispatchPolicy",
     queue_set_order: "DispatchPolicy",
     optimistic_share: "DispatchPolicy",
+    reserved_slot: "DispatchPolicy",
     waiting_for_ci: "CiLifecycle",
     waiting_for_review: "Executor",
     paused: "PauseResume",

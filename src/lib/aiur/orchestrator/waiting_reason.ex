@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots, ReservedSlots}
   alias Aiur.Orchestrator.WaitingReason.Owners
   alias Aiur.Workspace.Ownership.Retention
 
@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :waiting_for_supervisor
           | :queue_set_order
           | :optimistic_share
+          | :reserved_slot
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -73,6 +74,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
   defp evidence(:queue_set_order, facts), do: {facts[:queue_set_wait], nil}
   defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
+  defp evidence(:reserved_slot, facts), do: {facts[:reserved_slot_wait], nil}
   defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
 
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
@@ -104,6 +106,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     %{
       queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
+      reserved_slot_wait: ReservedSlots.wait_fact(row, state),
       global_pause: state.global_pause,
       auto_resume_cause: resume[:cause],
       auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
@@ -158,7 +161,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render_wait(_row), do: ""
 
   defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
-  defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
+  defp render_dependency(%{reason: reason, cause: cause}) when reason in [:queue_set_order, :reserved_slot] and is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
   # `inspect/1` reads a small printable-byte list as a charlist (`[10]` -> `~c"\n"`).
@@ -260,29 +263,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def for_retry, do: :backing_off
 
   @spec render(t()) :: String.t()
-  def render(:waiting_for_human), do: "waiting_for_human"
-  def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
-  def render(:queue_set_order), do: "queue_set_order"
-  def render(:optimistic_share), do: "optimistic_share"
-  def render(:waiting_for_dependency), do: "waiting_for_dependency"
-  def render(:waiting_for_ci), do: "waiting_for_ci"
-  def render(:waiting_for_review), do: "waiting_for_review"
-  def render(:paused), do: "paused"
-  def render(:run_paused), do: "run_paused"
-  def render(:awaiting_dispatch), do: "awaiting_dispatch"
-  def render(:paused_operator), do: "paused_operator"
-  def render(:paused_transient), do: "paused_transient"
-  def render(:provider_limited), do: "provider_limited"
-  def render(:latched_lifetime), do: "latched_lifetime"
-  def render(:tracker_unavailable), do: "tracker_unavailable"
-  def render(:backing_off), do: "backing_off"
-  def render(:unresponsive), do: "unresponsive"
-  def render(:claim_released), do: "claim_released"
-  def render(:orphaned_claim), do: "orphaned_claim"
-  def render(:workspace_ownership_waiting), do: "workspace_ownership_waiting"
-  def render(:stale_claim), do: "stale_claim"
-  def render(:active), do: "active"
-  def render(other), do: to_string(other)
+  def render(reason), do: to_string(reason)
 
   @doc """
   Classifies a tracker-active row with no live running process.
@@ -372,6 +353,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     cond do
       Keyword.get(opts, :queue_set_order?, false) -> :queue_set_order
       Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :reserved_slot?, false) -> :reserved_slot
       Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
       true -> idle_by_tracker_state(tracker_state, opts)
     end
