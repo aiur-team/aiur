@@ -68,6 +68,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate github_usage(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_emit(topic, payload_json), to: Aiur.ExecutorAttention.CLI
+  defdelegate notify(kind, text, ticket, url), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_unsubscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscriptions(), to: Aiur.ExecutorAttention.CLI
