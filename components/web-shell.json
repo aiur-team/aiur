@@ -33,6 +33,7 @@
     "src/lib/aiur_web/events_socket.ex",
     "src/lib/aiur_web/executor_hook_auth.ex",
     "src/lib/aiur_web/financial_data_access.ex",
+    "src/lib/aiur_web/message_inbox.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",
     "src/lib/aiur_web/routes/commands_api.ex",

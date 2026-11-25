@@ -39,6 +39,24 @@ defmodule Aiur.Listener.Effective do
     }
   end
 
+  @doc """
+  The view one message is delivered under when its sender asks for its own mode.
+
+  `:steer` applies only when this harness can steer; otherwise the message goes
+  at the next turn (`:sync`). A muted ticket stays muted, and a ticket with no
+  usable mode keeps its view.
+  """
+  @spec for_message(view() | nil, :steer | :sync | nil) :: view() | nil
+  def for_message(nil, _requested), do: nil
+  def for_message(view, nil), do: view
+  def for_message(%{effective: :mute} = view, _requested), do: view
+
+  def for_message(view, :steer) do
+    if usable?(view.support[:steer]), do: %{view | effective: :steer}, else: for_message(view, :sync)
+  end
+
+  def for_message(view, :sync), do: if(usable?(view.support[:sync]), do: %{view | effective: :sync}, else: view)
+
   defp derive_support(nil, _opts), do: unavailable(:not_running)
   defp derive_support(%{primitives: :unknown}, _opts), do: unavailable(:harness_unknown)
 

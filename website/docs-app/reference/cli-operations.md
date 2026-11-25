@@ -150,6 +150,17 @@ The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashb
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
 
+`POST /api/v1/:issue_identifier/messages` also takes two optional fields:
+
+| Field | Effect |
+| --- | --- |
+| `delivery` | `steer` or `sync` for this message only. `steer` delivers mid-turn when the worker supports it and otherwise waits for the next turn; the ticket's listen mode is unchanged, and a muted ticket stays muted. |
+| `attachments` | Up to 8 `{name, mime_type, data}` items, `data` base64, with Command media types and size caps. Each file is written to `.aiur/inbox/<message_id>/` in the worker's workspace and named in the message text. They need a running worker whose workspace is on this host (409 `attachments_need_local_worker`). |
+
+`GET /api/v1/:issue_identifier/messages/:request_id` returns that message's receipt: `queue_status`, `receipt` (`accepted`, `held_async`, `harness_queued`, `read` or `failed`), the `listener_mode` it was delivered under, and its `delivered_at`, `read_at` and `consumed_at`.
+
+A request id sent to another ticket returns 404. Receipts of messages to a running worker do not survive a daemon restart.
+
 ### Restart semantics
 
 | Restart case | Result |
