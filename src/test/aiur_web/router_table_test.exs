@@ -190,6 +190,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/api/v1/state", AiurWeb.ObservabilityApiController, :state, [:client_token_read], :debug},
     {:get, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events, [:client_token_read], :debug},
     {:*, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/messages/:request_id", AiurWeb.ObservabilityApiController, :message_receipt, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/messages/:request_id", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
     {:get, "/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :issue, [:client_token_read], :debug},
     {:*, "/", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
     {:*, "/api/v1/state", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},

@@ -102,6 +102,31 @@ defmodule Aiur.Listener do
     end
   end
 
+  @doc "The receipt of a message sent to `issue_identifier`; not found when the request is another ticket's."
+  @spec ticket_receipt(String.t(), integer(), timeout()) :: {:ok, map()} | {:error, term()}
+  def ticket_receipt(issue_identifier, request_id, timeout \\ 5_000) when is_binary(issue_identifier) and is_integer(request_id) do
+    case delivery_target().read_snapshot(request_id, timeout) do
+      {:ok, %{target_issue_identifier: ^issue_identifier} = item} ->
+        {:ok,
+         item
+         |> Receipt.from_snapshot()
+         |> Map.merge(Map.take(item, [:id, :message_id, :delivered_at, :provider_delivered_at, :read_at, :consumed_at]))
+         |> Map.put(:issue_identifier, issue_identifier)
+         |> json_safe_failure()}
+
+      {:ok, _missing_or_other_ticket} ->
+        {:error, :not_found}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp json_safe_failure(%{failure_reason: reason} = receipt) when not (is_atom(reason) or is_binary(reason)),
+    do: %{receipt | failure_reason: inspect(reason)}
+
+  defp json_safe_failure(receipt), do: receipt
+
   @doc "Classify send acceptance; a timed-out send may still have been enqueued."
   @spec receipt_for_send_result({:ok, term()} | {:error, term()}) :: :accepted | :failed | :outcome_unknown
   def receipt_for_send_result({:error, {:outcome_unknown, _}}), do: :outcome_unknown

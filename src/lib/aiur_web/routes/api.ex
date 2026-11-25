@@ -58,6 +58,8 @@ defmodule AiurWeb.Routes.Api do
         get("/api/v1/state", AiurWeb.ObservabilityApiController, :state)
         get("/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events)
         match(:*, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :method_not_allowed)
+        get("/api/v1/:issue_identifier/messages/:request_id", AiurWeb.ObservabilityApiController, :message_receipt)
+        match(:*, "/api/v1/:issue_identifier/messages/:request_id", AiurWeb.ObservabilityApiController, :method_not_allowed)
         get("/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :issue)
         match(:*, "/", AiurWeb.ObservabilityApiController, :method_not_allowed)
         match(:*, "/api/v1/state", AiurWeb.ObservabilityApiController, :method_not_allowed)

@@ -9,11 +9,12 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias AiurWeb.{EndpointConfig, Presenter}
+  alias Aiur.Listener
+  alias AiurWeb.{EndpointConfig, MessageInbox, Presenter}
   alias Plug.Conn
 
   # The handlers that read an Orchestrator answer "pick a project" when projects mode has none for this request.
-  plug(AiurWeb.ProjectScope, :required when action in [:state, :issue, :refresh, :send_message, :pause, :resume])
+  plug(AiurWeb.ProjectScope, :required when action in [:state, :issue, :refresh, :send_message, :message_receipt, :pause, :resume])
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
@@ -57,11 +58,63 @@ defmodule AiurWeb.ObservabilityApiController do
   @spec send_message(Conn.t(), map()) :: Conn.t()
   def send_message(conn, %{"issue_identifier" => issue_identifier} = params) do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
+    message_id = Map.get(params, "message_id")
 
-    issue_identifier
-    |> send_operator_message(text, Map.get(params, "message_id"), conn.assigns[:auth_actor])
-    |> render_send_message_response(conn, issue_identifier)
+    with {:ok, delivery} <- delivery_mode(Map.get(params, "delivery")),
+         {:ok, text} <- with_attachments(issue_identifier, text, message_id, Map.get(params, "attachments")) do
+      issue_identifier
+      |> send_operator_message(text, message_id, conn.assigns[:auth_actor], delivery)
+      |> render_send_message_response(conn, issue_identifier)
+    else
+      {:error, reason} -> send_refused(conn, reason)
+    end
   end
+
+  @doc """
+  The delivery receipt of one message sent to this ticket: its queue status
+  (pending, delivered, consumed, failed), the receipt class, the listen mode it
+  was delivered under and when. 404 when the request belongs to another ticket.
+  """
+  @spec message_receipt(Conn.t(), map()) :: Conn.t()
+  def message_receipt(conn, %{"issue_identifier" => issue_identifier, "request_id" => request_id}) do
+    with {id, ""} <- Integer.parse(request_id),
+         {:ok, receipt} <- Listener.ticket_receipt(issue_identifier, id) do
+      json(conn, receipt)
+    else
+      {:error, :not_found} -> error_response(conn, 404, "message_not_found", "No message with that request_id was sent to this ticket")
+      {:error, _reason} -> error_response(conn, 503, "receipt_unavailable", "The message queue is unavailable")
+      _invalid -> error_response(conn, 422, "invalid_request_id", "request_id must be an integer")
+    end
+  end
+
+  defp delivery_mode(nil), do: {:ok, nil}
+  defp delivery_mode("steer"), do: {:ok, :steer}
+  defp delivery_mode("sync"), do: {:ok, :sync}
+  defp delivery_mode(_other), do: {:error, :invalid_delivery}
+
+  # Attachments are written straight into the worker's workspace, so they need a
+  # running worker whose workspace is on this host.
+  defp with_attachments(_issue_identifier, text, _message_id, attachments) when attachments in [nil, []], do: {:ok, text}
+
+  defp with_attachments(issue_identifier, text, message_id, attachments) do
+    folder = if is_binary(message_id) and message_id != "", do: message_id, else: "msg-#{System.os_time(:millisecond)}"
+
+    with {:ok, %{running: running, workspace: %{path: path, host: nil}}} when not is_nil(running) <-
+           Presenter.issue_payload(issue_identifier, orchestrator(), snapshot_timeout_ms()),
+         {:ok, lines} <- MessageInbox.write(path, folder, attachments) do
+      {:ok, MessageInbox.append(text, lines)}
+    else
+      {:error, reason} when reason != :issue_not_found -> {:error, reason}
+      _not_local -> {:error, :attachments_need_local_worker}
+    end
+  end
+
+  defp send_refused(conn, :invalid_delivery), do: error_response(conn, 422, "invalid_delivery", "delivery must be steer or sync")
+
+  defp send_refused(conn, :attachments_need_local_worker),
+    do: error_response(conn, 409, "attachments_need_local_worker", "Attachments need a running worker whose workspace is on this host")
+
+  defp send_refused(conn, reason), do: error_response(conn, 422, Atom.to_string(reason), "Attachments are invalid: #{reason}")
 
   @doc """
   Pause or resume an agent through the orchestrator control API.
@@ -180,8 +233,11 @@ defmodule AiurWeb.ObservabilityApiController do
   # `message_id` is optional (#2717). A client that sends one gets its retry
   # deduplicated: the same id, target and text return the first item. Without
   # one, every request is a new message.
-  defp send_operator_message(issue_identifier, text, message_id, auth_actor) do
+  # `delivery` (steer or sync) overrides the ticket's listen mode for this one
+  # message; steer falls back to sync when the worker cannot steer.
+  defp send_operator_message(issue_identifier, text, message_id, auth_actor, delivery) do
     payload = %{kind: :text, body: text, delivery_policy: :listener, origin: :http}
+    payload = if delivery, do: Map.put(payload, :delivery_mode, delivery), else: payload
 
     payload =
       case auth_actor do
