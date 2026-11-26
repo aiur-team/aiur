@@ -298,15 +298,7 @@ aiur_engine_main() {
       shift
       cmd_usage "$@"
       ;;
-    capacity)
-      shift
-      if [ "${1:-}" = report ]; then
-        shift
-        cmd_capacity_report "$@"
-      else
-        cmd_capacity "$@"
-      fi
-      ;;
+    capacity) shift; if [ "${1:-}" = report ]; then shift; cmd_capacity_report "$@"; else cmd_capacity "$@"; fi ;;
     agents)
       shift
       cmd_agents "$@"
