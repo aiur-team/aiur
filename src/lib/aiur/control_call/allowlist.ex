@@ -214,6 +214,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_revoke, 1, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}], %{}},
     {:executor_revoke, 2, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}, :keyword], %{now: :integer}},
     {:executor_emit, 2, :executor, [:string, :string], %{}},
+    {:notify, 4, :executor, [:string, :string, :string, :string], %{}},
     {:executor_subscribe, 1, :executor, [:string], %{}},
     {:executor_unsubscribe, 1, :executor, [:string], %{}},
     {:executor_subscriptions, 0, :read, [], %{}},

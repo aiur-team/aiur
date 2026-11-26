@@ -64,6 +64,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :executor_release, [0, 1], ~w(executor-release)},
     {:agent, :executor_revoke, [1, 2], ~w(executor-revoke)},
     {:agent, :executor_emit, [2], ~w(executor-emit)},
+    {:agent, :notify, [4], ~w(notify)},
     {:agent, :executor_subscribe, [1], ~w(executor-subscribe)},
     {:agent, :executor_unsubscribe, [1], ~w(executor-unsubscribe)},
     {:agent, :executor_subscriptions, [0], ~w(executor-subscriptions)},
