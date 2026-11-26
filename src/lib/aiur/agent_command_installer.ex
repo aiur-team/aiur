@@ -20,9 +20,8 @@ defmodule Aiur.AgentCommandInstaller do
     end
   end
 
-  @spec remote_install_script(Path.t(), Path.t(), [String.t()], String.t()) :: String.t()
-  def remote_install_script(workspace, relative_dir, command_names, script)
-      when is_binary(workspace) and is_list(command_names) and is_binary(script) do
+  @spec remote_install_script(Path.t(), Path.t(), [{String.t(), String.t()}]) :: String.t()
+  def remote_install_script(workspace, relative_dir, scripts) when is_binary(workspace) and is_list(scripts) do
     # Gzipped before encoding because the guard sources are large — the `gh` guard
     # alone is over 100 KiB of shell, which base64 alone would inflate by a third —
     # and the whole payload is re-sent on every remote dispatch. Compression takes
@@ -33,8 +32,11 @@ defmodule Aiur.AgentCommandInstaller do
     # This is a bandwidth and memory concern, not a `MAX_ARG_STRLEN` one: the
     # script is staged to a file and fed to the remote shell on stdin by
     # `Aiur.SSH.with_script/4`, so it never crosses `execve` as an argument.
-    encoded = gzip(script) |> Base.encode64()
-    commands = Enum.map_join(command_names, " ", &Aiur.Shell.escape/1)
+    payloads =
+      Enum.map(scripts, fn {command_name, script} ->
+        encoded = gzip(script) |> Base.encode64()
+        "aiur_install_payload '#{encoded}' #{Shell.escape(command_name)}"
+      end)
 
     [
       "set -eu",
@@ -45,27 +47,30 @@ defmodule Aiur.AgentCommandInstaller do
       "mkdir -p \"$bin\"",
       "source_tmp=\"$bin/.aiur-command-wrapper.$$\"",
       "trap 'rm -f \"$source_tmp\" \"${tmp:-}\"' EXIT HUP INT TERM",
-      "(set -C; : > \"$source_tmp\")",
-      "printf '%s' '#{encoded}' | base64 -d | gzip -cd > \"$source_tmp\"",
-      "[ -s \"$source_tmp\" ] || { echo 'agent command payload did not decode' >&2; exit 73; }",
-      "chmod 755 \"$source_tmp\"",
-      "for command_name in #{commands}; do",
-      "  target=\"$bin/$command_name\"",
+      "aiur_install_payload() {",
+      "  (set -C; : > \"$source_tmp\")",
+      "  printf '%s' \"$1\" | base64 -d | gzip -cd > \"$source_tmp\"",
+      "  [ -s \"$source_tmp\" ] || { echo 'agent command payload did not decode' >&2; exit 73; }",
+      "  chmod 755 \"$source_tmp\"",
+      "  target=\"$bin/$2\"",
       "  if [ -L \"$target\" ] || { [ -e \"$target\" ] && [ ! -f \"$target\" ]; }; then",
       "    echo 'unsafe agent command target' >&2",
       "    exit 73",
       "  fi",
-      "  if [ -f \"$target\" ] && [ -x \"$target\" ] && cmp -s \"$source_tmp\" \"$target\"; then continue; fi",
-      "  tmp=\"$target.tmp.$$\"",
-      "  (set -C; : > \"$tmp\")",
-      "  cp \"$source_tmp\" \"$tmp\"",
-      "  chmod 755 \"$tmp\"",
-      "  mv -f \"$tmp\" \"$target\"",
-      "  tmp=",
-      "done",
-      "rm -f \"$source_tmp\"",
+      "  if [ ! -f \"$target\" ] || [ ! -x \"$target\" ] || ! cmp -s \"$source_tmp\" \"$target\"; then",
+      "    tmp=\"$target.tmp.$$\"",
+      "    (set -C; : > \"$tmp\")",
+      "    cp \"$source_tmp\" \"$tmp\"",
+      "    chmod 755 \"$tmp\"",
+      "    mv -f \"$tmp\" \"$target\"",
+      "    tmp=",
+      "  fi",
+      "  rm -f \"$source_tmp\"",
+      "}",
+      payloads,
       "trap - EXIT HUP INT TERM"
     ]
+    |> List.flatten()
     |> Enum.join("\n")
   end
 
