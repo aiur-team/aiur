@@ -22,25 +22,43 @@ defmodule AiurWeb.Conversation.CommandCards do
   @spec cards(map()) :: Phoenix.LiveView.Rendered.t()
   def cards(assigns) do
     ~H"""
-    <article
+    <.card
       :for={row <- @rows}
       :if={@slots[row.decision_id] == @slot}
-      id={"conversation-command-#{row.decision_id}"}
+      row={row}
+      action={Map.get(@actions, row.decision_id, %{})}
+      writable={@writable}
+      position_unknown={@slot == :pinned_top}
+    />
+    """
+  end
+
+  attr(:row, :map, required: true)
+  attr(:action, :map, required: true)
+  attr(:writable, :boolean, required: true)
+  attr(:id_prefix, :string, default: "")
+  attr(:position_unknown, :boolean, default: false)
+
+  @spec card(map()) :: Phoenix.LiveView.Rendered.t()
+  def card(assigns) do
+    ~H"""
+    <article
+      id={"#{@id_prefix}conversation-command-#{@row.decision_id}"}
       class="conversation-command-card"
-      data-command-state={command_state(row)}
+      data-command-state={command_state(@row)}
       aria-label="Inline Command"
     >
-      <h3>{row.question}</h3>
+      <h3>{@row.question}</h3>
       <CommandMedia.command_media
-        items={Map.get(row, :media, [])}
-        decision_id={row.decision_id}
+        items={Map.get(@row, :media, [])}
+        decision_id={@row.decision_id}
         label="Command media"
         path_prefix="/commands"
       />
-      <p :if={@slot == :pinned_top}>Position unknown</p>
-      <p :if={row.answer && row.conflict_summary && !get_in(@actions, [row.decision_id, :outcome])}>{winner(row.conflict_summary)}</p>
-      <a href={"/commands/#{row.decision_id}"}>Open Command</a>
-      <DecisionAction.decision_action decision={row} state={Map.get(@actions, row.decision_id, %{})} writable={@writable} />
+      <p :if={@position_unknown}>Position unknown</p>
+      <p :if={@row.answer && @row.conflict_summary && !@action[:outcome]}>{winner(@row.conflict_summary)}</p>
+      <a href={"/commands/#{@row.decision_id}"}>Open Command</a>
+      <DecisionAction.decision_action decision={@row} state={@action} writable={@writable} id_prefix={@id_prefix} />
     </article>
     """
   end

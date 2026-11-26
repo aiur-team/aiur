@@ -14,9 +14,10 @@ defmodule Aiur.Executor.Blockers do
   @spec snapshot(keyword()) :: snapshot()
   def snapshot(opts) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    store = Keyword.get_lazy(opts, :store, &Commands.default_store/0)
 
     sources = [
-      commands: fn -> commands(Keyword.get(opts, :commands_fun, fn -> read_commands(opts) end), now) end,
+      commands: fn -> commands(Keyword.get(opts, :commands_fun, fn -> read_commands(store) end), now) end,
       asks: fn -> asks(Keyword.get(opts, :asks_fun, fn -> Commands.open_asks(Paths.repo_name()) end), now) end,
       fleet: fn -> fleet(Keyword.get(opts, :fleet_fun, fn -> AlertFeed.list(strict: true) end), now) end
     ]
@@ -46,13 +47,15 @@ defmodule Aiur.Executor.Blockers do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  defp read_commands(opts) do
-    store = Keyword.get_lazy(opts, :store, &Commands.default_store/0)
-    decisions = Commands.list_decisions(store)
-
-    case Commands.query_counts(store: store) do
-      {:ok, %{health: %{status: :available}}} -> {:ok, decisions}
+  @doc "Reads retained Commands with the store's availability status."
+  @spec read_commands(GenServer.server()) :: {:ok, [Aiur.Decision.t()]} | {:error, term()}
+  def read_commands(store) do
+    with decisions when is_list(decisions) <- Commands.list_decisions(store),
+         {:ok, %{health: %{status: :available}}} <- Commands.query_counts(store: store) do
+      {:ok, decisions}
+    else
       {:ok, %{health: %{reason: reason}}} -> {:error, reason}
+      _ -> {:error, :command_list_unavailable}
     end
   end
 
@@ -67,11 +70,16 @@ defmodule Aiur.Executor.Blockers do
 
   defp project_commands(decisions, now) do
     decisions
-    |> Enum.filter(fn decision -> match?(%{requester: %{kind: :executor}}, decision) and Commands.open?(decision) end)
+    |> Enum.filter(&open_executor_command?/1)
     |> Enum.map(fn decision ->
       item(:command, decision.decision_id, decision.short_label || decision.question, decision.created_at, "/commands/" <> URI.encode_www_form(decision.decision_id), now)
     end)
   end
+
+  @doc "Whether a retained Command is an open Executor blocker."
+  @spec open_executor_command?(Aiur.Decision.t()) :: boolean()
+  def open_executor_command?(%{requester: %{kind: :executor}} = decision), do: Commands.open?(decision)
+  def open_executor_command?(_decision), do: false
 
   defp asks(read, now) do
     with {:ok, asks} <- read.() do
