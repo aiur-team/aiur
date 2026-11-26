@@ -145,6 +145,7 @@ defmodule Aiur.ExecutorWakeInbox do
         journal_signature: summary.journal_signature,
         replay_fun: Keyword.get(opts, :replay_fun, &Journal.replay/2),
         human_review_state_reader: Keyword.get(opts, :human_review_state_reader, &StaleHumanReview.current_state/1),
+        stale_wake_ids: MapSet.new(),
         timer: nil,
         waiters: %{},
         alert_fun: alert_fun,
@@ -386,8 +387,13 @@ defmodule Aiur.ExecutorWakeInbox do
   defp deliverable_records(state) do
     case Storage.unread_records(state) do
       {:ok, records, state} ->
-        {deliverable, stale} = StaleHumanReview.filter(records, state.human_review_state_reader)
-        stale_prefix = Enum.take_while(records, &(&1 in stale))
+        # A stale wake behind a live one cannot be passed by the cursor yet.
+        # Remember it so later reads skip it instead of checking and logging it
+        # again on every call (#8051).
+        unchecked = Enum.reject(records, &MapSet.member?(state.stale_wake_ids, &1["wake_id"]))
+        {deliverable, stale} = StaleHumanReview.filter(unchecked, state.human_review_state_reader)
+        stale_ids = MapSet.union(state.stale_wake_ids, MapSet.new(stale, & &1["wake_id"]))
+        stale_prefix = Enum.take_while(records, &MapSet.member?(stale_ids, &1["wake_id"]))
 
         state =
           if stale_prefix == [] do
@@ -398,7 +404,7 @@ defmodule Aiur.ExecutorWakeInbox do
             |> Storage.trim_consumed()
           end
 
-        {:ok, deliverable, state}
+        {:ok, deliverable, %{state | stale_wake_ids: MapSet.reject(stale_ids, &(&1 <= state.cursor))}}
 
       {:error, reason} ->
         {:error, reason}
