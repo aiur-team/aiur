@@ -51,7 +51,7 @@ defmodule Aiur.ControlCall do
          {:ok, args} <- Literal.convert(raw_args),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
-         category <- classify(entry.class, args),
+         category <- category(entry, args, opts),
          scope when scope in [:read, :write, :deny] <- Allowlist.scope_of(category),
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
@@ -161,8 +161,7 @@ defmodule Aiur.ControlCall do
   defp contains_keys?({_key, value}, keys), do: contains_keys?(value, keys)
   defp contains_keys?(_value, _keys), do: false
 
-  defp classify(class, args) when is_function(class, 1), do: class.(args)
-  defp classify(class, _args), do: class
+  defp category(entry, args, opts), do: Allowlist.category(entry.class, args, Keyword.get(opts, :remote, true))
 
   defp allow_remote(:deny, opts) do
     if Keyword.get(opts, :remote, true), do: {:error, :denied_remote}, else: :ok
@@ -184,7 +183,7 @@ defmodule Aiur.ControlCall do
     with {:ok, entry} <- Allowlist.fetch(segments, function, length(args)),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
-         true <- Allowlist.scope_of(classify(entry.class, args)) == scope and scope in [:read, :write] do
+         true <- Allowlist.scope_of(category(entry, args, opts)) == scope and scope in [:read, :write] do
       :ok
     else
       _ -> unauthorized_call()
