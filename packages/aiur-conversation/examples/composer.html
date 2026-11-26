@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-visual">
+<title>aiur-composer example</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100dvh; font-family: system-ui, sans-serif; background: #f4f5f7; }
+  .dark { --aiur-composer-bg: #1d2026; --aiur-composer-fg: #eef0f3; --aiur-composer-muted: #9aa3ad; --aiur-composer-line: #343943; --aiur-composer-button-bg: #2a2e36; --aiur-composer-accent: #ff7a3d; background: #111317; }
+  #log { padding: 16px 16px 160px; margin: 0; list-style: none; display: grid; gap: 8px; }
+</style>
+</head>
+<body>
+<ul id="log"></ul>
+<aiur-composer pinned placeholder="Message" accept="image/*,audio/*,video/*"></aiur-composer>
+<script type="module">
+  import { defineComposer } from '../src/index.mjs';
+
+  defineComposer();
+  if (new URLSearchParams(location.search).has('dark')) document.body.classList.add('dark');
+
+  const composer = document.querySelector('aiur-composer');
+  const log = document.querySelector('#log');
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Stand-ins for the host's own transport.
+  composer.adapters = {
+    upload: async (file) => (await wait(300), { name: file.name, id: crypto.randomUUID() }),
+    dictation: {
+      async start({ onPartial, onLevel }) {
+        const words = 'make the hero jump twice as high'.split(' ');
+        let heard = 0;
+        const timer = setInterval(() => {
+          onLevel(Math.random());
+          if (Math.random() < 0.25 && heard < words.length) onPartial(words.slice(0, ++heard).join(' '));
+        }, 80);
+        return {
+          stop: async () => (clearInterval(timer), words.slice(0, heard).join(' ')),
+          cancel: () => clearInterval(timer),
+        };
+      },
+    },
+    voice: {
+      async start({ initialText }) {
+        if (initialText) log.append(Object.assign(document.createElement('li'), { textContent: `(voice) ${initialText}` }));
+        return { stop: async () => {} };
+      },
+    },
+  };
+  composer.onSend = async (text, attachments) => {
+    const item = document.createElement('li');
+    item.textContent = [text, ...attachments.map((a) => `[${a.name}]`)].filter(Boolean).join(' ');
+    log.append(item);
+  };
+</script>
+</body>
+</html>
