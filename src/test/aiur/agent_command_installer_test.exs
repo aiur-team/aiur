@@ -2,6 +2,7 @@ defmodule Aiur.AgentCommandInstallerTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard}
+  alias Aiur.GitHub.BudgetBrokerSource
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-command-installer")
@@ -44,6 +45,7 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert File.stat!(git_wrapper).mode |> Bitwise.band(0o111) != 0
     assert File.read!(gh_wrapper) != ""
     assert File.read!(git_wrapper) != ""
+    assert File.read!(AgentGitHubGuard.budget_broker_path(context.workspace)) == BudgetBrokerSource.text()
 
     inodes = {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode}
 

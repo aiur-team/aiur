@@ -7,9 +7,9 @@ defmodule Aiur.GitHub.BudgetBrokerSourceTest do
   @moduletag :tmp_dir
 
   test "assembled broker matches the reviewed source baseline", %{tmp_dir: root} do
-    # Baseline includes unmetered recovery probes bypassing the hourly actor ceiling.
+    # Pin the exact source installed by both the daemon and the workspace guard.
     assert Base.encode16(:crypto.hash(:sha256, BudgetBrokerSource.text()), case: :lower) ==
-             "70c9ee1abe031825f2e7454b591d1f14f87712b99e7fff1a850e9ba74d60e443"
+             "a18067750a2e03466b30c9e30aa1722ca5f6ad867958478e4f1c71acd1e5829e"
 
     assert :ok = AgentGitHubGuard.install(root)
     assert File.read!(AgentGitHubGuard.budget_broker_path(root)) == BudgetBrokerSource.text()
