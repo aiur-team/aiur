@@ -7,9 +7,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
   already been processed.
   """
 
-  alias Aiur.Events.AgentWorkpadProgress
-  alias Aiur.Events
-  alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, Sanitizer}
+  alias Aiur.Events.{AgentWorkpadProgress, GithubKeys, GithubReviewThreadIdentity, Sanitizer}
   alias Aiur.GitHub.Access
 
   @doc false
@@ -41,7 +39,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
         actor = get_in(comment, ["user", "login"])
         payload = Map.merge(progress, %{message: progress.step, label: progress.step})
 
-        Events.publish("ticket.#{target}.agent.progress", payload,
+        Aiur.Events.publish("ticket.#{target}.agent.progress", payload,
           issue_number: number,
           identity: trusted_identity(target),
           dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", number, Map.get(comment, "id")),
@@ -160,7 +158,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       |> Keyword.put(:resource_source, :poll)
       |> Keyword.put(:bypass_contamination, true)
 
-    Events.publish(topic, sanitized, publish_opts)
+    Aiur.Events.publish(topic, sanitized, publish_opts)
   end
 
   @doc false
