@@ -5,7 +5,7 @@ defmodule AiurWeb.ExecutorLiveTest do
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
   import Aiur.Conversation.TestSupport
   alias Aiur.Conversation.{Ingest, Ref, Store, TestSupport}
-  alias Aiur.Executor.{CapabilityProvider, Session}
+  alias Aiur.Executor.{CapabilityProvider, HarnessState, Session, SessionIngest}
   alias AiurWeb.Endpoint
 
   setup context do
@@ -100,7 +100,30 @@ defmodule AiurWeb.ExecutorLiveTest do
     assert :ok = flush(ref)
     assert has_element?(view, "#entry-1", "message 1")
     assert has_element?(view, "#executor-footer[data-state=live]")
-    assert has_element?(view, "#executor-footer-state", "attached")
+  end
+
+  test "Executor status refreshes on a hook and advances the last-heard age on a tick" do
+    now = DateTime.utc_now()
+    clock = start_supervised!({Agent, fn -> now end})
+    harness = start_supervised!({HarnessState, clock: fn -> Agent.get(clock, & &1) end, interval_ms: nil})
+    assert {:ok, binding} = Session.attach(%{harness: "claude"})
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-one"})
+    {_page, view, _html} = footer()
+    assert render_async(view, 3_000) =~ "Status unknown"
+
+    event = %{event: "UserPromptSubmit", observed_at: now}
+    send(harness, {:executor_hook, event})
+    assert %{state: :working} = HarnessState.snapshot(harness)
+    :ok = Phoenix.PubSub.broadcast(Aiur.PubSub, SessionIngest.topic(), {:executor_hook, event})
+    _ = :sys.get_state(view.pid)
+    _ = render_async(view, 3_000)
+    assert has_element?(view, "#executor-footer-state [data-state=working] time", "0 seconds ago")
+
+    Agent.update(clock, fn time -> DateTime.add(time, 5, :second) end)
+    send(view.pid, :executor_status_tick)
+    _ = :sys.get_state(view.pid)
+    _ = render_async(view, 3_000)
+    assert has_element?(view, "#executor-status-header [data-state=working] time", "5 seconds ago")
   end
 
   test "unreadable transcript and unsupported capture retain history", %{ref: ref} do

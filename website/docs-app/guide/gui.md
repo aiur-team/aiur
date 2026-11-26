@@ -206,15 +206,23 @@ forward, so measuring the gate never perturbs a real build acquisition.
 
 ### Executor
 
-Every dashboard page ends in an **Executor** footer. On the left it shows the
-Executor's state: `attached`, `idle`, `not attached`, `waiting for session` or
-`ended`. An unknown, stale or unavailable state carries its age (`stale 12m`,
-`unknown · age unknown`) and is never shown as `idle`. On a phone the footer sits
-above the bottom navigation.
+Every dashboard page ends in an **Executor** footer. Once attached, the footer
+shows harness activity, such as **Working**, **Waiting for input**, or **Idle**,
+and how long ago Aiur last saw it. When the observation expires, the footer
+shows **Status unknown** with the last-seen age. The footer sits above the
+bottom navigation on phones.
 
 The circle button on the right expands the footer into a panel of about 38% of the
 viewport (at most 360px; half the screen on a phone). Press the button again or
 Esc to collapse it. Each browser remembers whether the panel was open.
+
+The expanded status header shows the harness and CLI version, transcript read
+capability and its reason, the wake cursor and pending count, and the Executor
+roster count and current owner.
+
+The header refreshes on Executor hooks and every five seconds. Unavailable
+fields are labeled individually. If the entire status read fails, **Retry**
+refreshes it while history remains available.
 
 **Blockers** lists Executor Commands, open asks, and fleet blockers. Answer
 Commands in the panel on a writable dashboard. Asks show the CLI command to
