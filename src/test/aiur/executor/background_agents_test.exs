@@ -22,7 +22,7 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
     timer = start_supervised!({Agent, fn -> ~U[2026-11-20 00:00:00Z] end})
     start_supervised!({SessionIngest, pubsub: context.pubsub})
     start_supervised!({BackgroundAgents, pubsub: context.pubsub, clock: fn -> Agent.get(timer, & &1) end})
-    :ok = Phoenix.PubSub.subscribe(context.pubsub, "executor_hook")
+    :ok = Phoenix.PubSub.subscribe(context.pubsub, SessionIngest.topic())
     Map.put(context, :timer, timer)
   end
 

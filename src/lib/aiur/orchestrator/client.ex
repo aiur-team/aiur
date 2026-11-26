@@ -272,6 +272,8 @@ defmodule Aiur.Orchestrator.Client do
   def status_with_capacity(server, timeout), do: StatusReport.status_with_capacity_api(server, timeout)
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
+  @spec live_snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
+  def live_snapshot(server, timeout), do: StatusReport.live_snapshot_api(server, timeout)
 
   @doc """
   Reads the published dashboard snapshot without querying the Orchestrator;

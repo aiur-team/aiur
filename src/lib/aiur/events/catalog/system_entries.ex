@@ -53,6 +53,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded.resolved", "telemetry"},
     # aiur/memory_watchdog.ex
     {"system.daemon.memory_high", "telemetry"},
     # aiur/memory_watchdog.ex
@@ -147,6 +151,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive.resolved", "orchestration"},
     # aiur/ownership/projection.ex
     {"system.ownership.ambiguous", "config"},
     # aiur/landing_watch/pr_rerun.ex

@@ -406,7 +406,8 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
              Aiur.Executor.BackgroundAgents,
              Aiur.Executor.TranscriptSupervisor,
              Aiur.Executor.TranscriptIngest,
-             Aiur.ControlCLI.PendingCommands
+             Aiur.ControlCLI.PendingCommands,
+             Aiur.Orchestrator.UnresponsiveWatchdog
            ]
 
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)

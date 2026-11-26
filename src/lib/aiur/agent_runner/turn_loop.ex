@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   require Logger
 
   alias Aiur.AgentRunner.{
+    DependencyHold,
     Handoff,
     LocalGateCICache,
     MessageHandler,
@@ -384,7 +385,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def continue_after_resume(turn_context, app_session) do
     issue = turn_context.issue
 
-    case continue_with_issue?(issue, turn_context.issue_state_fetcher) do
+    case continue_with_issue?(issue, turn_context.issue_state_fetcher, Map.get(turn_context, :opts, [])) do
       {:continue, refreshed_issue}
       when is_nil(turn_context.max_turns) or turn_context.turn_number < turn_context.max_turns ->
         Logger.info(
@@ -449,15 +450,19 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def max_turns_display(max_turns), do: Integer.to_string(max_turns)
 
   @doc false
-  @spec continue_with_issue?(Issue.t(), fun()) ::
+  @spec continue_with_issue?(Issue.t(), fun(), keyword()) ::
           {:continue, Issue.t()} | {:done, Issue.t()} | {:error, term()}
-  def continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher)
+  def continue_with_issue?(issue, issue_state_fetcher, opts \\ [])
+
+  def continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher, opts)
       when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         refreshed_issue = %{refreshed_issue | optimistic_start: issue.optimistic_start}
         # The paused override parks a ticket even when its underlying state is active.
-        if active_issue_state?(refreshed_issue.state) and not Issue.paused?(refreshed_issue) do
+        # An open blocker ends the run; dispatch resumes the ticket once it closes.
+        if active_issue_state?(refreshed_issue.state) and not Issue.paused?(refreshed_issue) and
+             not DependencyHold.held?(refreshed_issue, opts) do
           {:continue, refreshed_issue}
         else
           {:done, refreshed_issue}
@@ -471,7 +476,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  def continue_with_issue?(issue, _issue_state_fetcher), do: {:done, issue}
+  def continue_with_issue?(issue, _issue_state_fetcher, _opts), do: {:done, issue}
 
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)
