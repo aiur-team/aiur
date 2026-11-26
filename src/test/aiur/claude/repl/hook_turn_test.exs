@@ -14,8 +14,15 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     {:ok, _pid} =
       start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
 
-    %{tmux: name}
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+    Process.put(:hook_test_pubsub, pubsub)
+
+    %{tmux: name, pubsub: pubsub}
   end
+
+  defp dispatch_hook(identifier, raw),
+    do: HookEvents.dispatch(identifier, raw, pubsub: Process.get(:hook_test_pubsub))
 
   defp respond(tmux, body) do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%end 1 1 0\n"})
@@ -36,6 +43,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
       remote_control: true,
       rc_name: "x",
       identifier: identifier,
+      pubsub: Process.get(:hook_test_pubsub),
       tmux: tmux
     }
   end
@@ -98,7 +106,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     expect_steer_input(tmux)
     receive_barrier(:operator_claimed)
     receive_barrier(:operator_delivered)
-    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
     assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
     refute_received :operator_claimed
     refute_received {:delivery_failed, _}
@@ -127,7 +135,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     send(task.pid, {:agent_queue_updated, identifier, 1, :steer})
     expect_steer_input(tmux)
     receive_barrier(:adopted_steer_delivered)
-    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "session_id" => "adopted-session", "last_assistant_message" => "done"})
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "session_id" => "adopted-session", "last_assistant_message" => "done"})
     assert {:ok, %{result: :completed, thread_id: "adopted-session"}} = drain_pane_pid(tmux, task)
     refute_received {:delivery_failed, _}
     refute_received {:tmux_mock_out, "load-buffer " <> _}
@@ -198,7 +206,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     assert record["transport"]["kind"] == "repl"
     Handoff.abort(task.pid)
 
-    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "ok", "session_id" => "sess-abort"})
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "ok", "session_id" => "sess-abort"})
 
     assert {:ok, result} = drain_pane_pid(tmux, task)
     assert result.thread_id == "sess-abort"
@@ -242,13 +250,13 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
         for _ <- 1..6 do
           Process.sleep(50)
 
-          HookEvents.dispatch(identifier, %{
+          dispatch_hook(identifier, %{
             "hook_event_name" => "PostToolUse",
             "tool_name" => "Read"
           })
         end
 
-        HookEvents.dispatch(identifier, %{
+        dispatch_hook(identifier, %{
           "hook_event_name" => "Stop",
           "last_assistant_message" => "done",
           "session_id" => "sess-reset"
@@ -268,7 +276,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "ok",
       "session_id" => "real-session-id"
@@ -297,7 +305,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     expect_prompt_submit(tmux)
     refute_receive {:provider_delivered, _metadata}, 50
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "UserPromptSubmit",
       "session_id" => "session-delivery"
     })
@@ -305,7 +313,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     assert %{transport: :claude_hook, session_id: "session-delivery"} =
              await_provider_delivery(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "done",
       "session_id" => "session-delivery"
@@ -323,7 +331,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "StopFailure",
       "error" => "rate_limit",
       "error_details" => "429 Too Many Requests",
@@ -342,7 +350,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "The quota and rate limit terminology is documented here."
     })
@@ -358,7 +366,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "StopFailure",
       "error" => "authentication_failed",
       "last_assistant_message" => "Invalid API key"
@@ -376,7 +384,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "ok"
     })

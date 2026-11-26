@@ -356,6 +356,7 @@ defmodule Aiur.Application.Children do
               Aiur.Executor.BackgroundAgents,
               {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
               Aiur.Executor.TranscriptIngest,
+              Aiur.Executor.HarnessState,
               Aiur.ControlCLI.PendingCommands
             ]
           )

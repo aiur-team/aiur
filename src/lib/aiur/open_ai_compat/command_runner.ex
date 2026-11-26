@@ -29,8 +29,18 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     case Keyword.get(opts, :sandbox_executable, System.find_executable("bwrap")) do
       executable when is_binary(executable) ->
         case ensure_budget_state() do
-          :ok -> run_sandboxed(executable, workspace, command, runner, Keyword.get(opts, :command_sandbox))
-          {:error, _reason} -> failure("shared GitHub budget state unavailable")
+          :ok ->
+            run_sandboxed(
+              executable,
+              workspace,
+              command,
+              runner,
+              Keyword.get(opts, :command_sandbox),
+              Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor)
+            )
+
+          {:error, _reason} ->
+            failure("shared GitHub budget state unavailable")
         end
 
       _ ->
@@ -38,7 +48,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     end
   end
 
-  defp run_sandboxed(executable, workspace, command, runner, sandbox) do
+  defp run_sandboxed(executable, workspace, command, runner, sandbox, task_supervisor) do
     real_gh = AgentGitHubGuard.real_gh()
 
     args =
@@ -63,7 +73,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
       |> List.flatten()
 
     task =
-      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+      Task.Supervisor.async_nolink(task_supervisor, fn ->
         runner.(executable, args, stderr_to_stdout: true)
       end)
 

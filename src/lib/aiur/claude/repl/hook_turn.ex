@@ -57,8 +57,9 @@ defmodule Aiur.Claude.Repl.HookTurn do
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
     pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
     identifier = session.identifier
+    pubsub = Keyword.get(opts, :pubsub, Map.get(session, :pubsub, Aiur.PubSub))
 
-    :ok = HookEvents.subscribe(identifier)
+    :ok = HookEvents.subscribe(identifier, pubsub)
 
     try do
       case PromptSubmit.submit(session, prompt, opts) do
@@ -75,7 +76,8 @@ defmodule Aiur.Claude.Repl.HookTurn do
             on_provider_delivery: on_provider_delivery,
             poll_ms: poll_ms,
             pause_confirm_ms: pause_confirm_ms,
-            timeout_ms: timeout_ms
+            timeout_ms: timeout_ms,
+            pubsub: pubsub
           }
 
           loop
@@ -91,7 +93,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
           {:error, reason}
       end
     after
-      HookEvents.unsubscribe(identifier)
+      HookEvents.unsubscribe(identifier, pubsub)
     end
   end
 
@@ -100,6 +102,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
   def adopt(session, %{repl_acc: acc}, offset, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     timeout = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+    pubsub = Keyword.get(opts, :pubsub, Map.get(session, :pubsub, Aiur.PubSub))
 
     loop = %{
       session: session,
@@ -112,16 +115,17 @@ defmodule Aiur.Claude.Repl.HookTurn do
       on_provider_delivery: Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end),
       poll_ms: Keyword.get(opts, :poll_interval_ms, @turn_poll_ms),
       pause_confirm_ms: Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms),
-      timeout_ms: timeout
+      timeout_ms: timeout,
+      pubsub: pubsub
     }
 
-    :ok = HookEvents.subscribe(session.identifier)
+    :ok = HookEvents.subscribe(session.identifier, pubsub)
 
     try do
-      HookEvents.replay(session.identifier, offset || 0)
+      HookEvents.replay(session.identifier, offset || 0, pubsub: pubsub)
       loop |> await_hook_turn(reset_deadline(loop), acc) |> finish_hook_turn(on_message)
     after
-      HookEvents.unsubscribe(session.identifier)
+      HookEvents.unsubscribe(session.identifier, pubsub)
     end
   end
 
@@ -153,7 +157,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
             await_hook_turn(%{loop | session: session}, deadline, acc)
 
           {:claude_hook_available, _identifier} ->
-            replay_hooks(loop.identifier)
+            replay_hooks(loop.identifier, loop.pubsub)
             await_hook_turn(loop, deadline, acc)
 
           {:claude_hook, _id, %{event: :stop} = event} ->
@@ -219,15 +223,15 @@ defmodule Aiur.Claude.Repl.HookTurn do
             interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
-            replay_hooks(loop.identifier)
+            replay_hooks(loop.identifier, loop.pubsub)
 
             await_hook_turn(loop, deadline, acc)
         end
     end
   end
 
-  defp replay_hooks(identifier) do
-    case HookEvents.replay(identifier, 0) do
+  defp replay_hooks(identifier, pubsub) do
+    case HookEvents.replay(identifier, 0, pubsub: pubsub) do
       {:ok, _offset} -> :ok
       {:error, reason} -> Logger.warning("repl_hook_turn replay_failed identifier=#{identifier} reason=#{inspect(reason)}")
     end

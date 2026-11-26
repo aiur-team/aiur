@@ -138,6 +138,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments abandon <id> --reason <text> --confirm [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
+       aiur experiments import-baseline <id> --source <file> --sha256 <hex> --metric <pack/metric> [--summary-path <a.b.c>] [--json]
        aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
@@ -296,6 +297,7 @@ aiur_engine_main() {
       shift
       cmd_usage "$@"
       ;;
+    capacity) shift; cmd_capacity "$@" ;;
     agents)
       shift
       cmd_agents "$@"

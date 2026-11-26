@@ -6,10 +6,13 @@ defmodule Aiur.AgentTools.LaneTest do
   alias Aiur.BuildOrder.EpicOverrides, as: Store
 
   setup do
+    {:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)
     dir = Aiur.TestSupport.tmp_root!("lane-tool")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
-    start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, settings_fun: fn -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}]}}} end})
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+    start_supervised!({Store, name: name, repository: "acme/app", state_dir: dir, pubsub: pubsub, settings_fun: fn -> {:ok, %{build_order: %{lanes: [%{key: "bugs", label: "Bugs"}]}}} end})
     %{opts: [server: name]}
   end
 

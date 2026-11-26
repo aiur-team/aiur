@@ -48,7 +48,7 @@ defmodule Aiur.CodingAgent.Providers.Muse do
         unit_background: "rgba(181, 160, 255, 0.12)"
       },
       meter_identity_policy: :host_unverified,
-      usage: %{adapters: [Aiur.Usage.Headless.Muse.SessionUsage]},
+      usage: %{provider: :muse},
       account_generation: %{backends: [:app_server], trusted_sources: [], auth_modes: []}
     }
   end
