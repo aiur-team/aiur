@@ -8,6 +8,7 @@
     "src/lib/aiur/agent_context_presentation.ex",
     "src/lib/aiur/agent_directory.ex",
     "src/lib/aiur/agent_event_log.ex",
+    "src/lib/aiur/agent_workpad_progress.ex",
     "src/lib/aiur/agent_runner.ex",
     "src/lib/aiur/agent_runner/**",
     "src/lib/aiur/agent_skills.ex",
