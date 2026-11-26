@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   use Aiur.TestSupport
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
-  alias Aiur.BuildQueue.{Hints, Model, Reconcile}
+  alias Aiur.BuildQueue.{Hints, Model, Reconcile, Sets}
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
@@ -161,6 +161,14 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     Hints.publish_sets(%{snapshot | sets: Enum.reject(snapshot.sets, &(&1.rank == 0))})
     assert QueueSetSlots.sort_key("1", QueueSetSlots.ordering()) == {1, 0, 0}
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(3 4 5 6 7 8)
+  end
+
+  test "queue snapshot keeps orphaned items with the configured start trigger" do
+    {document, _issues, projections} = fixture()
+    orphan = %{issue_id: "orphan", queue_id: "missing", position: 3}
+    snapshot = Sets.snapshot(%{document | items: [orphan]}, projections, Config.settings!(), nil)
+
+    assert snapshot.members["orphan"] == %{set_id: "missing", position: 3, start_trigger: :pr_merged}
   end
 
   test "review waits keep a started unfinished set active after all its runners exit" do
