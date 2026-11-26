@@ -12,12 +12,12 @@ defmodule Aiur.ControlCall.GateParityTest do
     session: [:Aiur, :HarnessSessionCLI],
     usage: [:Aiur, :Usage, :CLI],
     capacity: [:Aiur, :Capacity, :View],
+    capacity_report: [:Aiur, :Capacity, :ReportCLI],
     ticket_usage: [:Aiur, :TicketUsageCLI],
     sweep: [:Aiur, :ExecutorSweep, :CLI],
     pr_merge: [:Aiur, :PrMerge, :Record],
     listen: [:Aiur, :ListenModeCli],
-    provenance: [:Aiur, :ControlCLI, :ConfigExplain],
-    capacity: [:Aiur, :Capacity, :ReportCLI]
+    provenance: [:Aiur, :ControlCLI, :ConfigExplain]
   }
 
   # {module, function, arities, client gate words that send it}. Keyed by {segments, function, arity}
@@ -122,7 +122,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:handoff, :report, [0, 1]},
     {:handoff, :prepare, [0]},
     # Reads the local daemon's retained logs; not offered over `--instance`.
-    {:capacity, :rpc, [2]},
+    {:capacity_report, :rpc, [2]},
     {:pr_merge, :print_watcher_state, [0]},
     {:pr_merge, :publish, [1]}
   ]
