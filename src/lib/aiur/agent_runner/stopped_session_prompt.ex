@@ -65,7 +65,9 @@ defmodule Aiur.AgentRunner.StoppedSessionPrompt do
     _error -> {"", 1}
   end
 
-  defp last_agent_message(workspace, identifier) do
+  @doc "The worker's last message from the workspace's agent log, capped and prefixed with the ticket."
+  @spec last_agent_message(Path.t(), String.t()) :: String.t()
+  def last_agent_message(workspace, identifier) do
     path = Path.join(workspace, "logs/agent.ndjson")
 
     case read_tail(path) do

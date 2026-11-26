@@ -39,9 +39,7 @@ defmodule Aiur.RepoBase do
   ## ---- Public API ----
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
-  end
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Aiur.Project.via(__MODULE__))
 
   @doc "Absolute path of the warm base for `repo_url`."
   @spec base_path(String.t()) :: Path.t()
@@ -127,6 +125,10 @@ defmodule Aiur.RepoBase do
   @spec status(timeout()) :: {atom() | {:error, term()}, Path.t() | nil}
   def status(timeout \\ 5_000), do: GenServer.call(Aiur.Project.whereis(__MODULE__), :status, timeout)
 
+  @doc "Milliseconds the current phase has lasted, from its first status or dispatch read."
+  @spec phase_age_ms(timeout()) :: non_neg_integer()
+  def phase_age_ms(timeout \\ 5_000), do: GenServer.call(Aiur.Project.whereis(__MODULE__), :phase_age_ms, timeout)
+
   @doc """
   Trigger an asynchronous refresh of the warm base toward the latest remote base branch.
   No-op when pre-warm is disabled / unconfigured. Safe to call every poll cycle:
@@ -192,7 +194,9 @@ defmodule Aiur.RepoBase do
        dispatch_hold_timeout_ms: Keyword.get(opts, :dispatch_hold_timeout_ms, @dispatch_hold_timeout_ms),
        build_hold_timeout_ms: Keyword.get(opts, :build_hold_timeout_ms, @build_hold_timeout_ms),
        build_hold_timeout_ms_override: Keyword.get(opts, :build_hold_timeout_ms),
-       dispatch_watchdog: nil
+       dispatch_watchdog: nil,
+       phase_seen: nil,
+       phase_since_ms: nil
      }}
   end
 
@@ -200,9 +204,9 @@ defmodule Aiur.RepoBase do
   def terminate(_reason, state), do: BuildProcess.terminate(state)
 
   @impl true
-  def handle_call(:status, _from, state) do
-    {:reply, {state.phase, state.base_path}, state}
-  end
+  def handle_call(:status, _from, state), do: {:reply, {state.phase, state.base_path}, stamp_phase(state)}
+
+  def handle_call(:phase_age_ms, _from, state), do: {:reply, phase_age(stamp_phase(state)), stamp_phase(state)}
 
   def handle_call({:build_os_process, pid, event, os_pid, group_id, identity}, _from, %{build: %{pid: pid}} = state) do
     {:reply, :ok, BuildProcess.update_process(state, event, os_pid, group_id, identity)}
@@ -213,14 +217,12 @@ defmodule Aiur.RepoBase do
   end
 
   def handle_call(:refresh_for_dispatch, _from, state) do
-    state = do_refresh_for_dispatch(state)
+    state = state |> do_refresh_for_dispatch() |> stamp_phase()
     {:reply, state.phase, state}
   end
 
   @impl true
-  def handle_cast(:refresh_async, state) do
-    {:noreply, do_refresh_async(state)}
-  end
+  def handle_cast(:refresh_async, state), do: {:noreply, do_refresh_async(state)}
 
   @impl true
   def handle_info(:poll, state) do
@@ -231,9 +233,7 @@ defmodule Aiur.RepoBase do
 
   # The build worker reports the head it locked in before the (expensive) build,
   # so a later ls-remote probe can tell whether the base branch advanced past it.
-  def handle_info({:build_head, pid, head}, %{build: %{pid: pid} = build} = state) do
-    {:noreply, %{state | build: %{build | head: head}}}
-  end
+  def handle_info({:build_head, pid, head}, %{build: %{pid: pid} = build} = state), do: {:noreply, %{state | build: %{build | head: head}}}
 
   def handle_info({:build_head, _pid, _head}, state), do: {:noreply, state}
 
@@ -360,6 +360,7 @@ defmodule Aiur.RepoBase do
         |> Map.put(:base_path, base)
         |> dispatch_refresh_state(repo_url, base, command)
         |> sync_dispatch_watchdog()
+        |> expire_overdue_watchdog()
     end
   end
 

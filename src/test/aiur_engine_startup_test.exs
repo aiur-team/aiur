@@ -172,7 +172,7 @@ defmodule AiurEngineStartupTest do
         */aiur-argv.*) path="$TMP_ROOT/argv" ;;
         */aiur-startup.*) path="$TMP_ROOT/startup" ;;
         */aiur-pane.*) path="$TMP_ROOT/launcher" ;;
-        *) command mktemp "$@" ;;
+        *) command mktemp "$@"; return ;;
       esac
       : > "$path"
       printf '%s\\n' "$path"

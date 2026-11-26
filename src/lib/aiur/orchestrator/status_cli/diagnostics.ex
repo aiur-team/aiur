@@ -277,7 +277,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
     if Config.prewarm_enabled?() do
       case prewarm_status_safe() do
         {phase, _base} when phase in @prewarm_warming_phases ->
-          IO.puts("PREWARM prewarm: warming phase=#{phase} — dispatch held while the base build completes")
+          IO.puts("PREWARM prewarm: warming phase=#{phase}#{prewarm_phase_age()} — dispatch held while the base build completes")
 
         {{:error, reason}, _base} ->
           IO.puts("PREWARM prewarm: unavailable reason=#{inspect(reason)} — dispatching via cold clone")
@@ -286,6 +286,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
           :ok
       end
     end
+  end
+
+  # A long phase is the stall signal (#8100); an unreadable age prints nothing.
+  defp prewarm_phase_age do
+    case div(RepoBase.phase_age_ms(), 1000) do
+      seconds when seconds < 60 -> " for #{seconds}s"
+      seconds -> " for #{div(seconds, 60)}m"
+    end
+  rescue
+    _ -> ""
+  catch
+    :exit, _ -> ""
   end
 
   defp prewarm_status_safe do

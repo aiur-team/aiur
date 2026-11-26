@@ -6,10 +6,11 @@ defmodule Aiur.Alerts do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertFeed, AlertLedger, Issue}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertFeed, AlertLedger, Fs, Issue}
   alias Aiur.Alerts.{Config, Sound}
   alias Aiur.Config.Paths
   alias Aiur.Events
+  alias Aiur.OperatorNotify
   alias Aiur.Signal
 
   @type definition :: %{
@@ -72,7 +73,8 @@ defmodule Aiur.Alerts do
     if not Keyword.get(opts, :durable, false) and repeat_resolution?(topic) do
       :ok
     else
-      emit_alert(topic, override_message, opts)
+      message = override_message || config_message(definition_for_topic(topic))
+      OperatorNotify.on_alert(topic, message, fn -> emit_alert(topic, override_message, opts) end)
     end
   end
 
@@ -225,10 +227,10 @@ defmodule Aiur.Alerts do
       |> central_alert_json()
       |> Jason.encode!()
 
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, encoded <> "\n", [:append]) do
-      :ok
-    else
+    case Fs.append_raw(path, encoded <> "\n") do
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.debug("Failed writing central alert feed path=#{path} reason=#{inspect(reason)}")
         :ok

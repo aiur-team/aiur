@@ -276,9 +276,12 @@ defmodule Aiur.AlertLedger do
     selection = select_entry({[], 0, MapSet.new()}, newest, max_bytes)
     {selection, dropped_active_count} = select_active(active, selection, max_bytes)
 
+    # History refills only to the low-water mark. Filled back to the ceiling,
+    # the next alert would compact again, so every alert re-read and rewrote
+    # the whole ledger once it was full (#8051).
     selection =
       if dropped_active_count == 0 do
-        select_history(Enum.reverse(entries), selection, max_bytes)
+        select_history(Enum.reverse(entries), selection, div(max_bytes * 3, 4))
       else
         selection
       end
