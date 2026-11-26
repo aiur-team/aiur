@@ -39,7 +39,6 @@ defmodule Aiur.OverlapReviewer.Corpus do
          {:ok, issues, observed_at} <- OpenIssueSnapshot.fetch_issue_rows(owner, name, @snapshot_max_age_ms) do
       {:ok, String.downcase(repo), issues, observed_at}
     else
-      {:error, reason} -> {:error, reason}
       _ -> {:error, :open_issue_listing_unavailable}
     end
   end
