@@ -2,6 +2,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
   use ExUnit.Case, async: true
   alias Aiur.DecisionStore.CapabilityProvider, as: Commands
   alias Aiur.Executor.CapabilityProvider, as: Executor
+  alias Aiur.Executor.Session
   alias Aiur.HttpServer.CapabilityProvider, as: Http
   alias Aiur.Orchestrator.CapabilityProvider, as: Orchestration
   alias Aiur.Orchestrator.SnapshotStore
@@ -168,7 +169,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     root = Aiur.TestSupport.tmp_root!("executor-capability-provider")
     previous = Application.fetch_env(:aiur, :executor_state_dir)
     Application.put_env(:aiur, :executor_state_dir, root)
-    start_supervised!({Aiur.Executor.Session, instance_key: "capability-provider"})
+    start_supervised!({Session, instance_key: "capability-provider"})
 
     on_exit(fn ->
       case previous do
@@ -185,8 +186,8 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
              route: "/executor"
            }
 
-    assert {:ok, binding} = Aiur.Executor.Session.attach(%{harness: "codex"})
-    assert {:ok, _} = Aiur.Executor.Session.bind_provider_session(binding.binding_id, %{session_id: "session-1"})
+    assert {:ok, binding} = Session.attach(%{harness: "codex"})
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-1"})
     capability = %{status: :untested, reason: :version_untested}
 
     assert Executor.evaluate(@context, lookup_fun: fn _ -> nil end, capability_fun: fn -> capability end)["executor.conversation"] == %{

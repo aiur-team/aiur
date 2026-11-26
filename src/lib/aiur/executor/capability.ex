@@ -1,12 +1,14 @@
 defmodule Aiur.Executor.Capability do
   @moduledoc "Pure read capability projection for an attached Executor snapshot."
 
+  alias Aiur.Executor.Session
+
   @type status :: :proven | :untested | :unsupported | :unknown
 
   @spec read() :: map()
   def read do
     snapshot =
-      case Aiur.Executor.Session.current() do
+      case Session.current() do
         {:ok, binding} -> binding
         :none -> nil
       end
