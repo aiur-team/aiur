@@ -1,7 +1,8 @@
 defmodule Aiur.Executor.SessionCLIIngestTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.Executor.{Session, SessionCLI, SessionIngest}
+  alias Aiur.Executor.{BackgroundAgents, Claims, HarnessState, Session, SessionCLI, SessionIngest}
+  alias Aiur.ExecutorWakeInbox
   alias Aiur.TestSupport.Isolation
 
   setup context do
@@ -69,6 +70,34 @@ defmodule Aiur.Executor.SessionCLIIngestTest do
 
     assert capture_io(fn -> SessionCLI.run(Keyword.put(opts, :json, false)) end) =~
              "recording=false foreign_session=unknown not_attached=unknown"
+  end
+
+  test "JSON includes the live projections, wake depth, and hook ages", %{pubsub: pubsub, opts: opts} do
+    now = DateTime.utc_now()
+    at = DateTime.add(now, -5, :second)
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    start_supervised!({BackgroundAgents, pubsub: pubsub})
+    start_supervised!({HarnessState, pubsub: pubsub, interval_ms: nil, clock: fn -> now end})
+    assert {:ok, %{binding_id: id}} = Session.attach(%{harness: "claude"})
+    assert {:ok, _binding} = Session.bind_provider_session(id, %{session_id: "executor-session", cwd: "/private/executor"})
+    assert {:ok, _binding} = Session.touch(id, at)
+    assert {:ok, _claim} = Claims.observe("listener", path: opts[:path], now: now)
+    assert :ok = ExecutorWakeInbox.enqueue(%{"kind" => "attention", "source_id" => 1, "ticket" => "42"})
+    send(HarnessState, {:executor_hook, %{event: "PostToolUse", observed_at: at}})
+    assert %{state: :working} = HarnessState.snapshot()
+
+    status = status(Keyword.put(opts, :now, now))
+    assert status["attached"] == true
+    assert status["observed_at"] == DateTime.to_iso8601(now)
+    assert %{"binding_id" => ^id, "age_ms" => 5_000, "freshness" => "fresh"} = status["binding"]
+    refute Map.has_key?(status["binding"], "cwd")
+    assert %{"state" => "working", "observed_at" => timestamp, "age_ms" => 5_000, "freshness" => "fresh"} = status["harness_state"]
+    assert timestamp == DateTime.to_iso8601(at)
+    assert status["background_agents"] == %{"status" => "ok", "agents" => []}
+    assert %{"items" => items, "sources" => %{"commands" => %{"status" => _}}, "observed_at" => _} = status["blockers"]
+    assert is_list(items)
+    assert status["wakes"] == %{"cursor" => 0, "pending_count" => 1}
+    assert [%{"id" => "listener", "pending_count" => 1}] = status["roster"]
   end
 
   defp status(opts), do: Jason.decode!(capture_io(fn -> assert SessionCLI.run(opts) == 0 end))

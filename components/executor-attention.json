@@ -18,6 +18,8 @@
     "src/lib/aiur/gateway/liveness.ex",
     "src/lib/aiur/operator_notify.ex",
     "src/lib/aiur/operator_wait_log.ex",
+    "src/lib/aiur/overlap_reviewer.ex",
+    "src/lib/aiur/overlap_reviewer/**",
     "src/lib/aiur/progress_checkin/**",
     "src/lib/aiur/usage/alerts.ex"
   ],
@@ -37,12 +39,14 @@
   ],
   "optional": [
     "accounting",
+    "build-orders",
     "build-queue",
     "conversations",
     "github",
     "github-access",
     "github-listeners",
-    "orchestration"
+    "orchestration",
+    "tracker"
   ],
   "owns": {
     "config": [

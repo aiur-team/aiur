@@ -338,3 +338,7 @@ an identical head needs no read. A later committer date alone proves nothing.
 
 Provider handoff rechecks held PR state before delivery. These evidence reads
 claim no quota saving.
+
+## Work overlap evidence
+
+Overlap review uses the existing complete open-issue listing, shared conditional open-PR listing, and the newest recorded merges from the last 14 days. A background scan refreshes this evidence every five minutes. Dispatch reads the local snapshot, and review events reuse it. The reviewer can report unavailable evidence while the source is loading.

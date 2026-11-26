@@ -25,14 +25,31 @@ defmodule Aiur.ExecutorSweep.Wake do
 
   defp wake_finding(finding) do
     finding
-    |> Map.take([:kind, :priority, :message, :action, :ticket, :ticket_count, :oldest_ticket, :truncated?, :issue_number, :pull_request, :head_sha, :failure_class, :failed_checks, :age_ms])
+    |> Map.take([
+      :finding_key,
+      :repository,
+      :kind,
+      :priority,
+      :message,
+      :action,
+      :ticket,
+      :ticket_count,
+      :oldest_ticket,
+      :truncated?,
+      :issue_number,
+      :pull_request,
+      :head_sha,
+      :failure_class,
+      :failed_checks,
+      :age_ms
+    ])
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> Map.put("needs_attention", true)
   end
 
   defp fingerprint(finding) do
     finding
-    |> Map.take([:kind, :ticket, :issue_number, :pull_request, :message])
+    |> Map.take([:kind, :repository, :ticket, :issue_number, :pull_request, :message])
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
