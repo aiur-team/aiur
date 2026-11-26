@@ -57,8 +57,9 @@ Local integration tests may use `show` against their isolated synthetic store.
 
 ## Before enrollment
 
-Follow [arm setup](arm-setup.md) on a future unstarted graph. The recorded
-dry run has empty control and cannot enroll. Record actual queue IDs, seed,
+Follow [arm setup](arm-setup.md) on a future unstarted graph. The
+[current census](arm-dry-run-2026-11-26.md) has no open candidate tickets.
+Record actual queue IDs, seed,
 generator version, graph revision and components in an audited amendment;
 the empty `queue_id in []` selectors intentionally select nothing until then.
 
