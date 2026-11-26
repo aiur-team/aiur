@@ -6,8 +6,10 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
+  alias Aiur.{Config, Issue, Signal}
+  alias Aiur.Events.BranchRefStore
+  alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State, TicketTransition}
+  alias Aiur.Orchestrator.CiLifecycle.{ReviewHandoff, Transition}
 
   @interrupted_turn_grace_ms 30_000
 
@@ -44,15 +46,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     apply_runtime_health_check(state, DateTime.utc_now())
   end
 
-  # Safety check-in, not a kill: pause any agent that has been actively
-  # running longer than `agent.max_agent_duration_minutes` (paused/blocked
-  # time excluded via `running_seconds/2`). The duration cap is almost
-  # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, retaining its session/turn context so the
-  # Executor can review and resume with one keystroke instead of
-  # restarting from scratch. The pause releases its fleet reservation
-  # (`@non_reserving_pause_reasons`), so a parked agent cannot pin a
-  # capacity slot indefinitely (#2329).
+  # Pause any agent that has been actively running longer than
+  # `agent.max_agent_duration_minutes` (paused/blocked time excluded via
+  # `running_seconds/2`). Once the worker confirms it parked,
+  # `DurationCapRelease` moves the ticket to rework or human-review and
+  # frees the runner so a fresh worker continues (#4849).
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
   def reconcile_overrunning_agents(%State{} = state) do
@@ -92,6 +90,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # that the worker actually parked.
   @doc false
   @spec maybe_pause_overrunning_entry(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
+  def maybe_pause_overrunning_entry(state, _issue_id, %{native_hold: hold}, _now, _max_seconds) when is_map(hold), do: state
+
   def maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
     if overrunning_entry?(running_entry, now, max_seconds) do
       identifier = Map.get(running_entry, :identifier, issue_id)
@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   defp restart_unhealthy_issue(state, issue_id, running_entry, reason, alert_slug, opts) do
     identifier = Map.get(running_entry, :identifier, issue_id)
-    emit_alert = Keyword.get(opts, :emit_alert, &Alerts.emit_custom/3)
+    emit_alert = Keyword.get(opts, :emit_alert, &Signal.agent_alert/3)
 
     _ =
       emit_alert.(
@@ -261,6 +261,12 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       wedged_overcap_entry?(running_entry, now, timeout_ms) ->
         terminate_wedged_overcap_entry(state, issue_id, running_entry, now)
 
+      # CI-wait is an intentional handoff: the worker is waiting for CI and
+      # should not consume a retry even if its last activity is old. It sits
+      # below the wedged-overcap kill so a runaway still gets force-terminated.
+      ci_wait_issue?(running_entry) ->
+        maybe_handoff_stalled_ci_wait(state, issue_id, running_entry, now, timeout_ms)
+
       # Paused agents are INTENTIONALLY idle — the agent emitted
       # pause.request because it declared a blocker and has nothing to
       # do until the blocker emits. The stall watchdog must not
@@ -282,6 +288,96 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       true ->
         maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
     end
+  end
+
+  defp ci_wait_issue?(%{issue: issue}), do: CiLifecycle.ci_wait_state?(Map.get(issue, :state))
+  defp ci_wait_issue?(_running_entry), do: false
+
+  defp maybe_handoff_stalled_ci_wait(state, issue_id, running_entry, now, timeout_ms) do
+    elapsed_ms = stall_elapsed_ms(running_entry, now)
+
+    if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
+      issue = Map.get(running_entry, :issue)
+      identifier = Map.get(running_entry, :identifier, issue_id)
+      result = ci_wait_result(state, issue)
+
+      cond do
+        ready_ci_result_for_worker?(result, running_entry) ->
+          stopped = AgentTeardown.terminate_running_issue(state, issue_id, false)
+          handoff_cached_ci_pass(stopped, issue, result)
+
+        green_draft_ci_result?(result, running_entry) ->
+          stalled_ci_alert(state, issue_id, running_entry, identifier, result.head_sha, elapsed_ms, timeout_ms)
+
+        true ->
+          state
+      end
+    else
+      state
+    end
+  end
+
+  defp ci_wait_result(state, %Issue{} = issue), do: get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)])
+  defp ci_wait_result(_state, _issue), do: nil
+
+  defp ready_ci_result_for_worker?(%{decision: :passed} = result, running_entry) do
+    ReviewHandoff.ready_unreviewed_head?(result) and worker_head_matches?(running_entry, result.head_sha)
+  end
+
+  defp ready_ci_result_for_worker?(_result, _running_entry), do: false
+
+  defp green_draft_ci_result?(%{decision: :passed, draft?: true, pr_number: number, head_sha: sha}, running_entry)
+       when is_integer(number) and is_binary(sha) and sha != "",
+       do: worker_head_matches?(running_entry, sha)
+
+  defp green_draft_ci_result?(_result, _running_entry), do: false
+
+  defp worker_head_matches?(running_entry, sha) do
+    issue = Map.get(running_entry, :issue)
+    identifier = Map.get(running_entry, :identifier) || Map.get(issue || %{}, :identifier)
+
+    Map.get(running_entry, :rework_head_sha) == sha or
+      (is_binary(identifier) and match?(%{sha: ^sha}, BranchRefStore.latest(identifier)))
+  rescue
+    _ -> Map.get(running_entry, :rework_head_sha) == sha
+  end
+
+  defp stalled_ci_alert(state, issue_id, running_entry, identifier, head_sha, elapsed_ms, timeout_ms) do
+    alerted = Map.get(running_entry, :stalled_draft_alert_heads, MapSet.new())
+
+    if MapSet.member?(alerted, head_sha) do
+      state
+    else
+      backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
+
+      _ =
+        Signal.agent_alert("ticket.#{identifier}.agent.stalled", "worker stalled before marking PR ready; CI passed but PR is still a draft",
+          issue: Map.get(running_entry, :issue),
+          workspace: Map.get(running_entry, :workspace_path),
+          worker_host: Map.get(running_entry, :worker_host),
+          reason: "#{backend} backend exceeded the #{timeout_ms}ms no-progress window with green CI",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      Logger.warning("Stalled ci-wait issue requires PR readiness: identifier=#{identifier} elapsed_ms=#{elapsed_ms}")
+      updated_entry = Map.put(running_entry, :stalled_draft_alert_heads, MapSet.put(alerted, head_sha))
+      %{state | running: Map.put(state.running, issue_id, updated_entry)}
+    end
+  end
+
+  defp handoff_cached_ci_pass(state, issue, result) do
+    issue_key = issue.id || issue.identifier
+
+    ReviewHandoff.transition_stalled(state, issue, result, fn ->
+      TicketTransition.write_state(
+        to_string(issue_key),
+        "human-review",
+        Transition.expected_state_opts(issue)
+        |> Keyword.put(:writer, :ci_lifecycle)
+        |> Keyword.put(:reason_modifiers, [])
+      )
+    end)
   end
 
   # True when a duration-capped paused entry is WEDGED rather than parked:
@@ -319,6 +415,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     AgentTeardown.terminate_running_issue(state, issue_id, false)
   end
 
+  defp maybe_restart_stalled_entry(state, _issue_id, %{native_hold: hold}, _now, _timeout_ms) when is_map(hold), do: state
+
   defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)
 
@@ -326,13 +424,14 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = State.running_entry_session_id(running_entry)
       backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
+      command = stalled_command(backend)
 
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{identifier}.agent.stalled",
-          "#{backend} command made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
+          "#{backend} backend command (#{command}) made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
           issue: Map.get(running_entry, :issue),
           workspace: Map.get(running_entry, :workspace_path),
           worker_host: Map.get(running_entry, :worker_host),
@@ -350,6 +449,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
         issue_state: Map.get(Map.get(running_entry, :issue) || %{}, :state),
         error: "stalled for #{elapsed_ms}ms without #{backend} activity",
+        stalled_alert_outstanding: true,
         prior_work: RetryEngine.prior_work_for_retry?(running_entry),
         worker_host: Map.get(running_entry, :worker_host),
         workspace_path: Map.get(running_entry, :workspace_path)
@@ -357,6 +457,14 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     else
       state
     end
+  end
+
+  defp stalled_command(backend) do
+    configured = Aiur.Config.backend_config(backend)["command"]
+    default = get_in(Aiur.CodingAgent.backends(), [backend, :default_command])
+    configured || default || "#{backend}"
+  rescue
+    _ -> "#{backend}"
   end
 
   defp stall_elapsed_ms(running_entry, now) do

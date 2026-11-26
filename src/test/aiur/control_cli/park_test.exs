@@ -35,16 +35,25 @@ defmodule Aiur.ControlCLI.ParkTest do
     assert already_parked =~ "#2952 already parked"
     assert already_parked =~ "__AIUR_CONTROL_EXIT__:0"
 
-    test_pid = self()
-
-    stderr =
-      capture_io(:stderr, fn ->
-        stdout = capture_io(fn -> AgentControlCLI.park(["missing"]) end)
-        send(test_pid, {:park_stdout, stdout})
-      end)
-
-    assert stderr =~ "#missing could not be parked: no running agent"
-    assert_receive {:park_stdout, refused}, 1_000
+    refused = capture_io(fn -> capture_io(:stderr, fn -> AgentControlCLI.park(["missing"]) end) end)
+    assert refused =~ "__AIUR_CONTROL_ERROR__:✗ #missing could not be parked: no running agent"
     assert refused =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  # The RPC hop returns only stdout; a stderr-only reason reached the operator as
+  # "returned no diagnostic output" (#4694).
+  test "park accepts a paused ci-wait ticket that holds no reservation" do
+    :sys.replace_state(Process.whereis(Orchestrator), fn state ->
+      update_in(state.running["2952"].issue, &%{&1 | state: "ci-wait"})
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.park(["2952"]) end)
+    assert output =~ "parking #2952; tracker marker write pending"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert_receive {:memory_tracker_add_label, "2952", "agent:parked"}, 1_000
+
+    assert await_orchestrator_state(Process.whereis(Orchestrator), fn state ->
+             get_in(state.running, ["2952", :operator_parked]) == true
+           end)
   end
 end

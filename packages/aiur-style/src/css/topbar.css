@@ -1,0 +1,22 @@
+@layer aiur.components {
+  .aiur-topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 26px;
+    z-index: var(--aiur-z-topbar); pointer-events: none;
+  }
+  .aiur-topbar--sticky { position: sticky; top: 0; }
+  .aiur-topbar.is-pinned { position: fixed; inset: 0 0 auto 0; }
+  .aiur-topbar--end { justify-content: flex-end; }
+  .aiur-brand {
+    pointer-events: auto; display: flex; align-items: center; gap: 9px;
+    font: 12px var(--aiur-font-mono); letter-spacing: .18em; text-transform: uppercase;
+    color: var(--aiur-color-muted); text-decoration: none; transition: transform .2s ease, opacity .2s ease;
+  }
+  .aiur-brand__logo { width: auto; height: 28px; display: block; }
+  .aiur-brand:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 4px; }
+  .aiur-topbar.is-logo-tucked .aiur-brand { transform: translateY(-160%); opacity: 0; pointer-events: none; }
+  .aiur-topbar__actions { pointer-events: auto; display: flex; align-items: center; gap: 18px; }
+  .aiur-topbar__link { font: 13px var(--aiur-font-mono); color: var(--aiur-color-muted); text-decoration: none; transition: color .2s ease; }
+  .aiur-topbar__link:hover { color: var(--aiur-color-fg); }
+  .aiur-topbar__link:focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 4px; }
+  @media (prefers-reduced-motion: reduce) { .aiur-brand, .aiur-topbar__link { transition: none; } }
+}

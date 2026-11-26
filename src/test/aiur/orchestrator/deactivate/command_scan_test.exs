@@ -2,8 +2,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.CommandScan
+  alias Aiur.GitHub.Listeners.CommandScan.Scan, as: CommandScan
 
   import Aiur.OrchestratorDeactivateSupport
 
@@ -34,7 +33,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
         "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/733"
       }
 
-      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+      state = %CommandScan{since: "2026-06-25T00:00:00Z"}
 
       next =
         CommandScan.scan_pr_commands(state,
@@ -56,7 +55,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
 
       # The scan cursor advanced past the handled comment (−1s rewind), so the
       # same comment will not re-fire next cycle — the one-off guarantee.
-      assert next.github_command_scan_since == "2026-06-25T01:59:59Z"
+      assert next.since == "2026-06-25T01:59:59Z"
     after
       restore_trust!(codeowners_state())
 
@@ -92,7 +91,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
       }
 
       CommandScan.scan_pr_commands(
-        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        %CommandScan{since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
         command_scan_issue_comment_fetcher: fn _opts -> {:ok, [mention_comment]} end
@@ -136,7 +135,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
       }
 
       CommandScan.scan_pr_commands(
-        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        %CommandScan{since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
         command_scan_issue_comment_fetcher: fn _opts -> {:ok, [issue_comment]} end
@@ -192,7 +191,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
       ]
 
       CommandScan.scan_pr_commands(
-        %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+        %CommandScan{since: "2026-06-25T00:00:00Z"},
         repo: "owner/repo",
         command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,
         command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
@@ -224,7 +223,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
         tracker_bot_account: "aiur-bot"
       )
 
-      state = %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"}
+      state = %CommandScan{since: "2026-06-25T00:00:00Z"}
 
       next =
         CommandScan.scan_pr_commands(state,
@@ -276,7 +275,7 @@ defmodule Aiur.Orchestrator.Deactivate.CommandScanTest do
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           CommandScan.scan_pr_commands(
-            %Orchestrator.State{running: %{}, github_command_scan_since: "2026-06-25T00:00:00Z"},
+            %CommandScan{since: "2026-06-25T00:00:00Z"},
             repo: "owner/repo",
             command_scan_pull_request_limit: 2,
             command_scan_review_comment_fetcher: fn _opts -> {:ok, review_comments} end,

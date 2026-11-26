@@ -44,10 +44,12 @@ def canonical(value):
 def format_json(value):
     value = canonical(value)
     text = json.dumps(value, ensure_ascii=False, indent=2)
-    if isinstance(value, dict) and 'features' in value:
-        expanded = json.dumps(value['features'], ensure_ascii=False, indent=2).replace('\n', '\n  ')
-        compact = '[\n' + ',\n'.join('    ' + json.dumps(f, ensure_ascii=False) for f in value['features']) + '\n  ]'
-        text = text.replace('  "features": ' + expanded, '  "features": ' + compact)
+    if isinstance(value, dict):
+        for key in ('features', 'seams'):
+            if key in value:
+                expanded = json.dumps(value[key], ensure_ascii=False, indent=2).replace('\n', '\n  ')
+                compact = '[\n' + ',\n'.join('    ' + json.dumps(row, ensure_ascii=False) for row in value[key]) + '\n  ]'
+                text = text.replace(f'  "{key}": ' + expanded, f'  "{key}": ' + compact)
     return text + '\n'
 
 

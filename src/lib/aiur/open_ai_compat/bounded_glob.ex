@@ -15,7 +15,7 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
           [:binary, :exit_status, :hide, args: [workspace, "-mindepth", "1", "-print0"]]
         )
 
-      collect(port, workspace, matcher, limit, "", [])
+      collect(port, workspace, matcher, limit, "", {[], 0})
     else
       nil -> {:error, :file_traversal_unavailable}
       {:error, _reason} = error -> error
@@ -28,9 +28,9 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
         {paths, pending} = complete_paths(pending <> data)
 
         case collect_paths(paths, workspace, matcher, limit, matches) do
-          {:halt, matches} ->
+          {:halt, {matches, _count}} ->
             close_port(port)
-            {:ok, matches |> Enum.reverse() |> Enum.sort()}
+            {:ok, Enum.sort(matches)}
 
           {:cont, matches} ->
             collect(port, workspace, matcher, limit, pending, matches)
@@ -40,7 +40,7 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
         paths = if pending == "", do: [], else: [pending]
 
         case collect_paths(paths, workspace, matcher, limit, matches) do
-          {_status, matches} -> {:ok, matches |> Enum.reverse() |> Enum.sort()}
+          {_status, {matches, _count}} -> {:ok, Enum.sort(matches)}
         end
 
       {^port, {:exit_status, status}} ->
@@ -58,24 +58,31 @@ defmodule Aiur.OpenAICompat.BoundedGlob do
   end
 
   defp collect_paths(paths, workspace, matcher, limit, matches) do
-    Enum.reduce_while(paths, {:cont, matches}, fn absolute, {:cont, current} ->
+    Enum.reduce_while(paths, {:cont, matches}, fn absolute, {:cont, {current, count}} ->
       relative = Path.relative_to(absolute, workspace)
 
-      if Regex.match?(matcher, relative) and inside_workspace?(workspace, relative) do
-        keep([relative | current], limit)
+      if Regex.match?(matcher, relative) and inside_workspace?(workspace, absolute, relative) do
+        keep({[relative | current], count + 1}, limit)
       else
-        {:cont, {:cont, current}}
+        {:cont, {:cont, {current, count}}}
       end
     end)
   end
 
   # Stop the outer reduce as soon as the cap is reached: the port keeps
   # streaming paths, so an unbounded accumulator is the whole risk here.
-  defp keep(matches, limit) when length(matches) >= limit, do: {:halt, {:halt, matches}}
-  defp keep(matches, _limit), do: {:cont, {:cont, matches}}
+  defp keep({_matches, count} = acc, limit) when count >= limit, do: {:halt, {:halt, acc}}
+  defp keep(acc, _limit), do: {:cont, {:cont, acc}}
 
-  defp inside_workspace?(workspace, relative),
-    do: match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))
+  # `find` never descends through a symlink, so only a symlink entry itself can
+  # point outside; canonicalizing every match made large listings crawl (#5192).
+  defp inside_workspace?(workspace, absolute, relative) do
+    case File.lstat(absolute) do
+      {:ok, %File.Stat{type: :symlink}} -> match?({:ok, _absolute}, WorkspacePath.resolve(workspace, relative))
+      {:ok, _stat} -> true
+      {:error, _reason} -> false
+    end
+  end
 
   defp close_port(port) do
     if Port.info(port), do: Port.close(port)

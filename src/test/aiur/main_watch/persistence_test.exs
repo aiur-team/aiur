@@ -18,7 +18,19 @@ defmodule Aiur.MainWatch.PersistenceTest do
     now = System.system_time(:millisecond)
     observation = observation("red", now)
     {state, pending} = State.observe(State.new(), observation, now)
-    data = %{Persistence.empty() | state: state, pending: pending, commits: ["red", "green"], canary_at: now, last_completed_at: now}
+
+    data = %{
+      Persistence.empty()
+      | state: state,
+        pending: pending,
+        commits: ["red", "green"],
+        commit_window: ["red", "green"],
+        commit_dates: [now, now - 1_000],
+        commit_etag: "\"main-v1\"",
+        canary_at: now,
+        last_completed_at: now
+    }
+
     assert :ok = Persistence.save("owner/repo", "main", data)
     assert {:ok, document} = path |> File.read!() |> Jason.decode()
     assert Map.has_key?(document["entries"], "main_watch|owner|repo|main")

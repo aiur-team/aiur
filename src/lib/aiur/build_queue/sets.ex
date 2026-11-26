@@ -11,7 +11,14 @@ defmodule Aiur.BuildQueue.Sets do
     projected = Map.new(projections, &{&1.issue_id, &1})
     now = System.system_time(:millisecond)
     sets = Enum.map(document.queues, &set(&1, document.items, projected, observations, now)) |> Enum.sort_by(&{&1.rank, &1.id})
-    members = Map.new(document.items, &{&1.issue_id, %{set_id: &1.queue_id, position: &1.position || 0}})
+    queues = Map.new(document.queues, &{&1.id, &1})
+
+    members =
+      Map.new(document.items, fn item ->
+        queue = queues[item.queue_id]
+        {item.issue_id, %{set_id: item.queue_id, position: item.position || 0, start_trigger: (queue && queue.start_trigger) || Settings.start_trigger(settings)}}
+      end)
+
     %{sets: sets, members: members, max_age_ms: Settings.observation_max_age_ms(settings)}
   end
 

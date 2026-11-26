@@ -10,8 +10,8 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{BaseRepair, Evaluation, Recovery}
-  alias Aiur.GitHub.{CiReadiness, Client}
+  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
+  alias Aiur.GitHub.{Access, CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
@@ -30,6 +30,10 @@ defmodule Aiur.Events.GithubCIPoller do
   defdelegate record_pass(issue, result, opts), to: Recovery
   @spec attention_hold?(map() | nil) :: boolean()
   defdelegate attention_hold?(result), to: Recovery
+  @spec classify_approval_carry(String.t(), String.t(), integer(), keyword()) :: ApprovalCarry.verdict()
+  defdelegate classify_approval_carry(approved_head, head, pr_number, opts), to: ApprovalCarry, as: :classify
+  @spec classify_contribution(String.t(), String.t(), integer(), keyword()) :: :identical | {:changed, map()}
+  defdelegate classify_contribution(approved_head, head, pr_number, opts), to: ApprovalCarry
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do
@@ -38,6 +42,7 @@ defmodule Aiur.Events.GithubCIPoller do
     required_check_fetcher = Keyword.get(opts, :required_check_fetcher, &CiReadiness.fetch_required_checks/1)
     required_checks = if targets == [], do: {:ok, []}, else: required_check_fetcher.(opts)
     opts = Keyword.put(opts, :required_checks, required_checks)
+    opts = prefetch_open_pull_requests(targets, opts)
 
     results =
       targets
@@ -87,7 +92,11 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   @doc false
-  @spec evaluate_for_test([map()], map()) :: %{decision: decision(), failures: [map()]}
+  @spec evaluate_for_test([map()], map()) :: %{
+          decision: decision(),
+          failures: [map()],
+          check_runs: [map()]
+        }
   def evaluate_for_test(check_runs, commit_status) when is_list(check_runs) and is_map(commit_status) do
     Evaluation.evaluate(check_runs, commit_status)
   end
@@ -100,7 +109,19 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target_from_rest(target, opts) do
-    case Client.fetch_open_pull_request_for_branch(target, opts) do
+    result =
+      case prefetched_open_pull_request(target, opts) do
+        {:ok, pull_request} ->
+          {:ok, pull_request}
+
+        :missing ->
+          Access.with_transient_retry(
+            fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
+            Access.transient_retry_opts(opts)
+          )
+      end
+
+    case result do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
         # branch-filtered listing. Fail closed so the tracker does not stay
@@ -137,39 +158,87 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)
        when is_map(pr) and is_list(check_runs) and is_map(commit_status) do
-    with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
-         {:ok, head_sha} <- head_sha(pr) do
-      expected_base = StackBaseEvidence.expected_base(target, pr, opts)
+    case positive_integer(Map.get(pr, "number")) do
+      {:ok, pr_number} ->
+        poll_valid_batched_pr(target, pr, pr_number, check_runs, commit_status, opts)
 
-      case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
-        {:ok, :unchanged} ->
-          Evaluation.evaluate(check_runs, commit_status)
-          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
-          |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> log_classification()
-
-        {:ok, {:unchanged, recovered_invalidation}} ->
-          Evaluation.evaluate(check_runs, commit_status)
-          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
-          |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> log_classification()
-
-        {:ok, {:repaired, invalidation}} ->
-          BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
-
-        {:error, reason, invalidation} ->
-          BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
-      end
-    else
-      {:error, reason} -> poll_error(target, reason)
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 
   defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
+
+  defp poll_open_batched_target(target, pr, pr_number, check_runs, commit_status, opts) do
+    case head_sha(pr) do
+      {:ok, head_sha} ->
+        expected_base = StackBaseEvidence.expected_base(target, pr, opts)
+
+        case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+          {:ok, :unchanged} ->
+            Evaluation.evaluate(check_runs, commit_status)
+            |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
+            |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+            |> Map.merge(%{
+              target: target,
+              pr_number: pr_number,
+              head_sha: head_sha,
+              base_sha: get_in(pr, ["base", "sha"]),
+              ready_at_ms: Map.get(pr, "ready_at_ms"),
+              reviewed_head?: Map.get(pr, "reviewed_head?")
+            })
+            |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> log_classification()
+
+          {:ok, {:unchanged, recovered_invalidation}} ->
+            Evaluation.evaluate(check_runs, commit_status)
+            |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
+            |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+            |> Map.merge(%{
+              target: target,
+              pr_number: pr_number,
+              head_sha: head_sha,
+              base_sha: get_in(pr, ["base", "sha"]),
+              ready_at_ms: Map.get(pr, "ready_at_ms"),
+              reviewed_head?: Map.get(pr, "reviewed_head?"),
+              base_repair_invalidation: recovered_invalidation
+            })
+            |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> log_classification()
+
+          {:ok, {:repaired, invalidation}} ->
+            BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
+
+          {:error, reason, invalidation} ->
+            BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+        end
+
+      {:error, reason} ->
+        poll_error(target, reason)
+    end
+  end
+
+  defp poll_valid_batched_pr(target, pr, pr_number, check_runs, commit_status, opts) do
+    if terminal_pull_request?(pr) do
+      %{
+        target: target,
+        decision: :pending,
+        pending_reason: terminal_pr_pending_reason(pr),
+        pr_number: pr_number,
+        pull_request: pr
+      }
+    else
+      poll_open_batched_target(target, pr, pr_number, check_runs, commit_status, opts)
+    end
+  end
+
+  defp terminal_pull_request?(%{"state" => state}), do: state in ["merged", "closed"]
+  defp terminal_pull_request?(_pull_request), do: false
+
+  defp terminal_pr_pending_reason(%{"state" => "merged"}), do: :pr_merged
+  defp terminal_pr_pending_reason(_pull_request), do: :pr_closed_unmerged
 
   defp ci_batch_value(opts, target) do
     with %{} = batch <- Keyword.get(opts, :ci_batch),
@@ -177,6 +246,32 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, value}
     else
       _ -> :missing
+    end
+  end
+
+  defp prefetch_open_pull_requests(targets, opts) do
+    missing = Enum.reject(targets, &match?({:ok, _batch}, ci_batch_value(opts, &1)))
+
+    if missing == [] do
+      opts
+    else
+      case Client.fetch_open_pull_requests_for_branches(missing, opts) do
+        {:ok, pull_requests} -> Keyword.put(opts, :open_pull_requests_by_target, pull_requests)
+        {:error, _reason} -> opts
+      end
+    end
+  end
+
+  defp prefetched_open_pull_request(target, opts) do
+    case Keyword.get(opts, :open_pull_requests_by_target, %{}) do
+      pull_requests when is_map(pull_requests) ->
+        case Map.fetch(pull_requests, to_string(target)) do
+          {:ok, pull_request} -> {:ok, pull_request}
+          :error -> :missing
+        end
+
+      _other ->
+        :missing
     end
   end
 
@@ -298,9 +393,14 @@ defmodule Aiur.Events.GithubCIPoller do
           target: target,
           pr_number: pr_number,
           head_sha: observed_head_sha,
+          base_sha: get_in(current_pr, ["base", "sha"]),
           draft?: Evaluation.pr_draft?(current_pr),
-          review_decision: Map.get(current_pr, "review_decision")
+          review_decision: Map.get(current_pr, "review_decision"),
+          mergeable: normalize_mergeable(Map.get(current_pr, "mergeable"))
         })
+        |> Map.put(:ready_at_ms, Map.get(current_pr, "ready_at_ms"))
+        |> Map.put(:reviewed_head?, Map.get(current_pr, "reviewed_head?"))
+        |> Map.merge(Evaluation.merge_queue_observation(current_pr))
         |> log_classification()
 
       {:ok, current_head_sha} ->
@@ -316,6 +416,10 @@ defmodule Aiur.Events.GithubCIPoller do
         poll_error(target, reason)
     end
   end
+
+  defp normalize_mergeable(true), do: "MERGEABLE"
+  defp normalize_mergeable(false), do: "CONFLICTING"
+  defp normalize_mergeable(value), do: value
 
   defp log_classification(result) do
     Logger.debug(fn ->

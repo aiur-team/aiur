@@ -1,14 +1,13 @@
 defmodule Aiur.OpenAICompat.ToolsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.OpenAICompat.{CommandRunner, ToolCallParser, Tools}
 
   setup do
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
-      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-    end
+    task_supervisor = Module.concat(__MODULE__, "TaskSupervisor#{System.unique_integer([:positive])}")
+    start_supervised!({Task.Supervisor, name: task_supervisor})
 
-    :ok
+    %{task_supervisor: task_supervisor}
   end
 
   test "tool specifications match each OpenAI-compatible transport" do
@@ -41,6 +40,12 @@ defmodule Aiur.OpenAICompat.ToolsTest do
 
     assert %{"success" => false, "output" => "outside_workspace"} =
              Tools.execute("list_files", %{"glob" => "outside/*"}, context, [])
+
+    File.write!(Path.join(workspace, "inside.txt"), "")
+    File.ln_s!("inside.txt", Path.join(workspace, "alias.txt"))
+
+    assert %{"success" => true, "output" => "alias.txt\ninside.txt"} =
+             Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
   end
 
   test "tool validation returns matchable errors" do
@@ -105,7 +110,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert %{"success" => true, "output" => output} =
              Tools.execute("list_files", %{"glob" => "**/*"}, context, [])
 
-    assert output |> String.split("\n") |> length() == 2_000
+    files = String.split(output, "\n")
+    assert length(files) == 2_000
+    assert Enum.all?(files, &String.ends_with?(&1, ".txt"))
+    assert File.regular?(Path.join(workspace, "2050.txt"))
   end
 
   test "workspace replacement requires exactly one match" do
@@ -129,15 +137,16 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert message =~ "sandbox unavailable"
   end
 
-  test "a crashing sandbox process becomes a failed tool result" do
+  test "a crashing sandbox process becomes a failed tool result", %{task_supervisor: task_supervisor} do
     assert %{"success" => false, "output" => "command runner failed"} =
              CommandRunner.run(System.tmp_dir!(), "echo safe",
                sandbox_executable: "/usr/bin/bwrap",
+               task_supervisor: task_supervisor,
                system_cmd: fn _executable, _args, _opts -> raise "launch failed" end
              )
   end
 
-  test "command execution clears the host environment and mounts only explicit roots" do
+  test "command execution clears the host environment and mounts only explicit roots", %{task_supervisor: task_supervisor} do
     parent = self()
 
     runner = fn executable, args, opts ->
@@ -148,6 +157,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert %{"success" => true} =
              CommandRunner.run(System.tmp_dir!(), "echo safe",
                sandbox_executable: "/usr/bin/bwrap",
+               task_supervisor: task_supervisor,
                system_cmd: runner
              )
 
@@ -189,7 +199,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     assert is_binary(real_git) and real_git != ""
   end
 
-  test "real command sandbox cannot read a host sibling" do
+  test "real command sandbox cannot read a host sibling", %{task_supervisor: task_supervisor} do
     case System.find_executable("bwrap") do
       nil ->
         :ok
@@ -202,7 +212,10 @@ defmodule Aiur.OpenAICompat.ToolsTest do
         on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
         assert %{"success" => true, "output" => "sandboxed\n"} =
-                 CommandRunner.run(workspace, "test ! -r ../host-secret && printf 'sandboxed\\n'", sandbox_executable: executable)
+                 CommandRunner.run(workspace, "test ! -r ../host-secret && printf 'sandboxed\\n'",
+                   sandbox_executable: executable,
+                   task_supervisor: task_supervisor
+                 )
     end
   end
 

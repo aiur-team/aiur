@@ -41,5 +41,6 @@
     "LINEAR_API_KEY",
     "LINEAR_ASSIGNEE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

@@ -35,6 +35,8 @@ defmodule Aiur.GlobalConfigStartupTest do
     assert "agent:todo" in names
     assert "agent:paused" in names
     assert "agent:error" in names
+    assert "agent:ci-red" in names
+    assert "agent:paused-usage-limit" in names
     assert "complexity:5" in names
     refute Enum.any?(names, &String.starts_with?(&1, "model:"))
     refute File.exists?(Path.join(c.home, "consumer/.aiur/config"))
@@ -43,6 +45,7 @@ defmodule Aiur.GlobalConfigStartupTest do
   test "existing labels require no writes", c do
     labels =
       Labels.state_labels("agent") ++
+        Labels.reason_modifier_labels("agent") ++
         Labels.marker_labels("agent") ++ Labels.complexity_labels()
 
     parent = self()

@@ -1,0 +1,494 @@
+{
+  "experiment_id": "inconclusive",
+  "groups": [
+    "a",
+    "b"
+  ],
+  "metrics": {
+    "latency": {
+      "kind": "duration",
+      "rows": [
+        {
+          "unit_id": "a0",
+          "group": "a",
+          "value": 100,
+          "censored": false
+        },
+        {
+          "unit_id": "a1",
+          "group": "a",
+          "value": 101,
+          "censored": false
+        },
+        {
+          "unit_id": "a2",
+          "group": "a",
+          "value": 102,
+          "censored": false
+        },
+        {
+          "unit_id": "a3",
+          "group": "a",
+          "value": 103,
+          "censored": false
+        },
+        {
+          "unit_id": "a4",
+          "group": "a",
+          "value": 104,
+          "censored": false
+        },
+        {
+          "unit_id": "a5",
+          "group": "a",
+          "value": 105,
+          "censored": false
+        },
+        {
+          "unit_id": "a6",
+          "group": "a",
+          "value": 106,
+          "censored": false
+        },
+        {
+          "unit_id": "a7",
+          "group": "a",
+          "value": 107,
+          "censored": false
+        },
+        {
+          "unit_id": "a8",
+          "group": "a",
+          "value": 108,
+          "censored": false
+        },
+        {
+          "unit_id": "a9",
+          "group": "a",
+          "value": 109,
+          "censored": false
+        },
+        {
+          "unit_id": "a10",
+          "group": "a",
+          "value": 110,
+          "censored": false
+        },
+        {
+          "unit_id": "a11",
+          "group": "a",
+          "value": 111,
+          "censored": false
+        },
+        {
+          "unit_id": "a12",
+          "group": "a",
+          "value": 112,
+          "censored": false
+        },
+        {
+          "unit_id": "a13",
+          "group": "a",
+          "value": 113,
+          "censored": false
+        },
+        {
+          "unit_id": "a14",
+          "group": "a",
+          "value": 114,
+          "censored": false
+        },
+        {
+          "unit_id": "a15",
+          "group": "a",
+          "value": 115,
+          "censored": false
+        },
+        {
+          "unit_id": "a16",
+          "group": "a",
+          "value": 116,
+          "censored": false
+        },
+        {
+          "unit_id": "a17",
+          "group": "a",
+          "value": 117,
+          "censored": false
+        },
+        {
+          "unit_id": "a18",
+          "group": "a",
+          "value": 118,
+          "censored": false
+        },
+        {
+          "unit_id": "a19",
+          "group": "a",
+          "value": 119,
+          "censored": false
+        },
+        {
+          "unit_id": "a20",
+          "group": "a",
+          "value": 120,
+          "censored": false
+        },
+        {
+          "unit_id": "a21",
+          "group": "a",
+          "value": 121,
+          "censored": false
+        },
+        {
+          "unit_id": "a22",
+          "group": "a",
+          "value": 122,
+          "censored": false
+        },
+        {
+          "unit_id": "a23",
+          "group": "a",
+          "value": 123,
+          "censored": false
+        },
+        {
+          "unit_id": "a24",
+          "group": "a",
+          "value": 124,
+          "censored": false
+        },
+        {
+          "unit_id": "a25",
+          "group": "a",
+          "value": 125,
+          "censored": false
+        },
+        {
+          "unit_id": "a26",
+          "group": "a",
+          "value": 126,
+          "censored": false
+        },
+        {
+          "unit_id": "a27",
+          "group": "a",
+          "value": 127,
+          "censored": false
+        },
+        {
+          "unit_id": "a28",
+          "group": "a",
+          "value": 128,
+          "censored": false
+        },
+        {
+          "unit_id": "a29",
+          "group": "a",
+          "value": 129,
+          "censored": false
+        },
+        {
+          "unit_id": "a30",
+          "group": "a",
+          "value": 130,
+          "censored": false
+        },
+        {
+          "unit_id": "a31",
+          "group": "a",
+          "value": 131,
+          "censored": false
+        },
+        {
+          "unit_id": "a32",
+          "group": "a",
+          "value": 132,
+          "censored": false
+        },
+        {
+          "unit_id": "a33",
+          "group": "a",
+          "value": 133,
+          "censored": false
+        },
+        {
+          "unit_id": "a34",
+          "group": "a",
+          "value": 134,
+          "censored": false
+        },
+        {
+          "unit_id": "a35",
+          "group": "a",
+          "value": 135,
+          "censored": false
+        },
+        {
+          "unit_id": "a36",
+          "group": "a",
+          "value": 136,
+          "censored": false
+        },
+        {
+          "unit_id": "a37",
+          "group": "a",
+          "value": 137,
+          "censored": false
+        },
+        {
+          "unit_id": "a38",
+          "group": "a",
+          "value": 138,
+          "censored": false
+        },
+        {
+          "unit_id": "a39",
+          "group": "a",
+          "value": 139,
+          "censored": false
+        },
+        {
+          "unit_id": "b0",
+          "group": "b",
+          "value": 98.0,
+          "censored": false
+        },
+        {
+          "unit_id": "b1",
+          "group": "b",
+          "value": 98.98,
+          "censored": false
+        },
+        {
+          "unit_id": "b2",
+          "group": "b",
+          "value": 99.96,
+          "censored": false
+        },
+        {
+          "unit_id": "b3",
+          "group": "b",
+          "value": 100.94,
+          "censored": false
+        },
+        {
+          "unit_id": "b4",
+          "group": "b",
+          "value": 101.92,
+          "censored": false
+        },
+        {
+          "unit_id": "b5",
+          "group": "b",
+          "value": 102.89999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b6",
+          "group": "b",
+          "value": 103.88,
+          "censored": false
+        },
+        {
+          "unit_id": "b7",
+          "group": "b",
+          "value": 104.86,
+          "censored": false
+        },
+        {
+          "unit_id": "b8",
+          "group": "b",
+          "value": 105.84,
+          "censored": false
+        },
+        {
+          "unit_id": "b9",
+          "group": "b",
+          "value": 106.82,
+          "censored": false
+        },
+        {
+          "unit_id": "b10",
+          "group": "b",
+          "value": 107.8,
+          "censored": false
+        },
+        {
+          "unit_id": "b11",
+          "group": "b",
+          "value": 108.78,
+          "censored": false
+        },
+        {
+          "unit_id": "b12",
+          "group": "b",
+          "value": 109.75999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b13",
+          "group": "b",
+          "value": 110.74,
+          "censored": false
+        },
+        {
+          "unit_id": "b14",
+          "group": "b",
+          "value": 111.72,
+          "censored": false
+        },
+        {
+          "unit_id": "b15",
+          "group": "b",
+          "value": 112.7,
+          "censored": false
+        },
+        {
+          "unit_id": "b16",
+          "group": "b",
+          "value": 113.67999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b17",
+          "group": "b",
+          "value": 114.66,
+          "censored": false
+        },
+        {
+          "unit_id": "b18",
+          "group": "b",
+          "value": 115.64,
+          "censored": false
+        },
+        {
+          "unit_id": "b19",
+          "group": "b",
+          "value": 116.62,
+          "censored": false
+        },
+        {
+          "unit_id": "b20",
+          "group": "b",
+          "value": 117.6,
+          "censored": false
+        },
+        {
+          "unit_id": "b21",
+          "group": "b",
+          "value": 118.58,
+          "censored": false
+        },
+        {
+          "unit_id": "b22",
+          "group": "b",
+          "value": 119.56,
+          "censored": false
+        },
+        {
+          "unit_id": "b23",
+          "group": "b",
+          "value": 120.53999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b24",
+          "group": "b",
+          "value": 121.52,
+          "censored": false
+        },
+        {
+          "unit_id": "b25",
+          "group": "b",
+          "value": 122.5,
+          "censored": false
+        },
+        {
+          "unit_id": "b26",
+          "group": "b",
+          "value": 123.48,
+          "censored": false
+        },
+        {
+          "unit_id": "b27",
+          "group": "b",
+          "value": 124.46,
+          "censored": false
+        },
+        {
+          "unit_id": "b28",
+          "group": "b",
+          "value": 125.44,
+          "censored": false
+        },
+        {
+          "unit_id": "b29",
+          "group": "b",
+          "value": 126.42,
+          "censored": false
+        },
+        {
+          "unit_id": "b30",
+          "group": "b",
+          "value": 127.39999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b31",
+          "group": "b",
+          "value": 128.38,
+          "censored": false
+        },
+        {
+          "unit_id": "b32",
+          "group": "b",
+          "value": 129.35999999999999,
+          "censored": false
+        },
+        {
+          "unit_id": "b33",
+          "group": "b",
+          "value": 130.34,
+          "censored": false
+        },
+        {
+          "unit_id": "b34",
+          "group": "b",
+          "value": 131.32,
+          "censored": false
+        },
+        {
+          "unit_id": "b35",
+          "group": "b",
+          "value": 132.3,
+          "censored": false
+        },
+        {
+          "unit_id": "b36",
+          "group": "b",
+          "value": 133.28,
+          "censored": false
+        },
+        {
+          "unit_id": "b37",
+          "group": "b",
+          "value": 134.26,
+          "censored": false
+        },
+        {
+          "unit_id": "b38",
+          "group": "b",
+          "value": 135.24,
+          "censored": false
+        },
+        {
+          "unit_id": "b39",
+          "group": "b",
+          "value": 136.22,
+          "censored": false
+        }
+      ]
+    }
+  }
+}

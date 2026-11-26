@@ -70,7 +70,7 @@ defmodule Aiur.AllowedContributors.ConfigSourceTest do
 
   test "reload replaces config entries and alerts the added and removed ids", context do
     {:ok, selection} = Agent.start_link(fn -> %{"users" => [42]} end)
-    {server, _gh} = Fixture.start(context, config_fun: fn -> Agent.get(selection, & &1) end)
+    {server, _gh} = Fixture.start(context, config_fun: fn -> Agent.get(selection, & &1) end, subscribe_fun: &Aiur.WorkflowStore.subscribe/0)
     assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
     assert_received {:alert, "allowed_contributors.changed", _initial}
     Agent.update(selection, fn _ -> %{"users" => [43]} end)

@@ -1,0 +1,48 @@
+source	heading	destination	anchor
+cli.md	## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)	cli-operations.md	build-history-commands-—-feature-epic-and-history-export-commands
+cli.md	## Dashboard page commands	cli-operations.md	dashboard-page-commands
+cli.md	## Decisions, Executor events, and findings	cli-decisions.md	decisions-executor-events-and-findings
+cli.md	## Experiments	cli-operations.md	experiments
+cli.md	## Inspect and operate a running daemon	cli-operations.md	inspect-and-operate-a-running-daemon
+cli.md	## Offline experiment statistics	cli-operations.md	offline-experiment-statistics
+cli.md	## Operational facts that change an incident response	cli-operations.md	operational-facts-that-change-an-incident-response
+cli.md	## Start, initialize, and queue	cli-launch.md	start-initialize-and-queue
+cli.md	## What the CLI does	cli-launch.md	what-the-cli-does
+cli.md	## `aiurdev`, for developing Aiur itself	cli-development.md	aiurdev-for-developing-aiur-itself
+cli.md	## `pr merge`	cli-operations.md	pr-merge
+cli.md	### Commands	cli-launch.md	commands
+cli.md	### Executor roster states	cli-decisions.md	executor-roster-states
+cli.md	### Output contract	cli-operations.md	output-contract
+cli.md	### Restart semantics	cli-operations.md	restart-semantics
+cli.md	### Saved uncommitted work	cli-operations.md	saved-uncommitted-work
+cli.md	### Wake ledger bound and lease TTL	cli-decisions.md	wake-ledger-bound-and-lease-ttl
+cli.md	### Which checkout `aiurdev` targets	cli-development.md	which-checkout-aiurdev-targets
+cli.md	### `executor-wait` outcomes	cli-decisions.md	executor-wait-outcomes
+cli.md	### aiur queue	cli-operations.md	aiur-queue
+configuration.md	## Environment variables	configuration-daemon.md	environment-variables
+configuration.md	## Further sections	configuration-daemon.md	further-sections
+configuration.md	## Top-level	configuration-daemon.md	top-level
+configuration.md	## alerts	configuration-daemon.md	alerts
+configuration.md	## build_queue	configuration-daemon.md	build-queue
+configuration.md	## compaction	configuration-daemon.md	compaction
+configuration.md	## dashboard_auth	configuration-daemon.md	dashboard-auth
+configuration.md	## decisions	configuration-daemon.md	decisions
+configuration.md	## elevenlabs	configuration-integrations.md	elevenlabs
+configuration.md	## events	configuration-daemon.md	events
+configuration.md	## executor	configuration-daemon.md	executor
+configuration.md	## experiments	configuration-integrations.md	experiments
+configuration.md	## hooks	configuration-daemon.md	hooks
+configuration.md	## monitoring	configuration-daemon.md	monitoring
+configuration.md	## observability	configuration-daemon.md	observability
+configuration.md	## opencode	configuration-integrations.md	opencode
+configuration.md	## polling	configuration-tracker.md	polling
+configuration.md	## pr_health	configuration-daemon.md	pr-health
+configuration.md	## pr_watch	configuration-daemon.md	pr-watch
+configuration.md	## prewarm	configuration-daemon.md	prewarm
+configuration.md	## server	configuration-daemon.md	server
+configuration.md	## tracker	configuration-tracker.md	tracker
+configuration.md	## upgrade	configuration-daemon.md	upgrade
+configuration.md	## usage	configuration-daemon.md	usage
+configuration.md	## webhooks	configuration-tracker.md	webhooks
+configuration.md	## worker	configuration-daemon.md	worker
+configuration.md	## workspace	configuration-daemon.md	workspace

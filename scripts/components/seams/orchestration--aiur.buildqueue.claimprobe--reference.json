@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildQueue.ClaimProbe",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/build_queue_claim_probe.ex"
+  ],
+  "reason": "MP-E1 X-1: typed callback implementation references ClaimProbe result types"
+}

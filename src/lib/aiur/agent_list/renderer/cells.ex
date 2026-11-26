@@ -77,7 +77,8 @@ defmodule Aiur.AgentList.Renderer.Cells do
   # `░`, which reads as a corrupt/half-filled bar — #425). Width stays
   # the same either way so the column never jitters.
   #
-  # At percent: 100 (the agent's stop-work signal — see
+  # At percent: 100 (display-only; the human-review state move, not
+  # this sample, frees the agent slot — see
   # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
   # section), the bar is tinted green so the Executor sees at a
   # glance that the agent is done for this iteration. The cell is

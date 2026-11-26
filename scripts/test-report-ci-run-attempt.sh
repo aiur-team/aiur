@@ -26,7 +26,12 @@ fi
 bash "$reporter" 2 "$second_summary"
 grep -Fqx '> CI rerun: attempt 2 of this workflow run.' "$second_summary"
 
-workflow="$root/.github/workflows/ci.yml"
+ci_workflow="$root/.github/workflows/ci.yml"
+# Reusable workflows that ci.yml calls hold blocking jobs too; check their jobs as well.
+mapfile -t workflows < <(
+  printf '%s\n' "$ci_workflow"
+  sed -n 's|^    uses: \./\(\.github/workflows/[^ ]*\)$|'"$root"'/\1|p' "$ci_workflow"
+)
 
 job_block() {
   local job="$1"
@@ -38,6 +43,7 @@ job_block() {
   ' "$workflow"
 }
 
+for workflow in "${workflows[@]}"; do
 mapfile -t jobs < <(
   awk '
     /^jobs:$/ { jobs = 1; next }
@@ -52,7 +58,7 @@ mapfile -t jobs < <(
 for job in "${jobs[@]}"; do
   block="$(job_block "$job")"
 
-  if grep -Fq '    continue-on-error: true' <<<"$block"; then
+  if grep -Fq '    continue-on-error: true' <<<"$block" || grep -Eq '^    uses: ' <<<"$block"; then
     continue
   fi
 
@@ -104,5 +110,6 @@ for job in "${jobs[@]}"; do
     exit 1
   fi
 done
+done
 
-echo "CI run-attempt reporter tests passed"
+echo "CI run-attempt reporter tests passed (${#workflows[@]} workflows)"

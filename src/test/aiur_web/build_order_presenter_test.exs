@@ -78,7 +78,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert model.relationships.capabilities.chat.available? == false
     assert model.relationships.diagnostics == []
 
-    refute inspect(model) =~ "issue body"
+    Aiur.TestSupport.refute_leak(model, "issue body")
     refute Map.has_key?(active_node.card, :body)
     refute Map.has_key?(active_node.card, :description)
   end
@@ -258,7 +258,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     assert length(model.edges) == 1
     assert node(model, 1).activity.provenance == %{}
-    refute inspect(model) =~ token
+    Aiur.TestSupport.refute_leak(model, token)
   end
 
   test "reports an unavailable provider as a provider problem, not a malformed graph" do
@@ -278,6 +278,21 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     # Zeros must never stand in for unknown: the counts were never resolved.
     refute model.summary.resolved?
+  end
+
+  test "keeps a crashed read cause neutral in the presented status" do
+    health = ProviderHealth.new(:unknown, :unavailable, false, failure: :unknown)
+
+    model =
+      BuildOrderPresenter.present(
+        %Snapshot{scope: {:selected, identity(100)}, repository: @repository, generation: :unknown, data: nil, health: health},
+        status_snapshot(),
+        activity_snapshot()
+      )
+
+    assert model.status == :unknown
+    assert diagnostic_codes(model) == [:unknown]
+    assert model.planning_health.failure == :unknown
   end
 
   test "reports a fetched-but-degraded selected root as unavailable rather than structurally invalid" do

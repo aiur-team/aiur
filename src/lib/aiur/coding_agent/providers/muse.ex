@@ -24,6 +24,9 @@ defmodule Aiur.CodingAgent.Providers.Muse do
       models: ["muse-spark-1.3-contributor"],
       model_aliases: :native,
       efforts: ["minimal", "low", "medium", "high", "xhigh"],
+      # MSP stdio queues busy input (CodingAgent); Session binds the aiur MCP server.
+      delivery: %{transport: :msp_stdio, mid_turn_inject: :native, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :unknown, network_boundary: :unknown, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [],
       control_application_confirmation: :confirmed,
@@ -45,7 +48,7 @@ defmodule Aiur.CodingAgent.Providers.Muse do
         unit_background: "rgba(181, 160, 255, 0.12)"
       },
       meter_identity_policy: :host_unverified,
-      usage: %{adapters: [Aiur.Usage.Headless.Muse.SessionUsage]},
+      usage: %{provider: :muse},
       account_generation: %{backends: [:app_server], trusted_sources: [], auth_modes: []}
     }
   end

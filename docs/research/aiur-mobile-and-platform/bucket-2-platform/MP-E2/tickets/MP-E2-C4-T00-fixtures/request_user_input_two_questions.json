@@ -1,0 +1,43 @@
+{
+  "method": "item/tool/requestUserInput",
+  "id": 0,
+  "params": {
+    "threadId": "<uuid>",
+    "turnId": "<uuid>",
+    "itemId": "call_<id>",
+    "questions": [
+      {
+        "id": "colour",
+        "header": "Colour",
+        "question": "Which colour do you choose?",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "Red",
+            "description": "Choose red."
+          },
+          {
+            "label": "Blue",
+            "description": "Choose blue."
+          }
+        ]
+      },
+      {
+        "id": "dummy_token",
+        "header": "Dummy token",
+        "question": "What is your dummy token (secret input)?",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "Enter token",
+            "description": "Provide your synthetic dummy token."
+          }
+        ]
+      }
+    ],
+    "isBlocking": false,
+    "autoResolutionMs": null
+  }
+}

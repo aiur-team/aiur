@@ -222,7 +222,7 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
       assert message.raw == nil
       assert message.payload == %{"method" => "provider_account/authentication_changed", "params" => %{}}
       refute Map.has_key?(message, :usage)
-      refute inspect(message) =~ secret
+      Aiur.TestSupport.refute_leak(message, secret)
 
       assert is_binary(ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding).generation)
 
@@ -231,6 +231,7 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
 
     @tag :tmp_dir
     test "rate-limit notifications reach availability through a privacy-reduced event without rotation", %{tmp_dir: tmp_dir} do
+      unless Process.whereis(Aiur.ProviderMeters.Store), do: start_supervised!(Aiur.ProviderMeters.Store)
       port = open_cat_port()
       owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
       account_generation = AccountGeneration.new_binding(owner)
@@ -296,8 +297,8 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
       assert_receive {:codex_worker_update, "gid-rate-limit", message}, 2_000
       assert message.payload == %{"method" => "provider_account/rate_limits_changed", "params" => %{}}
       assert message.rate_limits == safe_limits
-      refute inspect(message) =~ secret
-      refute inspect(message) =~ reset_secret
+      Aiur.TestSupport.refute_leak(message, secret)
+      Aiur.TestSupport.refute_leak(message, reset_secret)
       refute ModelAvailability.available?("codex", path: path)
 
       assert ProviderAccountGeneration.lookup(owner, :codex, :app_server, account_generation.binding) == original
@@ -389,7 +390,7 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
       assert message.event == :notification
       assert message.raw == nil
       assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
-      refute inspect(message) =~ secret
+      Aiur.TestSupport.refute_leak(message, secret)
 
       assert %{generation: nil, reason: :untrusted_lifecycle} =
                ProviderAccountGeneration.lookup(owner, :codex, :app_server, binding)
@@ -431,8 +432,8 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
       assert {:continue, _state} = result
       assert_receive {:full_event, message}, 2_000
       assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
-      refute inspect(message) =~ secret
-      refute inspect(result) =~ secret
+      Aiur.TestSupport.refute_leak(message, secret)
+      Aiur.TestSupport.refute_leak(result, secret)
       refute log =~ secret
       close_port(port)
     end
@@ -477,8 +478,8 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
       assert_receive {:full_event, message}, 2_000
       assert message.event == :notification
       assert message.payload == %{"method" => "provider_account/unknown_lifecycle", "params" => %{}}
-      refute inspect(message) =~ secret
-      refute inspect(result) =~ secret
+      Aiur.TestSupport.refute_leak(message, secret)
+      Aiur.TestSupport.refute_leak(result, secret)
       refute log =~ secret
       close_port(port)
     end

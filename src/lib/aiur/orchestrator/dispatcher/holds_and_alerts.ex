@@ -5,11 +5,8 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
 
   require Logger
 
-  alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
-  alias Aiur.GitHub.AuthPreflight
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.Dispatcher.Candidates
@@ -17,8 +14,12 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.Dispatcher.CapacityConstraints
   alias Aiur.Orchestrator.DispatchOutcome
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
+  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
+  alias Aiur.Signal
+  alias Aiur.Tracker
 
   # The prewarm gate holds the whole fleet while the warm base builds/clones.
   # That can persist across many poll cycles, so the hold is logged at most once
@@ -61,6 +62,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # An answer may arrive during the tracker fetch; admission must read the current local hold.
     state = Candidates.refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, Commands.default_store()))
+    state = MachineGrant.report_demand(state, issues)
 
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
@@ -134,7 +136,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
 
     state = CapacityConstraints.record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
-    case Alerts.emit_system("system.dispatch.prewarm_blocked",
+    case Signal.alert("system.dispatch.prewarm_blocked",
            reason: reason,
            needs_attention: true,
            severity: "warning"
@@ -158,10 +160,10 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   def clear_prewarm_blocked_alert(%State{} = state, phase) do
     active? =
       state.prewarm_blocked_alert_active or
-        AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
+        AttentionSnapshot.active_system_attention?("system.dispatch.prewarm_blocked")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
+      case Signal.alert("system.dispatch.prewarm_blocked.resolved",
              reason: prewarm_resolution_reason(phase),
              needs_attention: false,
              severity: "info"
@@ -228,7 +230,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
         "GitHub tracker authentication preflight failed; fleet dispatch is paused. Cause: " <>
           "#{formatted_reason} This condition is expected to clear automatically once tracker authentication succeeds."
 
-      case Alerts.emit_system("system.tracker.auth_preflight_failed",
+      case Signal.alert("system.tracker.auth_preflight_failed",
              reason: message,
              needs_attention: true,
              severity: "warning"
@@ -250,10 +252,10 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   def clear_tracker_preflight_alert(%State{} = state) do
     active? =
       not is_nil(state.tracker_preflight_alert_signature) or
-        AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
+        AttentionSnapshot.active_system_attention?("system.tracker.auth_preflight_failed")
 
     if active? do
-      case Alerts.emit_system("system.tracker.auth_preflight_failed.resolved",
+      case Signal.alert("system.tracker.auth_preflight_failed.resolved",
              reason: "GitHub tracker authentication preflight recovered; fleet dispatch may resume.",
              needs_attention: false,
              severity: "info"
@@ -305,13 +307,15 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
     Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
   end
 
+  defp tracker_preflight_detail({:toolchain_missing, _detail}), do: :toolchain_missing
+
   defp tracker_preflight_detail(reason) when is_atom(reason), do: reason
 
   defp tracker_preflight_detail(_reason), do: :unknown
 
   defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
        when is_map(diagnostic) do
-    formatted_reason = AuthPreflight.format_auth_preflight_error(reason)
+    formatted_reason = Tracker.format_preflight_error(reason)
     classification = Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
     repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
 

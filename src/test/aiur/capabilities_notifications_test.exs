@@ -14,6 +14,16 @@ defmodule Aiur.CapabilitiesNotificationsTest do
     def capabilities(_context), do: Agent.get(__MODULE__, &%{"test.notifications" => %{state: &1}})
   end
 
+  defmodule ExecutorProvider do
+    @behaviour Aiur.Capabilities.Provider
+    @impl true
+    def capability_ids, do: []
+    @impl true
+    def capabilities(_context), do: %{}
+    @impl true
+    def sections(_context), do: Agent.get(__MODULE__, &%{executor: %{state: &1}})
+  end
+
   setup do
     start_supervised!(%{id: Provider, start: {Agent, :start_link, [fn -> :available end, [name: Provider]]}})
     table = String.to_atom("capability_notifications_#{System.unique_integer([:positive])}")
@@ -43,6 +53,23 @@ defmodule Aiur.CapabilitiesNotificationsTest do
 
     refute_received {:published, _, _, _, _}
     refute_received {:capabilities_changed, _}
+  end
+
+  test "Executor presence changes publish a new revision even when capabilities are unchanged", %{opts: opts} do
+    start_supervised!(%{id: ExecutorProvider, start: {Agent, :start_link, [fn -> "active" end, [name: ExecutorProvider]]}})
+    opts = Keyword.update!(opts, :providers, &[ExecutorProvider | &1])
+    pid = monitor(opts)
+    assert_notification(1)
+    before = Capabilities.report(opts)
+    assert before.executor.state == "active"
+    Agent.update(ExecutorProvider, fn _ -> "idle" end)
+    tick(pid)
+    after_change = Capabilities.report(opts)
+    assert after_change.executor.state == "idle"
+    assert after_change.capabilities == before.capabilities
+    assert_notification(2)
+    tick(pid)
+    refute_received {:published, _, _, _, _}
   end
 
   test "unchanged ticks and monitor restart do not publish or broadcast", %{opts: opts} do

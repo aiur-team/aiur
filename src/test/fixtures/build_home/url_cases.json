@@ -1,5 +1,5 @@
 {
-  "build_js_sha256": "b1a13092f3c4947dd0c1d8ff1e1db28b14432ae78b0b7bd72fe76006743d157e",
+  "build_js_sha256": "0a1657fbfeee9b72de950f486f596b63bc17a405d9d4e2a8cf1b2d0e68d606fa",
   "cases": [
     {
       "query": "",
@@ -43,8 +43,9 @@
     },
     {
       "query": "epic=bugs,docs",
-      "canonical": "epic=bugs,docs",
-      "design_output": "epic=bugs,docs"
+      "canonical": "lane=bugs,docs",
+      "design_output": "epic=bugs,docs",
+      "differs": "Lane naming: the design still writes epic=; the daemon canonicalizes the pre-rename key to lane=."
     },
     {
       "query": "model=claude",
@@ -68,8 +69,9 @@
     },
     {
       "query": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
-      "canonical": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
-      "design_output": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+      "canonical": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&lane=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "design_output": "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748",
+      "differs": "Lane naming: the design still writes epic=; the daemon canonicalizes the pre-rename key to lane=."
     },
     {
       "query": "astate=bogus,,active,active",
@@ -145,7 +147,7 @@
     },
     {
       "query": "v=1&conditions=alert",
-      "canonical": "astate=error,retries,command",
+      "canonical": "astate=error,retries,command,native_question",
       "design_output": "v=1&conditions=alert",
       "differs": "Legacy Units keys map to home presets."
     },

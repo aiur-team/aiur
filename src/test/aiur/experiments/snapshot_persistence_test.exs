@@ -8,7 +8,7 @@ defmodule Aiur.Experiments.SnapshotPersistenceTest do
     previous = Application.fetch_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, root)
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     on_exit(fn ->
       case previous do

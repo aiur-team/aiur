@@ -93,6 +93,7 @@ defmodule Aiur.Orchestrator.Dispatcher.RedispatchAndRevalidationTest do
     # seconds (#2311, #2393, #2420). The sleep is injected; the assertion is on
     # the revalidation succeeding (a `{:ok, issue}`), not on a log line.
     test "waits out a short local hold and the revalidation succeeds" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       issue = %Issue{id: "id-1", identifier: "repo#1", title: "Work", state: "todo"}
       terminal_states = MapSet.new(["done"])
       reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
@@ -117,6 +118,7 @@ defmodule Aiur.Orchestrator.Dispatcher.RedispatchAndRevalidationTest do
     # without this bound, waiting would be indistinguishable from swallowing
     # the error.
     test "a local hold beyond the ceiling still fails revalidation" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       issue = %Issue{id: "id-1", identifier: "repo#1", title: "Work", state: "todo"}
       terminal_states = MapSet.new(["done"])
       reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
@@ -140,6 +142,7 @@ defmodule Aiur.Orchestrator.Dispatcher.RedispatchAndRevalidationTest do
   # showed up on #2311, #2393 and #2420 after a restart burst).
   describe "dispatch revalidation local-hold wait-out (#2444)" do
     test "a short hold on the issue refresh is waited out and the dispatch proceeds" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       test_pid = self()
       candidate = %{issue("hold-refresh") | selected_backend: "codex"}
       reset_at = DateTime.add(DateTime.utc_now(), 2, :second)

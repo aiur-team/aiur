@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Metric do
   @moduledoc "A metric definition shared by built-in and consumer packs."
   alias Aiur.Experiments.SpecFields, as: Fields
   @derive Jason.Encoder
-  defstruct [:id, :pack, :label, :unit, :unit_of_analysis, :kind, :better, :default_direction, :group, :source, description: "", requires: []]
+  defstruct [:id, :pack, :label, :unit, :unit_of_analysis, :kind, :better, :default_direction, :group, :source, description: "", requires: [], strata_metadata: %{}]
   @type t :: %__MODULE__{}
 
   @spec new(map(), String.t()) :: {:ok, t()} | {:error, [map()]}
@@ -10,7 +10,7 @@ defmodule Aiur.Experiments.Metric do
     errors =
       Fields.object(
         attrs,
-        ~w(id label description unit unit_of_analysis kind better default_direction group requires source),
+        ~w(id label description unit unit_of_analysis kind better default_direction group requires source strata_metadata),
         "metric",
         ~w(id label unit unit_of_analysis kind better default_direction group requires)
       ) ++
@@ -20,7 +20,7 @@ defmodule Aiur.Experiments.Metric do
         Fields.field(attrs, "better", &(&1 in ~w(lower higher)), "must be lower or higher", "metric") ++
         Fields.field(attrs, "default_direction", &(&1 in ~w(increase decrease none)), "unknown direction", "metric") ++
         Fields.field(attrs, "requires", &strings?/1, "must be strings", "metric") ++
-        optional_description(attrs)
+        optional_description(attrs) ++ optional_strata_metadata(attrs)
 
     if errors == [] do
       values = Enum.map(attrs, fn {key, value} -> {String.to_existing_atom(key), value} end)
@@ -35,6 +35,22 @@ defmodule Aiur.Experiments.Metric do
 
   @spec strings?(term()) :: boolean()
   def strings?(value), do: is_list(value) and Enum.all?(value, &Fields.text?/1)
+
+  defp optional_strata_metadata(attrs) when is_map(attrs) do
+    if Map.has_key?(attrs, "strata_metadata"),
+      do: Fields.field(attrs, "strata_metadata", &valid_strata_metadata?/1, "must map attributes to boolean post_treatment declarations", "metric"),
+      else: []
+  end
+
+  defp optional_strata_metadata(_), do: []
+
+  defp valid_strata_metadata?(value) when is_map(value) do
+    Enum.all?(value, fn {field, metadata} ->
+      Fields.text?(field) and is_map(metadata) and Map.keys(metadata) == ["post_treatment"] and is_boolean(metadata["post_treatment"])
+    end)
+  end
+
+  defp valid_strata_metadata?(_), do: false
 
   defp optional_description(attrs) when is_map(attrs) do
     if Map.has_key?(attrs, "description"), do: Fields.field(attrs, "description", &is_binary/1, "must be a string", "metric"), else: []

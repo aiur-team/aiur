@@ -11,7 +11,9 @@ defmodule Aiur.Config.Schema.EnvResolver do
     end
   end
 
-  @spec resolve_path_value(String.t(), String.t()) :: String.t()
+  @spec resolve_path_value(String.t() | nil, String.t()) :: String.t()
+  def resolve_path_value(nil, default), do: default
+
   def resolve_path_value(value, default) when is_binary(value) do
     case normalize_path_token(value) do
       :missing ->

@@ -41,6 +41,8 @@ defmodule Aiur.GitHub.ReadCache.Identity do
       batch documents). A created issue makes every list wrong and no individual
       resource wrong, which is the distinction the agent `gh` guard draws
       between a `collection` write and a numbered one.
+    * `{:repo_config, owner, repo}` — required-check policy and other repository
+      configuration, retired only by configuration-specific invalidation.
     * `{:number, owner, repo, n}` — one issue-or-pull-request number.
 
   An entry is retired when **any** identity it carries is invalidated.
@@ -52,6 +54,7 @@ defmodule Aiur.GitHub.ReadCache.Identity do
           :root
           | {:repo, String.t(), String.t()}
           | {:collections, String.t(), String.t()}
+          | {:repo_config, String.t(), String.t()}
           | {:number, String.t(), String.t(), pos_integer()}
 
   # `pullRequest(number: 2073)`, `issue(number: 2073)`, `t0: pullRequest(number: 2073)`,
@@ -74,12 +77,16 @@ defmodule Aiur.GitHub.ReadCache.Identity do
   @spec extract(map()) :: [t()]
   def extract(request) when is_map(request) do
     case repository(request) do
-      {owner, repo} -> [:root, {:repo, owner, repo}] ++ scoped(request, owner, repo)
+      {owner, repo} -> [:root, repo_identity(request, owner, repo)] ++ scoped(request, owner, repo)
       nil -> []
     end
   end
 
   def extract(_request), do: []
+
+  defp repo_identity(request, owner, repo) do
+    if repo_config?(request), do: {:repo_config, owner, repo}, else: {:repo, owner, repo}
+  end
 
   @doc """
   The repository a request names, down-cased, or `nil`.
@@ -132,10 +139,16 @@ defmodule Aiur.GitHub.ReadCache.Identity do
     numbers = numbers(request)
 
     collection =
-      if collection?(request, numbers), do: [{:collections, owner, repo}], else: []
+      if not repo_config?(request) and collection?(request, numbers), do: [{:collections, owner, repo}], else: []
 
     collection ++ Enum.map(numbers, &{:number, owner, repo, &1})
   end
+
+  defp repo_config?(%{method: :get, url: url}) when is_binary(url) do
+    Regex.match?(~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/rules/branches/[^/?#]+|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}, url)
+  end
+
+  defp repo_config?(_request), do: false
 
   # A read that names no number enumerates something, whatever it is called: an
   # issue list, a search, a review-thread sweep. It is retired by the collections

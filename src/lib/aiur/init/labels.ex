@@ -54,15 +54,22 @@ defmodule Aiur.Init.Labels do
       missing ->
         io.puts.("\nAiur uses ticket labels to route agents. Next we'll use your GITHUB_TOKEN to create the following labels in the repo:")
         print_label_list(io, labels)
-        Format.print_hint(io, "These workflow and automatic-fallback labels are required.")
+        Format.print_hint(io, "These workflow, runtime-reason, and automatic-fallback labels are required.")
         io.input.("Press Enter to create them", "", nil)
         create_labels_request(io, deps, tracker, labels, missing)
     end
   end
 
   defp required_labels(prefix, primary, fallback) do
-    ["flake"] ++ Labels.state_labels(prefix) ++ Labels.required_rate_limit_fallback_labels(prefix, primary, fallback)
+    ["flake"] ++
+      Labels.state_labels(prefix) ++
+      Labels.queued_labels(prefix) ++
+      Labels.reason_modifier_labels(prefix) ++
+      Labels.required_rate_limit_fallback_labels(prefix, primary, fallback) ++
+      priority_labels()
   end
+
+  defp priority_labels, do: Enum.map(1..3, &"priority:#{&1}")
 
   # Stage 2 — optional complexity labels.
   defp maybe_create_complexity_labels(io, deps, tracker, existing) do

@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
   end
 
   defp dependency_resumability(issue, terminal_states) do
-    if DispatchPolicy.todo_issue_held_by_dependency?(issue, terminal_states) do
+    if DispatchPolicy.issue_held_by_dependency?(issue, terminal_states) do
       {:error, :waiting_for_dependencies}
     else
       :ok
@@ -164,7 +164,7 @@ defmodule Aiur.Orchestrator.PauseResume.QueuedDispatch do
       # Manual start (Executor pressed space on a queued ticket): paused
       # agents are excluded from the cap so the Executor can fill a free
       # active slot even when a paused agent is parked in `running`.
-      State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
+      Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) ->
         {:error, :max_concurrent_agents_reached}
 
       # A lifetime-latched ticket is not resume-clearable by design. Name the

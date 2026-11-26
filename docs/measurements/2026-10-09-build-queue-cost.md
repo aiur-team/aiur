@@ -49,7 +49,7 @@ This runbook keeps the AC12 acceptance procedure beside the measurement steps it
 
 ## Executor collection
 
-Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
+Read [GitHub accounting guidance](../../website/docs-app/apis/github-budgets.md#reading-these-numbers-without-fooling-yourself)
 first. Run from the Executor checkout, never an issue workspace. Use the
 launched instance's identity for every control command. Preserve evidence
 outside the logs that `--test3` clears, **before launching AC12**:

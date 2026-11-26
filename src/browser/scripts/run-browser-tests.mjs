@@ -7,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { browserChildEnvironment, sanitizeArtifactRoot } from './artifact-sanitizer.mjs'
 import { startFixture } from './start-fixture.mjs'
+import { quarantineNotices, readQuarantine, withQuarantine } from './browser-quarantine.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const allocatedPorts = new Set()
@@ -43,23 +44,34 @@ export async function createArtifactRoot(environment = process.env) {
   return mkdtemp(prefix)
 }
 
+export function playwrightChildEnvironment(environment, port, artifactRoot) {
+  return browserChildEnvironment(environment, {
+    AIUR_BROWSER_PORT: String(port),
+    AIUR_BROWSER_ARTIFACT_DIR: artifactRoot,
+    AIUR_BROWSER_SCREENSHOTS: environment.AIUR_BROWSER_SCREENSHOTS ?? '',
+    CI: environment.CI ?? '',
+    // The Playwright config enables the GitHub failure reporter from these; the sanitized child env drops them otherwise.
+    GITHUB_ACTIONS: environment.GITHUB_ACTIONS ?? '',
+    AIUR_BROWSER_EXPECT_FAILURE: environment.AIUR_BROWSER_EXPECT_FAILURE ?? ''
+  })
+}
+
 export async function runBrowserTests(args, environment = process.env) {
+  // Read before the fixture starts: a malformed list must fail without leaking it.
+  const quarantine = readQuarantine()
   const artifactRoot = await createArtifactRoot(environment)
   const fixture = await startFixture({ ...environment, AIUR_BROWSER_PORT: '0' })
   const port = fixture.port
   const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-  const childEnvironment = browserChildEnvironment(environment, {
-    AIUR_BROWSER_PORT: String(port),
-    AIUR_BROWSER_ARTIFACT_DIR: artifactRoot,
-    AIUR_BROWSER_SCREENSHOTS: environment.AIUR_BROWSER_SCREENSHOTS ?? '',
-    CI: environment.CI ?? ''
-  })
+  const childEnvironment = playwrightChildEnvironment(environment, port, artifactRoot)
 
   let result
 
+  for (const notice of quarantineNotices(quarantine, environment)) process.stderr.write(`${notice}\n`)
+
   try {
     result = await new Promise((resolve, reject) => {
-      const child = spawn(npx, ['playwright', 'test', ...args], {
+      const child = spawn(npx, ['playwright', 'test', ...withQuarantine(args, quarantine, environment)], {
         cwd: browserRoot,
         env: childEnvironment,
         stdio: 'inherit'

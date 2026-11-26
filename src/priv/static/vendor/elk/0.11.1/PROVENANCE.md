@@ -16,4 +16,4 @@
 | worker | `aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704` | 17077 | `/vendor/layout/worker-v1/aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704/aiur-layout-worker.js` |
 | client | `4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698` | 16574 | `/vendor/layout/client-v1/4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698/aiur-layout-client.js` |
 
-Run `npm run vendor:elk` from `src/browser` after an approved dependency upgrade. Run `npm run check:elk` to verify the committed runtime bytes and metadata.
+Run `npm run vendor:elk` from `src/browser` after an approved dependency upgrade. Run `npm run check:elk` to verify the generated runtime bytes against the tracked manifest. The engine, worker and client are generated at build and are not tracked; release and development builds use `npm ci --ignore-scripts` followed by `npm run vendor:elk -- --check`.

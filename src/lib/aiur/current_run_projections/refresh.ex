@@ -123,8 +123,14 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp complete_checkpoint({:ok, state, write, result}, owner) do
     next =
       case result do
-        :ok -> state |> Projector.commit(write.candidate, write.changes) |> Map.put(:checkpoint_hash, write.content_hash)
-        _error -> Projector.checkpoint_failed(state)
+        :ok ->
+          state
+          |> Projector.commit(write.candidate, write.changes)
+          |> Map.put(:checkpoint_hash, write.content_hash)
+          |> Map.put(:checkpoint_content, CheckpointPersistence.content(write.candidate))
+
+        _error ->
+          Projector.checkpoint_failed(state)
       end
 
     SourceCollector.reply_waiters(write.waiters)

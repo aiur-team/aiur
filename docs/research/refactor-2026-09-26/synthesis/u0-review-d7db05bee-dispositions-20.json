@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 20,
+  "first_id": "platform-misc-40",
+  "last_id": "skills-prompts-cont-33",
+  "findings": [
+    {
+      "id": "platform-misc-40",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/reconstruction.ex:365",
+      "note": "Staging and backup siblings still use VM-local unique_integer; run removes only its newly selected sibling paths.",
+      "source_ids": [
+        "platform-misc-40"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-01",
+      "status": "repaired",
+      "anchor": ".claude/skills/aiur-agent/dev-loop.md:169",
+      "note": "Both local-gate and manual-verification passages now require mix lint/Credo; prohibition removed by 4d26fbe1c (#3248). No dedicated U1..U7 ticket cites this finding to shrink; any later policy cleanup should retain a guard. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-02",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-agent/dev-loop.md:315",
+      "note": "PR creation/retarget guidance still forces AIUR_BASE_BRANCH, while stub-then-fetch explicitly requires blocker branch for an unmerged dependency. No stacked exception reconciles them. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-03",
+      "status": "present",
+      "anchor": "src/prompts/shared-agent-instructions.md:31",
+      "note": "Shared prompt still describes GITHUB_TOKEN as worker credential; dev-loop says agent process inherits neither GITHUB_TOKEN nor GH_TOKEN and governed calls read credential file. Credential guidance mismatch remains. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-04",
+      "status": "unchanged",
+      "anchor": ".claude/skills/aiur-build/references/decomposition-workflow.md:183",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-04"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-05",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-run/references/executor.md:77",
+      "note": "Convergence instructions defer P2/P3 without individual tickets, but retrospective completion rejects ticket:null records as incomplete. Filing/completion contracts still conflict. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-06",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-babysit-pr/references/watch-loop.md:64",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-07",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/SKILL.md:258",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-07"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-08",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/references/cross-model-eval.md:51",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-08"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-09",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-code-review/references/personas/maintainability-reviewer.md:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-10",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-commit-push-pr/SKILL.md:118",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-10"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-11",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-compound-refresh/SKILL.md:378",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-11"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-12",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-doc-review/references/synthesis-and-presentation.md:150",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-12"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-13",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-ideate/references/web-research-cache.md:25",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-14",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-plan/references/plan-sections.md:193",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-14"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-15",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-product-pulse/references/interview.md:125",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-15"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-16",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-proof/SKILL.md:320",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-17",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md:124",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-17"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-18",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-sweep/references/sources/slack.md:23",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-18"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-19",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-work/SKILL.md:179",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-19"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "skills-prompts-cont-20",
+      "status": "present",
+      "anchor": ".claude/skills/release/SKILL.md:41",
+      "note": "Release skill still bumps only mix.exs before tagging; release-npm workflow compares checked-in launcher package version and fails drift. Required npm version synchronization remains absent from recipe. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-21",
+      "status": "present",
+      "anchor": ".claude/skills/release/SKILL.md:47",
+      "note": "Release recipe still builds escript then executes bin/aiur; mix.exs escript output remains bin/aiur.escript while bin/aiur is release-assembly shim. Verification executable mismatch remains. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-22",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-ideate/references/divergent-ideation.md:77",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-23",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-pov/references/agents/project-grounding-scout.md:10",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-24",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-resolve-pr-feedback/SKILL.md:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-25",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-product-pulse/SKILL.md:132",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-25"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-26",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-brainstorm/SKILL.md:62",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-27",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-compound/SKILL.md:276",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-27"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-28",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-plan/SKILL.md:506",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-29",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-agent/dev-loop.md:37",
+      "note": "Metadata failure recovery still removes index.lock as first step before checking owner; diagnostic-recipes separately requires read-only ownership inspection. Lock safety prerequisite remains missing. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "skills-prompts-cont-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-30",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-run/SKILL.md:804",
+      "note": "Quiet-fleet ladder still starts with global resume despite binding-pause contract; resume_issue_call still refuses globally paused state. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-31",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-run/SKILL.md:666",
+      "note": "Exactly-one plan-wait/observe instruction still conflicts with mandatory observe on every audit at lines 739-741.",
+      "source_ids": [
+        "skills-prompts-cont-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-32",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-plan/references/plan-handoff.md:68",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-32"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "skills-prompts-cont-33",
+      "status": "unchanged",
+      "anchor": ".claude/skills/ce-plan/SKILL.md:15",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "skills-prompts-cont-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

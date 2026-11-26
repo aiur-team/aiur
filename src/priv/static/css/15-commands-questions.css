@@ -1,0 +1,28 @@
+.decision-questions {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.decision-questions fieldset {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.decision-questions legend {
+  padding: 0 0 0.5rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.decision-questions [data-custom-response] input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+}

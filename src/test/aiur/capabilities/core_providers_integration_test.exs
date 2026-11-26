@@ -29,6 +29,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     end)
 
     Aiur.TestSupport.start_owned_endpoint!()
+    assert Application.fetch_env!(:aiur, AiurWeb.Endpoint)[:server] == false
     assert Provider.http(%{run_shape: %{http_listener: true}}) == %{state: :unavailable, reason: :not_running}
     spec = Supervisor.child_spec({Bandit, plug: AiurWeb.Endpoint, port: 0}, id: {AiurWeb.Endpoint, :http})
     assert {:ok, _server} = Supervisor.start_child(AiurWeb.Endpoint, spec)
@@ -65,7 +66,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     assert caps["instance.status"].state in [:available, :degraded]
     assert caps["agents.run"] == %{state: :available}
     assert caps["executor.wakes"] == %{state: :unavailable, reason: :not_running}
-    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed}
+    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
 
     for id <- ~w(agents.message commands.read commands.answer) do
       assert caps[id] == %{state: :unavailable, reason: :dependency_unavailable, depends_on: ["api.http"]}
@@ -73,8 +74,8 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
 
     for id <- ~w(commands.supervisor_api tracker.github tracker.linear), do: refute(Map.get(caps[id], :reason) == :not_installed)
     refute Enum.any?(warnings, &match?({:failed, _}, &1))
+    on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
-    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) end)
     assert Process.whereis(Aiur.Orchestrator) == nil
     {after_stop, _warnings} = Collector.collect([])
     assert after_stop.capabilities["orchestration"] == %{state: :unavailable, reason: :not_running}

@@ -6,7 +6,7 @@
 # responsible for response observation and quota tracking; it has no
 # `--paginate` flag, so it follows the ordinary single-request path.
 run_budgeted_paginated_api() {
-  AIUR_GITHUB_PAGINATION_WRAPPER="$0" AIUR_GITHUB_PAGINATION_REAL_GH="$real_gh" AIUR_GITHUB_PAGINATION_DIRECTION="$direction" python3 - "$@" <<'PY'
+  AIUR_GITHUB_PAGINATION_WRAPPER="$0" AIUR_GITHUB_PAGINATION_REAL_GH="$real_gh" AIUR_GITHUB_PAGINATION_DIRECTION="$direction" python3 -I - "$@" <<'PY'
 import http.server
 import json
 import os

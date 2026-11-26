@@ -32,7 +32,7 @@ defmodule Aiur.ExecutorCommandCLITest do
 
       output = capture_io(fn -> assert ExecutorCommandCLI.answer(params, deps) == 0 end)
 
-      assert_received {:answer, "decision:42", payload, [actor: actor], :decision_store}
+      assert_received {:answer, "decision:42", payload, [actor: actor, actor_source: :executor_cli], :decision_store}
       assert actor == %{kind: :executor, id: "codex-executor"}
 
       assert payload == %{
@@ -142,7 +142,7 @@ defmodule Aiur.ExecutorCommandCLITest do
 
       output = capture_io(fn -> assert ExecutorCommandCLI.answer(params, deps) == 0 end)
 
-      assert_received {:supersede, "decision:42", payload, [actor: %{kind: :executor, id: "codex-executor"}], :decision_store}
+      assert_received {:supersede, "decision:42", payload, [actor: %{kind: :executor, id: "codex-executor"}, actor_source: :executor_cli], :decision_store}
 
       assert payload == %{
                "expected_version" => 3,

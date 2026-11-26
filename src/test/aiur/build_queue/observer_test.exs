@@ -91,5 +91,12 @@ defmodule Aiur.BuildQueue.ObserverTest do
     assert Process.get(:reads) == ["1", "1"]
   end
 
+  test "a member missing from the open listing but read open from cache is unknown, not unlabelled (#4819)", %{state: state} do
+    Process.put(:closure, {:ok, %{open?: true, state_reason: nil}})
+    item = %Item{issue_id: "9", queue_id: "q-list", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: DateTime.from_unix!(0)}
+    {observations, _cache} = Observer.observe(%{state | document: %{edges: [], items: [item]}})
+    assert %{open?: :unknown, unavailable_reason: :closed_reason} = observations["9"]
+  end
+
   defp verdict(observation, now \\ 1_000), do: Readiness.edge_verdict(observation, now_ms: now, max_age_ms: 100, label_prefix: "agent")
 end

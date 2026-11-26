@@ -1,0 +1,12 @@
+{
+  "name": "@aiur/nightly-release",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cut one nightly per local date from a green commit, per package, for any repo.",
+  "type": "module",
+  "bin": { "nightly-release": "nightly-release.mjs" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "Apache-2.0"
+}

@@ -3,7 +3,6 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter.Relationship do
 
   alias Aiur.Claude.Telemetry.Contract
   alias Aiur.UsageEnvelope
-  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @revision "claude-remote-control-2026-07"
   @definition %{
@@ -27,15 +26,15 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter.Relationship do
   @spec definition() :: map()
   def definition, do: @definition
 
-  @spec catalog() :: RelationshipRegistry.catalog()
+  @spec catalog() :: UsageEnvelope.relationship_catalog()
   def catalog do
-    {:ok, catalog} = RelationshipRegistry.new([@definition])
+    {:ok, catalog} = UsageEnvelope.new_relationship_catalog([@definition])
     catalog
   end
 
-  @spec supported?(RelationshipRegistry.catalog(), UsageEnvelope.t()) :: :ok | {:error, term()}
+  @spec supported?(UsageEnvelope.relationship_catalog(), UsageEnvelope.t()) :: :ok | {:error, term()}
   def supported?(catalog, envelope) do
-    case RelationshipRegistry.resolve(catalog, envelope) do
+    case UsageEnvelope.resolve_relationship(catalog, envelope) do
       {:ok, @definition} -> :ok
       {:ok, _different} -> {:error, :invalid_relationship_catalog}
       {:error, reason} -> {:error, reason}

@@ -55,7 +55,7 @@ defmodule AiurWeb.StreamdeckCommandsTest do
     }
 
     assert {:ok, %{decision: decision}} =
-             DecisionStore.request(payload, [ticket: @ticket, source: @source, now: now], store)
+             Aiur.DecisionStoreCase.request(store, payload, ticket: @ticket, source: @source, now: now)
 
     decision
   end
@@ -150,7 +150,7 @@ defmodule AiurWeb.StreamdeckCommandsTest do
 
     assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
     assert %Decision{answer: answer} = current
-    assert answer.actor == %{kind: :operator, id: "streamdeck"}
+    assert answer.actor == %{kind: :operator, id: "streamdeck", source: :rpc}
     assert answer.selected_option_id == "ship"
 
     # The dashboard-facing projection records the same operator actor, with
@@ -184,7 +184,7 @@ defmodule AiurWeb.StreamdeckCommandsTest do
     # --custom-response` contract and is recorded as such.
     assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
     assert current.answer.custom_response == "Hold everything — verify the numbers first."
-    assert current.answer.actor == StreamdeckCommands.actor()
+    assert current.answer.actor == Map.put(StreamdeckCommands.actor(), :source, :rpc)
   end
 
   test "item allowlists the option and context fields the device renders", %{store: store} do

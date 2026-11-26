@@ -3,6 +3,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
 
   alias Aiur.RunTelemetry.Dataset
   alias Aiur.RunTelemetry.Summaries
+  alias Aiur.RunTelemetry.SummaryIndex
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
   @fixtures Path.expand("../../fixtures/analytics", __DIR__)
@@ -234,6 +235,34 @@ defmodule Aiur.RunTelemetry.SummariesTest do
     test "summary_boot_ids lists materialized boot dirs" do
       seed_state_node()
       assert "boot-a" in Summaries.summary_boot_ids()
+    end
+
+    test "summary time index reads a bounded tail from large summaries" do
+      seed_state_node()
+      boot_dir = Path.join(Summaries.runs_dir(), "boot-large")
+      File.mkdir_p!(boot_dir)
+      path = Path.join(boot_dir, "run-summary.json")
+      timestamp = "2026-10-18T08:00:00Z"
+      File.write!(path, :binary.copy("x", 2 * 1024 * 1024) <> ~s|"time_range": {"start": "2026-10-18T07:00:00Z", "end": "#{timestamp}"}|)
+
+      assert {:ok, ^timestamp, bytes_read, file_bytes} = SummaryIndex.time_range_end("boot-large")
+      assert bytes_read == 256 * 1024
+      assert file_bytes == File.stat!(path).size
+      assert file_bytes > bytes_read
+    end
+
+    test "summary time index uses a bounded head read when provenance precedes a large records field" do
+      seed_state_node()
+      boot_dir = Path.join(Summaries.runs_dir(), "boot-head-index")
+      File.mkdir_p!(boot_dir)
+      path = Path.join(boot_dir, "run-summary.json")
+      timestamp = "2026-10-18T08:00:00Z"
+      body = ~s|{"provenance":{"time_range":{"end":"#{timestamp}"}},"records":"| <> :binary.copy("x", 2 * 1024 * 1024) <> ~s|"}|
+      File.write!(path, body)
+
+      assert {:ok, ^timestamp, bytes_read, file_bytes} = SummaryIndex.time_range_end("boot-head-index")
+      assert bytes_read == 512 * 1024
+      assert file_bytes > bytes_read
     end
 
     test "load_prior_datasets excludes the live boot" do

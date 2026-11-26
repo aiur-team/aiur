@@ -74,14 +74,12 @@ def validate_document(
             f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
             f"issue body limit by {rendered_length - MAX_ISSUE_BODY_CHARACTERS:,}"
         )
-    if not re.match(
-        rf"^#\s+(?:BO:\s+)?{re.escape(ticket_id)}(?:\s|\u2014|-)",
-        first_line,
-    ):
-        report.error(
-            f"{ticket_id}.document heading must begin with '# {ticket_id}' "
-            f"or '# BO: {ticket_id}'"
-        )
+    if not re.match(r"^#\s+.+", first_line):
+        report.error(f"{ticket_id}.document heading must be a non-empty H1")
+    else:
+        heading_id = re.match(r"^#\s+(?:BO:\s+)?([A-Z][A-Z0-9-]*-[0-9]+)(?:\s|—|-)", first_line)
+        if heading_id is not None:
+            report.error(f"{ticket_id}.document heading must not start with a logical ID")
     kind = ticket.get("kind")
     if isinstance(kind, str) and not re.search(
         rf"(?m)^\*\*Kind:\*\*\s+{re.escape(kind)}\s*$", text

@@ -17,7 +17,7 @@ function resolve(name, theme, seen = new Set()) {
   return target ? resolve(target, theme, seen) : value;
 }
 
-const tokens = Object.fromEntries(['light', 'dark'].map(theme =>
+export const tokens = Object.fromEntries(['light', 'dark'].map(theme =>
   [theme, Object.fromEntries(names.map(name => [name, resolve(name, theme)]))]));
 const breakpoints = { shell: 960, features2: 720, features1: 440 };
 const substitutions = Object.entries(definitions).filter(([, definition]) => definition.textPair);
@@ -49,9 +49,11 @@ function declarations(theme) {
 
 export function buildTokens(distDir) {
   fs.mkdirSync(distDir, { recursive: true });
+  // Device chassis stay dark when the surrounding page switches themes.
+  const fixedDark = ['color.fg', 'color.accent'].map(name => `${cssName(name)}-dark: ${tokens.dark[name]};`).join(' ');
   const light = declarations('light');
   const dark = declarations('dark');
-  const css = `@layer aiur.tokens {\n  :root {\n    color-scheme: light;\n${light}\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme="light"]) {\n      color-scheme: dark;\n${dark.replaceAll('\n', '\n  ')}\n    }\n  }\n\n  :root[data-theme="dark"] {\n    color-scheme: dark;\n${dark}\n  }\n}\n`;
+  const css = `@layer aiur.tokens {\n  :root { ${fixedDark}\n    color-scheme: light;\n${light}\n  }\n\n  @media (prefers-color-scheme: dark) {\n    :root:not([data-theme="light"]) {\n      color-scheme: dark;\n${dark.replaceAll('\n', '\n  ')}\n    }\n  }\n\n  :root[data-theme="dark"] {\n    color-scheme: dark;\n${dark}\n  }\n}\n`;
   fs.writeFileSync(path.join(distDir, 'tokens.css'), css);
   const exports = { tokens, breakpoints, contrastPairs };
   fs.writeFileSync(path.join(distDir, 'tokens.js'), Object.entries(exports).map(([name, value]) =>

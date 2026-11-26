@@ -3,7 +3,7 @@
 
 def public_fields(entry):
     return dict(entry, kind="in-app", dependency_kind=entry["kind"],
-                summary="Provides fixture behavior.", status="core", install={"type": "included"},
+                summary="Provides fixture behavior.", status="core", goal="run-agents", install={"type": "included"},
                 docs=[], config=[], env=[], capabilities=[])
 
 
@@ -17,7 +17,7 @@ def complete_fixture(root):
     import json
     path = root / 'components.json'
     manifest = json.loads(path.read_text())
-    manifest.update(components=[public_fields(c) for c in manifest['components']], features=[])
+    manifest.update(directory_published=False, components=[public_fields(c) for c in manifest['components']], features=[])
     path.write_text(json.dumps(manifest))
 
 

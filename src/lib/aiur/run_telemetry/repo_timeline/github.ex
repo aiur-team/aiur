@@ -1,6 +1,6 @@
 defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
+  alias Aiur.GitHub.Access
   @moduledoc false
-  alias Aiur.GitHub.Transport
 
   @query """
   query AnalyticsRepoTimeline($owner: String!, $name: String!, $branch: String!, $since: GitTimestamp, $historyCursor: String, $tagCursor: String) {
@@ -24,9 +24,9 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
   @spec fetch(String.t(), String.t(), String.t() | nil, keyword()) :: {:ok, [map()], [map()]} | {:error, term()}
   def fetch(repo, branch, since, opts) do
     with [owner, name] <- String.split(repo, "/"),
-         {:ok, token} <- Transport.require_token(opts) do
+         {:ok, token} <- Access.require_token(opts) do
       variables = %{"owner" => owner, "name" => name, "branch" => "refs/heads/" <> branch, "since" => since, "historyCursor" => nil, "tagCursor" => nil}
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       with {:ok, commits, tags} <- pages(request, token, variables, [], [], %{}),
            {:ok, tags} <- resolve_tags(tags, request, token, variables),
@@ -40,7 +40,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
   end
 
   defp pages(request, token, variables, commits, tags, seen) do
-    with {:ok, data, _response} <- Transport.github_graphql_response(request, token, @query, variables, caller: "analytics_repo_timeline"),
+    with {:ok, data, _response} <- Access.github_graphql_response(request, token, @query, variables, caller: "analytics_repo_timeline"),
          %{"nodes" => nodes, "pageInfo" => history_info} <- get_in(data, ["data", "repository", "ref", "target", "history"]),
          %{"nodes" => tag_nodes, "pageInfo" => tag_info} <- get_in(data, ["data", "repository", "refs"]) do
       next = {next_cursor(history_info), next_cursor(tag_info)}
@@ -94,7 +94,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
     else
       args = Map.take(variables, ["owner", "name"]) |> Map.put("oid", oid)
 
-      with {:ok, data, _} <- Transport.github_graphql_response(request, token, @target_query, args, caller: "analytics_repo_timeline"),
+      with {:ok, data, _} <- Access.github_graphql_response(request, token, @target_query, args, caller: "analytics_repo_timeline"),
            %{} = target <- get_in(data, ["data", "repository", "object", "target"]) do
         resolve_target(target, request, token, variables, Map.put(seen, oid, true))
       else
@@ -141,7 +141,7 @@ defmodule Aiur.RunTelemetry.RepoTimeline.GitHub do
   defp resolve_revert(commit, number, resolved, request, token, variables) do
     args = Map.take(variables, ["owner", "name"]) |> Map.put("number", number)
 
-    case Transport.github_graphql_response(request, token, @revert_query, args, caller: "analytics_repo_timeline") do
+    case Access.github_graphql_response(request, token, @revert_query, args, caller: "analytics_repo_timeline") do
       {:ok, data, _} ->
         commit = Map.put(commit, "revertOid", get_in(data, ["data", "repository", "pullRequest", "mergeCommit", "oid"]))
         {:cont, {:ok, [commit | resolved]}}

@@ -4,7 +4,11 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
   alias Aiur.BuildOrder.{Component, Features, History}
   alias Aiur.BuildOrder.Features.LabelProjection, as: Projection
   alias Aiur.TestSupport.FeatureLabelFixture, as: F
-  setup do: F.setup()
+
+  setup do
+    assert :ok = Aiur.TestSupport.ensure_pubsub_running()
+    F.setup()
+  end
 
   test "registry and History subscriptions reconcile without a periodic tick", ctx do
     pid = F.start(ctx)
@@ -162,7 +166,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
   end
 
   test "supervision is recording-gated and follows registry and History" do
-    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false)
+    specs = AiurApp.child_specs(recording?: true, interactive_cli?: false, headless?: true, dashboard?: false, repository_services?: true)
 
     mods =
       Enum.map(specs, fn
@@ -171,9 +175,56 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
         module -> module
       end)
 
+    assert Features in mods
+    assert History in mods
+    assert Projection in mods
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == Features))
     assert Enum.find_index(mods, &(&1 == Projection)) > Enum.find_index(mods, &(&1 == History))
-    assert List.last(mods) == Projection
+
+    if Aiur.Config.tracker_kind() == "github" do
+      assert repository_services(specs) |> Enum.any?(&(&1 in [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter]))
+    else
+      refute Aiur.LandingWatch.QuarantineLifter in repository_services(specs)
+    end
+
+    refute Aiur.LandingWatch in mods
+    refute Aiur.LandingWatch.QuarantineLifter in mods
+
+    optional_children = [
+      Aiur.ExecutorSweep,
+      Aiur.Experiments.Auto.Notifier,
+      Aiur.Experiments.Auto.WindowManager,
+      Aiur.Experiments.Analyst,
+      Aiur.Experiments.AnalystTrigger
+    ]
+
+    assert Enum.take(mods, -9) == [
+             Aiur.BuildOrder.Estimates,
+             Aiur.BuildOrder.History.LabelBackfill,
+             Aiur.Executor.Session,
+             Aiur.Executor.SessionIngest,
+             DynamicSupervisor,
+             Aiur.Executor.TranscriptIngest,
+             Aiur.Executor.HarnessState,
+             Aiur.ControlCLI.PendingCommands,
+             Aiur.Orchestrator.UnresponsiveWatchdog
+           ]
+
+    assert Enum.find_index(mods, &(&1 == Aiur.Instance.RepositoryLeader)) > Enum.find_index(mods, &(&1 == Projection))
+
+    Enum.each(optional_children, fn optional ->
+      if optional in mods do
+        assert Enum.find_index(mods, &(&1 == optional)) > Enum.find_index(mods, &(&1 == Projection))
+      end
+    end)
+
     refute Projection in Component.child_specs(:label_projection, recording?: false)
+  end
+
+  defp repository_services(specs) do
+    case Enum.find(specs, &match?({Aiur.Instance.RepositoryLeader, _opts}, &1)) do
+      {Aiur.Instance.RepositoryLeader, opts} -> Keyword.fetch!(opts, :services)
+      _ -> []
+    end
   end
 end

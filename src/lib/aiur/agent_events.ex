@@ -9,12 +9,20 @@ defmodule Aiur.AgentEvents do
 
   Topic conventions:
     * `"agent:<identifier>"` carries `t:transcript_message/0` and `t:alert_message/0`
+    * `"listen_mode:<identifier>"` carries `{:listen_mode_changed, identifier, view}`
     * `"agents:running"` carries `t:running_change_message/0`
     * `"agents:status"` carries `t:status_change_message/0`
   """
 
+  alias Aiur.Events.AgentSubscriptionPolicy
+
   @typedoc "Stable per-agent identifier (the issue id string)."
   @type agent_identifier :: String.t()
+
+  @doc "Validates the literal-ticket scope accepted for an agent-created subscription."
+  @spec validate_agent_subscription_pattern(term()) :: :ok | {:error, :agent_subscription_scope_forbidden}
+  def validate_agent_subscription_pattern(pattern),
+    do: AgentSubscriptionPolicy.validate(pattern)
 
   @typedoc """
   Origin of a transcript line. `:user` and `:assistant` are
@@ -277,44 +285,11 @@ defmodule Aiur.AgentEvents do
   def state_emoji("sleeping"), do: "💤"
   def state_emoji(_), do: "⚫"
 
-  @doc """
-  Maps an orchestrator snapshot row to the five Stream Deck fleet buckets.
-
-  The mapping deliberately has one home beside the canonical `work_state`
-  semantics above, so the grid cannot drift from the agent-list meaning of
-  `:working`, `:paused`, `:sleeping`, and the terminal states.
-
-    * `:alert` — unresolved operator attentions (`open_decision_count > 0`)
-      take priority because the Executor needs to act.
-    * `:stuck` — retrying, errored, or watchdog-unresponsive work needs
-      intervention before ordinary live work.
-    * `:running` — a live, non-quiescent orchestrator slot is actively working.
-    * `:paused` — explicit pauses and quiescent live states (`:sleeping`,
-      `:done`, `:deactivated`, and `:completed`) hold work without active
-      progress.
-    * `:queued` — all remaining tracker-active rows have no live slot; their
-      dependency readiness is projected separately.
-  """
-  @spec streamdeck_bucket(map()) :: :alert | :stuck | :running | :paused | :queued
-  def streamdeck_bucket(%{} = agent) do
-    work_state = Map.get(agent, :work_state)
-
-    cond do
-      positive_integer?(Map.get(agent, :open_decision_count)) -> :alert
-      Map.get(agent, :streamdeck_source) == :retrying -> :stuck
-      work_state == :error -> :stuck
-      Map.get(agent, :waiting_reason) in [:tracker_unavailable, :unresponsive] -> :stuck
-      Map.get(agent, :tracker_paused) == true -> :paused
-      work_state in [:paused, :sleeping, :done, :deactivated, :completed] -> :paused
-      Map.get(agent, :streamdeck_source) == :running -> :running
-      true -> :queued
-    end
-  end
-
-  defp positive_integer?(value), do: is_integer(value) and value > 0
-
   @spec agent_topic(agent_identifier()) :: String.t()
   def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
+
+  @spec listen_mode_topic(agent_identifier()) :: String.t()
+  def listen_mode_topic(identifier) when is_binary(identifier), do: "listen_mode:" <> identifier
 
   @spec running_topic() :: String.t()
   def running_topic, do: "agents:running"

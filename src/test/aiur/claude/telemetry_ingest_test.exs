@@ -31,7 +31,7 @@ defmodule Aiur.Claude.TelemetryIngestTest do
              "request_id" => canonical_request_id("request-current")
            }
 
-    refute inspect(event) =~ "TOP_SECRET"
+    Aiur.TestSupport.refute_leak(event, "TOP_SECRET")
   end
 
   test "reports the model the running agent actually served, once per change", %{server: server, issue: issue} do
@@ -82,8 +82,8 @@ defmodule Aiur.Claude.TelemetryIngestTest do
              "request_id" => "req_011111111111111111111111"
            }
 
-    refute inspect(event) =~ "removed@example.invalid"
-    refute inspect(event) =~ "removed-org"
+    Aiur.TestSupport.refute_leak(event, "removed@example.invalid")
+    Aiur.TestSupport.refute_leak(event, "removed-org")
   end
 
   test "publishes exact request usage only after authenticated repl correlation", %{server: server, issue: issue} do
@@ -122,8 +122,8 @@ defmodule Aiur.Claude.TelemetryIngestTest do
     assert_receive {:claude_usage, envelope}, 2_000
     assert event.attributes["query_source"] == "subagent"
     assert envelope.query_source == "subagent"
-    refute inspect(event) =~ "code-reviewer"
-    refute inspect(envelope) =~ "code-reviewer"
+    Aiur.TestSupport.refute_leak(event, "code-reviewer")
+    Aiur.TestSupport.refute_leak(envelope, "code-reviewer")
   end
 
   test "publishes bounded optional coverage without fabricating cache or cost", %{server: server, issue: issue} do
@@ -218,7 +218,7 @@ defmodule Aiur.Claude.TelemetryIngestTest do
     assert_receive {:claude_usage, envelope}, 2_000
     assert envelope.tokens.input == 11
     assert envelope.tokens.output == 7
-    refute inspect(envelope) =~ "SECRET"
+    Aiur.TestSupport.refute_leak(envelope, "SECRET")
   end
 
   test "keeps optional request accounting fields absent instead of fabricating values", %{server: server, issue: issue} do
@@ -249,14 +249,14 @@ defmodule Aiur.Claude.TelemetryIngestTest do
     assert_receive {:claude_usage_coverage, %{class: :missing_required_identity, field: :session_id} = identity_coverage},
                    2_000
 
-    refute inspect(identity_coverage) =~ "request-missing-session"
+    Aiur.TestSupport.refute_leak(identity_coverage, "request-missing-session")
 
     assert submit(server, authorization, missing_input).status == 400
 
     assert_receive {:claude_usage_coverage, %{class: :ambiguous_measurement_semantics, field: :input_tokens} = measurement_coverage},
                    2_000
 
-    refute inspect(measurement_coverage) =~ "request-missing-input"
+    Aiur.TestSupport.refute_leak(measurement_coverage, "request-missing-input")
     refute_receive {:claude_usage, _envelope}, 100
   end
 

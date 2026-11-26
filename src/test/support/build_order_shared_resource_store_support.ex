@@ -7,7 +7,7 @@ defmodule Aiur.BuildOrder.SharedResourceStoreSupport do
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @repository {"owner", "repo"}
 
   # The shared `setup`: a GitHub token, a GitHub workflow and an empty store.

@@ -1,0 +1,305 @@
+defmodule Aiur.LandingWatch.FlakeRecorder do
+  @moduledoc "Creates durable, deduplicated issue evidence for tests that fail only in one merge group."
+
+  alias Aiur.Config.TrackerSettings
+  alias Aiur.GitHub.{Access, AgentMarker, Config}
+  alias Aiur.LandingWatch.Journal
+
+  # Without the variable, a local run of a quarantined test or spec reports 0 tests and passes.
+  @quarantine_note "Once this test is quarantined, blocking CI and local runs skip it. " <>
+                     "Run it with `AIUR_RUN_QUARANTINED=1` set; without it a local run reports 0 tests and exits 0, which is not a pass."
+
+  @spec record(map(), map(), [pos_integer()], keyword()) :: :ok | {:error, term()}
+  def record(failure, run, passed_prs, opts) do
+    identity = "#{failure.module} :: #{failure.name}"
+    claim_key = identity <> " :: run " <> to_string(run["id"])
+    evidence = evidence(failure, run, passed_prs)
+
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      claim_and_record(claim_key, identity, evidence, owner, repo, token, opts)
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp claim_and_record(claim_key, identity, evidence, owner, repo, token, opts) do
+    case Journal.claim_flake(claim_key, opts) do
+      {:ok, :already_claimed} -> :ok
+      {:ok, :new} -> publish_claimed(claim_key, identity, evidence, owner, repo, token, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp publish_claimed(claim_key, identity, evidence, owner, repo, token, opts) do
+    result = record_issue_and_emit(identity, evidence, owner, repo, token, opts)
+    if result == :ok, do: :ok, else: release_claim(claim_key, opts, result)
+  end
+
+  defp release_claim(claim_key, opts, result) do
+    _ = Journal.release_flake(claim_key, opts)
+    result
+  end
+
+  defp record_issue_and_emit(identity, evidence, owner, repo, token, opts) do
+    case find_or_create(owner, repo, token, identity, evidence, opts) do
+      {:ok, :already_quarantined} ->
+        notify_issue_recorded(:already_quarantined, opts)
+
+      {:ok, issue} ->
+        case emit(evidence, issue, opts) do
+          :ok -> notify_issue_recorded(issue, opts)
+          {:error, _} = error -> error
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp notify_issue_recorded(issue, opts) do
+    case Keyword.get(opts, :issue_recorded_fun) do
+      fun when is_function(fun, 1) -> fun.(issue)
+      _ -> :ok
+    end
+  end
+
+  defp find_or_create(owner, repo, token, identity, evidence, opts) do
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+
+    with {:ok, issues} <- open_flake_issues(request, token, owner, repo, identity),
+         {:ok, skip} <- matching_skip(identity, opts) do
+      case {Enum.find(issues, &matching_issue?(&1, identity)), skip} do
+        {%{"number" => number}, _} when is_integer(number) -> comment_existing(number, evidence, request, token, owner, repo)
+        {nil, {:ticket, number}} -> comment_if_open_flake(number, evidence, request, token, owner, repo)
+        {nil, true} -> {:ok, :already_quarantined}
+        {nil, false} -> create_issue(identity, evidence, request, token, owner, repo)
+        _ -> {:error, :invalid_flake_issue}
+      end
+    end
+  end
+
+  defp open_flake_issues(request, token, owner, repo, identity) do
+    query =
+      URI.encode_query(%{
+        "q" => "repo:#{owner}/#{repo} is:issue is:open in:title,body \"#{identity}\"",
+        "per_page" => 100
+      })
+
+    url = "#{Access.base_url()}/search/issues?#{query}"
+
+    case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_search"}) do
+      {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) -> {:ok, issues}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp matching_skip("BrowserSpec :: " <> rest, opts) do
+    case Regex.run(~r/\A(.+\.spec\.mjs) :: (.+) :: (\d+)\z/, rest, capture: :all_but_first) do
+      [spec, title, _line] -> browser_skip(spec, title, opts)
+      _ -> {:ok, false}
+    end
+  end
+
+  defp matching_skip(_identity, _opts), do: {:ok, false}
+
+  defp browser_skip(spec, title, opts) do
+    case Keyword.get(opts, :browser_spec_source_fun, &read_browser_spec/2).(spec, opts) do
+      {:ok, source} when is_binary(source) -> {:ok, skipped_ticket(source, title)}
+      {:error, :enoent} -> {:ok, false}
+      {:error, {:github, :http, %{status: 404}}} -> {:ok, false}
+      {:error, reason} -> {:error, {:browser_spec_unavailable, reason}}
+    end
+  end
+
+  defp skipped_ticket(source, title) do
+    lines = String.split(source, "\n")
+
+    lines
+    |> Enum.with_index()
+    |> Enum.find_value(false, &skipped_ticket_at(&1, lines, title))
+  end
+
+  defp skipped_ticket_at({line, index}, lines, title) do
+    if Regex.match?(~r/\btest\.skip\s*\(\s*["']#{Regex.escape(title)}["']/, line),
+      do: owner_ticket(Enum.at(lines, index - 1, "")),
+      else: false
+  end
+
+  defp owner_ticket(line) do
+    case Regex.run(~r/Quarantined: owner #(\d+)/, line, capture: :all_but_first) do
+      [ticket] -> {:ticket, String.to_integer(ticket)}
+      _ -> true
+    end
+  end
+
+  defp read_browser_spec(spec, opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      base = Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0)
+      encoded_path = spec |> String.split("/") |> Enum.map_join("/", &URI.encode/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/contents/#{encoded_path}?" <> URI.encode_query(%{"ref" => base})
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+
+      case Access.fetch_json_map(request, token, url, caller: "landing_watch_browser_spec") do
+        {:ok, %{"encoding" => "base64", "content" => encoded}} when is_binary(encoded) ->
+          decode_browser_spec(encoded)
+
+        {:ok, _} ->
+          {:error, :invalid_browser_spec_response}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp decode_browser_spec(encoded) do
+    case Base.decode64(String.replace(encoded, ~r/\s/, "")) do
+      {:ok, source} -> {:ok, source}
+      :error -> {:error, :invalid_browser_spec_encoding}
+    end
+  end
+
+  defp comment_existing(number, evidence, request, token, owner, repo) do
+    with :ok <- add_flake_label(number, request, token, owner, repo),
+         :ok <- comment(number, evidence, request, token, owner, repo) do
+      {:ok, number}
+    end
+  end
+
+  defp comment_if_open_flake(number, evidence, request, token, owner, repo) do
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}"
+
+    case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_ticket"}) do
+      {:ok, %{status: 200, body: %{"state" => "open", "labels" => labels}}} when is_list(labels) ->
+        if Enum.any?(labels, &(&1["name"] == "flake")), do: comment_existing(number, evidence, request, token, owner, repo), else: {:ok, :already_quarantined}
+
+      {:ok, %{status: 200, body: %{"state" => "open"}}} ->
+        {:error, :invalid_flake_issue_labels}
+
+      {:ok, %{status: 200}} ->
+        {:ok, :already_quarantined}
+
+      {:ok, response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp add_flake_label(number, request, token, owner, repo) do
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
+
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_label",
+           body: %{"labels" => ["flake"]}
+         }) do
+      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp matching_issue?(%{"pull_request" => _}, _identity), do: false
+
+  defp matching_issue?(issue, identity) do
+    title = Map.get(issue, "title", "")
+    body = Map.get(issue, "body", "")
+
+    title == "Flaky test: " <> identity or String.contains?(body, marker(identity)) or String.contains?(body, "Failing test: " <> identity)
+  end
+
+  defp create_issue(identity, evidence, request, token, owner, repo) do
+    title = "Flaky test: " <> identity
+    body = marker(identity) <> "\n\n" <> evidence <> "\n\n" <> @quarantine_note
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues"
+
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_issue",
+           body: %{"title" => title, "body" => body, "labels" => ["bug", "needs-triage", "#{Config.label_prefix()}:parked", "flake"]}
+         }) do
+      {:ok, %{status: status, body: %{"number" => number}}}
+      when status in [200, 201] and is_integer(number) ->
+        {:ok, number}
+
+      {:ok, response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp comment(number, evidence, request, token, owner, repo) do
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/comments"
+    body = AgentMarker.stamp(evidence)
+
+    case request.(%{
+           method: :post,
+           url: url,
+           token: token,
+           caller: "landing_watch_flake_comment",
+           body: %{"body" => body}
+         }) do
+      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp evidence(failure, run, passed_prs) do
+    [
+      "Run ID: #{run["id"]}",
+      "Run: #{run["html_url"] || "unknown"}",
+      "Job: #{failure.job}",
+      "Failing test: #{failure.module} :: #{failure.name}",
+      cascade_line(failure),
+      module_line(failure),
+      "Error excerpt: #{error_excerpt(failure)}",
+      "PRs that passed this test in another merge group containing the PR: #{Enum.map_join(passed_prs, ", ", &"##{&1}")}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp cascade_line(%{cascade_modules: [_ | _] = modules}),
+    do: "Likely cascade modules (not quarantined): #{Enum.join(modules, ", ")}"
+
+  defp cascade_line(_failure), do: nil
+
+  defp module_line(%{module_tests: [_ | _] = names}), do: "Also failed in this module in the same window: #{Enum.join(names, "; ")}"
+  defp module_line(_failure), do: nil
+
+  defp error_excerpt(%{excerpt: excerpt}) when is_binary(excerpt) and byte_size(excerpt) > 0, do: excerpt
+  defp error_excerpt(_failure), do: "No error excerpt was available in the GitHub check annotation."
+
+  defp marker(identity), do: "<!-- aiur-flake-key: #{marker_hash(identity)} -->"
+  defp marker_hash(identity), do: Base.encode16(:crypto.hash(:sha256, identity), case: :lower)
+
+  defp emit(evidence, issue, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Aiur.Alerts.emit_system/2)
+    message = "Flaky test recorded in issue ##{issue}.\n" <> evidence
+
+    emitter.("system.pr.landing.flake_recorded",
+      central: true,
+      durable: true,
+      needs_attention: false,
+      # The issue was just filed, so the contamination filter does not track it yet; without
+      # this the durable publish is :filtered and the quarantine PR is never opened.
+      bypass_contamination: true,
+      issue: Integer.to_string(issue),
+      message: message,
+      reason: message,
+      exchange_payload: %{"flake_evidence" => evidence, "flake_issue_number" => issue}
+    )
+  end
+end

@@ -2,9 +2,12 @@ defmodule Aiur.BuildGate.Status do
   @moduledoc false
 
   alias Aiur.BuildGate
+  alias Aiur.BuildGate.CommandSummary
+  alias Aiur.BuildGate.OwnerMetadata
 
-  @scan_output_budget_bytes 256 * 1024
-  @recovery "repair the configured build-gate directory and retry, or fully disable build admission with " <>
+  # Python bounds encoded owner metadata at 4 MiB; leave room for JSON and paths.
+  @scan_output_budget_bytes 5 * 1024 * 1024
+  @recovery "check the build-gate holder metadata and retry; disable build admission only if the gate cannot be repaired, using " <>
               "agent.max_concurrent_builds: 0, agent.build_start_stagger_seconds: 0, and " <>
               "agent.min_free_memory_mb omitted"
 
@@ -147,9 +150,21 @@ defmodule Aiur.BuildGate.Status do
   defp inspected_metadata(%{"metadata_error" => reason}, candidate),
     do: {nil, [status_issue(:metadata_unreadable, candidate.metadata_path, reason)]}
 
+  defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path})
+       when kind in [:slot, :queue] do
+    with {:ok, contents} <- Base.decode64(encoded),
+         true <- String.starts_with?(contents, "version=2\n"),
+         {:ok, fields} <- OwnerMetadata.parse_v2_record(contents) do
+      holder = holder_from_fields(fields, kind, slot)
+      {Map.put(holder, :lease_alive?, true), []}
+    else
+      _error -> {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
+    end
+  end
+
   defp inspected_metadata(%{"contents" => encoded}, %{kind: :phase, metadata_path: path}) do
     with {:ok, contents} <- Base.decode64(encoded),
-         {:ok, _fields} <- parse_v2_record(contents) do
+         {:ok, _fields} <- OwnerMetadata.parse_v2_record(contents) do
       {nil, []}
     else
       _error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
@@ -174,14 +189,18 @@ defmodule Aiur.BuildGate.Status do
   defp scan_error_detail(result), do: result
 
   defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) do
-    case parse_v2_record(contents) do
-      {:ok, fields} -> {holder_from_fields(fields, kind, slot), []}
-      :error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+    case OwnerMetadata.parse_v2_record(contents) do
+      {:ok, fields} ->
+        holder = holder_from_fields(fields, kind, slot)
+        {Map.put(holder, :command, CommandSummary.summarize(fields, holder.command)), []}
+
+      :error ->
+        {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
     end
   end
 
   defp inspect_metadata_contents(_contents, path, _kind, _slot),
-    do: {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+    do: {nil, [status_issue(:metadata_unreadable, path, :invalid_owner_metadata)]}
 
   defp prepend_issues(issues, new_issues), do: Enum.reverse(new_issues, issues)
   defp prepend_holder(holders, nil), do: holders
@@ -191,7 +210,7 @@ defmodule Aiur.BuildGate.Status do
   def maybe_holder(holders, path, kind, slot) do
     case read_metadata(path) do
       {:ok, contents} ->
-        case parse_v2_record(contents) do
+        case OwnerMetadata.parse_v2_record(contents) do
           {:ok, fields} -> [holder_from_fields(fields, kind, slot) | holders]
           _ -> holders
         end
@@ -221,49 +240,35 @@ defmodule Aiur.BuildGate.Status do
     error -> {:error, Exception.message(error)}
   end
 
-  defp parse_v2_record(contents) do
-    contents
-    |> String.split("\n", trim: true)
-    |> Enum.reduce_while({:ok, %{}}, fn line, {:ok, acc} ->
-      case String.split(line, "=", parts: 2) do
-        [key, value] -> {:cont, {:ok, Map.put(acc, key, value)}}
-        _ -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, fields} when map_size(fields) > 0 -> {:ok, fields}
-      _ -> :error
-    end
-  end
-
   defp holder_from_fields(fields, kind, slot) do
     now = System.os_time(:second)
-    started_at = int_field(fields, "started_at")
+    started_at = OwnerMetadata.int_field(fields, "started_at")
     held_for_seconds = if is_integer(started_at) and started_at > 0 and now >= started_at, do: now - started_at, else: nil
-    command_pgid = int_field(fields, "command_pgid")
+    command_pgid = OwnerMetadata.int_field(fields, "command_pgid")
 
     %{
       kind: kind,
       slot: slot,
-      pid: int_field(fields, "pid"),
-      pgid: int_field(fields, "pgid"),
-      holder_pid: int_field(fields, "holder_pid"),
+      pid: OwnerMetadata.int_field(fields, "pid"),
+      pgid: OwnerMetadata.int_field(fields, "pgid"),
+      holder_pid: OwnerMetadata.int_field(fields, "holder_pid"),
       command_pgid: command_pgid,
+      command_pid_namespace: Map.get(fields, "command_pid_namespace"),
       # A slot whose command process group is gone is "held, command gone" —
       # a leaked holder waiting on reparented daemons, not a running build
-      # (#2349). nil means the record cannot tell (no command_pgid).
-      command_alive?: command_alive?(command_pgid),
+      # (#2349). nil means the record cannot tell, including a missing namespace identity.
+      command_alive?: command_alive?(command_pgid, Map.get(fields, "command_pid_namespace")),
       phase: Map.get(fields, "phase"),
-      command: Map.get(fields, "command"),
+      command: CommandSummary.display(fields, Map.get(fields, "command")),
       started_at: started_at,
       held_for_seconds: held_for_seconds
     }
   end
 
-  defp command_alive?(command_pgid) when is_integer(command_pgid) and command_pgid > 0,
-    do: process_group_alive?(command_pgid)
+  defp command_alive?(command_pgid, namespace) when is_integer(command_pgid) and command_pgid > 0,
+    do: process_group_alive?(command_pgid, namespace)
 
-  defp command_alive?(_command_pgid), do: nil
+  defp command_alive?(_command_pgid, _namespace), do: nil
 
   # Durable `slot-N.hold-timeout` markers the detached lease holder writes when
   # it self-releases at the absolute max-hold cap (#2349). Reported on the
@@ -285,7 +290,7 @@ defmodule Aiur.BuildGate.Status do
   defp parse_timeout_marker(path) do
     case read_metadata(path) do
       {:ok, contents} ->
-        case parse_v2_record(contents) do
+        case OwnerMetadata.parse_v2_record(contents) do
           {:ok, fields} -> [timeout_from_fields(fields, path)]
           _ -> []
         end
@@ -311,23 +316,10 @@ defmodule Aiur.BuildGate.Status do
     %{
       slot: slot,
       command: Map.get(fields, "command"),
-      held_for_seconds: int_field(fields, "held_for_seconds"),
+      held_for_seconds: OwnerMetadata.int_field(fields, "held_for_seconds"),
       reason: Map.get(fields, "reason"),
       path: path
     }
-  end
-
-  defp int_field(fields, key) do
-    case Map.get(fields, key) do
-      nil ->
-        nil
-
-      value ->
-        case Integer.parse(value) do
-          {integer, ""} -> integer
-          _ -> nil
-        end
-    end
   end
 
   defp legacy_issues(gate_dir) do
@@ -400,4 +392,77 @@ defmodule Aiur.BuildGate.Status do
   end
 
   def process_group_alive?(_pgid), do: false
+
+  defp process_group_alive?(_pgid, nil), do: nil
+
+  defp process_group_alive?(pgid, "pid:[" <> _ = namespace) when is_integer(pgid) do
+    if Regex.match?(~r/^pid:\[\d+\]$/, namespace) do
+      case File.read_link("/proc/self/ns/pid") do
+        {:ok, ^namespace} -> process_group_alive?(pgid)
+        {:ok, _other_namespace} -> namespaced_process_group_alive?(pgid, namespace)
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp process_group_alive?(_pgid, _namespace), do: nil
+
+  defp namespaced_process_group_alive?(pgid, namespace) do
+    case File.ls("/proc") do
+      {:ok, pids} -> scan_namespace_pids(pids, pgid, namespace)
+      _ -> nil
+    end
+  end
+
+  defp scan_namespace_pids(pids, pgid, namespace) do
+    Enum.reduce_while(pids, false, fn pid, alive ->
+      scan_namespace_pid(pid, alive, pgid, namespace)
+    end)
+  end
+
+  defp scan_namespace_pid(pid, alive, pgid, namespace) do
+    if String.match?(pid, ~r/^\d+$/) do
+      case namespaced_process_group_member?(pid, pgid, namespace) do
+        true -> {:halt, true}
+        :unknown -> {:halt, nil}
+        false -> {:cont, alive}
+      end
+    else
+      {:cont, alive}
+    end
+  end
+
+  defp namespaced_process_group_member?(pid, pgid, namespace) do
+    case File.read_link("/proc/#{pid}/ns/pid") do
+      {:ok, ^namespace} -> process_group_status(pid, pgid)
+      {:ok, _other_namespace} -> false
+      {:error, reason} when reason in [:enoent, :eacces, :eperm] -> false
+      _ -> :unknown
+    end
+  end
+
+  defp process_group_status(pid, pgid) do
+    case File.read("/proc/#{pid}/status") do
+      {:ok, status} ->
+        case Regex.run(~r/^NSpgid:\s+(\d+(?:\s+\d+)*)\s*$/m, status) do
+          [_, groups] ->
+            groups
+            |> String.split()
+            |> List.last()
+            |> String.to_integer()
+            |> then(&(&1 == pgid))
+
+          _ ->
+            :unknown
+        end
+
+      {:error, :enoent} ->
+        false
+
+      _ ->
+        :unknown
+    end
+  end
 end

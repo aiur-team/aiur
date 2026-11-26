@@ -32,7 +32,8 @@ defmodule Aiur.Experiments.Packs.Loader do
   @spec validate(term()) :: {:ok, map()} | {:error, [map()]}
   def validate(json) do
     errors =
-      SpecFields.object(json, ~w(schema_version id version metrics), "pack") ++
+      SpecFields.object(json, ~w(schema_version id version metrics auto), "pack", ~w(schema_version id version metrics)) ++
+        SpecFields.field(json, "auto", &(is_nil(&1) or is_boolean(&1)), "must be a boolean", "pack") ++
         SpecFields.field(json, "schema_version", &(&1 == 1), "must equal 1", "pack") ++
         SpecFields.field(json, "id", &pack_id?/1, "invalid pack id", "pack") ++
         SpecFields.field(json, "version", &SpecFields.text?/1, "must be a nonempty string", "pack")

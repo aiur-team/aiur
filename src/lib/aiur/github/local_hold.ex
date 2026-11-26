@@ -26,10 +26,10 @@ defmodule Aiur.GitHub.LocalHold do
 
   ## The bounds, and why they are the guard against swallowing the error
 
-  * `max_wait_ms/0` is the ceiling. A hold whose `reset_at` is further out
-    than this is a genuine capacity problem, not a transient blip; the
-    operation still fails, so waiting can never mask real starvation. A
-    broker-timeout backoff never exceeds this ceiling either.
+  * `max_wait_ms/0` is the default ceiling. A hold whose `reset_at` is further
+    out than this fails closed, except callers recording terminal facts can
+    explicitly wait to that hold's reset time. A broker-timeout backoff never
+    exceeds this ceiling.
   * `max_waits/0` caps the number of consecutive waits. A pathologically
     re-armed hold — or a persistently unreachable broker — terminates instead
     of pinning the caller indefinitely.
@@ -91,12 +91,16 @@ defmodule Aiur.GitHub.LocalHold do
   @doc """
   Runs `attempt_fun` and, when it fails with a short self-clearing local
   budget hold or a budget broker timeout, sleeps and retries — up to
-  `max_waits/0` times, each wait bounded by `max_wait_ms/0`. A hold is waited
-  out to its `reset_at`; a broker timeout (no `reset_at`) is backed off with
-  an exponential backoff starting at `backoff_base_ms/0`.
+  `max_waits/0` times, each wait bounded by `max_wait_ms/0` unless
+  `:wait_for_hold_reset` opts into waiting for the hold's own `reset_at`. A
+  broker timeout (no `reset_at`) is backed off with an exponential backoff
+  starting at `backoff_base_ms/0`.
 
   `opts` accepts `:sleep_fun` (default `&Process.sleep/1`), `:max_wait_ms`
   and `:max_waits` for test injection and per-site tuning, and
+  `:wait_for_hold_reset` to wait past the usual ceiling for a hold's own reset
+  time. The latter is for terminal facts that must eventually be recorded.
+  `:now_fun` is injectable for deterministic tests. It also accepts
   `:broker_timeout_recorder` (default `&BrokerTimeout.record/0`) which is
   called on every broker-timeout backoff to feed the retry-rate signal (#2464).
   """
@@ -106,7 +110,10 @@ defmodule Aiur.GitHub.LocalHold do
     max_waits = Keyword.get(opts, :max_waits, @max_waits)
     sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
     recorder = Keyword.get(opts, :broker_timeout_recorder, &BrokerTimeout.record/0)
-    do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, 0, recorder)
+    wait_for_hold_reset? = Keyword.get(opts, :wait_for_hold_reset, false)
+    now_fun = Keyword.get(opts, :now_fun, &DateTime.utc_now/0)
+
+    do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, 0, recorder, wait_for_hold_reset?, now_fun)
   end
 
   @doc false
@@ -120,36 +127,42 @@ defmodule Aiur.GitHub.LocalHold do
       sleep_fun: Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1),
       max_wait_ms: Keyword.get(opts, :local_hold_max_wait_ms, max_wait_ms()),
       max_waits: Keyword.get(opts, :local_hold_max_waits, max_waits()),
+      wait_for_hold_reset: Keyword.get(opts, :local_hold_wait_for_reset, false),
+      now_fun: Keyword.get(opts, :local_hold_now_fun, &DateTime.utc_now/0),
       broker_timeout_recorder: Keyword.get(opts, :local_hold_broker_timeout_recorder, &BrokerTimeout.record/0)
     ]
   end
 
   @doc false
   # Decides how long to wait for a hold detail map, or `:no_wait` when the
-  # hold is beyond the ceiling or does not carry a usable `reset_at`. A
-  # `reset_at` already in the past is `{:wait, 0}` — the hold has cleared by
-  # the time the failure was produced, so retry immediately.
+  # hold is beyond the ceiling or does not carry a usable `reset_at`. The
+  # opt-in terminal path can wait past the ceiling. A `reset_at` already in
+  # the past is `{:wait, 0}` — retry immediately.
   @spec wait_ms(map(), pos_integer()) :: {:wait, non_neg_integer()} | :no_wait
-  def wait_ms(%{hold: %{reset_at: %DateTime{} = reset_at}}, max_wait_ms) do
+  def wait_ms(detail, max_wait_ms), do: wait_ms(detail, max_wait_ms, &DateTime.utc_now/0, false)
+
+  @doc false
+  @spec wait_ms(map(), pos_integer(), (-> DateTime.t()), boolean()) :: {:wait, non_neg_integer()} | :no_wait
+  def wait_ms(%{hold: %{reset_at: %DateTime{} = reset_at}}, max_wait_ms, now_fun, wait_for_hold_reset?) do
     wait_ms =
-      DateTime.diff(reset_at, DateTime.utc_now(), :millisecond) +
+      DateTime.diff(reset_at, now_fun.(), :millisecond) +
         :rand.uniform(@jitter_ms + 1) - 1
 
-    if wait_ms > max_wait_ms, do: :no_wait, else: {:wait, max(wait_ms, 0)}
+    if wait_ms > max_wait_ms and not wait_for_hold_reset?, do: :no_wait, else: {:wait, max(wait_ms, 0)}
   end
 
-  def wait_ms(_detail, _max_wait_ms), do: :no_wait
+  def wait_ms(_detail, _max_wait_ms, _now_fun, _wait_for_hold_reset?), do: :no_wait
 
   # `retries` is the number of waits already consumed, so the broker-timeout
   # backoff can grow exponentially across consecutive retries.
-  defp do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, retries, recorder) do
+  defp do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, retries, recorder, wait_for_hold_reset?, now_fun) do
     case attempt_fun.() do
       {:error, error} = full_error ->
-        case retry_plan(error, max_wait_ms, max_waits, retries) do
+        case retry_plan(error, max_wait_ms, max_waits, retries, wait_for_hold_reset?, now_fun) do
           {:wait, wait_ms, detail} ->
             maybe_record_broker_timeout(detail, recorder)
             log_and_sleep(detail, wait_ms, sleep_fun)
-            do_run(attempt_fun, max_wait_ms, max_waits - 1, sleep_fun, retries + 1, recorder)
+            do_run(attempt_fun, max_wait_ms, max_waits - 1, sleep_fun, retries + 1, recorder, wait_for_hold_reset?, now_fun)
 
           :keep ->
             full_error
@@ -187,10 +200,10 @@ defmodule Aiur.GitHub.LocalHold do
   #
   # Returns `{:wait, wait_ms, detail}` when the fault should be slept off and
   # retried, or `:keep` to pass the original error through unchanged.
-  defp retry_plan(error, max_wait_ms, max_waits, retries) when max_waits > 0 do
+  defp retry_plan(error, max_wait_ms, max_waits, retries, wait_for_hold_reset?, now_fun) when max_waits > 0 do
     case budget_layer_fault(error) do
       {:hold, detail} ->
-        hold_plan(detail, max_wait_ms)
+        hold_plan(detail, max_wait_ms, wait_for_hold_reset?, now_fun)
 
       {:backoff, detail} ->
         if Errors.retryable_github_error?({:github, :timeout, detail}) do
@@ -204,15 +217,14 @@ defmodule Aiur.GitHub.LocalHold do
     end
   end
 
-  defp retry_plan(_error, _max_wait_ms, _max_waits, _retries), do: :keep
+  defp retry_plan(_error, _max_wait_ms, _max_waits, _retries, _wait_for_hold_reset?, _now_fun), do: :keep
 
-  # A local budget hold is waited out to its `reset_at` (bounded by
-  # `max_wait_ms`) when the shared classifier still calls it transient; a hold
-  # beyond the ceiling, or one the classifier no longer considers transient,
-  # fails closed.
-  defp hold_plan(detail, max_wait_ms) do
+  # By default a local budget hold is waited out to its `reset_at` only when
+  # within `max_wait_ms`. Terminal writers can opt out of that ceiling; a hold
+  # the shared classifier considers permanent still fails closed.
+  defp hold_plan(detail, max_wait_ms, wait_for_hold_reset?, now_fun) do
     if Errors.retryable_github_error?({:github, :local_hold, detail}) do
-      case wait_ms(detail, max_wait_ms) do
+      case wait_ms(detail, max_wait_ms, now_fun, wait_for_hold_reset?) do
         {:wait, wait_ms} -> {:wait, wait_ms, detail}
         :no_wait -> :keep
       end

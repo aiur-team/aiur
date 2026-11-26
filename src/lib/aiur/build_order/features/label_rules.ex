@@ -46,6 +46,7 @@ defmodule Aiur.BuildOrder.Features.LabelRules do
     if value.state == :labelled, do: %{value | seen_at: owner[:joined_at] || now}, else: value
   end
 
+  defp start_state(%{joined_source: "backfill-agent"}), do: :held_backfill
   defp start_state(%{source: "backfill-agent"}), do: :held_backfill
   defp start_state(%{source: "import:" <> _}), do: :exempt
   defp start_state(%{source: "label:" <> _}), do: :labelled

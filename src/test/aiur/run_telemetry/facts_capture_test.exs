@@ -48,33 +48,42 @@ defmodule Aiur.RunTelemetry.FactsCaptureTest do
   test "budget holds retain attempts and queue survives restart", %{path: path} do
     parent = self()
 
-    pid =
-      worker(path,
-        interval: 50,
-        enabled: fn -> true end,
-        fetch: fn _ ->
-          send(parent, :held)
-          {:error, {:aiur, :locally_held, %{}}}
-        end
-      )
+    for iteration <- 1..50 do
+      queue_path = Path.rootname(path) <> "-#{iteration}.json"
 
-    FactsCapture.capture("43", pid)
-    assert_receive :held, 500
-    wait_for_pending(path, "43", "next_at")
-    assert Jason.decode!(File.read!(path))["pending"]["43"]["attempts"] == 0
-    stop_supervised!(FactsCapture)
+      pid =
+        worker(queue_path,
+          interval: 0,
+          enabled: fn -> true end,
+          fetch: fn _ ->
+            send(parent, {:held, iteration})
+            {:error, {:aiur, :locally_held, %{}}}
+          end
+        )
 
-    worker(path,
-      interval: 50,
-      enabled: fn -> true end,
-      fetch: fn _ ->
-        send(parent, :resumed)
-        {:ok, %{coverage: "available"}}
-      end,
-      record: fn _, _ -> :ok end
-    )
+      FactsCapture.capture("43", pid)
+      FactsCapture.await_attempt(pid)
+      assert_received {:held, ^iteration}
+      stored = Jason.decode!(File.read!(queue_path))
+      assert stored["pending"]["43"]["attempts"] == 0
+      assert is_integer(stored["pending"]["43"]["next_at"])
+      stop_supervised!(FactsCapture)
 
-    assert_receive :resumed, 500
+      restarted =
+        worker(queue_path,
+          interval: 0,
+          enabled: fn -> true end,
+          fetch: fn _ ->
+            send(parent, {:resumed, iteration})
+            {:ok, %{coverage: "available"}}
+          end,
+          record: fn _, _ -> :ok end
+        )
+
+      FactsCapture.await_attempt(restarted)
+      assert_received {:resumed, ^iteration}
+      stop_supervised!(FactsCapture)
+    end
   end
 
   test "three failures emit unavailable, disabled capture issues zero fetches", %{path: path} do
@@ -269,18 +278,6 @@ defmodule Aiur.RunTelemetry.FactsCaptureTest do
       assert remaining > 0
       Process.sleep(5)
       wait_for_completed(path, ticket, remaining - 1)
-    end
-  end
-
-  defp wait_for_pending(path, ticket, key, remaining \\ 100) do
-    stored = Jason.decode!(File.read!(path))
-
-    if get_in(stored, ["pending", ticket, key]) do
-      :ok
-    else
-      assert remaining > 0
-      Process.sleep(5)
-      wait_for_pending(path, ticket, key, remaining - 1)
     end
   end
 end

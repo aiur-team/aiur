@@ -22,10 +22,6 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
                       end)
 
   setup do
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
-      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-    end
-
     root = Aiur.TestSupport.tmp_root!("aiur-command-budget")
     workspace = Path.join(root, "workspace")
     budget = Path.join(root, "host-budget")
@@ -167,8 +163,9 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
   end
 
   test "refuses a sandbox command when the shared budget state cannot be mounted", %{workspace: workspace, budget: budget} do
-    File.rm_rf!(budget)
-    File.write!(budget, "not a directory")
+    invalid_budget = budget <> "-file"
+    File.write!(invalid_budget, "not a directory")
+    Application.put_env(:aiur, :github_budget_dir, invalid_budget)
     parent = self()
 
     runner = fn _executable, _args, _opts ->

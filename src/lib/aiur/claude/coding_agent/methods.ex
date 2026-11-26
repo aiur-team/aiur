@@ -5,24 +5,32 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   # dispatches them on the backend module.
 
   require Logger
-  alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, Transport, TurnState}
+  alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Claude.{AccountMeters, CodingAgent, NotificationPolicy}
+  alias Aiur.Claude.{AccountGeneration, AccountMeters, CodingAgent, NotificationPolicy}
+  alias Aiur.Claude.CodingAgent.NativeQuestions
+  alias Aiur.CodingAgent.Backend.ToolInvocation
+  alias Aiur.Commands.NativeCapture
 
   @doc false
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
-    Messages.emit_message(
-      state.on_message,
-      :turn_completed,
-      %{payload: payload, raw: payload_string},
-      metadata_from_message(session.port, payload)
-    )
+    case AccountGeneration.authorize_action(session) do
+      :ok ->
+        Messages.emit_message(
+          state.on_message,
+          :turn_completed,
+          %{payload: payload, raw: payload_string},
+          metadata_from_message(session.port, payload)
+        )
 
-    case TurnState.turn_completion_status(payload) do
-      "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
+        case TurnState.turn_completion_status(payload) do
+          "interrupted" -> TurnState.continue_after_turn_interrupted(NativeCapture.release_held(session, state, :turn_ended), payload)
+          _ -> TurnState.continue_after_turn_completion(NativeCapture.release_held(session, state, :turn_ended))
+        end
+
+      {:error, reason} ->
+        refuse_hosted_auth(session, state, reason)
     end
   end
 
@@ -34,6 +42,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       metadata_from_message(session.port, payload)
     )
 
+    state = NativeCapture.release_held(session, state, :turn_ended)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
 
     # CLI provenance first (#2727); provider_error text never feeds the
@@ -50,30 +59,31 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         payload_string,
         _method
       ) do
-    metadata = metadata_from_message(session.port, payload)
-    tool_name = Messages.tool_call_name(params)
-    arguments = Messages.tool_call_arguments(params)
+    case AccountGeneration.authorize_action(session) do
+      :ok ->
+        metadata = metadata_from_message(session.port, payload)
+        tool_name = Messages.tool_call_name(params)
+        result = execute_tool_call(session, state, params, id, metadata)
 
-    result =
-      state.tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, Messages.tool_call_id(params, id))
-      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
+        CodingAgent.send_frame(session.port, %{
+          "id" => id,
+          "result" => result
+        })
 
-    CodingAgent.send_frame(session.port, %{
-      "id" => id,
-      "result" => result
-    })
+        event =
+          case result do
+            %{"success" => true} -> :tool_call_completed
+            _ when is_nil(tool_name) -> :unsupported_tool_call
+            _ -> :tool_call_failed
+          end
 
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
+        Messages.emit_message(state.on_message, event, %{payload: payload, raw: payload_string}, metadata)
 
-    Messages.emit_message(state.on_message, event, %{payload: payload, raw: payload_string}, metadata)
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
 
-    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
+      {:error, reason} ->
+        refuse_hosted_auth(session, state, reason)
+    end
   end
 
   def handle_method(
@@ -83,7 +93,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         _payload_string,
         method
       ) do
-    _ = AccountMeters.handle_notification(session, payload)
+    result = AccountMeters.handle_notification(session, payload)
 
     Messages.emit_message(
       state.on_message,
@@ -92,7 +102,17 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       metadata_from_message(session.port, %{"method" => "provider_account/rate_limits_changed"})
     )
 
-    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
+    case result do
+      {:error, {:unsafe_hosted_authentication, _provider, _class} = reason} ->
+        {:error, {:turn_unretryable, reason}}
+
+      _local_or_meter_result ->
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
+    end
+  end
+
+  def handle_method(session, state, %{"method" => "item/tool/requestUserInput", "id" => id, "params" => params}, raw, _method) do
+    NativeQuestions.handle(session, state, id, params, raw)
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
@@ -125,6 +145,56 @@ defmodule Aiur.Claude.CodingAgent.Methods do
 
     {:continue, state}
   end
+
+  defp execute_tool_call(session, state, params, id, metadata) do
+    tool_name = Messages.tool_call_name(params)
+    arguments = Messages.tool_call_arguments(params)
+    invocation_id = Messages.tool_call_id(params, id)
+    params = Map.put(params, "callId", invocation_id)
+    scope = {:claude, Map.get(state, :issue_identifier, session.workspace), metadata[:relay_id] || metadata[:provider_pid]}
+
+    execute = fn ->
+      state.tool_executor
+      |> ToolInvocation.execute(tool_name, arguments, invocation_id)
+      |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
+    end
+
+    case ToolCallIdentity.resolve(scope, params, tool_name, arguments, session.thread_id) do
+      {:ok, identity, fingerprint} ->
+        ToolCallLedger.execute_cancellable(identity, fingerprint, execute, Map.get(state, :tool_call_ledger, ToolCallLedger))
+
+      {:error, reason} ->
+        {:error, reason}
+
+      :untracked ->
+        {:error, :missing_tool_call_identity}
+    end
+    |> normalize_ledger_result()
+  end
+
+  defp refuse_hosted_auth(session, state, {:unsafe_hosted_authentication, provider, auth_class} = reason) do
+    details = %{
+      payload: %{
+        "method" => "provider_account/authentication_refused",
+        "params" => %{"provider" => provider, "auth_class" => Atom.to_string(auth_class)}
+      },
+      raw: nil
+    }
+
+    Messages.emit_message(state.on_message, :notification, details, metadata_from_message(session.port, details.payload))
+    {:error, {:turn_unretryable, reason}}
+  end
+
+  defp normalize_ledger_result({:error, :outcome_uncertain}),
+    do: %{"success" => false, "output" => "Dynamic tool outcome is uncertain; refusing to execute it again."}
+
+  defp normalize_ledger_result({:error, :conflicting_invocation}),
+    do: %{"success" => false, "output" => "Refusing conflicting reuse of a dynamic tool call identity."}
+
+  defp normalize_ledger_result({:error, reason}),
+    do: %{"success" => false, "output" => "Dynamic tool ledger unavailable: #{inspect(reason)}"}
+
+  defp normalize_ledger_result(result), do: result
 
   defp classify_unattributed_failure(session, params) do
     legacy_params = Map.delete(params, "provider_error")

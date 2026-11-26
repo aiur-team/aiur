@@ -3,6 +3,13 @@ defmodule Aiur.Muse.SessionTest do
 
   alias Aiur.Muse.Session
 
+  defmodule HostObservations do
+    def attach(:muse, :app_server, _owner), do: {:ok, make_ref()}
+    def observe(_scope, _observation), do: :ok
+    def fail(_scope, _reason), do: :ok
+    def retire(_scope), do: :ok
+  end
+
   @tag :tmp_dir
   test "starts a scoped MCP gateway and native session after handshake", %{tmp_dir: dir} do
     command = fixture(dir, "start")
@@ -11,6 +18,7 @@ defmodule Aiur.Muse.SessionTest do
              Session.start(dir,
                config: %{},
                command: command,
+               host_observations: HostObservations,
                model: "model-1",
                identifier: "MUSE-TEST",
                timeout_ms: 2_000,
@@ -59,7 +67,7 @@ defmodule Aiur.Muse.SessionTest do
 
   @tag :tmp_dir
   test "resume success keeps the native identity and refreshes MCP config", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, config: %{}, command: fixture(dir, "resume"), resume_thread_id: "native-session", timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, config: %{}, command: fixture(dir, "resume"), resume_thread_id: "native-session", timeout_ms: 2_000, host_observations: HostObservations)
     assert session.resumed == true
     assert session.thread_id == "native-session"
     assert :ok = Session.stop(session)
@@ -74,7 +82,7 @@ defmodule Aiur.Muse.SessionTest do
 
   @tag :tmp_dir
   test "a missing stored session falls back to a clean native start", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, config: %{}, command: fixture(dir, "resume_fail"), resume_thread_id: "old-session", timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, config: %{}, command: fixture(dir, "resume_fail"), resume_thread_id: "old-session", timeout_ms: 2_000, host_observations: HostObservations)
     assert session.resumed == false
     assert session.thread_id == "native-session"
     assert :ok = Session.stop(session)
@@ -143,6 +151,8 @@ defmodule Aiur.Muse.SessionTest do
             continue
         elif method == 'session/resume' and mode == 'resume_timeout':
             continue
+        elif method == 'usage/read':
+            result = {'usage': None}
         else:
             result = {'session': {'sessionId': 'native-session', 'modelId': 'native-model', 'approvalMode': {'mode': 'onRequest'}}, 'viewCursor': 'view-1'}
         print(json.dumps({'jsonrpc': '2.0', 'id': frame['id'], 'result': result}), flush=True)

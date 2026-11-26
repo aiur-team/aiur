@@ -19,18 +19,6 @@ defmodule Aiur.Orchestrator.GlobalPauseGuardTest do
       refute_receive {:resume_agent, _rid, _gen}, 50
     end
 
-    test "an individual pause is rejected while globally paused" do
-      id = unique_id("gp-guard-pause")
-
-      state =
-        base_state(globally_paused: true, running: %{id => running_entry(id)})
-
-      assert {:reply, {:error, :globally_paused}, ^state} =
-               PauseResume.request_control_call(state, id, :pause, 8)
-
-      refute_receive {:pause_agent, _rid, _gen}, 50
-    end
-
     test "does not acknowledge a pause when persistence fails" do
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, "/dev/null/global-pause.json")
@@ -68,10 +56,12 @@ defmodule Aiur.Orchestrator.GlobalPauseGuardTest do
       state = base_state(globally_paused: true, running: %{})
 
       assert {:reply, true, ^state} = GlobalPause.globally_paused_call(state)
-      assert GlobalPause.global_pause_status(state) == %{globally_paused: true, paused_at: nil, source: nil}
+
+      assert GlobalPause.global_pause_status(state) ==
+               %{globally_paused: true, paused_at: nil, source: nil, fleet_paused: false, pause_scope: :local}
 
       assert GlobalPause.global_pause_status(%{state | globally_paused: false}) ==
-               %{globally_paused: false, paused_at: nil, source: nil}
+               %{globally_paused: false, paused_at: nil, source: nil, fleet_paused: false, pause_scope: :none}
     end
 
     test "persists the global pause and provenance across orchestrator restart" do

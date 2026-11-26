@@ -34,12 +34,11 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
       token_file
   end
 
-  # Remote workers get the same #2356 credential file the local `gh` guard
-  # reads (`~/.aiur/github-budget/agent-token`), written from the daemon's own
-  # inherited bot PAT. The token travels inside the install script the daemon
-  # already ships over SSH — the same trust boundary as the guard payload
-  # itself — and is deleted when no credential is available so a stale install
-  # cannot leave a dead token authenticating the next agent.
+  # Ordinary remote workers get the same #2356 credential file the local `gh`
+  # guard reads (`~/.aiur/github-budget/agent-token`), written from the daemon's
+  # inherited bot PAT. Scoped test runs instead leave remote credentials absent;
+  # their environment points the guard at a private per-run path, so an existing
+  # live host credential cannot authorize a sandbox agent.
   #
   # That deletion is scoped to a genuinely remote install (#2478). `$HOME` in
   # this script is somebody else's home only when the script really runs over
@@ -52,14 +51,19 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
   # shared credential every local agent authenticates with — while the tests
   # stayed green.
   #
-  # Scoping beats namespacing here: the path must stay exactly where the remote
-  # `gh` guard looks for it, so it cannot be made per-worker without changing
-  # the lookup on both sides. The cleanup is meaningful only for an install that
-  # really lands on another host, and only the remote provisioning path knows
-  # that. Making it opt-in via `:remote_host` leaves the destructive branch
-  # unreachable from every caller that generates or executes this script
-  # locally, while preserving the stale-install property where it applies.
+  # The deletion is meaningful only for an install that really lands on another
+  # host, and only the remote provisioning path knows that. Making it opt-in via
+  # `:remote_host` leaves the destructive branch unreachable from callers that
+  # generate or execute this script locally.
   defp remote_agent_token_script(opts) do
+    if sandbox_scope?() do
+      "# test sandbox remote agents have no GitHub credential\n"
+    else
+      ordinary_agent_token_script(opts)
+    end
+  end
+
+  defp ordinary_agent_token_script(opts) do
     case AgentToken.resolve_credential(opts) do
       token when is_binary(token) and token != "" ->
         token = Aiur.Shell.escape(token)
@@ -77,6 +81,13 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
         else
           "# no GitHub credential available; leaving the host credential file untouched\n"
         end
+    end
+  end
+
+  defp sandbox_scope? do
+    case System.get_env("AIUR_DEV_TEST_TICKET_IDS") do
+      ids when is_binary(ids) and ids != "" -> true
+      _ -> false
     end
   end
 

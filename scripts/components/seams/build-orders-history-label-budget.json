@@ -1,0 +1,6 @@
+{
+  "from": "build-orders",
+  "to_module": "Aiur.GitHub.Access",
+  "kind": "reference",
+  "reason": "#3182 BuildOrder resource readers and optional history writes use the public Access facade, including the effective Core ceiling; GitHub access remains optional"
+}

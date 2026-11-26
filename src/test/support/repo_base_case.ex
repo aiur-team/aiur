@@ -77,7 +77,7 @@ defmodule Aiur.RepoBaseCase do
   end
 
   def git!(args) do
-    {out, status} = System.cmd("git", args, stderr_to_stdout: true)
+    {out, status} = Aiur.TestGit.cmd(args)
     assert status == 0, "git #{Enum.join(args, " ")} failed: #{out}"
     out
   end

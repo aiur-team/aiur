@@ -18,7 +18,7 @@ Send a message, watch the agent act on it, and interrupt it without leaving the 
 
 The header shows provider usage with its observation age. Retained stale readings carry a `[stale]` label; Muse readings carry an `[account unverified]` qualifier.
 
-The board shows one prefixed row per ticket with runtime, backend, pinned model, work state, pause reason, and provider-reported context occupancy; the dashboard Units view shows Aiur orchestration turns beside context.
+The board shows one prefixed row per ticket with runtime, backend, pinned model, work state, pause reason, and provider-reported context occupancy; `aiur units` shows Aiur orchestration turns beside context.
 
 | Glyph | Meaning |
 | --- | --- |
@@ -32,6 +32,17 @@ The board shows one prefixed row per ticket with runtime, backend, pinned model,
 | 🔴 | agent in error state |
 | 🏁 | awaiting human review: space or chat to reactivate |
 | ⚫ | agent waiting (queued, idle, or label only) |
+
+The read-only `LISTENER` column shows effective
+mode (`Steer · interrupts`, `Sync · next turn`, `Async · pings only`, or `Mute · silent`) and unread held-message count. A different
+requested mode appears as `(req steer)`, for example `sync (req steer) / 2 unread`.
+
+`unavailable` means the effective mode is unknown; `? unread` means the count is
+unavailable. The column hides in narrow terminals or when the listener specification is unavailable.
+
+Chat input defaults to Sync: it waits until the active turn ends. Steer delivers mid-turn when supported. The existing interrupt control remains available.
+
+Change the mode with `aiur listen-mode <ticket> [steer|sync|async|mute]`; v1 has no TUI mode key.
 
 Rows re-sort live: running agents bubble to the top, so the board always leads with the work that is actually moving.
 
@@ -89,3 +100,22 @@ instructions through the ordinary chat input.
 | `aiur --debug` | Records attached panes at `log/record/chat.<issue>.ansi`. |
 
 Session lookup is per repository, so concurrent runs in different directories attach independently. Attaching to a default headless `--bg` session reconnects to its tmux lifetime holder, but it cannot add the TUI processes that were intentionally omitted at launch; use `--bg --interactive` when later TUI attachment is required.
+
+Claude REPL agents use a separate tmux server named `<daemon-socket>-agents`;
+chat panes stay on the daemon server. `aiur agents` and the dashboard show the
+REPL attach command. Normal `aiur stop` and unexpected daemon death clean up
+both servers.
+
+A prepared daemon handoff can instead rebind compatible local REPL
+panes and replay their hook spool before polling resumes. Incompatible agents
+stop and resume through ordinary dispatch; adoption retains their existing claims
+and does not count as a new dispatch. The restart launcher controls whether a
+handoff is prepared.
+
+Lifecycle hooks spool locally before posting to the dashboard and replay when the
+turn consumer reconnects. Each spool is capped at 16 MiB; reaching the cap rotates
+out older events.
+
+Only lifecycle and display fields are stored; tool inputs and
+responses are omitted. Proven session teardown deletes the spool. If the spool
+cannot be written, hooks still post directly to the dashboard.

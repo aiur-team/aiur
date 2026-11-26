@@ -4,6 +4,7 @@ defmodule Aiur.ProcessReaperTest do
   use ExUnit.Case, async: false
 
   alias Aiur.ProcessReaper
+  alias Aiur.Project.Context
 
   # Each test gets its own reaper instance plus registrations force-enabled
   # for the duration (config disables them in test so library code never
@@ -202,18 +203,15 @@ defmodule Aiur.ProcessReaperTest do
     assert [] = ProcessReaper.entries(reaper)
   end
 
-  describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do
+  describe "agent pidfile (launcher-side crash reaper feed)" do
+    # Each reaper gets its own :pidfile, never the global AIUR_AGENT_TMPFILE:
+    # any other reaper registering an agent would append to a shared path (#4312).
     setup do
-      path = Aiur.TestSupport.tmp_root!("aiur-agents")
-      File.write!(path, "")
-      System.put_env("AIUR_AGENT_TMPFILE", path)
+      path = pidfile!()
+      name = Module.concat(__MODULE__, :"Pidfile#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: name, pidfile: path}, id: name)
 
-      on_exit(fn ->
-        System.delete_env("AIUR_AGENT_TMPFILE")
-        File.rm(path)
-      end)
-
-      %{pidfile: path}
+      %{reaper: name, pidfile: path}
     end
 
     test "appends an agent os_pid with its comm guard", %{reaper: reaper, pidfile: path} do
@@ -223,9 +221,10 @@ defmodule Aiur.ProcessReaperTest do
     end
 
     test "appends an agent os_pid with no comm as a bare line", %{reaper: reaper, pidfile: path} do
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 99}, [])
+      # Teardown uses real killers, so a synthetic fixture must not name a live PID.
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_000}, [])
 
-      assert wait_for_lines(path) == ["pid 99"]
+      assert wait_for_lines(path) == ["pid 2147480000"]
     end
 
     test "appends an agent pane ref", %{reaper: reaper, pidfile: path} do
@@ -242,14 +241,34 @@ defmodule Aiur.ProcessReaperTest do
       assert wait_for_lines(path) == ["pid 556 codex"]
     end
 
-    test "no-ops cleanly when the env var is unset", %{reaper: reaper, pidfile: path} do
-      System.delete_env("AIUR_AGENT_TMPFILE")
-      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 1}, comm: "claude")
+    test "a second reaper's agents never land in this reaper's pidfile", %{reaper: reaper, pidfile: path} do
+      other_path = pidfile!()
+      other = Module.concat(__MODULE__, :"Other#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: other, pidfile: other_path}, id: other)
 
-      # Give the GenServer a beat; the file must stay empty.
-      :ok = ProcessReaper.reap(reaper, [], [])
+      :ok = ProcessReaper.register(other, :agent, {:os_pid, 2_147_480_001}, comm: "agent_relay.py")
+      :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 2_147_480_002}, comm: "claude")
+
+      assert wait_for_lines(other_path) == ["pid 2147480001 agent_relay.py"]
+      assert wait_for_lines(path) == ["pid 2147480002 claude"]
+    end
+
+    test "no-ops cleanly when no pidfile is configured", %{pidfile: path} do
+      bare = Module.concat(__MODULE__, :"Bare#{System.unique_integer([:positive])}")
+      {:ok, _pid} = start_supervised({ProcessReaper, name: bare, pidfile: nil}, id: bare)
+      :ok = ProcessReaper.register(bare, :agent, {:os_pid, 2_147_480_000}, comm: "claude")
+
+      # The synchronous reap proves the register call was handled.
+      :ok = ProcessReaper.reap(bare, [], [])
       assert File.read!(path) == ""
     end
+  end
+
+  defp pidfile! do
+    path = Aiur.TestSupport.tmp_root!("aiur-agents")
+    File.write!(path, "")
+    on_exit(fn -> File.rm(path) end)
+    path
   end
 
   # The append happens inside the GenServer after the call returns, so poll.
@@ -272,7 +291,7 @@ defmodule Aiur.ProcessReaperTest do
   test "default pane killer comes from app config", %{reaper: reaper} do
     previous = Application.get_env(:aiur, :process_reaper_pane_killer)
     # The composition root wires the TUI's killer; the reaper itself names no TUI module.
-    assert previous == {Aiur.Tmux, :kill_pane}
+    assert previous == {Aiur.Tmux.Socket, :kill_pane}
 
     Application.put_env(:aiur, :process_reaper_pane_killer, {__MODULE__, :record_pane_kill})
     on_exit(fn -> Application.put_env(:aiur, :process_reaper_pane_killer, previous) end)
@@ -285,4 +304,23 @@ defmodule Aiur.ProcessReaperTest do
   end
 
   def record_pane_kill(pane_id), do: send(:process_reaper_pane_kill_recorder, {:configured_pane_kill, pane_id})
+
+  test "reap with project: kills only that project's entries", %{reaper: reaper} do
+    tp = self()
+    project = fn repo -> Aiur.Project.from_machine_entry(%{repo: repo, config: "/x/c"}, "/x/s") end
+
+    Context.put(project.("O/A"))
+    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 111}, [])
+    Context.put(project.("o/b"))
+    :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 222}, [])
+    Context.delete()
+
+    assert [%{project: "o/a"}] = for({{:os_pid, 111}, _kind, meta} <- ProcessReaper.entries(reaper), do: meta)
+
+    :ok = ProcessReaper.reap(reaper, [:agent], [project: "o/a"] ++ recording_killers(tp))
+
+    assert_receive {:killed_tree, 111}, 1000
+    refute_receive {:killed_tree, 222}, 50
+    assert [{:os_pid, 222}] = for({ref, _kind, _meta} <- ProcessReaper.entries(reaper), do: ref)
+  end
 end

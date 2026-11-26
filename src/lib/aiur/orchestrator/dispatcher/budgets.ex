@@ -12,7 +12,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Budgets do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Toolchain
 
   @doc false
   @spec redispatch_ready?(State.t(), Issue.t(), String.t() | nil, keyword()) ::
@@ -49,7 +51,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Budgets do
     end
   end
 
-  defp redispatch_backend(issue), do: CodingAgent.select_for_dispatch(issue)
+  defp redispatch_backend(issue), do: Toolchain.select_for_dispatch(issue)
 
   defp known_redispatch_backend(issue) do
     backend = CodingAgent.backend_for(issue)
@@ -92,13 +94,19 @@ defmodule Aiur.Orchestrator.Dispatcher.Budgets do
   # A backend swap replaces the issue's existing host slot. Exclude that entry
   # from the capacity sample, but require an exact preferred-host match so the
   # workspace and on-disk rollout never migrate during the swap.
+  # The swap is also held to the global cap: a non-reserving pause (usage
+  # limit) frees its slot, so restarting it needs a free one (#4683).
   defp redispatch_worker_slot(state, issue, preferred_worker_host) do
     capacity_state = %{state | running: Map.delete(state.running, issue.id)}
 
-    case Launch.select_worker_host(capacity_state, issue, preferred_worker_host) do
-      ^preferred_worker_host -> :ok
-      :no_worker_capacity -> {:error, :no_worker_capacity}
-      _other_host -> {:error, :preferred_worker_unavailable}
+    if Slots.replacement_slot_available?(state, issue.id) do
+      case Launch.select_worker_host(capacity_state, issue, preferred_worker_host) do
+        ^preferred_worker_host -> :ok
+        :no_worker_capacity -> {:error, :no_worker_capacity}
+        _other_host -> {:error, :preferred_worker_unavailable}
+      end
+    else
+      {:error, :no_available_slots}
     end
   end
 

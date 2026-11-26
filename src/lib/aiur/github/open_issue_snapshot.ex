@@ -10,6 +10,10 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   tickets, a manual close, a lost webhook) releases its dependents on the next
   pass instead of when its `:issue` record ages out (#2714).
 
+  Number snapshots retain their completion time. Label observations retain the
+  listing start time so an in-flight listing cannot close a ticket created later.
+  Without a known listing start, label observations are unavailable.
+
   Only a complete listing is recorded. A failed or partial read records nothing,
   and the previous snapshot stays until it ages out. A missing snapshot only
   removes the close signal; it never releases a dependent.
@@ -23,24 +27,28 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
 
   use GenServer
 
+  alias Aiur.Project.Table
+
   @table __MODULE__
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
 
   @impl true
-  def init(_opts) do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+  def init(opts) do
+    Aiur.Project.adopt(opts)
+    Table.new(@table, [:public, :set, read_concurrency: true])
     {:ok, nil}
   end
 
   @doc "Records open issue numbers and label observations from a complete listing for `owner/repo`."
-  @spec put(String.t(), String.t(), [String.t() | integer()], Aiur.Tracker.open_issue_label_map()) :: :ok
-  def put(owner, repo, numbers, labels_by_id \\ %{}) when is_binary(owner) and is_binary(repo) and is_list(numbers) and is_map(labels_by_id) do
+  @spec put(String.t(), String.t(), [String.t() | integer()], Aiur.Tracker.open_issue_label_map(), DateTime.t() | nil) :: :ok
+  def put(owner, repo, numbers, labels_by_id \\ %{}, listed_from \\ nil) when is_binary(owner) and is_binary(repo) and is_list(numbers) and is_map(labels_by_id) do
     set = MapSet.new(numbers, &to_string/1)
     key = repo_key(owner, repo)
     taken_at_ms = now_ms()
-    :ets.insert(@table, [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, taken_at_ms}])
+    listed_from_ms = if match?(%DateTime{}, listed_from), do: DateTime.to_unix(listed_from, :millisecond)
+    :ets.insert(Table.ref(@table), [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}])
     broadcast(taken_at_ms)
     :ok
   rescue
@@ -58,7 +66,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
     fetch_snapshot(repo_key(owner, repo), max_age_ms)
   end
 
-  @doc "Returns labels and update times from the latest complete listing, or `:none` if absent or stale."
+  @doc "Returns labels with the pre-request listing time, or `:none` if absent, stale or missing that provenance."
   @spec fetch_labels(String.t(), String.t(), pos_integer()) :: {:ok, Aiur.Tracker.open_issue_label_map(), integer()} | :none
   def fetch_labels(owner, repo, max_age_ms) when is_binary(owner) and is_binary(repo) do
     fetch_snapshot({:labels, repo_key(owner, repo)}, max_age_ms)
@@ -76,7 +84,7 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @doc "Retains the build queue refresh's conditional page cache; dropped when the table is absent."
   @spec put_refresh_cache(String.t(), String.t(), map()) :: :ok
   def put_refresh_cache(owner, repo, cache) when is_map(cache) do
-    :ets.insert(@table, {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
+    :ets.insert(Table.ref(@table), {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
     :ok
   rescue
     ArgumentError -> :ok
@@ -84,8 +92,8 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
 
   defp fetch_snapshot(key, max_age_ms) do
     case lookup(key) do
-      {snapshot, taken_at_ms} -> if now_ms() - taken_at_ms <= max_age_ms, do: {:ok, snapshot, taken_at_ms}, else: :none
-      nil -> :none
+      {snapshot, taken_at_ms} when is_integer(taken_at_ms) -> if now_ms() - taken_at_ms <= max_age_ms, do: {:ok, snapshot, taken_at_ms}, else: :none
+      _unavailable -> :none
     end
   end
 
@@ -98,14 +106,14 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @doc "Removes every snapshot. For tests."
   @spec reset() :: :ok
   def reset do
-    :ets.delete_all_objects(@table)
+    :ets.delete_all_objects(Table.ref(@table))
     :ok
   rescue
     ArgumentError -> :ok
   end
 
   defp lookup(key) do
-    case :ets.lookup(@table, key) do
+    case :ets.lookup(Table.ref(@table), key) do
       [{^key, set, taken_at_ms}] -> {set, taken_at_ms}
       [] -> nil
     end

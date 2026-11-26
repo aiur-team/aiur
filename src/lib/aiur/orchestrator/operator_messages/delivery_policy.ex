@@ -3,11 +3,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   Normalizes message delivery requests and decides when queued work wakes a running agent.
   """
 
+  alias Aiur.Listener.Scheduler
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
+  alias Aiur.Orchestrator.{CommentWake, EventTopics, ListenerModes, PauseResume, State}
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
+  alias Aiur.Protocol.MapAccess
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
+  def normalize_delivery_request(:listener, fallback, capabilities) do
+    Scheduler.resolve(Map.get(capabilities, :listener_origin, :internal), Map.get(capabilities, :listener_view), capabilities, fallback)
+  end
+
   # `:auto` lets the caller defer to the backend: the persistent REPL takes
   # Executor messages immediately mid-turn; everything else holds at a safe
   # checkpoint (native codex/headless-claude turn UX).
@@ -121,10 +128,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   # `PauseResume.clear_agent_pause_on_work/2` drops the pause reason. A pending
   # pause request still wins — the pause has not settled yet, so the #2730
   # ordering hazard above is unchanged.
+  defp deliver_now?(_state, _entry, %{delivery: %{consume_at: :pull}}), do: false
+
   defp deliver_now?(state, %{control: %{status: :paused}} = running_entry, item) do
     if input_waiting_self_pause?(running_entry) and
          is_nil(PauseResume.current_pending_pause_reason(state, running_entry)) do
-      wake_now?(running_entry, item)
+      wake_now?(state, running_entry, item)
     else
       false
     end
@@ -133,13 +142,64 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, running_entry, item) do
     if PauseResume.current_pending_pause_reason(state, running_entry),
       do: false,
-      else: wake_now?(running_entry, item)
+      else: wake_now?(state, running_entry, item)
   end
 
-  defp wake_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
+  @spec wake_now?(State.t(), map(), map()) :: boolean() | :steer
+  defp wake_now?(state, running_entry, item) do
+    cond do
+      unaddressed_sync_digest?(state, running_entry, item) -> false
+      queue_wake_required?(running_entry) -> true
+      item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
+      item.delivery[:steer_requested] == true and native_steer?(state, running_entry) -> :steer
+      true -> false
+    end
+  end
+
+  # Agent event topics name the sender's ticket, not the recipient. A manual
+  # subscription is a broadcast watch, not a ping. The enqueue path marks
+  # actionable declared-blocker signals urgent: those are addressed dependency
+  # inputs and retain their wake. Mixed digests retain any non-agent wake.
+  defp unaddressed_sync_digest?(state, entry, %{event_type: :events_digest, body: %{events: events} = body}) do
+    addressed? = Map.get(body, :urgent, false)
+    wakes? = Enum.any?(events, &Scheduler.wakes?(:sync, addressed?, agent_event?(&1)))
+
+    if events != [] and not wakes? do
+      case ListenerModes.get_mode(state, entry.identifier) do
+        {:reply, {:ok, %{effective: :sync}}, _} -> true
+        _ -> false
+      end
+    else
+      false
+    end
+  end
+
+  defp unaddressed_sync_digest?(_state, _entry, _item), do: false
+
+  defp agent_event?(event) do
+    case MapAccess.get(event, :digest_source) || MapAccess.get(event, :source) do
+      source when source in [:agent, "agent"] -> true
+      %{kind: :agent_event} -> true
+      %{"kind" => "agent_event"} -> true
+      source when source in [:orchestrator, :system, :github, "orchestrator", "system", "github"] -> false
+      _ -> legacy_agent_topic?(MapAccess.get(event, :topic) || "")
+    end
+  end
+
+  defp legacy_agent_topic?(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _sender, "agent" | _] -> true
+      ["ticket", _sender, "optimistic", "integrated"] -> true
+      ["agent" | _] -> true
+      _ -> false
+    end
+  end
+
+  defp native_steer?(state, entry) do
+    case Capabilities.harness_delivery(state, entry.identifier, entry) do
+      %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
+      _ -> false
+    end
   end
 
   # A self-paused agent waiting on review feedback is included here so the

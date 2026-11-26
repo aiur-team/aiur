@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-cancel.v1.schema.json",
+  "title": "TicketCancel",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.ticket_cancel" },
+    "contract_version": { "const": 1 },
+    "issue_identifier": { "type": "string" },
+    "tracker_state": { "const": "cancelled" },
+    "process": {
+      "oneOf": [
+        { "$ref": "#/$defs/exited" },
+        { "$ref": "#/$defs/stillRunning" },
+        { "$ref": "#/$defs/killFailed" },
+        { "$ref": "#/$defs/generationChanged" }
+      ]
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "issue_identifier",
+    "tracker_state",
+    "process"
+  ],
+  "$defs": {
+    "exited": {
+      "title": "TicketCancelExitedProcess",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "handle": { "type": "string", "minLength": 1 },
+        "status": { "const": "exited" },
+        "exit_status": {
+          "enum": ["normal", "shutdown", "killed", "noproc", "unknown"]
+        },
+        "exited_at": { "type": "string" },
+        "observed_at": { "type": "string" }
+      },
+      "required": ["handle", "status", "exit_status", "exited_at", "observed_at"]
+    },
+    "stillRunning": {
+      "title": "TicketCancelStillRunningProcess",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "handle": { "type": "string", "minLength": 1 },
+        "status": { "const": "still_running" },
+        "exit_status": { "type": "null" },
+        "exited_at": { "type": "null" },
+        "observed_at": { "type": "string" }
+      },
+      "required": ["handle", "status", "exit_status", "exited_at", "observed_at"]
+    },
+    "killFailed": {
+      "title": "TicketCancelKillFailedProcess",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "handle": { "type": "string", "minLength": 1 },
+        "status": { "const": "kill_failed" },
+        "exit_status": { "type": "null" },
+        "exited_at": { "type": "null" },
+        "observed_at": { "type": "string" }
+      },
+      "required": ["handle", "status", "exit_status", "exited_at", "observed_at"]
+    },
+    "generationChanged": {
+      "title": "TicketCancelGenerationChangedProcess",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "handle": { "type": "string", "minLength": 1 },
+        "status": { "const": "generation_changed" },
+        "exit_status": { "type": "null" },
+        "exited_at": { "type": "null" },
+        "observed_at": { "type": "string" }
+      },
+      "required": ["handle", "status", "exit_status", "exited_at", "observed_at"]
+    }
+  }
+}

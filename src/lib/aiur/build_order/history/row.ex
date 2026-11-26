@@ -6,9 +6,9 @@ defmodule Aiur.BuildOrder.History.Row do
   @sources ~w(backfill resource_store webhook poll write resync open_listing recent_merge telemetry catch_up derive)a
   @dates ~w(created_at updated_at closed_at last_closed_at close_observed_at reopened_at merged_at in_progress_at dispatched_at start end)a
   @derived ~w(start start_source end end_source clamped)a
-  @fields ~w(title lifecycle created_at node_id updated_at closed_at last_closed_at close_observed_at reopened_at merged_at pr_number labels labels_complete label_events sub_issues_added timeline_complete parent parent_version blocked_by blocked_by_complete blocked_by_version in_progress_at dispatched_at start start_source end end_source clamped agent_model agent_effort)a
+  @fields ~w(title lifecycle created_at node_id updated_at closed_at last_closed_at close_observed_at reopened_at merged_at pr_number labels labels_complete label_descriptions label_events sub_issues_added timeline_complete parent parent_version blocked_by blocked_by_complete blocked_by_version in_progress_at dispatched_at start start_source end end_source clamped agent_model agent_effort)a
   defstruct [number: :unknown, observed_at: :unknown, lifecycle: %Lifecycle{}, clamped: false, sources: []] ++
-              Enum.map(@fields -- [:lifecycle, :clamped], &{&1, :unknown})
+              Enum.map(@fields -- [:lifecycle, :clamped], fn field -> {field, if(field == :label_descriptions, do: %{}, else: :unknown)} end)
 
   @type t :: %__MODULE__{}
   @type event :: %{number: pos_integer(), observed_at: DateTime.t(), source: atom(), fields: map()}
@@ -45,6 +45,7 @@ defmodule Aiur.BuildOrder.History.Row do
   def valid?(:parent, value), do: ref?(value)
   def valid?(:blocked_by, value), do: list?(value, &ref?/1)
   def valid?(:labels, value), do: list?(value, &string?/1)
+  def valid?(:label_descriptions, value) when is_map(value), do: Enum.all?(value, fn {label, description} -> string?(label) and string?(description) end)
   def valid?(:label_events, value), do: list?(value, &label_event?/1)
   def valid?(:sub_issues_added, value), do: list?(value, &sub_issue?/1)
   def valid?(:sources, value), do: list?(value, &(&1 in @sources))

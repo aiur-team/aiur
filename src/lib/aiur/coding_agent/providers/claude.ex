@@ -1,15 +1,19 @@
 defmodule Aiur.CodingAgent.Providers.Claude do
   @moduledoc "Registry definitions for Claude's app-server and REPL transports."
 
+  alias Aiur.Claude.CodingAgent.Handshake
   alias Aiur.ModelCatalog
-  alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.ProviderMeters
+  alias Aiur.Signal
 
   @spec headless() :: Aiur.CodingAgent.Backend.capabilities()
   def headless do
     %{
       adapter: Aiur.Claude.CodingAgent,
       transcript: Aiur.Claude.Transcript,
+      native_transcript: Aiur.Claude.NativeTranscript,
+      launch_telemetry: Aiur.Claude.Telemetry,
+      children: [Aiur.Claude.Telemetry],
       family: "claude",
       config_default: true,
       rate_limit_fallback_target: true,
@@ -17,12 +21,21 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       configurable: true,
       accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       init_order: 0,
+      # Requires aiur-claude >= 1.1.0; provider_error provenance needs a later sibling revision.
       default_command: "aiur-claude",
       model_catalog: &ModelCatalog.extract_claude/1,
       install_hint: "install it with: npm install -g aiur-claude",
+      # Below this, the toolchain check holds dispatch to this backend (#7443).
+      minimum_version: Handshake.minimum_version(),
+      # app-server stdio; OperatorDelivery serializes turns; CodingAgent exposes dynamic tools.
+      delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification],
       control_application_confirmation: :confirmed,
+      # A daemon restart hands this app-server's live provider process to the
+      # successor daemon over its relay port. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :relay,
       remote_control: true,
       # Remote control physically runs on the persistent-REPL transport,
       # so an RC-promoted claude issue dispatches claude-repl (carrying
@@ -68,9 +81,9 @@ defmodule Aiur.CodingAgent.Providers.Claude do
           cache_creation_input: %{context_tier: [:not_applicable], cache_write_duration: [:five_minutes, :one_hour]}
         }
       },
-      usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
-      meter_probe: &ProviderMeterProbe.probe_usage_api/3,
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      usage: %{provider: :claude},
+      meter_probe: &ProviderMeters.probe_usage_api/3,
+      run_telemetry: &Signal.decode_claude_operation/1,
       account_generation: %{
         backends: [:app_server],
         trusted_sources: [:claude_app_server],
@@ -84,6 +97,8 @@ defmodule Aiur.CodingAgent.Providers.Claude do
     %{
       adapter: Aiur.Claude.ReplAgent,
       transcript: Aiur.Claude.Transcript,
+      native_transcript: Aiur.Claude.NativeTranscript,
+      launch_telemetry: Aiur.Claude.Telemetry,
       family: "claude",
       accounts: %{kind: :profile, multi: :available, usage: :claude_api, supported: true},
       # A persistent REPL carries the primary session handle. It must never
@@ -102,18 +117,26 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # the active turn so a queued message drains right away.
       can_interrupt: true,
       safe_checkpoints: [],
+      # OperatorInject types into the live pane; Command has no MCP binding;
+      # HookSettings wires UserPromptSubmit, PostToolUse and Stop/StopFailure.
+      delivery: %{transport: :tmux_pane, mid_turn_inject: :native, pull_tool: false, hook_boundaries: [:prompt, :tool, :stop], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       immediate_delivery: true,
       control_application_confirmation: :confirmed,
+      # The tmux pane keeps running across the restart; the successor daemon
+      # rebinds to the same pane and hook spool. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :repl,
       remote_control: true,
       # A tmux/RC start failure must never strand an issue: a failed
       # claude-repl spawn falls back once to the headless claude
       # backend. Declared here so the fallback never lives in a
       # dispatch `case`.
       fallback_backend: "claude",
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      run_telemetry: &Signal.decode_claude_operation/1,
       # Only the hook-driven RC REPL needs the pane display tailer; every
       # other backend streams its own rich transcript.
       rc_display_tail: true,
+      display_tailer: Aiur.Claude.DisplayTailer,
       # The persistent pane + REPL os pid are what an abort path must reap.
       runtime_report: :repl_pane,
       # The REPL spawns the `claude` CLI directly, so a respawn after an aiur

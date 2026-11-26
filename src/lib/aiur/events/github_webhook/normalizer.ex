@@ -158,17 +158,24 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # publish_pr_issue_comment/4, including the Agent Workpad filter.
   # ---------------------------------------------------------------------------
 
-  defp normalize_event(event_type, payload, repo, opts) when event_type in ["check_suite", "check_run"] do
-    case normalize_event(event_type, payload, repo) do
-      {:drop, {:unresolved_ticket, _, "completed"}} ->
-        ReconcileHints.main_check_reconcile(Map.fetch!(payload, event_type), event_type, opts)
+  defp normalize_event(event_type, payload, repo, opts) do
+    case {event_type, payload} do
+      {"pull_request", payload} when is_map(payload) ->
+        normalize_pull_request_event(payload, repo, opts)
 
-      result ->
-        result
+      {event_type, payload} when event_type in ["check_suite", "check_run"] ->
+        case normalize_event(event_type, payload, repo) do
+          {:drop, {:unresolved_ticket, _, "completed"}} ->
+            ReconcileHints.main_check_reconcile(Map.fetch!(payload, event_type), event_type, opts)
+
+          result ->
+            result
+        end
+
+      {event_type, payload} ->
+        normalize_event(event_type, payload, repo)
     end
   end
-
-  defp normalize_event(event_type, payload, repo, _opts), do: normalize_event(event_type, payload, repo)
 
   defp normalize_event("issue_comment", payload, repo) when is_map(payload) do
     action = Map.get(payload, "action")
@@ -271,22 +278,6 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # reconciles rather than publishing.
   # ---------------------------------------------------------------------------
 
-  defp normalize_event("pull_request", payload, repo) when is_map(payload) do
-    action = Map.get(payload, "action")
-    pr = Map.get(payload, "pull_request")
-
-    cond do
-      not is_map(pr) ->
-        {:error, {:malformed_payload, "pull_request"}}
-
-      action == "synchronize" ->
-        ReconcileHints.ci_reconcile(pr, "pull_request", action)
-
-      true ->
-        Triples.pull_request_triple(payload, pr, action, repo)
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # issues labeled / unlabeled / closed / reopened / opened -> issue-state
   # reconcile
@@ -374,7 +365,26 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     end
   end
 
+  defp normalize_event("pull_request", payload, repo) when is_map(payload),
+    do: normalize_pull_request_event(payload, repo, [])
+
   defp normalize_event(event_type, _payload, _repo), do: {:drop, {:unsupported_event, event_type}}
+
+  defp normalize_pull_request_event(payload, repo, opts) do
+    action = Map.get(payload, "action")
+    pr = Map.get(payload, "pull_request")
+
+    cond do
+      not is_map(pr) ->
+        {:error, {:malformed_payload, "pull_request"}}
+
+      action == "synchronize" ->
+        ReconcileHints.ci_reconcile(pr, "pull_request", action)
+
+      true ->
+        Triples.pull_request_triple(payload, pr, action, repo, opts)
+    end
+  end
 
   # Same rule as GithubCommentsPoller.actionable_review?/1.
   defp actionable_review?(%{"state" => state} = review) when is_binary(state) do

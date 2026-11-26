@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Events.GithubCIPoller.Evaluation",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/landing_watch/classifier.ex"
+  ],
+  "reason": "#4457: classify approved-head checks using the existing required-check verdict policy"
+}

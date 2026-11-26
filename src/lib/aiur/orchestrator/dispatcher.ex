@@ -4,26 +4,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
   Tracker work executes outside the owner; guarded results apply inside it.
   """
 
-  alias Aiur.GitHub.CycleFetchCache
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
-  alias Aiur.Orchestrator.CommandScan
-  alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.CiReadinessGate
+  alias Aiur.Orchestrator.CommandPolling
+  alias Aiur.Orchestrator.CommentPollingState
   alias Aiur.Orchestrator.DispatchBatch
   alias Aiur.Orchestrator.DispatchCandidates
+  alias Aiur.Orchestrator.DispatchCycleCompletion
+  alias Aiur.Orchestrator.DispatchCycleLiveness
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.Capacity
-  alias Aiur.Orchestrator.Dispatcher.CiReadinessAdmission
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.Dispatcher.Prevalidated
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.FeatureSupply
+  alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.MergedTicketReconciler
+  alias Aiur.Orchestrator.OverrideResume
   alias Aiur.Orchestrator.PausedCandidatePoll
+  alias Aiur.Orchestrator.PollTiming
   alias Aiur.Orchestrator.PrAnchored
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.Slots
@@ -34,18 +44,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RepoBase
+  alias Aiur.Tracker
 
   # Stable entry points; each responsibility lives under dispatcher/.
   @doc false
-  defdelegate maybe_warn_ci_readiness(state), to: CiReadinessAdmission
+  defdelegate maybe_warn_ci_readiness(state), to: CiReadinessGate
   @doc false
-  defdelegate start_initial_ci_readiness_check(state, kind, base_branch, check_fun), to: CiReadinessAdmission
+  defdelegate start_initial_ci_readiness_check(state, kind, base_branch, check_fun), to: CiReadinessGate
   @doc false
-  defdelegate handle_ci_readiness_result(state, token, result), to: CiReadinessAdmission
+  defdelegate handle_ci_readiness_result(state, token, result), to: CiReadinessGate
   @doc false
-  defdelegate handle_ci_readiness_timeout(state, token), to: CiReadinessAdmission
+  defdelegate handle_ci_readiness_timeout(state, token), to: CiReadinessGate
   @doc false
-  defdelegate check_initial_ci_readiness(state, kind, base_branch, check_fun, emit_fun), to: CiReadinessAdmission
+  defdelegate check_initial_ci_readiness(state, kind, base_branch, check_fun, emit_fun), to: CiReadinessGate
   @doc false
   defdelegate refresh_blocked_ticket_ids(state), to: Candidates
   @doc false
@@ -83,7 +94,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   defdelegate auto_resume_admission(state), to: Capacity
   @doc false
-  defdelegate dispatch_prevalidated_issue(state, issue), to: Launch
+  defdelegate dispatch_prevalidated_issue(state, issue), to: Prevalidated
+  @doc false
+  defdelegate dispatch_prevalidated_issue(state, issue, opts), to: Prevalidated
   @doc false
   defdelegate dispatch_with_dependency_gate(state, refreshed_issue, attempt, preferred_worker_host, opts), to: Candidates
   @doc false
@@ -131,12 +144,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
-    if TrackerTasks.running?(state, :startup_workspace_cleanup) do
+    if TrackerTasks.running?(state, :startup_workspace_cleanup),
+      do: {:noreply, Lifecycle.schedule_tick(state, 100)},
+      else: state |> DispatchCycleLiveness.start() |> continue_poll_cycle()
+  end
+
+  defp continue_poll_cycle(state) do
+    if dispatch_chain_pending?(state) or dispatch_poll_running?(state) do
       {:noreply, Lifecycle.schedule_tick(state, 100)}
     else
-      start_poll_cycle(state)
+      start_and_watch_poll_cycle(state)
     end
   end
+
+  defp start_and_watch_poll_cycle(state) do
+    case start_poll_cycle(state) do
+      {:noreply, next} = result ->
+        if dispatch_poll_running?(next),
+          do: {:noreply, Lifecycle.schedule_tick(next, 100)},
+          else: result
+    end
+  end
+
+  defp dispatch_poll_running?(state),
+    do: TrackerTasks.running?(state, :dispatch_poll) or TrackerTasks.running?(state, :ci_poll)
 
   defp start_poll_cycle(state) do
     cond do
@@ -154,7 +185,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
            case result do
              :ok -> current |> HoldsAndAlerts.clear_tracker_preflight_alert() |> start_poll_reads()
-             {:error, reason} -> current |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
+             {:error, reason} -> current |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
            end
          end)}
     end
@@ -167,48 +198,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  defp finish_poll_cycle(state) do
-    schedule = TrackerHealth.poll_schedule(state)
-
-    state =
-      state
-      |> Lifecycle.schedule_tick(schedule.delay_ms)
-      |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
-      |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
-      # Keep the first poll at the base interval; idle widening starts after an observed cycle (#2138).
-      |> Map.update!(:poll_cycles_completed, &(&1 + 1))
-      # The GitHub poll floor is measured from here, so an event that pulls
-      # the next tick forward cannot land it closer than the floor allows.
-      |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
-      # Counted first, then pruned: a hint whose budget this cycle exhausted
-      # is dropped here, and a ticket this poll finally showed is dropped
-      # because the ordinary demand scan sees it now (#2640).
-      |> TrackerHealth.prune_queued_demand_hints()
-
-    # Every freshness threshold is a multiple of the cadence actually in force,
-    # so each class's effective interval — idle backoff, webhook widening and
-    # GitHub's own floors already composed in — is published where any reader
-    # can derive from it. See `Aiur.PollCadence` and
-    # `TrackerHealth.publish_poll_cadence/2` (#2309).
-    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
-
-    state = %{state | poll_check_in_progress: false}
-
-    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
-    StatusReport.notify_dashboard(state)
-    state
-  end
+  @doc false
+  @spec finish_poll_cycle(State.t()) :: State.t()
+  defdelegate finish_poll_cycle(state), to: DispatchCycleCompletion, as: :finish
 
   defp start_poll_reads(state) do
     state
-    |> CiReadinessAdmission.maybe_warn_ci_readiness()
+    |> CiReadinessGate.maybe_warn_ci_readiness()
     |> TrackedSet.refresh()
-    |> CommentPolling.start_firehose(&after_firehose/1, &TrackerTasks.start/4)
+    |> FirehosePolling.start(&after_firehose/1, &TrackerTasks.start/4)
   end
 
   defp after_firehose(state) do
     state
-    |> CommentPolling.start_async()
+    |> CommentPollingState.start_async()
     |> CiLifecycle.start_poll(fn current ->
       current |> Candidates.refresh_blocked_ticket_ids() |> start_candidate_poll(&Candidates.default_candidate_fetch/1)
     end)
@@ -216,8 +219,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @doc false
   @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
-  def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
-    do: PausedCandidatePoll.start(state, fetch_fun, &Candidates.note_candidate_fetch_success/2, &Candidates.mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
+  def start_candidate_poll(%State{} = state, fetch_fun) when effective_paused?(state),
+    do:
+      PausedCandidatePoll.start(
+        FeatureSupply.unavailable(state),
+        fetch_fun,
+        &Candidates.note_candidate_fetch_success/2,
+        &Candidates.mark_candidate_snapshot_unavailable/2,
+        &monitor_without_candidates/1,
+        &finish_poll_cycle/1
+      )
 
   def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = Candidates.candidate_list_cache(state)
@@ -225,19 +236,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerTasks.start(state, :dispatch_poll, fn -> fetch_fun.(cache) end, fn current, result ->
       current
       |> dispatch_candidate_poll(fetch_candidate_issues_fun: &Candidates.apply_candidate_result(&1, result))
+      |> PollTiming.complete(result)
       |> finish_poll_cycle()
     end)
   end
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
-    CycleFetchCache.start_cycle()
-
-    try do
-      maybe_dispatch(state, &do_maybe_dispatch/1)
-    after
-      CycleFetchCache.end_cycle()
-    end
+    Tracker.with_poll_cycle(fn -> maybe_dispatch(state, &do_maybe_dispatch/1) end)
   end
 
   @doc false
@@ -263,7 +269,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         |> dispatch_fun.()
 
       {:error, reason, state} ->
-        HoldsAndAlerts.emit_tracker_preflight_alert(state, reason)
+        state |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason)
     end
   end
 
@@ -272,13 +278,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp prepare_candidate_poll(%State{} = state) do
-    state = CiReadinessAdmission.maybe_warn_ci_readiness(state)
+    state = CiReadinessGate.maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
-    state = CommentPolling.poll_github_firehose(state)
+    state = FirehosePolling.poll(state)
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
     # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
-    # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
-    state = CommentPolling.start_async(state)
+    # (#1837). The answer arrives as `{:github_listener_outcome, :comments, ...}`.
+    state = CommentPollingState.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
     # Reconciliation needs current holds before stopping blocked workers;
     # admission refreshes again after tracker work because answers can arrive during the poll.
@@ -290,13 +296,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
+    SettingsSnapshot.run(fn -> AttentionSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end) end)
+  end
+
+  defp do_dispatch_candidate_poll(state, opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &Candidates.fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
     stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
 
     case fetch_candidates.(state) do
       {:paused, state} ->
-        monitor_without_candidates.(state)
+        state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
 
       {:ok, issues, state} ->
         {state, issues} = reconcile_merged_tickets(state, issues)
@@ -316,8 +326,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # does not. Once both views are fresh, release only claims with no
         # positive current-generation runtime evidence before normal dispatch.
         {state, issues} = StartupClaimReconciler.reconcile(state, issues, Keyword.get(opts, :startup_claim_opts, []))
-        state = CommandScan.scan_pr_commands(state)
-        state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
+        state = Keyword.get(opts, :scan_commands_fun, &CommandPolling.scan/1).(state)
+        state = Keyword.get(opts, :stop_closed_pr_agents_fun, &PrAnchored.maybe_stop_closed_pr_anchored_agents/1).(state)
 
         state =
           state
@@ -337,6 +347,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         state =
           state
+          |> FeatureSupply.observe(issues)
+          |> OverrideResume.schedule(issues)
           |> HoldsAndAlerts.dispatch_or_hold(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
@@ -352,7 +364,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason, state} ->
-        state = monitor_without_candidates.(state)
+        state = state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
@@ -362,7 +374,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec monitor_without_candidates(State.t(), keyword()) :: State.t()
   def monitor_without_candidates(%State{} = state, opts \\ []) when is_list(opts) do
     refresh_running = Keyword.get(opts, :refresh_running_fun, &Reconciler.refresh_running_issue_states/1)
-    scan_commands = Keyword.get(opts, :scan_commands_fun, &CommandScan.scan_pr_commands/1)
+    scan_commands = Keyword.get(opts, :scan_commands_fun, &CommandPolling.scan/1)
     stop_closed_pr_agents = Keyword.get(opts, :stop_closed_pr_agents_fun, &PrAnchored.maybe_stop_closed_pr_anchored_agents/1)
     notify_dashboard = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1)
 
@@ -391,10 +403,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
     visible_issue_ids = MapSet.new(issues, & &1.id)
     state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
-    choose_issues_in_order(state, DispatchCandidates.order(issues, terminal_states, Map.values(state.last_polled_issues)), opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
+    {candidates, held} =
+      DispatchCandidates.partition(issues, terminal_states, Map.values(state.last_polled_issues))
+
+    state = Candidates.hold_cached_dependencies(state, held, active_states, terminal_states)
+    choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
   end
 
-  defp choose_issues_in_order(%State{globally_paused: true} = state, _issues, opts, _active, _terminal, _initial, _index),
+  defp choose_issues_in_order(%State{} = state, _issues, opts, _active, _terminal, _initial, _index) when effective_paused?(state),
     do: DispatchBatch.finish(state, opts, nil)
 
   defp choose_issues_in_order(state, [], opts, _active, _terminal, _initial, _index), do: DispatchBatch.finish(state, opts, nil)

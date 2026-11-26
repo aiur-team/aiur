@@ -11,7 +11,7 @@ defmodule Aiur.BuildOrder.History.CatchUpQuery do
           filterBy:{since:$since}, orderBy:{field:UPDATED_AT, direction:ASC}) {
           pageInfo { hasNextPage endCursor }
           nodes { id number title state stateReason createdAt closedAt updatedAt
-            labels(first:30) { totalCount nodes { name } }
+            labels(first:30) { totalCount nodes { name description } }
             parent { number repository { name owner { login } } }
             blockedBy(first:100) { pageInfo { hasNextPage endCursor } nodes { number repository { name owner { login } } } } }
         }
@@ -31,6 +31,7 @@ defmodule Aiur.BuildOrder.History.CatchUpQuery do
       labels = if fields.labels_complete, do: fields.labels, else: :truncated
       label_fields = Feed.label_fields(held, labels, fields.updated_at)
       fields = Map.drop(fields, [:labels, :labels_complete, :blocked_by_complete, :last_closed_at])
+      fields = if issue.fields.labels_complete, do: fields, else: Map.put(fields, :labels_complete, false)
       fields = Map.merge(fields, label_fields)
       fields = if fields.closed_at == :none, do: %{fields | closed_at: :unknown}, else: fields
       lifecycle = fields.lifecycle

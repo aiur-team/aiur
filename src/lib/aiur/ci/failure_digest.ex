@@ -7,7 +7,7 @@ defmodule Aiur.CI.FailureDigest do
   Completed evidence is cached by SHA and check-run identity; open flake issues have a
   60-second classification window. This module does not rerun CI or change ticket state.
   """
-  alias Aiur.GitHub.{FailureEvidence, PullRequests, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, FailureEvidence, PullRequests}
 
   defstruct checks: [], tests: [], signature: nil, truncated: false, flake_only: false, test_only: false
   @type t :: %__MODULE__{checks: [map()], tests: [map()] | :unknown, signature: String.t(), truncated: boolean(), flake_only: boolean(), test_only: boolean()}
@@ -22,7 +22,7 @@ defmodule Aiur.CI.FailureDigest do
 
   @spec build_from_ci(String.t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
   def build_from_ci(sha, ci, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo() do
+    with {:ok, {owner, repo}} <- Access.parse_repo() do
       ci = watched_ci(ci, opts)
       runs = ci.check_runs |> Enum.filter(&(&1["status"] == "completed" and &1["conclusion"] in @failed)) |> Enum.sort_by(& &1["id"])
       key = evidence_key(owner, repo, sha, ci)
@@ -41,11 +41,11 @@ defmodule Aiur.CI.FailureDigest do
 
   defp evidence_key(owner, repo, sha, ci) do
     identities = ci.check_runs |> Enum.map(&Map.take(&1, ~w(id status conclusion))) |> Enum.sort()
-    ResourceStore.key(:ci_failure_digest, owner, repo, sha <> ":" <> hash(identities))
+    Access.key(:ci_failure_digest, owner, repo, sha <> ":" <> hash(identities))
   end
 
   defp evidence(key, runs, sha, opts) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: data}} -> data
       :miss -> fetch_evidence(key, runs, sha, opts)
     end
@@ -55,7 +55,7 @@ defmodule Aiur.CI.FailureDigest do
     annotations = Enum.map(runs, &read_annotations(&1, opts))
     known = FailureEvidence.known_flakes(sha, opts)
     data = %{"annotations" => annotations, "known" => if(match?({:ok, _}, known), do: elem(known, 1), else: nil)}
-    if Enum.all?(annotations, &is_list/1) and match?({:ok, _}, known), do: ResourceStore.put_resource(key, data, source: :fetch)
+    if Enum.all?(annotations, &is_list/1) and match?({:ok, _}, known), do: Access.put_resource(key, data, source: :fetch)
     data
   end
 
@@ -124,23 +124,31 @@ defmodule Aiur.CI.FailureDigest do
   defp other_failures?(annotations) do
     coverage_exit? = Enum.any?(annotations || [], &routine_coverage_exit?/1)
     derived? = derived_from(annotations) != []
-    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?))
+    browser_spec_exit? = Enum.any?(annotations || [], &browser_spec_failure?/1)
+    Enum.any?(annotations || [], &substantive_failure?(&1, coverage_exit?, derived?, browser_spec_exit?))
   end
+
+  defp browser_spec_failure?(%{"title" => "aiur-test-failure", "path" => "src/browser/tests/" <> path, "message" => "new-failure :: BrowserSpec :: " <> _}) do
+    String.ends_with?(path, ".spec.mjs") and not String.contains?(path, "..")
+  end
+
+  defp browser_spec_failure?(_), do: false
 
   defp routine_coverage_exit?(%{"annotation_level" => "failure", "message" => message}) when is_binary(message),
     do: Regex.match?(~r/\Acoverage partition [1-4] failed with status 2; full log follows in the next step\z/, message)
 
   defp routine_coverage_exit?(_), do: false
 
-  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?, derived?) do
+  defp substantive_failure?(%{"annotation_level" => "failure", "message" => message} = annotation, coverage_exit?, derived?, browser_spec_exit?) do
     # GitHub adds its own exit annotation; ignore it only beside the matching coverage wrapper.
     routine_exit = routine_coverage_exit?(annotation) or (coverage_exit? and message == "Process completed with exit code 2.")
     derived_exit = derived? and (annotation["title"] == "aiur-derived-failure" or message == "Process completed with exit code 1.")
-    annotation["title"] != "aiur-test-failure" and not routine_exit and not derived_exit
+    browser_exit = browser_spec_exit? and message == "Process completed with exit code 1."
+    annotation["title"] != "aiur-test-failure" and not routine_exit and not derived_exit and not browser_exit
   end
 
-  defp substantive_failure?(%{"annotation_level" => "failure"}, _, _), do: true
-  defp substantive_failure?(_, _, _), do: false
+  defp substantive_failure?(%{"annotation_level" => "failure"}, _, _, _), do: true
+  defp substantive_failure?(_, _, _, _), do: false
 
   defp derived_from(annotations) do
     case Enum.filter(annotations || [], &(&1["title"] == "aiur-derived-failure")) do

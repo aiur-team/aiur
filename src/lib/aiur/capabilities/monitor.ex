@@ -4,7 +4,7 @@ defmodule Aiur.Capabilities.Monitor do
   require Logger
 
   alias Aiur.Capabilities.Collector
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -34,7 +34,7 @@ defmodule Aiur.Capabilities.Monitor do
   defp compute(state) do
     {report, warnings} = Collector.collect(state.opts)
     table = Keyword.get(state.opts, :table, :aiur_capabilities)
-    digest = :erlang.phash2(report.capabilities)
+    digest = :erlang.phash2({report.capabilities, report.executor})
     {revision, changed?} = revision(table, digest)
     report = Map.merge(report, %{revision: revision, observed_at: DateTime.utc_now() |> DateTime.to_iso8601()})
     now = Keyword.get(state.opts, :now_fun, fn -> System.monotonic_time(:millisecond) end)
@@ -54,7 +54,7 @@ defmodule Aiur.Capabilities.Monitor do
   defp notify(revision, opts, warnings) do
     pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
     if Process.whereis(pubsub), do: Phoenix.PubSub.broadcast(pubsub, "capabilities", {:capabilities_changed, revision})
-    publish = Keyword.get(opts, :publish_fun, &Publisher.publish/3)
+    publish = Keyword.get(opts, :publish_fun, &Events.publish/3)
 
     case publish_change(publish, revision) do
       {:error, reason} -> MapSet.put(warnings, {:publish_failed, reason})

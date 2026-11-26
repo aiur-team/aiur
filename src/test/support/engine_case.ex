@@ -150,6 +150,11 @@ defmodule Aiur.TestSupport.EngineCase do
     fi
     echo "CODE=$code"
     echo "STDOUT_BYTES=$(wc -c < \"$STDOUT_PATH\")"
+    if [ -s "$STDOUT_PATH" ]; then
+      echo "STDOUT_BEGIN"
+      cat "$STDOUT_PATH"
+      echo "STDOUT_END"
+    fi
     echo "STDERR_LINES=$(wc -l < \"$STDERR_PATH\")"
     cat "$STDERR_PATH"
     """

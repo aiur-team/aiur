@@ -341,11 +341,10 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert get(:calls) == []
   end
 
-  test "paced adoption markers retain membership until a later reconciliation writes them" do
+  test "paced adoption markers defer without losing membership and retry on reconciliation" do
     projection = start_supervised!({Projection, snapshot([member(1), member(2)])})
     pid = server(projection, 1)
-    assert {:error, {:marker_write_failed, failures}} = Aiur.BuildQueue.adopt(99)
-    assert failures != []
+    assert {:ok, {:marker_deferred, ["1"]}} = Aiur.BuildQueue.adopt(99)
 
     for _ <- 1..5 do
       reconcile(pid)
@@ -417,12 +416,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   end
 
   test "an unresponsive projection is tried once per cycle while an independent list promotes" do
-    queues = [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]
-    {:ok, document, _} = ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))
+    {:ok, document, _} = ListMutations.add(%{@empty | queues: [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]}, ["4"], [queue: "list"], DateTime.from_unix!(0))
     update(:document, document)
     update(:labels, Map.put(get(:labels), "4", ["agent:queued"]))
     projection = start_supervised!({Projection, snapshot([member(1)])})
     :sys.replace_state(projection, &%{&1 | timeout?: true})
+    start_supervised!({Aiur.BuildProgress, state_file: Path.join(Aiur.TestSupport.tmp_root!("build-order-source"), "progress.json")})
     server(projection)
     assert {:add, "4", "agent:todo"} in get(:calls)
     # A snapshot recorded elsewhere on the shared topic must not reach this server and re-try the projection.

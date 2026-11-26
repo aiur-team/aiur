@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.EpicOverrides do
   @moduledoc "Durable local epic overrides. Unavailable reads never imply an empty registry."
   use GenServer
-  alias Aiur.BuildOrder.EpicOverrides.{Batch, Journal}
+  alias Aiur.BuildOrder.EpicOverrides.{Batch, Confirmation, Journal}
   alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.Config.Paths
   @topic "build-order-epic-overrides:changed"
@@ -15,6 +15,11 @@ defmodule Aiur.BuildOrder.EpicOverrides do
   def set(epic, ids, provenance, opts \\ []), do: write("set", epic, ids, provenance, opts)
   @spec clear(list(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def clear(ids, provenance, opts \\ []), do: write("clear", nil, ids, provenance, opts)
+
+  @spec confirm(list(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def confirm(ids, provenance, opts \\ []) do
+    write({:confirm, Keyword.get(opts, :expect_epic)}, nil, ids, provenance, opts)
+  end
 
   defp write(op, epic, ids, provenance, opts) do
     GenServer.call(
@@ -54,8 +59,8 @@ defmodule Aiur.BuildOrder.EpicOverrides do
     end
   end
 
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  @spec subscribe(keyword()) :: :ok | {:error, term()}
+  def subscribe(opts \\ []), do: Phoenix.PubSub.subscribe(Keyword.get(opts, :pubsub, Aiur.PubSub), @topic)
 
   defp read(opts, select) do
     with {:ok, state} <- snapshot(opts) do
@@ -100,7 +105,8 @@ defmodule Aiur.BuildOrder.EpicOverrides do
       health: unavailable(:epic_overrides_state_dir_unavailable),
       settings_fun: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0),
       writer: Keyword.get(opts, :writer, &Aiur.Fs.atomic_write/3),
-      max_bytes: Keyword.get(opts, :max_bytes, @max_bytes)
+      max_bytes: Keyword.get(opts, :max_bytes, @max_bytes),
+      pubsub: Keyword.get(opts, :pubsub, Aiur.PubSub)
     }
 
     loaded = initialize(state, opts)
@@ -194,6 +200,16 @@ defmodule Aiur.BuildOrder.EpicOverrides do
       when state != :healthy,
       do: {:reply, {:error, :epic_overrides_unavailable}, s}
 
+  def handle_call({:write, {:confirm, expect}, nil, ids, p, now}, _from, state) do
+    with {:ok, ids} <- Confirmation.prepare(state, ids, p, expect),
+         {:ok, at} <- now(now) do
+      {next, results, changed} = Confirmation.apply(state, ids, p, at)
+      persist(state, next, results, changed)
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
   def handle_call({:write, op, epic, ids, p, now}, _from, state) do
     with true <- op == "clear" or is_binary(epic),
          {:ok, ids} <- Batch.validate(epic, ids, p, state.settings_fun),
@@ -220,7 +236,7 @@ defmodule Aiur.BuildOrder.EpicOverrides do
         publish(next)
 
         Phoenix.PubSub.broadcast(
-          Aiur.PubSub,
+          state.pubsub,
           @topic,
           {:epic_overrides_changed, %{generation: next.generation, changed: changed, health: next.health}}
         )
@@ -232,7 +248,7 @@ defmodule Aiur.BuildOrder.EpicOverrides do
         publish(failed)
 
         Phoenix.PubSub.broadcast(
-          Aiur.PubSub,
+          state.pubsub,
           @topic,
           {:epic_overrides_changed, %{generation: state.generation, changed: [], health: failed.health}}
         )

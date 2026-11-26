@@ -150,8 +150,8 @@ defmodule Aiur.Regression.WarmStateTransitionsTest do
              signal traps in one statement — bash would re-enter the handler.
              """
 
-      assert source =~ ~r/trap 'session_cleanup' EXIT\b/,
-             "EXIT trap must register session_cleanup on its own line."
+      assert source =~ ~S|trap 'session_cleanup; exit "$?"' EXIT|,
+             "EXIT trap must preserve the status returned by session_cleanup."
 
       assert source =~ ~r/trap 'trap - EXIT[^']*session_cleanup; exit \d+' INT/,
              """

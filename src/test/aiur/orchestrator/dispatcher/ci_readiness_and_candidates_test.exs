@@ -65,6 +65,7 @@ defmodule Aiur.Orchestrator.Dispatcher.CiReadinessAndCandidatesTest do
   end
 
   test "does not launch another readiness scan before the transient retry deadline" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "example/repo")
     scope = CiReadiness.readiness_scope()
     state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000, ci_readiness_scope: scope}
 

@@ -195,7 +195,12 @@ defmodule Aiur.Config.RuntimeSandboxTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")]
+               "writableRoots" => [
+                 remote_workspace,
+                 Path.join(remote_workspace, ".git"),
+                 Path.join(remote_workspace, ".agents"),
+                 Path.join(remote_workspace, ".codex")
+               ]
              }
 
       read_only_settings = %{

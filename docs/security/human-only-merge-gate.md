@@ -10,8 +10,9 @@ Protects `main` and `develop`. Declaration:
 
 1. **Branches can't be force-pushed or deleted** (`non_fast_forward`,
    `deletion`).
-2. **Every blocking CI check must pass** (`required_status_checks`). This is the
-   "green main" guarantee.
+2. **Required CI checks gate ordinary merges** (`required_status_checks`).
+   A bypass actor can skip these checks, including pending or failed builds;
+   the ruleset alone does not guarantee green main.
 
 The ruleset no longer requires an approving review. The `pull_request` rule
 (one approval, stale reviews dismissed on push) was removed by operator decision
@@ -22,6 +23,9 @@ merges is now Aiur's workflow (`agent:human-review`), not a GitHub rule.
 The declaration still lists `its-everdred` as a bypass actor
 (`bypass_mode: pull_request`). GitHub hides `bypass_actors` from read-only
 tokens, so only the admin verifier below can confirm the live value.
+Executor merges use `aiur pr merge <N> --reviewed-sha <sha>`, which enforces
+`merge_policy` and refuses failed checks rather than treating bypass authority
+as permission to merge a red build.
 
 ## `main` (merge queue)
 

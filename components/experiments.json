@@ -10,11 +10,13 @@
   ],
   "facades": [
     "Aiur.Experiments",
+    "Aiur.Experiments.Auto",
     "Aiur.Experiments.CapabilityProvider",
     "Aiur.Experiments.MetricPack",
     "Aiur.Experiments.Observation",
     "Aiur.Experiments.Predicate",
     "Aiur.Experiments.Spec",
+    "Aiur.Experiments.StatsRunner",
     "Aiur.Experiments.TelemetryHistory",
     "Aiur.Experiments.TelemetryReader",
     "Aiur.ExperimentsCLI"
@@ -26,6 +28,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "orchestration",
     "workspace"
   ],
   "optional": [
@@ -71,5 +74,6 @@
   "capabilities": [
     "experiments",
     "experiments.metric_packs"
-  ]
+  ],
+  "goal": "steer"
 }

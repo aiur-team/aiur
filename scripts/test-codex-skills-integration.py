@@ -3,7 +3,7 @@
 
 Run: mise exec -- python3 scripts/test-codex-skills-integration.py --codex /path/to/codex
 Inside an existing Codex sandbox, add --private-tmp (requires Bubblewrap).
-Add --repo "$AIUR_AGENT_WORKSPACE" to test the actual pre-#2827 and main commits.
+Add --repo "$AIUR_AGENT_WORKSPACE" to test the actual #4458 and #4509 commits.
 The private tmpfs keeps the nested sandbox's sockets and mount registry separate
 from the outer sandbox's protected daemon paths. No Aiur run or tracker is used.
 Requires a Codex CLI with `sandbox --permission-profile` support.
@@ -68,6 +68,9 @@ def fixture(root, repo=None, old_base=None, new_base=None):
         (source / ".agents").mkdir()
         (source / ".agents/skills").symlink_to("../.claude/skills")
         git(source, "add", ".agents/skills")
+        (source / ".codex").mkdir()
+        (source / ".codex/skills").symlink_to("../.claude/skills")
+        git(source, "add", ".codex/skills")
         git(source, "commit", "-m", "Track skills link")
     git(workspace, "config", "user.name", "Skills Regression")
     git(workspace, "config", "user.email", "skills@example.invalid")
@@ -79,13 +82,13 @@ def fixture(root, repo=None, old_base=None, new_base=None):
     # Provisioning on an old tree leaves an ignored Muse skills directory.
     # The newer tracked symlink must replace this directory during the merge.
     installed = workspace / ".agents/skills/aiur-agent/SKILL.md"
-    installed.parent.mkdir(parents=True)
-    shutil.copyfile(skill, installed)
-    (workspace / ".codex").mkdir(exist_ok=True)
+    if not installed.exists():
+        installed.parent.mkdir(parents=True)
+        shutil.copyfile(skill, installed)
     if not (workspace / ".codex/skills").exists():
         (workspace / ".codex/skills").symlink_to("../.claude/skills")
     with (workspace / ".git/info/exclude").open("a") as exclude:
-        exclude.write("\n/.agents/skills/\n/.codex/\n")
+        exclude.write("\n/.agents/skills/\n")
     assert git(workspace, "status", "--porcelain") == ""
     return workspace, git(workspace, "show", "origin/main:.claude/skills/aiur-agent/SKILL.md")
 
@@ -124,8 +127,8 @@ def main():
     parser.add_argument("--codex", default=shutil.which("codex"))
     parser.add_argument("--private-tmp", action="store_true")
     parser.add_argument("--repo", type=Path, help="Use actual repository history instead of the minimal fixture")
-    parser.add_argument("--old-base", default="57114d675^", help="Commit before #2827")
-    parser.add_argument("--new-base", default="origin/main", help="Current integration commit")
+    parser.add_argument("--old-base", default="5502db6d0^", help="Commit before #4458 tracked skill links")
+    parser.add_argument("--new-base", default="3b85ff430^", help="Commit adding tracked skill links, before #4509 removed them")
     options = parser.parse_args()
     if not options.codex:
         parser.error("Codex CLI is required")
@@ -133,12 +136,13 @@ def main():
         workspace, expected_skill = fixture(Path(tmp) / "baseline", options.repo,
                                             options.old_base, options.new_base)
         roots = runtime_roots(workspace)
-        # Control proves that the fixture reaches the original failure mode.
-        baseline = [root for root in roots if root != str(workspace / ".agents")]
+        # Control proves that a tracked Codex link added on main still fails
+        # when the harness withholds the root that contains it.
+        baseline = [root for root in roots if root != str(workspace / ".codex")]
         command = ["git", "-C", str(workspace), "merge", "--no-edit", "origin/main"]
         broken = sandbox(options.codex, workspace, baseline, command, options.private_tmp)
-        assert broken.returncode != 0 and ".agents/skills" in broken.stdout and "Read-only file system" in broken.stdout, broken.stdout
-        print("Baseline: merge fails on read-only .agents/skills")
+        assert broken.returncode != 0 and ".codex/skills" in broken.stdout and "Read-only file system" in broken.stdout, broken.stdout
+        print("Baseline: merge fails on read-only .codex/skills")
         workspace, expected_skill = fixture(Path(tmp) / "fixed", options.repo,
                                             options.old_base, options.new_base)
         roots = runtime_roots(workspace)
@@ -147,14 +151,15 @@ def main():
         assert fixed.returncode == 0, fixed.stdout
         assert (workspace / "feature.txt").read_text() == "preserve the feature branch\n"
         assert (workspace / ".agents/skills").is_symlink()
+        assert (workspace / ".codex/skills/aiur-agent").is_symlink()
         for path in [".agents/skills/aiur-agent/SKILL.md", ".codex/skills/aiur-agent/SKILL.md"]:
             result = sandbox(options.codex, workspace, roots,
                              ["cat", str(workspace / path)], options.private_tmp)
             assert result.returncode == 0 and expected_skill in result.stdout, result.stdout
         protected = sandbox(options.codex, workspace, roots,
-                            ["touch", str(workspace / ".codex/should-stay-protected")], options.private_tmp)
-        assert protected.returncode != 0 and "should-stay-protected" in protected.stdout and "Read-only file system" in protected.stdout, protected.stdout
-        print("Runtime policy: merge passes; feature and skills retained; .codex stays read-only")
+                            ["touch", "/etc/aiur-skills-regression-protected"], options.private_tmp)
+        assert protected.returncode != 0 and "Read-only file system" in protected.stdout, protected.stdout
+        print("Runtime policy: merge passes; feature and skills retained; workspace boundary stays enforced")
 
 
 if __name__ == "__main__":

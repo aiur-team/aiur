@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue do
   @moduledoc "Supervised build queue reconciliation, paced label writes and local ordered-list commands."
 
-  alias Aiur.BuildQueue.{Attention, ReadModel, Server}
+  alias Aiur.BuildQueue.{Attention, LastRead, ReadModel, Server}
 
-  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
+  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused | :read_timeout
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -11,20 +11,31 @@ defmodule Aiur.BuildQueue do
 
   @spec status() :: status()
   def status do
-    if Process.whereis(Server), do: GenServer.call(Server, :status), else: absent_status()
+    if GenServer.whereis(Aiur.Project.via(Server)), do: GenServer.call(Aiur.Project.via(Server), :status), else: absent_status()
   end
 
-  @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
+  @doc """
+  Returns the version 1 public read model from held projections; no upstream requests or label writes.
+
+  A timed-out call returns the last model the server served, stale-marked, or `:read_timeout` when it never served one.
+  """
   @spec show(GenServer.server()) :: map()
-  def show(server \\ Server) do
-    GenServer.call(server, :read_model)
+  def show(server \\ Aiur.Project.via(Server)) do
+    GenServer.call(server, :read_model, 1_000)
   catch
-    :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
+    :exit, {:noproc, _} ->
+      ReadModel.unavailable(absent_status())
+
+    :exit, {:timeout, _} ->
+      case LastRead.carry(server, System.system_time(:millisecond)) do
+        {:ok, model} -> model
+        :none -> ReadModel.unavailable(:read_timeout)
+      end
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}
   def reconcile_now do
-    GenServer.call(Server, :reconcile_now)
+    GenServer.call(Aiur.Project.via(Server), :reconcile_now)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
@@ -32,7 +43,7 @@ defmodule Aiur.BuildQueue do
   @doc "Serializes guard-owned attentions with queue reconciliation."
   @spec optimistic_attention(:open | :resolve, String.t(), map()) :: :ok | {:error, term()}
   def optimistic_attention(action, id, payload) do
-    GenServer.call(Server, {:optimistic_attention, action, id, payload})
+    GenServer.call(Aiur.Project.via(Server), {:optimistic_attention, action, id, payload})
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
@@ -49,6 +60,18 @@ defmodule Aiur.BuildQueue do
   @spec unadopt(pos_integer()) :: {:ok, list()} | {:error, term()}
   def unadopt(root), do: mutate({:unadopt, root})
 
+  @spec adopt_feature(String.t()) :: {:ok, list()} | {:error, term()}
+  def adopt_feature(slug), do: mutate({:adopt_feature, slug})
+
+  @spec adopt_epic(String.t()) :: {:ok, list()} | {:error, term()}
+  def adopt_epic(slug), do: mutate({:adopt_epic, slug})
+
+  @spec unadopt_epic(String.t()) :: {:ok, list()} | {:error, term()}
+  def unadopt_epic(slug), do: mutate({:unadopt_epic, slug})
+
+  @spec unadopt_feature(String.t()) :: {:ok, list()} | {:error, term()}
+  def unadopt_feature(slug), do: mutate({:unadopt_feature, slug})
+
   @spec remove(String.t()) :: :ok | {:error, term()}
   def remove(id), do: mutate({:remove, id})
 
@@ -59,7 +82,7 @@ defmodule Aiur.BuildQueue do
   def add_edge(prerequisite, dependent), do: mutate({:add_edge, prerequisite, dependent})
 
   defp mutate(command) do
-    GenServer.call(Server, {:mutate, command}, 30_000)
+    GenServer.call(Aiur.Project.via(Server), {:mutate, command}, 30_000)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
     :exit, {:timeout, _} -> {:error, :outcome_unknown}
@@ -68,7 +91,7 @@ defmodule Aiur.BuildQueue do
   @doc "Rebuilds a missing or corrupt store as an operator-held list from queued markers."
   @spec recover(keyword()) :: :ok | {:error, term()}
   def recover(opts \\ []) do
-    GenServer.call(Server, {:recover, Keyword.get(opts, :force, false)}, 30_000)
+    GenServer.call(Aiur.Project.via(Server), {:recover, Keyword.get(opts, :force, false)}, 30_000)
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
@@ -77,8 +100,8 @@ defmodule Aiur.BuildQueue do
   def clear(opts), do: mutate({:clear, opts})
 
   @doc "Clears item holds and overrides, or releases all items and the hold in a queue by ID."
-  @spec release(String.t(), GenServer.server()) :: :ok | {:error, term()}
-  def release(target, server \\ Server) when is_binary(target) do
+  @spec release(String.t(), GenServer.server()) :: :ok | {:ok, [String.t()]} | {:error, term()}
+  def release(target, server \\ Aiur.Project.via(Server)) when is_binary(target) do
     GenServer.call(server, {:release, target})
   catch
     :exit, {:noproc, _} -> {:error, :disabled}

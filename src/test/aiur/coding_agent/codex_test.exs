@@ -6,14 +6,13 @@ defmodule Aiur.CodingAgent.CodexTest do
   alias Aiur.Codex.NotificationPolicy
 
   describe "codex_command/2 model and effort splice" do
-    test "nil model leaves the configured command unchanged" do
-      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command()
+    test "nil model enables native capture on the configured command" do
+      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command() <> " --config features.default_mode_request_user_input=true"
     end
 
     test "a model variant is appended as a single-quoted --config token" do
       command = AppServerPort.codex_command_for_test("gpt-5.5")
-      assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"'"
-      assert String.ends_with?(command, "--config 'model=\"gpt-5.5\"'")
+      assert command == CodexConfig.command() <> " --config 'model=\"gpt-5.5\"' --config features.default_mode_request_user_input=true"
     end
 
     test "an effort override is appended after model so it beats command defaults" do
@@ -21,7 +20,7 @@ defmodule Aiur.CodingAgent.CodexTest do
 
       assert command ==
                CodexConfig.command() <>
-                 " --config 'model=\"gpt-5.5\"' --config 'model_reasoning_effort=\"high\"'"
+                 " --config 'model=\"gpt-5.5\"' --config 'model_reasoning_effort=\"high\"' --config features.default_mode_request_user_input=true"
     end
 
     test "config values are shell escaped as single arguments" do
@@ -29,7 +28,7 @@ defmodule Aiur.CodingAgent.CodexTest do
 
       assert command ==
                CodexConfig.command() <>
-                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"'"
+                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"' --config features.default_mode_request_user_input=true"
     end
   end
 

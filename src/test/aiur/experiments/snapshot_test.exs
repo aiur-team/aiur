@@ -12,7 +12,7 @@ defmodule Aiur.Experiments.SnapshotTest do
     previous = Application.get_env(:aiur, :experiments_dir)
     Application.put_env(:aiur, :experiments_dir, Path.join(root, "state"))
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     source = %{"kind" => "event_interval", "start" => "job.started", "end" => "job.finished", "unit_key" => "/id", "attrs" => %{"complexity" => "/complexity"}}
     metric = %{id: "latency", label: "Latency", unit: "ms", unit_of_analysis: "job", kind: "duration", better: "lower", default_direction: "decrease", group: "flow", requires: [], source: source}
     pack = %{schema_version: 1, id: "app", version: "1", metrics: [metric]}
@@ -89,6 +89,36 @@ defmodule Aiur.Experiments.SnapshotTest do
     assert {:ok, latest} = Snapshot.latest(spec.id, "before")
     assert latest == revision
     assert List.last(Experiments.journal(spec.id))["reason"] == "more complete"
+  end
+
+  test "imports a hash-pinned summary without manufacturing observations and preserves revisions" do
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
+
+    source =
+      Jason.encode!(%{
+        "window_start" => "2026-10-01T00:00:00Z",
+        "cut" => "2026-10-01T17:00:00Z",
+        "primary" => %{"latency" => %{"all" => %{"n" => 27, "median_h" => 0.775, "p25_h" => 0.694, "p75_h" => 3.633}}}
+      })
+
+    sha = :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+    opts = [metric_ref: "app/latency", summary_path: ["primary", "latency", "all"]]
+
+    assert {:error, :invalid_baseline} = Experiments.import_baseline(spec.id, source, String.duplicate("0", 64), opts)
+    assert {:ok, first} = Experiments.import_baseline(spec.id, source, sha, opts)
+    assert first["revision"] == 1
+    assert first["observation_count"] == 0
+    assert first["metrics"]["app/latency"]["observations"] == []
+    assert first["metrics"]["app/latency"]["summary"]["n"] == 27
+    assert first["metrics"]["app/latency"]["summary"]["median"] == 0.775
+    assert first["baseline_import"]["source_bytes_base64"] |> Base.decode64!() == source
+    assert [%{"kind" => "created"}, %{"kind" => "baseline_imported", "source_sha256" => ^sha}] = Experiments.journal(spec.id)
+
+    assert {:error, {:reason_required, 1}} = Experiments.import_baseline(spec.id, source, sha, opts)
+    assert {:ok, second} = Experiments.import_baseline(spec.id, source, sha, Keyword.put(opts, :reason, "source revalidated"))
+    assert second["revision"] == 2
+    assert {:ok, shown} = Experiments.fetch(spec.id)
+    assert Enum.map(shown.snapshots, & &1["revision"]) == [1, 2]
   end
 
   test "50001 observations refuse without any snapshot or pending write", %{ctx: ctx} do

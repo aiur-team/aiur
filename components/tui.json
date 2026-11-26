@@ -20,9 +20,12 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
+    "event-bus",
     "harness-adapters",
+    "listener-modes",
     "orchestration",
-    "projections"
+    "projections",
+    "signal"
   ],
   "optional": [],
   "owns": {
@@ -32,6 +35,8 @@
       "pre_warmed_sessions"
     ],
     "env": [
+      "AIUR_AGENT_TMUX_SOCKET",
+      "AIUR_TMUX_CONF",
       "AIUR_TMUX_SESSION",
       "AIUR_TMUX_SOCKET",
       "COLORTERM",
@@ -56,9 +61,7 @@
     "guide/tui.md"
   ],
   "config": [
-    "max_vertical_panes",
-    "opencode",
-    "pre_warmed_sessions"
+    "opencode"
   ],
   "env": [
     "AIUR_TMUX_SESSION",
@@ -68,5 +71,6 @@
     "LINES",
     "TMUX_PANE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

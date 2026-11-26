@@ -20,6 +20,7 @@ defmodule Aiur.Issue do
     :url,
     :assignee_id,
     :pr_head_ref,
+    :continuation_head_ref,
     :selected_backend,
     :selected_model,
     # The account a headroom dispatch chose for `selected_backend` (#3960), and
@@ -55,9 +56,12 @@ defmodule Aiur.Issue do
     # ticket and comment-driven rework is refused, even when an `agent:*` state
     # label is present. `false` for every tracker backend that lacks the marker.
     parked: false,
+    # Owner-valued Executor hold; unlike a paused worker, this uses no slot.
+    executor_owner: nil,
     queued: false,
     blocked_by: [],
     labels: [],
+    label_descriptions: %{},
     assigned_to_worker: true,
     created_at: nil,
     updated_at: nil
@@ -97,8 +101,10 @@ defmodule Aiur.Issue do
           dispatch_authorized?: boolean(),
           dispatch_authorization: :authorized | :denied | :deferred,
           parked: boolean(),
+          executor_owner: String.t() | nil,
           queued: boolean(),
           labels: [String.t()],
+          label_descriptions: %{optional(String.t()) => String.t()},
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -120,6 +126,14 @@ defmodule Aiur.Issue do
 
   @spec parked?(t(), map()) :: boolean()
   def parked?(issue, running_entry), do: parked?(issue) or Map.get(running_entry, :operator_parked) == true
+
+  @doc "Returns whether an issue is held from automatic fleet work."
+  @spec held?(t()) :: boolean()
+  def held?(issue), do: parked?(issue) or not is_nil(executor_owner(issue))
+
+  @spec executor_owner(t()) :: String.t() | nil
+  def executor_owner(%__MODULE__{executor_owner: owner}) when is_binary(owner) and owner != "", do: owner
+  def executor_owner(_issue), do: nil
 
   @doc "Returns whether the issue carries the build-queue marker."
   @spec queued?(t()) :: boolean()

@@ -7,7 +7,11 @@ defmodule Aiur.Config.Schema.Compaction.AutoTrigger do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-15 compaction.auto_trigger.enabled
+    # @config-detail compaction.auto_trigger.enabled | boolean | false | Opt in to compaction when cumulative agent token usage reaches the configured threshold at human-review handoff. |
     field(:enabled, :boolean, default: false)
+    # @config-reference config-configuration-15 compaction.auto_trigger.token_threshold
+    # @config-detail compaction.auto_trigger.token_threshold | integer | 50000 | Minimum cumulative agent tokens required for threshold mode (must be at least 1000). |
     field(:token_threshold, :integer, default: 50_000)
   end
 
@@ -29,11 +33,18 @@ defmodule Aiur.Config.Schema.Compaction do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-15 compaction.enabled
+    # @config-detail compaction.enabled | boolean | false | Master switch for compaction; must be true to enable any compaction features. |
     field(:enabled, :boolean, default: false)
+    # @config-reference config-configuration-15 compaction.backends
+    # @config-detail compaction.backends | array | [] | Must contain only `codex`; every other provider is rejected by config validation. |
     field(:backends, {:array, :string}, default: [])
+    # @config-reference config-configuration-15 compaction.manual_approval
+    # @config-detail compaction.manual_approval | boolean | false | Explicit opt-in to compact on terminal handoff. |
     field(:manual_approval, :boolean, default: false)
     embeds_one(:auto_trigger, Aiur.Config.Schema.Compaction.AutoTrigger, on_replace: :update, defaults_to_struct: true)
-
+    # @config-reference config-configuration-15 compaction.timeout_ms
+    # @config-detail compaction.timeout_ms | integer | 30000 | Timeout in milliseconds for compaction API calls. |
     field(:timeout_ms, :integer, default: 30_000)
   end
 

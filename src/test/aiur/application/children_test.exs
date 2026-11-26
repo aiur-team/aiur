@@ -2,8 +2,29 @@ defmodule Aiur.Application.ChildrenTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Application.Children
+  alias Aiur.Executor.StatePaths
 
   describe "child_specs/1 run-shape gating" do
+    test "IdGenerator child spec supplies the application-owned floor sources" do
+      for shape <- [[interactive_cli?: true, headless?: false, dashboard?: true], [interactive_cli?: false, headless?: true, dashboard?: false]] do
+        child =
+          shape
+          |> AiurApp.child_specs()
+          |> Enum.find(fn
+            {Aiur.Events.IdGenerator, _opts} -> true
+            Aiur.Events.IdGenerator -> true
+            _ -> false
+          end)
+          |> Supervisor.child_spec([])
+
+        assert child.id == Aiur.Events.IdGenerator
+        assert {Aiur.Events.IdGenerator, :start_link, [opts]} = child.start
+        assert Keyword.fetch!(opts, :floor_files).() == [StatePaths.journal_path()]
+        assert Keyword.fetch!(opts, :legacy_counter_files) == (&Aiur.IdFloorSources.legacy_counter_files/0)
+      end
+    end
+
     @terminal_only [
       Aiur.Tmux,
       Aiur.PaneManager,
@@ -37,6 +58,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.GitHub.HoldPressure,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
@@ -46,6 +68,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.DaemonHeartbeatWriter,
+      Aiur.ExecutorSweep,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -59,6 +82,13 @@ defmodule Aiur.Application.ChildrenTest do
       end)
     end
 
+    defp global_service_supervisor?(specs) do
+      Enum.any?(specs, fn
+        {DynamicSupervisor, opts} -> Keyword.get(opts, :name) == Aiur.Instance.GlobalServices
+        _ -> false
+      end)
+    end
+
     test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -66,6 +96,38 @@ defmodule Aiur.Application.ChildrenTest do
           ] do
         assert Aiur.DaemonHeartbeatWriter in modules(AiurApp.child_specs(opts))
       end
+    end
+
+    test "secondary instance delegates repository global services to the lease owner" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+      assert Aiur.Orchestrator in mods
+      assert Aiur.PRLifecycle.HealthScanner in mods
+    end
+
+    test "repository services default on when the switch is not configured" do
+      previous = Application.fetch_env(:aiur, :repository_services?)
+      Application.delete_env(:aiur, :repository_services?)
+
+      try do
+        specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true)
+        {Aiur.Instance.RepositoryLeader, leader_opts} = Enum.find(specs, &match?({Aiur.Instance.RepositoryLeader, _}, &1))
+
+        assert Keyword.fetch!(leader_opts, :services) == [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch]
+      after
+        with {:ok, value} <- previous, do: Application.put_env(:aiur, :repository_services?, value)
+      end
+    end
+
+    test "primary instance gives repository global services to the dynamic leader supervisor" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
     end
 
     test "interactive run starts the full UI stack" do
@@ -81,11 +143,99 @@ defmodule Aiur.Application.ChildrenTest do
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
 
+    test "agent budget socket is supervised only with a shared lease store" do
+      previous_config = Application.fetch_env(:aiur, :lease_database_url)
+      previous_env = System.get_env("AIUR_LEASE_DATABASE_URL")
+      Application.delete_env(:aiur, :lease_database_url)
+      System.delete_env("AIUR_LEASE_DATABASE_URL")
+
+      on_exit(fn ->
+        restore_config(:lease_database_url, previous_config)
+        restore_system_env("AIUR_LEASE_DATABASE_URL", previous_env)
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+      refute Aiur.GitHub.AgentBudgetSocket in modules(AiurApp.child_specs(opts))
+
+      Application.put_env(:aiur, :lease_database_url, "postgres://shared-store/aiur")
+      assert Aiur.GitHub.AgentBudgetSocket in modules(AiurApp.child_specs(opts))
+    end
+
+    defp restore_config(key, {:ok, value}), do: Application.put_env(:aiur, key, value)
+    defp restore_config(key, :error), do: Application.delete_env(:aiur, key)
+
+    defp restore_system_env(key, nil), do: System.delete_env(key)
+    defp restore_system_env(key, value), do: System.put_env(key, value)
+
+    test "headless dashboard run starts the HTTP server without terminal pane services" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.HttpServer in mods
+      refute Aiur.PaneManager in mods
+      refute Aiur.AgentList.App in mods
+    end
+
     test "headless boots measurably fewer children than interactive" do
       interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
       headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
 
       assert length(headless) < length(interactive)
+    end
+
+    test "export enabled without a webhook starts only the Exporter and isolates Delivery from the Orchestrator" do
+      previous = Application.get_env(:aiur, :workflow_file_path)
+      dir = Aiur.TestSupport.tmp_root!("journal-only-children")
+      File.mkdir_p!(dir)
+      path = Path.join(dir, "config")
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      events:
+        export:
+          enabled: true
+      """)
+
+      Aiur.Workflow.set_workflow_file_path(path)
+
+      on_exit(fn ->
+        if is_nil(previous), do: Aiur.Workflow.clear_workflow_file_path(), else: Aiur.Workflow.set_workflow_file_path(previous)
+        Aiur.TestCleanup.rm_rf!(dir)
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+      journal_only = modules(AiurApp.child_specs(opts))
+
+      assert Aiur.Events.Export.Exporter in journal_only
+      refute Aiur.Events.Outbound.Delivery in journal_only
+
+      File.write!(path, """
+      tracker:
+        kind: memory
+      events:
+        export:
+          enabled: true
+          webhook_url: https://consumer.example.com/webhooks/aiur
+      """)
+
+      assert :ok = Aiur.WorkflowStore.force_reload()
+
+      enabled_specs = AiurApp.child_specs(opts)
+      enabled = modules(enabled_specs)
+
+      assert Aiur.Events.Export.Exporter in enabled
+      assert Aiur.Events.Outbound.Delivery in enabled
+
+      {Aiur.Events.Outbound.Delivery, delivery_opts} =
+        Enum.find(enabled_specs, &match?({Aiur.Events.Outbound.Delivery, _opts}, &1))
+
+      assert Keyword.fetch!(delivery_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Orchestrator)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter))
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery))
     end
 
     test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
@@ -304,7 +454,7 @@ defmodule Aiur.Application.ChildrenTest do
       assert {Aiur.Tmux, name: Aiur.Tmux} in specs
       assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
       assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
-      assert {Aiur.DecisionStore, name: Aiur.DecisionStore} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &Children.premise_notifier/1} in specs
       assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
@@ -327,6 +477,7 @@ defmodule Aiur.Application.ChildrenTest do
       # The flake this guards (#1745): a live ticker replaces the singleton
       # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
       # vanishes before that test asserts on it.
+      assert :ok = Aiur.TestSupport.ensure_branch_ref_store_running()
       assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
       refute Process.whereis(Aiur.Events.LsRemoteTicker)
     end

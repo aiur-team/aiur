@@ -5,6 +5,7 @@
   "kind": "in-app",
   "paths": [
     ".claude/skills/**",
+    "packages/nightly-release/**",
     "src/prompts/**"
   ],
   "facades": [
@@ -31,5 +32,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

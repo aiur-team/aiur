@@ -71,8 +71,7 @@
 }
 
 .command-search-controls,
-.command-pagination,
-.decision-option-preview {
+.command-pagination {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -222,15 +221,10 @@
   font-size: 0.88rem;
 }
 
-.decision-option-preview {
-  margin-top: 0.55rem;
-}
-
 .decision-card-foot,
 .decision-card-side,
 .actor-tag,
 .link-list,
-.fleet-actions,
 .outcome-card footer,
 .outcome-card header {
   display: flex;
@@ -244,16 +238,29 @@
 }
 
 .decision-card-side {
-  flex-direction: column;
-  align-items: flex-end;
+  flex-wrap: nowrap;
 }
 
-.expand-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+/* Secondary detail sits behind one disclosure so the card stays compact. */
+.decision-more {
+  padding: 0 1.05rem 0.85rem 1.25rem;
   color: var(--muted);
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.69rem;
+  font-size: 0.82rem;
+}
+
+.decision-more > summary {
+  width: fit-content;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.decision-more > summary:focus-visible {
+  outline: 2px solid var(--aiur-color-focus);
+  outline-offset: 3px;
+}
+
+.decision-recommendation {
+  margin: 0.45rem 0 0;
 }
 

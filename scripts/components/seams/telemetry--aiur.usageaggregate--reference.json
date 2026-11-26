@@ -1,0 +1,9 @@
+{
+  "from": "telemetry",
+  "to_module": "Aiur.UsageAggregate",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/run_telemetry/usage_capture.ex"
+  ],
+  "reason": "#3796: off-path fail-open terminal capture queries optional accounting totals"
+}

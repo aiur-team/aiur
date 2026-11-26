@@ -24,7 +24,7 @@ class RatchetTests(unittest.TestCase):
         shutil.copyfile(REPO / 'components.schema.json', self.root / 'components.schema.json')
         manifest_path = self.root / 'components.json'
         manifest = json.loads(manifest_path.read_text())
-        manifest.update(components=[public_fields(c) for c in manifest['components']], features=[])
+        manifest.update(directory_published=False, components=[public_fields(c) for c in manifest['components']], features=[])
         manifest_path.write_text(json.dumps(manifest))
         self.path = self.root / 'scripts/components/allowlist/a.tsv'
         self.original = self.path.read_text()

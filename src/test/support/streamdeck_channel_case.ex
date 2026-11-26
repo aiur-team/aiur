@@ -1,11 +1,14 @@
 Code.require_file("streamdeck_fleet_fixture.ex", __DIR__)
+Code.require_file("streamdeck_build_fixture.ex", __DIR__)
 
 defmodule AiurWeb.StreamdeckChannelCase do
+  alias Aiur.TestSupport.BuildHome.UsageInputs
   @moduledoc false
   use ExUnit.CaseTemplate
   import Phoenix.ChannelTest
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
+  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren, StreamdeckBuildFixture}
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -14,6 +17,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
     quote do
       import Phoenix.ChannelTest
       import Aiur.TestSupport, only: [receive_barrier: 1]
+      use Aiur.TestScopeGuard
 
       import Plug.Conn, only: [put_req_header: 3]
       import Plug.Test
@@ -89,6 +93,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
       "question" => "Ship the change?",
       "blocking" => true,
       "authority" => "human_required",
+      "context" => %{"authority_basis" => "product"},
       "reversibility" => "reversible",
       "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
     }
@@ -103,6 +108,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   end
 
   def setup_channel do
+    :ok = RuntimeChildren.ensure_financial_data_running()
     original_config = Application.get_env(:aiur, Endpoint, [])
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -121,12 +127,14 @@ defmodule AiurWeb.StreamdeckChannelCase do
         secret_key_base: String.duplicate("s", 64),
         dashboard_auth_required: false,
         streamdeck_snapshot_fun: fn -> snapshot() end,
+        streamdeck_build_window_fun: fn _, _, _ -> StreamdeckBuildFixture.window(snapshot()) end,
         streamdeck_fleet_subscribe_fun: StreamdeckFleetFixture.subscription(),
-        streamdeck_provider_meters_fun: fn -> %{codex: %{state: :observed}, claude: %{state: :unknown}} end,
+        streamdeck_usage_load_fun: fn _, _ -> UsageInputs.inputs() end,
         streamdeck_decisions_fun: fn -> %{count: 2} end,
         streamdeck_transcript_flush_ms: 20
       )
 
+    config = EndpointStubs.scope(config)
     Application.put_env(:aiur, Endpoint, config)
 
     Aiur.TestSupport.start_owned_endpoint!()
@@ -143,7 +151,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
 
   def put_endpoint_config(extra) do
     previous = Application.get_env(:aiur, Endpoint, [])
-    config = Keyword.merge(previous, extra)
+    config = previous |> Keyword.merge(extra) |> EndpointStubs.scope()
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous)

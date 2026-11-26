@@ -18,9 +18,11 @@ def client_imports(root):
         source, specifier, resolved = row.split('\t')
         package = root.joinpath(*Path(source).parts[:2])
         if package not in manifests:
-            manifest = json.loads((package / 'package.json').read_text())
-            manifests[package] = {name for key in ('dependencies', 'devDependencies', 'peerDependencies')
-                                  for name in manifest.get(key, {})}
+            manifest_path = package / 'package.json'
+            manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
+            manifests[package] = ({manifest.get('name')} |
+                                  {name for key in ('dependencies', 'devDependencies', 'peerDependencies')
+                                   for name in manifest.get(key, {})}) - {None}
         reason = client_reason(root, package, manifests[package], specifier, resolved)
         if reason:
             problems.append((source, f'R-client: {specifier}: {reason}'))
@@ -73,8 +75,6 @@ def resource_attributes(text):
 
 def reverse_resources(root, files):
     problems = []
-    allowed = ('src/lib/aiur_web/streamdeck_key_face_contract.ex',
-               'packages/streamdeck/src/key-face-contract.json')
     for source in files:
         if not source.startswith('src/lib/') or not source.endswith('.ex'):
             continue
@@ -95,8 +95,5 @@ def reverse_resources(root, files):
             if not target.is_relative_to(root / 'packages'):
                 continue
             relative = target.relative_to(root).as_posix()
-            if (source, relative) == allowed:
-                print(f'components: {source}: R-reverse-resource: allowlisted {relative} (MP-R6 owns)')
-            else:
-                problems.append((source, f'R-reverse-resource: {relative}'))
+            problems.append((source, f'R-reverse-resource: {relative}'))
     return problems

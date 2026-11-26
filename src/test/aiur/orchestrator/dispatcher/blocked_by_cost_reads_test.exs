@@ -33,6 +33,65 @@ defmodule Aiur.Orchestrator.Dispatcher.BlockedByCostReadsTest do
     refute_received {:github, _path}
   end
 
+  test "a dispatch gate refreshes a truncated cache across pages and holds the page-two open blocker" do
+    issue_number = "14"
+    edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", issue_number)
+    truncated = Enum.map(1..30, &%{"number" => &1})
+    ResourceStore.put_resource(edges_key, truncated, source: :fetch, etag: "old-page-one")
+    OpenIssueSnapshot.put("owner", "repo", [1_000])
+
+    first_page =
+      Enum.map(1..100, fn number ->
+        %{
+          "number" => number,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "repository_url" => "https://api.github.com/repos/owner/repo",
+          "state" => "closed",
+          "labels" => [],
+          "updated_at" => "2026-09-18T02:00:00Z"
+        }
+      end)
+
+    second_page = [
+      %{
+        "number" => 1_000,
+        "html_url" => "https://github.com/owner/repo/issues/1000",
+        "repository_url" => "https://api.github.com/repos/owner/repo",
+        "state" => "open",
+        "labels" => [%{"name" => "sym:in-progress"}],
+        "updated_at" => "2026-09-18T02:00:00Z"
+      }
+    ]
+
+    test_pid = self()
+
+    Req.Test.stub(Aiur.DispatcherBlockedByCostSupport, fn conn ->
+      send(test_pid, {:blocked_by_read, issue_number, Plug.Conn.get_req_header(conn, "if-none-match")})
+
+      if conn.query_string =~ "page=2" do
+        Req.Test.json(conn, second_page)
+      else
+        next_url =
+          "https://api.github.com/repos/owner/repo/issues/#{issue_number}/dependencies/blocked_by?per_page=100&page=2"
+
+        conn
+        |> Plug.Conn.put_resp_header("link", "<#{next_url}>; rel=\"next\"")
+        |> Req.Test.json(first_page)
+      end
+    end)
+
+    assert {:ok, hydrated} = Issues.hydrate_blocked_by(candidate(issue_number))
+    assert Enum.any?(hydrated.blocked_by, &(&1.id == "1000" and &1.state == "in-progress"))
+    assert Enum.count(ResourceStore.data(edges_key)) == 101
+    assert blocked_by_reads() == [issue_number, issue_number]
+
+    state = run_pass(candidate(issue_number))
+    assert state.dispatch_declines[issue_number] == :dependency
+    refute Map.has_key?(state.running, issue_number)
+    refute_received {:agent_runner_run, _dispatched, _recipient, _opts}
+    assert blocked_by_reads() == []
+  end
+
   test "a blocker closing in the :issue store releases its dependent on the next pass with no blocked_by read" do
     stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
 

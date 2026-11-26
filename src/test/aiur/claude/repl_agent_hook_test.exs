@@ -13,7 +13,11 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     {:ok, _pid} =
       start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
 
-    %{tmux: name}
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+    Process.put(:hook_test_pubsub, pubsub)
+
+    %{tmux: name, pubsub: pubsub}
   end
 
   # Respond to one mock tmux call framed like the control-mode wire format.
@@ -24,6 +28,9 @@ defmodule Aiur.Claude.ReplAgentHookTest do
   defp respond_error(tmux, body) do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%error 1 1 0\n"})
   end
+
+  defp dispatch_hook(identifier, raw),
+    do: HookEvents.dispatch(identifier, raw, pubsub: Process.get(:hook_test_pubsub))
 
   defp turn_session(tmux, transcript_path, pane) do
     %{
@@ -62,7 +69,7 @@ defmodule Aiur.Claude.ReplAgentHookTest do
   defp hook_session(tmux, identifier, pane \\ "%50") do
     tmux
     |> turn_session(nil, pane)
-    |> Map.merge(%{remote_control: true, identifier: identifier})
+    |> Map.merge(%{remote_control: true, identifier: identifier, pubsub: Process.get(:hook_test_pubsub)})
   end
 
   # The hook path pastes, waits (read-only) for the paste to land in the input
@@ -106,7 +113,7 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     expect_hook_prompt_submit(tmux)
 
     :ok =
-      HookEvents.dispatch(identifier, %{
+      dispatch_hook(identifier, %{
         "hook_event_name" => "Stop",
         "last_assistant_message" => "ok"
       })
@@ -137,7 +144,7 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     drain_captures_until_enter(tmux)
 
     :ok =
-      HookEvents.dispatch(identifier, %{
+      dispatch_hook(identifier, %{
         "hook_event_name" => "Stop",
         "last_assistant_message" => "ok"
       })
@@ -184,10 +191,10 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     # PostToolUse is a liveness heartbeat for turn detection only; Stop carries
     # the answer for the runner's bookkeeping. Neither paints the pane — the
     # conversation is rendered by Aiur.Claude.DisplayTailer from the transcript.
-    :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "PostToolUse", "tool_name" => "Bash"})
+    :ok = dispatch_hook(identifier, %{"hook_event_name" => "PostToolUse", "tool_name" => "Bash"})
 
     :ok =
-      HookEvents.dispatch(identifier, %{
+      dispatch_hook(identifier, %{
         "hook_event_name" => "Stop",
         "last_assistant_message" => "All done.",
         "session_id" => "sess-1"
@@ -226,7 +233,7 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     send(task.pid, {:agent_queue_updated, identifier, 1, true})
     assert_operator_typed(tmux, "INTERJECT-MSG")
 
-    :ok = HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    :ok = dispatch_hook(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
     assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
   end
 
@@ -265,8 +272,9 @@ defmodule Aiur.Claude.ReplAgentHookTest do
     expect_hook_prompt_submit(tmux)
 
     # First liveness poll reports the pane gone -> :repl_gone (no Stop needed).
-    assert_receive {:tmux_mock_out, "display-message" <> _}, 1_000
-    respond_error(tmux, "no server running")
+    pane_pid_query = "display-message -p -t %50 \#{pane_pid}"
+    assert_receive {:tmux_mock_out, ^pane_pid_query}, 1_000
+    respond_error(tmux, "no server running\n")
 
     assert {:error, :repl_gone} = Task.await(task, 2_000)
   end

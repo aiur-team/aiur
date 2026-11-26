@@ -14,7 +14,7 @@ defmodule Aiur.Experiments.CheckpointerTest do
     end)
 
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     %{id: write_spec("checkpoint-fixture")}
   end
 
@@ -74,8 +74,7 @@ defmodule Aiur.Experiments.CheckpointerTest do
   end
 
   test "at change time the bounded before snapshot is revised only until it covers the final baseline", %{id: id} do
-    {:ok, revisions} = Agent.start_link(fn -> %{"window" => %{"end" => "2026-10-01T11:00:00Z"}} end)
-    on_exit(fn -> if Process.alive?(revisions), do: Agent.stop(revisions) end)
+    revisions = start_supervised!({Agent, fn -> %{"window" => %{"end" => "2026-10-01T11:00:00Z"}} end}, id: make_ref())
 
     ctx = context([])
 

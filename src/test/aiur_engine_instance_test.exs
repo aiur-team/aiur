@@ -86,7 +86,9 @@ defmodule AiurEngineInstanceTest do
     """)
 
     state = tmp_state()
-    base = Aiur.TestSupport.tmp_root!("aiur-control-record")
+    # Identity walks up from fixture cwd, so keep this outside a checkout that
+    # may itself contain `.aiur/config` (including an agent workspace).
+    base = Path.join("/tmp", "aiur-control-record-#{System.pid()}-#{System.unique_integer([:positive])}")
     home = Path.join(base, "home")
     launch_root = Path.join(base, "project")
     subdir = Path.join([launch_root, "nested", "dir"])

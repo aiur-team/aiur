@@ -24,6 +24,18 @@ defmodule Aiur.CodexProber do
   """
   @spec probe_async(String.t(), keyword()) :: :ok
   def probe_async(backend, opts \\ []) when is_binary(backend) do
+    if probe_async_enabled?(opts) do
+      do_probe_async(backend, opts)
+    else
+      :ok
+    end
+  end
+
+  defp probe_async_enabled?(opts) do
+    Keyword.get(opts, :enabled?, Application.get_env(:aiur, :codex_usage_probe_async?, true))
+  end
+
+  defp do_probe_async(backend, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     path = Keyword.get(opts, :path, ModelAvailability.path())
 

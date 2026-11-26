@@ -1,0 +1,162 @@
+{
+  "consumed": 50,
+  "entries": [
+    {
+      "body": "m1"
+    },
+    {
+      "body": "m2"
+    },
+    {
+      "body": "m3"
+    },
+    {
+      "body": "m4"
+    },
+    {
+      "body": "m5"
+    },
+    {
+      "body": "m6"
+    },
+    {
+      "body": "m7"
+    },
+    {
+      "body": "m8"
+    },
+    {
+      "body": "m9"
+    },
+    {
+      "body": "m10"
+    },
+    {
+      "body": "m11"
+    },
+    {
+      "body": "m12"
+    },
+    {
+      "body": "m13"
+    },
+    {
+      "body": "m14"
+    },
+    {
+      "body": "m15"
+    },
+    {
+      "body": "m16"
+    },
+    {
+      "body": "m17"
+    },
+    {
+      "body": "m18"
+    },
+    {
+      "body": "m19"
+    },
+    {
+      "body": "m20"
+    },
+    {
+      "body": "m21"
+    },
+    {
+      "body": "m22"
+    },
+    {
+      "body": "m23"
+    },
+    {
+      "body": "m24"
+    },
+    {
+      "body": "m25"
+    },
+    {
+      "body": "m26"
+    },
+    {
+      "body": "m27"
+    },
+    {
+      "body": "m28"
+    },
+    {
+      "body": "m29"
+    },
+    {
+      "body": "m30"
+    },
+    {
+      "body": "m31"
+    },
+    {
+      "body": "m32"
+    },
+    {
+      "body": "m33"
+    },
+    {
+      "body": "m34"
+    },
+    {
+      "body": "m35"
+    },
+    {
+      "body": "m36"
+    },
+    {
+      "body": "m37"
+    },
+    {
+      "body": "m38"
+    },
+    {
+      "body": "m39"
+    },
+    {
+      "body": "m40"
+    },
+    {
+      "body": "m41"
+    },
+    {
+      "body": "m42"
+    },
+    {
+      "body": "m43"
+    },
+    {
+      "body": "m44"
+    },
+    {
+      "body": "m45"
+    },
+    {
+      "body": "m46"
+    },
+    {
+      "body": "m47"
+    },
+    {
+      "body": "m48"
+    },
+    {
+      "body": "m49"
+    },
+    {
+      "body": "m50"
+    }
+  ],
+  "frame": "<frame>m1\nm2\nm3\nm4\nm5\nm6\nm7\nm8\nm9\nm10\nm11\nm12\nm13\nm14\nm15\nm16\nm17\nm18\nm19\nm20\nm21\nm22\nm23\nm24\nm25\nm26\nm27\nm28\nm29\nm30\nm31\nm32\nm33\nm34\nm35\nm36\nm37\nm38\nm39\nm40\nm41\nm42\nm43\nm44\nm45\nm46\nm47\nm48\nm49\nm50</frame>",
+  "suffix": "…",
+  "template": {
+    "close": "</frame>",
+    "open": "<frame>",
+    "separator": "\n"
+  }
+}

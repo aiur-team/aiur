@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   #
   # This is a code-level refusal rather than an `active_states` edit because
   # `merging` must stay an active state for comment polling
-  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
+  # (`Listeners.Comments.TargetSelection`), the paused-agent sweep, and terminal-fence
   # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
   # sweep as legitimate waiting; refusing it here makes the two beliefs
   # consistent regardless of how an operator configures `active_states`.
@@ -33,11 +33,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # this, a `blocked_by` blocker that is CLOSED on GitHub reads as non-terminal
   # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
   # be blocking anything.
-  @closed_issue_state "closed"
+  @always_terminal_states ~w(closed budget-exhausted)
 
   @doc """
   True when the state is terminal: either configured in `tracker.terminal_states`
-  or the tracker's own closed state (see `@closed_issue_state`).
+  or an always-terminal state (see `@always_terminal_states`).
 
   A non-binary state (an unlabeled ticket, or a blocker whose payload carried no
   derivable state) is NOT terminal — dependency and lifecycle callers stay
@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
     normalized = normalize_issue_state(state_name)
 
-    normalized == @closed_issue_state or MapSet.member?(terminal_states, normalized)
+    normalized in @always_terminal_states or MapSet.member?(terminal_states, normalized)
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false
@@ -110,7 +110,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # win a resolution, so it maps to an index strictly past every other label —
   # including unknown ones (a mistyped or future state, `merging`, `cancelled`)
   # — which keeps an unknown disposition from ever losing to the transient
-  # `ci-wait`. `todo` is a special case (it means "no work has been done yet"
+  # `ci-wait`. `budget-exhausted` is a safety terminal and always wins: a stale
+  # active label must not restart a ticket after its cap stopped the agent.
+  # `todo` is otherwise a special case (it means "no work has been done yet"
   # rather than a disposition) handled below.
   @state_precedence ~w(rework in-progress human-review error done)
   @ci_wait_state "ci-wait"
@@ -119,7 +121,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   Deterministically resolves a set of contradictory `agent:*` state labels to
   the single state a ticket should be treated as.
 
-  `rework` means "work exists and was rejected"; `todo` means "no work exists
+  `budget-exhausted` is a safety terminal and always wins so a stale active
+  label cannot restart a ticket after its cap stopped the agent.
+
+  Otherwise, `rework` means "work exists and was rejected"; `todo` means "no work exists
   yet to redo". When both are present they contradict, and `todo` wins: a
   ticket that is also `todo` has not been worked, so any `rework` verdict
   stamped alongside it is the artifact of a broken writer, and "pick this up
@@ -150,6 +155,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
       |> Enum.uniq()
 
     cond do
+      "budget-exhausted" in normalized ->
+        "budget-exhausted"
+
       "todo" in normalized ->
         "todo"
 

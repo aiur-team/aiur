@@ -121,7 +121,7 @@ Keep cadence, streak lengths, observation windows and dwell as versioned package
 
 `aiur status` should show mode, observed live settings, recommended settings, reason, observation time, age/freshness, sample completeness and pin. In recommend mode an operator applies a reviewed change using existing repository-admin tooling; Aiur never implicitly invokes it. Config docs belong in `website/docs-app/reference/merge-policy.md` and its configuration index link, CLI output docs in `reference/cli.md`, safety model in the existing security docs.
 
-Changing a repository ruleset requires **Administration write** using an installation token or a fine-grained PAT. [GitHub REST authority](https://docs.github.com/en/rest/repos/rules#update-a-repository-ruleset). Current Aiur App guidance expressly excludes Administration (`website/docs-app/apis/github.md`); do not broaden that App or use an agent credential.
+Changing a repository ruleset requires **Administration write** using an installation token or a fine-grained PAT. [GitHub REST authority](https://docs.github.com/en/rest/repos/rules#update-a-repository-ruleset). Current Aiur App guidance expressly excludes Administration ([GitHub credentials](/website/docs-app/apis/github-auth.md)); do not broaden that App or use an agent credential.
 
 If apply is later authorized, use a separate operator-owned, repository-scoped App with Administration write, isolated in the daemon's credential broker and never inherited by workers. Its installation must be explicitly approved by an administrator. Credential wiring/environment names require their own security design and docs; none are introduced here. Recommendation mode needs no new privileged credential.
 

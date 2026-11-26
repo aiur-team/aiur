@@ -64,23 +64,18 @@ defmodule Aiur.GitTest do
       fake_git = Path.join(tmp, "git")
 
       File.write!(fake_git, """
-      #!/bin/sh
-      while true
-      do
-        echo heartbeat
-        sleep 0.1
-      done
+      #!/usr/bin/env python3
+      import sys
+      import time
+
+      while True:
+          print("heartbeat", flush=True)
+          time.sleep(0.01)
       """)
 
       File.chmod!(fake_git, 0o755)
 
-      on_exit(fn ->
-        if pkill = System.find_executable("pkill") do
-          System.cmd(pkill, ["-f", fake_git], stderr_to_stdout: true)
-        end
-
-        Aiur.TestCleanup.rm_rf!(tmp)
-      end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
 
       task =
         Task.async(fn ->

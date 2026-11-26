@@ -99,7 +99,12 @@ defmodule Aiur.BuildOrder.FeatureStats do
   defp added_count(baseline, members), do: Enum.count(members, fn {n, _} -> not MapSet.member?(baseline.members, n) end)
   defp also_count(also, slug, members), do: Enum.count(also, fn {n, links} -> slug in links and not Map.has_key?(members, n) end)
 
+  # One member with an unknown join date makes every day's scope count unknown (nil), never a guess.
   defp spark(members, now) do
+    if Enum.all?(members, fn {_n, owner} -> match?(%DateTime{}, owner.joined_at) end), do: known_spark(members, now)
+  end
+
+  defp known_spark(members, now) do
     joins = Enum.map(members, fn {_n, owner} -> DateTime.to_unix(owner.joined_at, :millisecond) end) |> Enum.sort()
     # ponytail: no scope-series cap; C12-T06 measures payloads before adding one.
     series =

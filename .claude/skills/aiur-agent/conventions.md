@@ -30,9 +30,9 @@ creation request with one explicit disposition:
   (`agent:todo` in the standard workflow);
 - deliberately parked work carries `needs-triage` or `human:todo`, with the
   reason in its body;
-- Build Order roots carry `build-order`; containers named `Epic:` carry `epic`.
-  These are hierarchy, not executable work, so they do not receive
-  `agent:todo`.
+- Build Order roots carry `build-order`; hierarchy containers named `Epic:`
+  carry `epic`. These are hierarchy, not executable work, so they do not
+  receive `agent:todo`.
 
 Set the label in the `gh issue create --label ...` command. Do not create an
 unlabelled issue and rely on a follow-up edit: a failed or forgotten second
@@ -45,6 +45,8 @@ refused; use `gh issue create --label ...` so the disposition can be checked.
 The repository's pre-tool hook applies the same rule to Executor Bash calls and
 recognizable non-`gh` GitHub issue creation.
 
+**Give every finding you file a home-page lane.** An epic holds features, a feature holds tickets, and a lane is the technical column a ticket belongs to. After issue creation returns the number, call `aiur_set_lane {"epic":"infra","ids":[101]}` (the argument key is still `epic`; replace the example lane key and id); Aiur records you as the actor. Use a configured lane key only; an unknown key is refused with the list of valid keys, so read that error rather than guess. If the finding belongs to a feature, use `aiur_feature {"op":"add","slug":"docs-site","ids":[101]}` instead, replacing the slug and id. If you cannot tell which lane fits, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. If the tool is absent or build history is unavailable, skip the step and say so in the workpad; never block filing on it.
+
 ## Out-of-scope findings
 
 While working on an issue, if you find a separate, real problem that is **not**
@@ -52,8 +54,14 @@ required to ship the current task, do not silently fix it inside the same PR.
 Instead:
 
 1. Open a new GitHub issue describing the finding (clear title, evidence,
-   suggested fix if obvious) and apply `needs-triage` in that same creation
-   request so the user triages it before any agent picks it up.
+   suggested fix if obvious) and give it its disposition in that same creation
+   request:
+   - a defect with evidence — the command and its output, a CI run id, or a
+     file and line reference — gets `agent:todo` so dispatch can pick it up;
+   - only a finding that needs a human decision (scope, policy, or no
+     reproducible evidence yet) gets `needs-triage`, with that question in the
+     body. Nothing triages these automatically; the Executor sees them through
+     the `TRIAGE` line in `aiur status` and a wake after an hour.
 2. Reference the issue you're currently working on inside the new issue (e.g.,
    "surfaced while working on #N").
 3. Add a comment on your current issue with a link to the new issue (e.g.,
@@ -62,6 +70,14 @@ Instead:
 Keep the current PR focused on the originally-scoped change.
 
 ## Tooling environment
+
+### Build-gate occupancy
+
+Use `aiur status` and its `BUILD GATE HOLDER` / `BUILD GATE QUEUED` lines to
+understand build-slot occupancy. Do not inspect raw files in
+`~/.aiur/build-gate/` as lease evidence: owner candidates and handshake
+publication files are not slot leases. A full gate is shown by live holders
+and queued work in status.
 
 Aiur pre-configures `HEX_HOME`, `MIX_HOME`, and `MISE_TRUSTED_CONFIG_PATHS` for
 you, pointing at per-workspace directories. `mise trust` has already been run for
@@ -75,6 +91,14 @@ workspace-setup notes) and the manual-test-guard rule (in the shared
 instructions' "Manual CLI verification" section); follow those for anything mix-
 or `scripts/`-specific.
 
+## Temporary-path cleanup
+
+Never delete anything under `/tmp/.X11-unix`, `/tmp/.ICE-unix`, or a
+`/tmp/.X*-lock` path; these can belong to the live desktop session. Never
+sweep `/tmp` by age, owner, or glob, including `/tmp/*` and `/tmp/.*`. Delete
+only exact paths you created, by exact name. Use the workspace scratch helper
+(`$TMPDIR`, under `~/.aiur`) for temporary files.
+
 ## Synthetic load repros
 
 Never generate real CPU load to test or reproduce load-sensitive code: no `yes`,
@@ -83,5 +107,6 @@ the background. Inject the pressure through the code's test seam instead (the
 injectable load reader, clock, or sampler the code under test already takes),
 and reproduce flakes deterministically with seeded ordering, repeat-until-failure
 loops, and fault injection. Backgrounded generators outlive the command that
-started them and starve every other agent on the shared host; Aiur reports
-them to the Executor with your workspace named, and kills them where configured.
+started them and starve every other agent on the shared host. Aiur kills every
+process an agent command leaves behind when the turn ends, and reports load
+generators to the Executor with your workspace named.

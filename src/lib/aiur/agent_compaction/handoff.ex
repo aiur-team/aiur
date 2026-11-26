@@ -130,7 +130,7 @@ defmodule Aiur.AgentCompaction.Handoff do
   defp run_codex_compaction(session, identifier, turn_number, on_status) do
     thread_id = Map.get(session, :thread_id)
 
-    case Orchestrator.trigger_compaction(session, "codex", turn_number, on_status: on_status) do
+    case Orchestrator.trigger_compaction(Map.put(session, :backend, "codex"), "codex", turn_number, on_status: on_status) do
       {:ok, :completed, state} ->
         _ = Store.save(identifier, %{"thread_id" => thread_id, "compacted_thread_id" => state.compacted_transcript_ref, "status" => "completed"})
         Logger.info("Codex compaction completed before review handoff identifier=#{identifier}")

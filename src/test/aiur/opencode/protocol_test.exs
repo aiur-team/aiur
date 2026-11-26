@@ -29,7 +29,7 @@ defmodule Aiur.Opencode.ProtocolTest do
     assert Map.keys(config["provider"]) == ["aiur"]
     assert config["model"] == "aiur/issue-MT-1"
     assert get_in(config, ["provider", "aiur", "options", "apiKey"]) == "secret"
-    refute inspect(config) =~ "anthropic"
+    Aiur.TestSupport.refute_leak(config, "anthropic")
     refute Map.has_key?(config["provider"], "openai")
     refute Map.has_key?(config, "aiur_metadata")
   end

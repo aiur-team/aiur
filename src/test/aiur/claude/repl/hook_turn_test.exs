@@ -1,6 +1,8 @@
 defmodule Aiur.Claude.Repl.HookTurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.Claude.HookEvents
   alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Tmux
@@ -12,8 +14,15 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     {:ok, _pid} =
       start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
 
-    %{tmux: name}
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+    Process.put(:hook_test_pubsub, pubsub)
+
+    %{tmux: name, pubsub: pubsub}
   end
+
+  defp dispatch_hook(identifier, raw),
+    do: HookEvents.dispatch(identifier, raw, pubsub: Process.get(:hook_test_pubsub))
 
   defp respond(tmux, body) do
     send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%end 1 1 0\n"})
@@ -34,6 +43,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
       remote_control: true,
       rc_name: "x",
       identifier: identifier,
+      pubsub: Process.get(:hook_test_pubsub),
       tmux: tmux
     }
   end
@@ -78,6 +88,74 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     end
   end
 
+  test "steer wake types mid-turn while false wake leaves input held", %{tmux: tmux} do
+    identifier = "HT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+
+    on_operator = fn ->
+      send(parent, :operator_claimed)
+      {:deliver_text, "native steer", fn _ -> send(parent, :operator_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10, on_steer_claim: on_operator, on_operator_message: fn -> flunk("steer must not claim a held sync item") end) end)
+    expect_prompt_submit(tmux)
+    # False-wake behavior is an intentional existing-behavior guard.
+    send(task.pid, {:agent_queue_updated, "test", 1, false})
+    send(task.pid, {:agent_queue_updated, "test", 2, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:operator_claimed)
+    receive_barrier(:operator_delivered)
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+    refute_received :operator_claimed
+    refute_received {:delivery_failed, _}
+  end
+
+  @tag timeout: 5_000
+  test "adopted turn types steer input through the selective claim", %{tmux: tmux} do
+    identifier = "HT-ADOPT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+    state = %{repl_acc: %{session_id: nil, message: nil, provider_delivered?: false}}
+
+    on_steer_claim = fn ->
+      {:deliver_text, "native steer", fn _ -> send(parent, :adopted_steer_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task =
+      Task.async(fn ->
+        HookTurn.adopt(session, state, 0,
+          poll_interval_ms: 10,
+          on_steer_claim: on_steer_claim,
+          on_operator_message: fn -> flunk("adopted steer must use its selective claim") end
+        )
+      end)
+
+    send(task.pid, {:agent_queue_updated, identifier, 1, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:adopted_steer_delivered)
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "session_id" => "adopted-session", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed, thread_id: "adopted-session"}} = drain_pane_pid(tmux, task)
+    refute_received {:delivery_failed, _}
+    refute_received {:tmux_mock_out, "load-buffer " <> _}
+  end
+
+  defp expect_steer_input(tmux) do
+    receive_barrier({:tmux_mock_out, command})
+
+    case command do
+      "display-message" <> _ ->
+        respond(tmux, "4242\n")
+        expect_steer_input(tmux)
+
+      "send-keys -t %50 -l native steer" ->
+        respond(tmux, "")
+        receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
+        respond(tmux, "")
+    end
+  end
+
   test "pause_agent mid-turn interrupts (Ctrl+C) and returns {:paused, %{request_id: ^id}}", %{
     tmux: tmux
   } do
@@ -114,6 +192,24 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     respond_error(tmux, "no such pane\n")
 
     assert {:error, {:pause_interrupt_failed, _reason}} = Task.await(task, 3_000)
+  end
+
+  test "a preflight abort mid-turn keeps the hook turn running in the same session", %{tmux: tmux} do
+    identifier = "HT-HANDOFF-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    Handoff.hold(task.pid)
+    snapshot = Task.async(fn -> Handoff.snapshot(task.pid) end)
+    assert {:ok, record} = drain_pane_pid(tmux, snapshot)
+    assert record["transport"]["kind"] == "repl"
+    Handoff.abort(task.pid)
+
+    dispatch_hook(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "ok", "session_id" => "sess-abort"})
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+    assert result.thread_id == "sess-abort"
   end
 
   test "fully silent session returns {:error, :turn_timeout} after backstop", %{tmux: tmux} do
@@ -154,13 +250,13 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
         for _ <- 1..6 do
           Process.sleep(50)
 
-          HookEvents.dispatch(identifier, %{
+          dispatch_hook(identifier, %{
             "hook_event_name" => "PostToolUse",
             "tool_name" => "Read"
           })
         end
 
-        HookEvents.dispatch(identifier, %{
+        dispatch_hook(identifier, %{
           "hook_event_name" => "Stop",
           "last_assistant_message" => "done",
           "session_id" => "sess-reset"
@@ -180,7 +276,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "ok",
       "session_id" => "real-session-id"
@@ -209,7 +305,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     expect_prompt_submit(tmux)
     refute_receive {:provider_delivered, _metadata}, 50
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "UserPromptSubmit",
       "session_id" => "session-delivery"
     })
@@ -217,7 +313,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     assert %{transport: :claude_hook, session_id: "session-delivery"} =
              await_provider_delivery(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "done",
       "session_id" => "session-delivery"
@@ -235,7 +331,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "StopFailure",
       "error" => "rate_limit",
       "error_details" => "429 Too Many Requests",
@@ -254,7 +350,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "The quota and rate limit terminology is documented here."
     })
@@ -270,7 +366,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "StopFailure",
       "error" => "authentication_failed",
       "last_assistant_message" => "Invalid API key"
@@ -288,7 +384,7 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
 
     expect_prompt_submit(tmux)
 
-    HookEvents.dispatch(identifier, %{
+    dispatch_hook(identifier, %{
       "hook_event_name" => "Stop",
       "last_assistant_message" => "ok"
     })

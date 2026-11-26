@@ -55,6 +55,31 @@ defmodule Aiur.Memory.Tracker do
     {:ok, issue_entries()}
   end
 
+  @doc "Adds a development-seeded issue to the configured in-memory tracker."
+  @spec add_issue(Issue.t()) :: :ok | {:error, :duplicate_id | :duplicate_identifier}
+  def add_issue(%Issue{} = issue) do
+    issues = configured_issues()
+
+    cond do
+      Enum.any?(issues, fn
+        %Issue{id: id} -> id == issue.id
+        _ -> false
+      end) ->
+        {:error, :duplicate_id}
+
+      Enum.any?(issues, fn
+        %Issue{identifier: identifier} -> identifier == issue.identifier
+        _ -> false
+      end) ->
+        {:error, :duplicate_identifier}
+
+      true ->
+        Application.put_env(:aiur, :memory_tracker_issues, issues ++ [issue])
+        send_event({:memory_tracker_issue_added, issue})
+        :ok
+    end
+  end
+
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names) do
     fetch_issues_by_states(state_names, [])
@@ -114,7 +139,10 @@ defmodule Aiur.Memory.Tracker do
   end
 
   @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
-  def ensure_labels(_labels), do: :ok
+  def ensure_labels(labels) do
+    send_event({:memory_tracker_ensure_labels, labels})
+    :ok
+  end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do
@@ -148,11 +176,19 @@ defmodule Aiur.Memory.Tracker do
 
       index ->
         %Issue{state: current_state} = Enum.at(issues, index)
-        expected = if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
+
+        expected =
+          if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
+
         actual = normalize_state_slug(current_state)
 
         if actual == expected or (expected == :none and actual == "") do
-          Application.put_env(:aiur, :memory_tracker_issues, List.update_at(issues, index, &%{&1 | state: state_name}))
+          Application.put_env(
+            :aiur,
+            :memory_tracker_issues,
+            List.update_at(issues, index, &%{&1 | state: state_name})
+          )
+
           send_event({:memory_tracker_state_update, issue_id, state_name})
           :ok
         else
@@ -185,7 +221,9 @@ defmodule Aiur.Memory.Tracker do
   end
 
   defp send_event(message) do
-    case Application.get_env(:aiur, :memory_tracker_recipient) do
+    recipient = Process.get(:memory_tracker_recipient) || Application.get_env(:aiur, :memory_tracker_recipient)
+
+    case recipient do
       pid when is_pid(pid) -> send(pid, message)
       _ -> :ok
     end

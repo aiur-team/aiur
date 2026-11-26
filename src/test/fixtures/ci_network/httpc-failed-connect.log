@@ -1,0 +1,1 @@
+** (Mix) httpc request failed with: {:failed_connect, [{:to_address, {~c"repo.hex.pm", 443}}, {:inet6, [:inet6], :nxdomain}]}

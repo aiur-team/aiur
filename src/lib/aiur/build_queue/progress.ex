@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.Progress do
 
     resolution =
       cond do
-        total == 0 -> :unresolved
+        total == 0 -> :empty
         resolved == 0 -> :unresolved
         resolved < total -> :partial
         true -> :resolved
@@ -28,6 +28,24 @@ defmodule Aiur.BuildQueue.Progress do
 
     %{completed: if(resolved > 0, do: completed), resolved: resolved, total: total, percent: if(resolved > 0, do: div(completed * 100, total)), resolution: resolution}
   end
+
+  @doc "Why a lane has no percent, so the panel never shows a bare \"Unresolved\" (#4819)."
+  @spec reasons(map(), [map()], map(), map() | nil) :: [atom()]
+  def reasons(_queue, _items, %{percent: percent}, _build_order) when is_number(percent), do: []
+
+  def reasons(%{kind: :build_order}, _items, _progress, %{source: source}) do
+    case source do
+      %{reasons: [_ | _] = reasons} -> reasons
+      %{freshness: :stale} -> [:projection_stale]
+      %{freshness: :current} -> [:members_unresolved]
+      _ -> [:unknown]
+    end
+  end
+
+  def reasons(%{kind: :build_order}, _items, _progress, _build_order), do: [:unknown]
+  def reasons(_queue, [], _progress, _build_order), do: [:no_members]
+  def reasons(_queue, _items, %{resolution: :unknown}, _build_order), do: [:progress_unavailable]
+  def reasons(_queue, _items, _progress, _build_order), do: [:members_unresolved]
 
   @spec fact(map(), [map()], map()) :: map() | nil
   def fact(%{kind: :build_order}, _items, _source), do: nil

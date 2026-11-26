@@ -1,4 +1,6 @@
 defmodule Aiur.Config.PriorityRoutesTest do
+  # Cohesion: route classification and disposition are tested together because
+  # their combined result determines retry and alert behavior.
   @moduledoc """
   `agent.priority` as an ordered list of routes (#1923).
 
@@ -13,11 +15,21 @@ defmodule Aiur.Config.PriorityRoutesTest do
   alias Aiur.CodingAgent.{Models, RouteCredentials, RouteFailure}
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema.Agent, as: AgentSchema
+  alias Aiur.Usage.PriceTable.{Data, Window}
 
   defp changeset(attrs), do: AgentSchema.changeset(%AgentSchema{}, attrs)
 
   defp priority_errors(priority) do
     changeset(%{"priority" => priority}).errors |> Keyword.get_values(:priority) |> Enum.map(&elem(&1, 0))
+  end
+
+  defp select_for_dispatch(issue, opts) do
+    callbacks = [
+      window_schedule_for: &Data.window_schedule/1,
+      window_classifier: &Window.classify/2
+    ]
+
+    CodingAgent.select_for_dispatch(issue, Keyword.merge(callbacks, opts))
   end
 
   describe "migration: existing configs are untouched" do
@@ -68,6 +80,21 @@ defmodule Aiur.Config.PriorityRoutesTest do
   end
 
   describe "odd aggregator identifiers" do
+    test "a model set route is accepted and keeps its models" do
+      assert priority_errors(["openrouter:{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"]) == []
+
+      assert RoutingValue.model_set(RoutingValue.routing_model("openrouter:{vendor/a, vendor/b}")) ==
+               {:ok, ["vendor/a", "vendor/b"]}
+    end
+
+    test "a malformed model set is a config error rather than a literal model name" do
+      assert [message] = priority_errors(["openrouter:{deepseek/deepseek-v4-flash,}"])
+      assert message =~ "must list at least one model"
+
+      assert [message] = priority_errors(["openrouter:{}"])
+      assert message =~ "must list at least one model"
+    end
+
     test "a ~-prefixed model is rejected explicitly rather than parsing into something surprising" do
       assert [message] = priority_errors(["openrouter:~moonshotai/kimi-latest"])
       assert message =~ "starts with `~`"
@@ -120,7 +147,7 @@ defmodule Aiur.Config.PriorityRoutesTest do
       issue = %Aiur.Issue{identifier: "T-2"}
 
       {:ok, selected} =
-        CodingAgent.select_for_dispatch(issue,
+        select_for_dispatch(issue,
           backends: ["openrouter:anthropic/claude-opus-5"],
           configured_backends: ["openrouter"],
           api_key_fetcher: fn _ -> "key" end,
@@ -150,7 +177,7 @@ defmodule Aiur.Config.PriorityRoutesTest do
       end
 
       {:ok, selected} =
-        CodingAgent.select_for_dispatch(issue,
+        select_for_dispatch(issue,
           backends: ["deepseek", "openrouter:anthropic/claude-opus-5"],
           configured_backends: ["deepseek", "openrouter"],
           api_key_fetcher: fetcher,
@@ -195,6 +222,11 @@ defmodule Aiur.Config.PriorityRoutesTest do
 
     test "401 does NOT advance: a broken credential must surface, not reroute spend" do
       assert RouteFailure.classify(:unauthorized) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"provider_error" => %{"api_error_status" => 401}}}) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"message" => "request failed with status 401 in unrelated text"}}) == :fatal
+      assert RouteFailure.classify({:turn_failed, %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "ENAMETOOLONG aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "listen EINVAL unrelated.sock"}}) == :fatal
       refute RouteFailure.advance?(:auth_rejected)
       refute RouteFailure.record_limit?(:auth_rejected)
     end
@@ -234,7 +266,7 @@ defmodule Aiur.Config.PriorityRoutesTest do
       drop_deepseek = fn routes -> Enum.reject(routes, &(RoutingValue.routing_backend(&1) == "deepseek")) end
 
       {:ok, selected} =
-        CodingAgent.select_for_dispatch(issue,
+        select_for_dispatch(issue,
           backends: ["deepseek", "openrouter:anthropic/claude-opus-5"],
           configured_backends: ["deepseek", "openrouter"],
           api_key_fetcher: fn _ -> "key" end,
@@ -260,10 +292,26 @@ defmodule Aiur.Config.PriorityRoutesTest do
     @off_peak_weekday_now ~U[2026-08-24 12:00:00Z]
     @weekend_off_peak_now ~U[2026-08-29 02:00:00Z]
 
+    test "peak_priced_route? uses injected pricing data and classifier" do
+      assert CodingAgent.peak_priced_route?(
+               "openrouter:anthropic/claude-opus-5",
+               @peak_weekday_now,
+               fn _provider -> nil end,
+               fn _now, _schedule -> :peak end
+             ) == false
+
+      assert CodingAgent.peak_priced_route?(
+               "deepseek",
+               @peak_weekday_now,
+               fn :deepseek -> %{schedule: true} end,
+               fn _now, _schedule -> :peak end
+             )
+    end
+
     defp dispatch_issue(opts) do
       issue = %Aiur.Issue{identifier: "T-9"}
 
-      CodingAgent.select_for_dispatch(
+      select_for_dispatch(
         issue,
         Keyword.merge(
           [
@@ -359,10 +407,6 @@ defmodule Aiur.Config.PriorityRoutesTest do
                  now: @peak_weekday_now,
                  avoid_peak_pricing_reader: unreadable
                )
-    end
-
-    test "peak_priced_route?/2 is false for providers with no windowed schedule" do
-      assert CodingAgent.peak_priced_route?("openrouter:anthropic/claude-opus-5", @peak_weekday_now) == false
     end
   end
 end

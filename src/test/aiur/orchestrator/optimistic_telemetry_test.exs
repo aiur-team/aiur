@@ -27,9 +27,9 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert row["counters"]["pushes_absorbed"] == 1
     assert row["counters"]["integrations_conflict"] == 1
     assert row["counters"]["non_ff_pushes"] == 1
-    assert_received {:point, %{event: "blocker_push", blocker: "12"}, _}
-    assert_received {:point, %{event: "blocker_integrate", outcome: "conflict", non_ff: true}, _}
-    refute_received {:point, _, _}
+    assert_received {:point, %{ticket: "10", event: "blocker_push", blocker: "12"}, _}
+    assert_received {:point, %{ticket: "10", event: "blocker_integrate", outcome: "conflict", non_ff: true}, _}
+    refute_point_for_ticket("10")
   end
 
   test "unknown blockers, invalid evidence and absent tickets produce no integration" do
@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert :ok = OptimisticLedger.record_integration("absent", "12", sha, false, false)
     assert {:ok, row} = OptimisticLedger.get("10")
     assert row["counters"]["integrations_clean"] == 0
-    refute_received {:point, _, _}
+    refute_point_for_ticket("10")
   end
 
   test "a clean retry of a conflicting head retains both outcomes" do
@@ -50,16 +50,16 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert {:ok, row} = OptimisticLedger.get("10")
     assert row["counters"]["integrations_conflict"] == 1
     assert row["counters"]["integrations_clean"] == 1
-    assert_received {:point, %{outcome: "conflict", event_key: conflict_key}, _}
-    assert_received {:point, %{outcome: "clean", event_key: clean_key}, _}
+    assert_received {:point, %{ticket: "10", outcome: "conflict", event_key: conflict_key}, _}
+    assert_received {:point, %{ticket: "10", outcome: "clean", event_key: clean_key}, _}
     assert conflict_key != clean_key
     assert :ok = OptimisticLedger.record_integration("10", "12", sha, false, true)
     assert {:ok, corrected} = OptimisticLedger.get("10")
     assert corrected["counters"]["integrations_clean"] == 2
     assert corrected["counters"]["non_ff_pushes"] == 1
-    assert_received {:point, %{outcome: "clean", non_ff: true, event_key: corrected_key}, _}
+    assert_received {:point, %{ticket: "10", outcome: "clean", non_ff: true, event_key: corrected_key}, _}
     assert corrected_key != clean_key
-    refute_received {:point, _, _}
+    refute_point_for_ticket("10")
   end
 
   test "park resume and merged outcome carry the persisted attempt and head start" do
@@ -69,18 +69,18 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert :ok = OptimisticLedger.resume_park("10", 300)
     assert :ok = OptimisticLedger.close("10", :merged, 10_900_100)
     assert :ok = OptimisticLedger.close("10", :merged, 10_900_100)
-    assert_received {:point, %{event: "optimistic_park", blocker: "12", cause: "pr_closed_unmerged"}, [timestamp: ~U[1970-01-01 00:00:00.200Z]]}
-    assert_received {:point, %{event: "optimistic_resume"}, _}
-    assert_received {:point, %{event: "optimistic_outcome", attempt_id: "attempt", outcome: "merged_after_redo", head_start_ms: 10_800_000, start_trigger: "pr_opened"}, _}
-    refute_received {:point, _, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_park", blocker: "12", cause: "pr_closed_unmerged"}, [timestamp: ~U[1970-01-01 00:00:00.200Z]]}
+    assert_received {:point, %{ticket: "10", event: "optimistic_resume"}, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_outcome", attempt_id: "attempt", outcome: "merged_after_redo", head_start_ms: 10_800_000, start_trigger: "pr_opened"}, _}
+    refute_point_for_ticket("10")
   end
 
   test "park records its triggering blocker rather than an older blocker failure" do
     attrs = %{attempt_id: "multi", start_trigger: :pr_opened, started_at_ms: 300, blockers: [%{"id" => "12", "failed_cause" => "agent_error"}, %{"id" => "13"}]}
     assert :ok = OptimisticLedger.record_start("10", attrs)
     assert :ok = OptimisticLedger.begin_park("10", "13", :pr_closed_unmerged, 400)
-    assert_received {:point, %{event: "optimistic_park", blocker: "13", cause: "pr_closed_unmerged"}, _}
-    refute_received {:point, _, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_park", blocker: "13", cause: "pr_closed_unmerged"}, _}
+    refute_point_for_ticket("10")
   end
 
   test "a restarted attempt preserves redo and the original optimistic start" do
@@ -88,15 +88,15 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
     assert :ok = OptimisticLedger.record_start("10", %{attempt_id: "retry", start_trigger: :pr_opened, started_at_ms: 500, blockers: [%{"id" => "12", "merged_at_ms" => 1000}]})
     assert :ok = OptimisticLedger.record_blocker_merge("12", 1000)
     assert :ok = OptimisticLedger.close("10", :merged, 2000)
-    assert_received {:point, %{event: "optimistic_outcome", attempt_id: "retry", outcome: "merged_after_redo", head_start_ms: 900}, _}
-    refute_received {:point, _, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_outcome", attempt_id: "retry", outcome: "merged_after_redo", head_start_ms: 900}, _}
+    refute_point_for_ticket("10")
   end
 
   test "a merge correction at the same timestamp keeps both outcome identities" do
     assert :ok = OptimisticLedger.close("10", :discarded, 200)
     assert :ok = OptimisticLedger.close("10", :merged, 200)
-    assert_received {:point, %{event: "optimistic_outcome", outcome: "discarded", event_key: discarded_key}, _}
-    assert_received {:point, %{event: "optimistic_outcome", outcome: "merged", event_key: merged_key}, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_outcome", outcome: "discarded", event_key: discarded_key}, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_outcome", outcome: "merged", event_key: merged_key}, _}
     assert discarded_key != merged_key
     assert {:ok, row} = OptimisticLedger.get("10")
     assert row["outcome"] == "merged"
@@ -105,11 +105,16 @@ defmodule Aiur.Orchestrator.OptimisticTelemetryTest do
   test "head start floors at zero and missing merge evidence remains unavailable" do
     assert :ok = OptimisticLedger.update_blocker("10", "12", %{merged_at_ms: 50})
     assert :ok = OptimisticLedger.close("10", :merged, 200)
-    assert_received {:point, %{event: "optimistic_outcome", head_start_ms: 0}, _}
+    assert_received {:point, %{ticket: "10", event: "optimistic_outcome", head_start_ms: 0}, _}
     assert :ok = OptimisticLedger.record_start("11", %{attempt_id: "missing", start_trigger: :pr_opened, started_at_ms: 100, blockers: [%{"id" => "12"}]})
     assert :ok = OptimisticLedger.close("11", :merged, 200)
-    assert_received {:point, attrs, _}
+    assert_received {:point, %{ticket: "11"} = attrs, _}
     assert attrs.event == "optimistic_outcome"
     refute Map.has_key?(attrs, :head_start_ms)
+    refute_point_for_ticket("11")
+  end
+
+  defp refute_point_for_ticket(ticket) do
+    refute_received {:point, %{ticket: ^ticket}, _}
   end
 end

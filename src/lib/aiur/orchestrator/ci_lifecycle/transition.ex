@@ -60,8 +60,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Transition do
   end
 
   @doc false
-  @spec transition_ci_ticket(State.t(), Issue.t(), String.t()) :: State.t()
-  def transition_ci_ticket(%State{} = state, %Issue{} = issue, next_state) do
+  # `on_success` runs only after the tracker write succeeds.
+  @spec transition_ci_ticket(State.t(), Issue.t(), String.t(), (State.t() -> State.t()), [String.t()]) :: State.t()
+  def transition_ci_ticket(%State{} = state, %Issue{} = issue, next_state, on_success \\ & &1, reason_modifiers \\ []) do
     if LifecycleFence.handoff_blocked?(state, issue) do
       log_fenced_ci_handoff(issue, next_state)
       state
@@ -72,9 +73,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Transition do
         state,
         issue,
         next_state,
-        fn -> write_ci_ticket_state({issue, issue_key, next_state}) end,
+        fn -> write_ci_ticket_state({issue, issue_key, next_state, reason_modifiers}) end,
         fn arg1, arg2 ->
-          apply_ci_ticket_transition(arg1, arg2, {issue, next_state})
+          apply_ci_ticket_transition(arg1, arg2, {issue, next_state, on_success})
         end
       )
     end
@@ -173,14 +174,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.Transition do
     end
   end
 
-  defp write_ci_ticket_state({issue, issue_key, next_state}) do
-    TicketTransition.write_state(to_string(issue_key), next_state, Keyword.put(expected_state_opts(issue), :writer, :ci_lifecycle))
+  defp write_ci_ticket_state({issue, issue_key, next_state, reason_modifiers}) do
+    opts = Keyword.merge(expected_state_opts(issue), writer: :ci_lifecycle, reason_modifiers: reason_modifiers, current_labels: List.wrap(issue.labels))
+    TicketTransition.write_state(to_string(issue_key), next_state, opts)
   end
 
-  defp apply_ci_ticket_transition(state, response, {issue, next_state}) do
+  defp apply_ci_ticket_transition(state, response, {issue, next_state, on_success}) do
     case response do
       :ok ->
-        dispatch_successful_transition(state, issue, next_state)
+        state |> on_success.() |> dispatch_successful_transition(issue, next_state)
 
       {:error, reason} ->
         Logger.warning(

@@ -23,11 +23,12 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
       source_or_pending?(f) ->
         source_or_pending(f)
 
-      "#{f.prefix}:queued" not in f.labels or f.observation.open? == false ->
-        closed_or_removed(f)
-
+      # A failed closure read has no labels; it must not read as a removed queue marker.
       f.observation.open? == :unknown ->
         result(:unknown, :observation_unavailable)
+
+      "#{f.prefix}:queued" not in f.labels or f.observation.open? == false ->
+        closed_or_removed(f)
 
       claimed?(f) ->
         claimed(f)
@@ -68,9 +69,12 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
     "#{f.prefix}:queued" not in f.labels and marker != nil and marker.action == :mark and marker.outcome != :ok
   end
 
+  defp managed(%{item: %{override: override}} = f) when not is_nil(override) do
+    if parked?(f) or not f.todo, do: result(:held, :parked_marker), else: result(:overridden, override)
+  end
+
   defp managed(f) do
     cond do
-      f.item.override != nil -> result(:overridden, f.item.override)
       f.todo and not own_promotion?(f) -> manual_promotion(f)
       awaiting_promotion?(f) -> result(:unknown, :awaiting_promotion_observation)
       external_removal?(f) -> external_hold(f)
@@ -80,12 +84,24 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   end
 
   defp manual_promotion(f) do
-    if adoption_withdrawal?(f), do: withdrawal(f), else: result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+    cond do
+      adoption_withdrawal?(f) -> withdrawal(f)
+      unobserved_withdrawal?(f) -> result(:unknown, :awaiting_withdrawal_observation)
+      true -> result(:overridden, :manual_promotion, {:mark_override, f.item.issue_id})
+    end
+  end
+
+  # The queue's own todo withdrawal postdates this observation, so its todo label is stale evidence.
+  defp unobserved_withdrawal?(f) do
+    Enum.any?(f.context.input.intents, fn intent ->
+      intent.issue_id == f.item.issue_id and intent.action == :withdraw and intent.outcome in [nil, :ok] and
+        "#{f.prefix}:todo" not in intent.target_labels and intent.recorded_at_ms > f.observation.observed_at_ms
+    end)
   end
 
   defp adoption_withdrawal?(f) do
     f.todo and f.item.override == nil and not own_promotion?(f) and f.verdict != :ready and
-      (Map.fetch!(f.context.queues, f.item.queue_id).kind == :build_order or prequeued_todo?(f))
+      (Map.fetch!(f.context.queues, f.item.queue_id).kind in [:build_order, :feature, :epic] or prequeued_todo?(f))
   end
 
   defp prequeued_todo?(f) do
@@ -95,7 +111,7 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp prequeued_mark?(f) do
     Enum.any?(f.context.input.intents, fn intent ->
       intent.issue_id == f.item.issue_id and intent.action == :mark and intent.outcome in [nil, :ok] and
-        "#{f.prefix}:todo" in intent.target_labels and intent.recorded_at_ms <= f.observation.observed_at_ms
+        "#{f.prefix}:queued" in intent.target_labels and intent.preexisting_todo? and intent.recorded_at_ms <= f.observation.observed_at_ms
     end)
   end
 
@@ -156,6 +172,8 @@ defmodule Aiur.BuildQueue.PlannerPolicy do
   defp promoted(%{claim: {:declined, {:queue_set_order, reason}}} = f), do: set_wait(f, reason)
 
   defp promoted(%{claim: {:declined, :unauthorized}}), do: result(:promoted_unauthorized, :unauthorized)
+
+  defp promoted(%{claim: :authorization_pending}), do: result(:held, :authorization_pending)
 
   defp promoted(f), do: promoted_ready_or_withdraw(f)
 

@@ -4,48 +4,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.BuildOrder.Icon
-  alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
 
-  alias AiurWeb.OperatorControlCenter.{BuildOrderSelected, DecisionInbox, History}
-
-  def fleet_row(identifier, waiting_reason, attrs \\ []) do
-    Map.merge(
-      %{
-        issue_identifier: identifier,
-        title: "Ticket #{identifier}",
-        state: "in-progress",
-        work_state: :working,
-        waiting_reason: waiting_reason,
-        runtime_seconds: 60,
-        open_decision_count: 0
-      },
-      Map.new(attrs)
-    )
-  end
-
-  def render_selected(model) do
-    {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
-
-    render_component(&BuildOrderSelected.build_order_selected/1, %{
-      route_state: route_state,
-      model: model,
-      now: ~U[2026-08-10 12:00:00Z],
-      analytics_scope: %{state: :none},
-      usage_scope: %{state: :none}
-    })
-  end
-
-  def unresolved_model(status) do
-    %BuildOrderViewModel{status: status, summary: unresolved_summary()}
-  end
-
-  def unresolved_summary, do: %{resolved_summary() | resolved?: false}
-
-  def resolved_summary do
-    %{resolved?: true, members: 0, edges: 0, external_edges: 0, lanes: %{}, phases: %{}}
-  end
+  alias AiurWeb.OperatorControlCenter.{DecisionInbox, History}
 
   def action_decision(attrs) do
     defaults = %{
@@ -63,7 +24,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
       failure_reason: nil
     }
 
-    Map.merge(defaults, Map.new(attrs))
+    defaults |> Map.merge(Map.new(attrs)) |> put_open()
   end
 
   def action_answer(kind, attrs \\ []) do
@@ -107,7 +68,16 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
       lifecycle: :recorded
     }
 
-    Map.merge(defaults, Map.new(attrs))
+    defaults |> Map.merge(Map.new(attrs)) |> put_open()
+  end
+
+  # Hand-built rows skip DecisionPresenter, so derive its `open?` field from the row's own fields.
+  # Keep this in step with `RetainedIndex.open?/1` (rows carry no `legacy_attention`).
+  defp put_open(row) do
+    Map.put_new_lazy(row, :open?, fn ->
+      row.decision_status in [:open, :deferred] or
+        (row.decision_status == :expired and Map.get(row, :blocking, false) and is_nil(row.answer))
+    end)
   end
 
   def render_history(decisions, opts \\ []) do

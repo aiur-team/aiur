@@ -1,0 +1,441 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 3,
+  "first_id": "agent-backends-oc-26",
+  "last_id": "agent-runtime-20",
+  "findings": [
+    {
+      "id": "agent-backends-oc-26",
+      "status": "present",
+      "anchor": "src/lib/aiur/app_server/rpc.ex:34",
+      "note": "RPC notification/non-JSON branches recurse with the original timeout_ms; Await receive still times out per receive, not against one deadline. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-oc-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-oc-27",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/app_server/interrupts.ex:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-27"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/app_server/turn_state.ex:223",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-28"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-29",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/chat_completions/turn_stream.ex:34",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/slot/serve_lifecycle.ex:171",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-30"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/opencode/slot/attach_pane.ex:164",
+      "note": "AttachPane and LogFile still independently trim/downcase AIUR_DEBUG and compare the same truthy values. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-oc-31",
+        "loose-3-28",
+        "dup-by-body-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-oc-32",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/bridge_port.ex:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-32"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/server.ex:225",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/open_ai_compat/command_runner.ex:7",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-34"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-35",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/regression/warm_attach_open_test.exs:28",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-oc-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/opencode/chat_completions.ex:21",
+      "note": "Turn/stream marker prefixes still independently defined; transport/probe and API-key classification helpers retain different error policies. Provisional disposition retained.",
+      "source_ids": [
+        "agent-backends-oc-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-oc-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/open_ai_compat/registry.ex:25",
+      "note": "Backend registry still embeds dashboard CSS classes, RGBA colors and provider asset URLs in domain descriptors. Provisional disposition retained.",
+      "source_ids": [
+        "agent-backends-oc-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-oc-38",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/opencode/api_client.ex:109",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-38"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "agent-backends-oc-39",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/open_ai_compat/concurrency.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-oc-39"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "agent-runtime-01",
+      "status": "changed",
+      "anchor": "src/lib/aiur/agent_runner/queue_drain.ex:716",
+      "note": "Queued-turn paused branch now confirms PauseContainment, but between-turn pause receive branch still lacks confirmation; partial repair, retain remaining pause-boundary work. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/queue_drain.ex:604",
+      "note": "QueueDrain still hard-matches ok on fallible queue settlement and consume/restore calls, unlike TurnLoop bounded recovery handling. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/turn_loop.ex:87",
+      "note": "TurnLoop and QueueDrain still construct separate callback/run_turn pipelines; only TurnLoop records implement lifecycle around the call. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/repl/operator_inject.ex:86",
+      "note": "Immediate send failure still invokes on_failure without validating its restore outcome; failed restoration can leave claimed delivery state unchanged. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/tool_executor.ex:156",
+      "note": "Ticket topic namespace still resolves via id-first issue_identifier while BootstrapDigest attaches identifier-based universal subscriptions. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-06",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/tmux/protocol.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-06",
+        "loose-1-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_list/renderer/help.ex:66",
+      "note": "Help still says q leaves help; Input routes q unconditionally to App.quit. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/bootstrap_digest.ex:151",
+      "note": "Bootstrap enqueue failure still logs and returns ok without retry; CommentContext fetch failures still become empty context. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-runtime-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/session_lifecycle.ex:8",
+      "note": "SessionLifecycle still aliases Claude display/telemetry/process helpers; TurnLoop aliases Codex.DynamicTool and Orchestrator policies. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-09",
+        "dup-by-constant-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/turn_loop.ex:6",
+      "note": "TurnLoop aliases QueueDrain and QueueDrain aliases TurnLoop, retaining the runner dependency cycle. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/session_lifecycle.ex:20",
+      "note": "Worker runtime and control reports remain multiple raw tuple sends, including repl_session_runtime and codex_worker_update. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-13",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_runner/message_handler.ex:28",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner/message_handler.ex:52",
+      "note": "MessageHandler invokes AgentEventLog for each normalized backend message; local writes still acquire Reconstruction lock and append both files. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_list/controls.ex:29",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-15"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_list/perf_intake.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-17",
+      "status": "changed",
+      "anchor": "src/lib/aiur/agent_list/activity_intake.ex:139",
+      "note": "ActivityIntake moved/reduced, but evidence timestamps still render only Stale: text without age; attention count compatibility accessor still collapses unavailable to zero. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-runtime-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-runtime-18",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_list/render_state.ex:10",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-18"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/pane_manager/opencode_open.ex:127",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-19"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-runtime-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/pane_manager/generic_open.ex:13",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-runtime-20"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

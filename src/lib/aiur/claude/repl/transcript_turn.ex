@@ -37,7 +37,12 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
   @spec run(map(), String.t(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run(session, prompt, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
-    on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+
+    on_operator = %{
+      true => Keyword.get(opts, :on_operator_message, fn -> :noop end),
+      :steer => Keyword.get(opts, :on_steer_claim, fn -> :noop end)
+    }
+
     on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
@@ -202,7 +207,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       System.monotonic_time(:millisecond) >= deadline ->
         {:error, :turn_timeout}
 
-      not Reaper.pane_alive?(session) ->
+      Reaper.pane_liveness(session) == :gone ->
         {:error, :repl_gone}
 
       true ->
@@ -219,8 +224,8 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           {:turn_end, ^turn_id, _reason} ->
             :ok
 
-          {:agent_queue_updated, _identifier, _item_id, true} ->
-            OperatorInject.deliver_immediate_operator_message(session, on_operator)
+          {:agent_queue_updated, _identifier, _item_id, deliver_now} when deliver_now in [true, :steer] ->
+            OperatorInject.deliver_immediate_operator_message(session, Map.fetch!(on_operator, deliver_now))
             await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
           {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->

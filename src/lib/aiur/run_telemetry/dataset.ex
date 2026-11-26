@@ -295,6 +295,7 @@ defmodule Aiur.RunTelemetry.Dataset do
     dispatch
     pr_opened
     pr_merged
+    pr_ready
   )
 
   defp carried_point_event?(%{attributes: %{"event" => event, "boundary" => "point"}}),

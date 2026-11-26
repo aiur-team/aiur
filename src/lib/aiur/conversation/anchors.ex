@@ -6,7 +6,146 @@ defmodule Aiur.Conversation.Anchors do
   entry belongs to the last event at or before its timestamp; entries without
   a usable timestamp fall to the origin. These anchors are not stable journal
   positions.
+
+  ## Positions (MP-E4)
+
+  Journal anchors implement conversations-transcripts-anchors contract §10.
+  Exact tool provenance beats causal, observed, then unanchored precision.
+  `position/3` uses daemon observation times and includes equal-time entries
+  (`<=`); the deck membership rule in `at_or_before/2` remains `>=`.
+  Inputs are a bounded window from one conversation; resolution is linear.
   """
+
+  alias Aiur.Conversation.CausalAnchors
+
+  @type entry :: Aiur.Conversation.Entry.t() | map()
+  @type session :: Aiur.Conversation.Session.t() | map()
+  @type event :: %{
+          required(:event_id) => pos_integer(),
+          required(:kind) => String.t(),
+          required(:topic) => String.t(),
+          required(:conversation_id) => String.t(),
+          optional(atom()) => term()
+        }
+  @type anchor :: %{String.t() => term()}
+
+  @precision %{"unanchored" => 0, "observed" => 1, "causal" => 2, "exact" => 3}
+
+  @doc "Finds a tool-proven entry, using decision provenance for Command requests."
+  @spec exact(event(), [entry()]) :: {:ok, anchor()} | :none
+  def exact(%{kind: "command_requested"} = event, entries), do: decision_source(event, entries)
+  def exact(event, entries), do: tool_anchor(event, entries, Map.get(event, :source_tool_call_id), "tool_call")
+
+  @doc "Finds the tool entry that requested a Command."
+  @spec decision_source(event(), [entry()]) :: {:ok, anchor()} | :none
+  def decision_source(event, entries),
+    do: tool_anchor(event, entries, Map.get(event, :decision_tool_call_id), "decision_source")
+
+  @doc "Finds the latest successful command with a matching event key in the prior ten minutes."
+  @spec causal(event(), [entry()]) :: {:ok, anchor()} | :none
+  def causal(event, entries) do
+    case CausalAnchors.command(event, entries) do
+      nil -> :none
+      entry -> {:ok, anchor(event, entry.pos, "at", "causal", "command_text")}
+    end
+  end
+
+  @doc "Places an event after the greatest observed position, or leaves it unanchored."
+  @spec position(event(), [entry()], [session()]) :: {:ok, anchor()}
+  def position(event, entries, sessions) do
+    time = instant(Map.get(event, :observed_at))
+
+    entry =
+      if time && Enum.any?(sessions, &covers?(&1, time)) && !Enum.any?(entries, &gap?(&1, time)) do
+        entries
+        |> Enum.filter(&(&1.kind != "gap" && before_or_equal?(instant(&1.observed_at), time)))
+        |> Enum.max_by(& &1.pos, fn -> nil end)
+      end
+
+    if entry,
+      do: {:ok, anchor(event, entry.pos, "after", "observed", "observed_at")},
+      else: {:ok, anchor(event, nil, nil, "unanchored", nil)}
+  end
+
+  @doc "Keeps the strongest precision per event, kind and conversation, preserving first-seen order."
+  @spec strongest([anchor()]) :: [anchor()]
+  def strongest(anchors) do
+    {order, selected} =
+      Enum.reduce(anchors, {[], %{}}, fn anchor, {order, selected} ->
+        key = {anchor["event"]["event_id"], anchor["kind"], anchor["conversation_id"]}
+
+        case Map.fetch(selected, key) do
+          :error ->
+            {[key | order], Map.put(selected, key, anchor)}
+
+          {:ok, prior} ->
+            {order, Map.put(selected, key, stronger(anchor, prior))}
+        end
+      end)
+
+    order |> Enum.reverse() |> Enum.map(&Map.fetch!(selected, &1))
+  end
+
+  defp stronger(anchor, prior) do
+    if Map.fetch!(@precision, anchor["precision"]) > Map.fetch!(@precision, prior["precision"]),
+      do: anchor,
+      else: prior
+  end
+
+  @doc "Stable precision-specific identity; upgrading precision appends a new journal line."
+  @spec anchor_id(anchor()) :: String.t()
+  def anchor_id(anchor) do
+    identity = [anchor["event"]["event_id"], anchor["kind"], anchor["conversation_id"], anchor["precision"]]
+    digest = :crypto.hash(:sha256, Jason.encode!(identity)) |> Base.encode32(case: :lower, padding: false)
+    "anc_" <> binary_part(digest, 0, 26)
+  end
+
+  defp tool_anchor(_event, _entries, id, _method) when id in [nil, ""], do: :none
+
+  defp tool_anchor(event, entries, id, method) do
+    case Enum.find(entries, &(Map.get(&1.refs, :tool_call_id, Map.get(&1.refs, "tool_call_id")) == id)) do
+      nil -> :none
+      entry -> {:ok, anchor(event, entry.pos, "at", "exact", method)}
+    end
+  end
+
+  defp anchor(event, pos, placement, precision, method) do
+    record = %{
+      "v" => 1,
+      "event" => %{
+        "event_id" => event.event_id,
+        "topic" => event.topic,
+        "observed_at" => timestamp(Map.get(event, :observed_at)),
+        "occurred_at" => timestamp(Map.get(event, :occurred_at))
+      },
+      "kind" => event.kind,
+      "conversation_id" => event.conversation_id,
+      "pos" => pos,
+      "placement" => placement,
+      "precision" => precision,
+      "method" => method,
+      "label" => Map.get(event, :label),
+      "subject_ref" => Map.get(event, :subject_ref)
+    }
+
+    Map.put(record, "anchor_id", anchor_id(record))
+  end
+
+  defp covers?(session, time),
+    do: before_or_equal?(instant(session.started_at), time) && (is_nil(session.ended_at) || before_or_equal?(time, instant(session.ended_at)))
+
+  defp gap?(%{kind: "gap", meta: meta}, time) do
+    from = instant(Map.get(meta, :from, Map.get(meta, "from")))
+    to = instant(Map.get(meta, :to, Map.get(meta, "to")))
+    (is_nil(from) || before_or_equal?(from, time)) && (is_nil(to) || before_or_equal?(time, to))
+  end
+
+  defp gap?(_entry, _time), do: false
+  defp before_or_equal?(nil, _time), do: false
+  defp before_or_equal?(_time, nil), do: false
+  defp before_or_equal?(left, right), do: DateTime.compare(left, right) != :gt
+  defp timestamp(%DateTime{} = time), do: DateTime.to_iso8601(time)
+  defp timestamp(time), do: time
 
   @origin_id :origin
 

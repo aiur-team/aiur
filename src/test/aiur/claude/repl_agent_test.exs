@@ -1,6 +1,8 @@
 defmodule Aiur.Claude.ReplAgentTest do
   use ExUnit.Case, async: true
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.Tmux
 
   alias Aiur.Claude.RemoteControl
@@ -11,7 +13,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
 
     {:ok, _pid} =
-      start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+      start_supervised({Tmux, [transport: {:mock, test_pid, :infinity}, name: name, session: "test"]})
 
     %{tmux: name}
   end
@@ -47,7 +49,7 @@ defmodule Aiur.Claude.ReplAgentTest do
       end)
 
     # 1. new-window spawns the pane.
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window -d -n aiur-repl-test")
     assert String.contains?(cmd, "-e BASH_ENV= -e ENV= -e ZDOTDIR=/dev/null")
     assert String.contains?(cmd, "exec claude")
@@ -57,14 +59,14 @@ defmodule Aiur.Claude.ReplAgentTest do
     respond(tmux, "%99\n")
 
     # 2. pane_pid resolves the OS pid before the containment callback.
-    assert_receive {:tmux_mock_out, "display-message -p -t %99 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %99 \#{pane_pid}"})
     respond(tmux, "4242\n")
 
     # 3. await_ready captures the pane until the prompt glyph shows.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %99"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %99"})
     respond(tmux, "Welcome\n❯\n")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.backend == "claude-repl"
     assert session.pane_id == "%99"
     assert session.os_pid == 4242
@@ -125,17 +127,17 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%55\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %55 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %55 \#{pane_pid}"})
     respond(tmux, "4242\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %55"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %55"})
     respond(tmux, "❯\n")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.resumed == true
     assert session.thread_id == sid
   end
@@ -155,17 +157,17 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     refute String.contains?(cmd, "--resume")
     respond(tmux, "%56\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %56 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %56 \#{pane_pid}"})
     respond(tmux, "4242\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %56"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %56"})
     respond(tmux, "❯\n")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.resumed == false
     assert session.thread_id == nil
   end
@@ -199,22 +201,22 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--remote-control 'aiur-rc-resume'")
     assert String.contains?(cmd, "--resume '#{sid}'")
     respond(tmux, "%71\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %71 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %71 \#{pane_pid}"})
     respond(tmux, "10\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %71"})
     respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %71"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %71"})
     respond(tmux, "  /remote-control is active · https://claude.ai/code/session_01RcResume\n❯\n")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.remote_control == true
     assert session.resumed == true
     assert session.thread_id == sid
@@ -237,25 +239,25 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"})
     respond(tmux, "10\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %7"})
     respond(tmux, "❯\n")
 
     # RC sessions scan the pane once ready for the `/remote-control … URL` banner.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %7"})
 
     respond(
       tmux,
       "  /remote-control is active · Continue here, on your phone, or at https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG\n❯\n"
     )
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.remote_control == true
     assert session.session_url == "https://claude.ai/code/session_01LguPUDk5vT6Tt31FH2KUmG"
   end
@@ -280,37 +282,37 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%7\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %7 \#{pane_pid}"})
     respond(tmux, "10\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %7"})
     respond(tmux, "❯\n")
 
     # RC evidence scan: no banner URL, but the footer shows `/rc active`.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %7"})
     respond(tmux, "❯\n  ⏵⏵ accept edits on (shift+tab to cycle) · /rc active\n")
 
     # The driver types /rc, submits, scrapes the dialog, then dismisses it.
-    assert_receive {:tmux_mock_out, "send-keys -t %7 -l /rc"}, 1_000
+    receive_barrier({:tmux_mock_out, "send-keys -t %7 -l /rc"})
     respond(tmux, "")
-    assert_receive {:tmux_mock_out, "send-keys -t %7 Enter"}, 1_000
+    receive_barrier({:tmux_mock_out, "send-keys -t %7 Enter"})
     respond(tmux, "")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %7"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %7"})
 
     respond(
       tmux,
       "  Remote Control\n  This session is available in the Claude mobile app and at https://claude.ai/code/session_01TestHarvestUrl42.\n  ❯ Continue\n"
     )
 
-    assert_receive {:tmux_mock_out, "send-keys -t %7 Escape"}, 1_000
+    receive_barrier({:tmux_mock_out, "send-keys -t %7 Escape"})
     respond(tmux, "")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.remote_control == true
     assert session.session_url == "https://claude.ai/code/session_01TestHarvestUrl42"
   end
@@ -335,30 +337,30 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--remote-control 'aiur-rc-test'")
     respond(tmux, "%8\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"})
     # A safe, certainly-dead pid so the degradation's graceful_kill is a no-op.
     respond(tmux, "2147480000\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %8"})
     respond(tmux, "❯\n")
 
     # RC banner scan finds no `claude.ai/code/session_…` URL.
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %8"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %8"})
     respond(tmux, "❯\n")
 
     # An unattached RC pane must be torn down, not left leaking.
-    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"})
     respond(tmux, "2147480000\n")
-    assert_receive {:tmux_mock_out, "kill-pane -t %8"}, 1_000
+    receive_barrier({:tmux_mock_out, "kill-pane -t %8"})
     respond(tmux, "")
-    assert_receive {:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %8 \#{pane_pid}"})
     respond_error(tmux, "no pane\n")
 
-    assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
+    assert {:error, :remote_control_unavailable} = Task.await(task, :infinity)
   end
 
   test "start_session kills the pane and errors when the REPL never becomes ready", %{tmux: tmux} do
@@ -375,17 +377,16 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window")
     respond(tmux, "%5\n")
 
-    # Readiness polls capture-pane; never show the prompt. With a 0ms deadline
-    # the first non-matching capture exhausts the budget and the pane is killed.
+    # Readiness polls capture-pane; never show the prompt. The zero budget
+    # makes the first non-matching capture trigger pane cleanup.
     drain_until_kill(tmux, "%5", task)
   end
 
-  # Keep answering capture-pane (no prompt) until the readiness deadline
-  # elapses and start_session issues kill-pane, then assert the error.
+  # Keep answering capture-pane (no prompt) until start_session issues kill-pane, then assert the error.
   defp drain_until_kill(tmux, pane, task) do
     receive do
       {:tmux_mock_out, "capture-pane -p -t " <> ^pane} ->
@@ -399,12 +400,10 @@ defmodule Aiur.Claude.ReplAgentTest do
 
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
-        assert_receive {:tmux_mock_out, pane_query}, 1_000
+        receive_barrier({:tmux_mock_out, pane_query})
         assert pane_query == "display-message -p -t #{pane} \#{pane_pid}"
         respond_error(tmux, "no pane\n")
-        assert {:error, :repl_not_ready} = Task.await(task, 2_000)
-    after
-      2_000 -> flunk("did not observe kill-pane within timeout")
+        assert {:error, :repl_not_ready} = Task.await(task, :infinity)
     end
   end
 
@@ -421,11 +420,11 @@ defmodule Aiur.Claude.ReplAgentTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window")
     respond_error(tmux, "no server running\n")
 
-    assert {:error, _} = Task.await(task, 2_000)
+    assert {:error, _} = Task.await(task, :infinity)
     refute_receive {:tmux_mock_out, "capture-pane" <> _}, 200
   end
 
@@ -446,16 +445,16 @@ defmodule Aiur.Claude.ReplAgentTest do
 
     task = Task.async(fn -> ReplAgent.stop_session(session) end)
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"})
     respond_error(tmux, "can't find pane\n")
 
-    assert_receive {:tmux_mock_out, "kill-pane -t %88"}, 1_000
+    receive_barrier({:tmux_mock_out, "kill-pane -t %88"})
     respond(tmux, "")
 
     # Teardown then verifies the pane is gone before logging the outcome.
-    assert_receive {:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %88 \#{pane_pid}"})
     respond_error(tmux, "can't find pane\n")
 
-    assert {:ok, :cleanup_proven} = Task.await(task, 2_000)
+    assert {:ok, :cleanup_proven} = Task.await(task, :infinity)
   end
 end

@@ -2,16 +2,17 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @moduledoc "Durable optimistic dispatch attempts; writes are serialized, reads use ETS."
   use GenServer
   require Logger
-  alias Aiur.{Alerts, JsonStore}
-  alias Aiur.Config.Paths
+  alias Aiur.{JsonStore, Signal}
   alias Aiur.Orchestrator.{DispatchPolicy, OptimisticIntegration, OptimisticLedgerTelemetry}
+  alias Aiur.Project.Context
+  alias Aiur.Project.Table
 
   @table :aiur_optimistic_starts
   @retention_ms 14 * 86_400_000
   @counters ~w(pushes_absorbed integrations_clean integrations_conflict non_ff_pushes parks resumes_after_park)
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Keyword.get(opts, :name, Aiur.Project.via(__MODULE__)))
 
   @spec record_start(String.t(), map()) :: :ok | {:error, atom()}
   def record_start(ticket, attrs), do: call({:start, ticket, attrs})
@@ -81,7 +82,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   end
 
   defp records do
-    case {Process.whereis(__MODULE__), :ets.lookup(@table, :records)} do
+    case {GenServer.whereis(Aiur.Project.whereis(__MODULE__)), :ets.lookup(Table.ref(@table), :records)} do
       {pid, [{:records, :available, rows}]} when is_pid(pid) -> {:ok, rows}
       _ -> {:error, :ledger_unavailable}
     end
@@ -90,7 +91,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   end
 
   defp call(message) do
-    GenServer.call(__MODULE__, message)
+    GenServer.call(Aiur.Project.whereis(__MODULE__), message)
   catch
     :exit, reason ->
       Logger.warning("Optimistic ledger unavailable: #{inspect(reason)}")
@@ -99,8 +100,9 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
 
   @impl true
   def init(opts) do
-    :ets.new(@table, [:named_table, :protected, read_concurrency: true])
-    state = %{path: nil, records: %{}, writable?: true, alert: Keyword.get(opts, :alert, &Alerts.emit_system/2)}
+    Aiur.Project.adopt(opts)
+    Table.new(@table, [:protected, read_concurrency: true])
+    state = %{path: nil, records: %{}, writable?: true, alert: Keyword.get(opts, :alert, &Signal.alert/2)}
 
     case path(opts) do
       {:ok, path} -> load(%{state | path: path}, opts)
@@ -258,12 +260,12 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
     supported? = Enum.all?(state.records, fn {_id, row} -> row["v"] == 1 end)
     availability = if state.writable? and supported?, do: :available, else: :unavailable
     visible = for {_id, %{"v" => 1} = row} <- state.records, do: row
-    :ets.insert(@table, {:records, availability, visible})
+    :ets.insert(Table.ref(@table), {:records, availability, visible})
   end
 
   defp unavailable(state, reason) do
     Logger.warning("Optimistic ledger unavailable: #{inspect(reason)}")
-    latch = {__MODULE__, :alerted, Process.whereis(Aiur.Supervisor), state.path}
+    latch = {__MODULE__, :alerted, Context.current_id(), Process.whereis(Aiur.Supervisor), state.path}
 
     unless :persistent_term.get(latch, false) do
       :persistent_term.put(latch, true)
@@ -278,7 +280,7 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   defp path(opts) do
     case Keyword.fetch(opts, :path) do
       {:ok, path} -> {:ok, path}
-      :error -> with {:ok, root} <- Paths.decision_state_dir(), do: {:ok, Path.join(root, "optimistic-starts.json")}
+      :error -> with {:ok, root} <- Aiur.Project.state_dir(), do: {:ok, Path.join(root, "optimistic-starts.json")}
     end
   end
 

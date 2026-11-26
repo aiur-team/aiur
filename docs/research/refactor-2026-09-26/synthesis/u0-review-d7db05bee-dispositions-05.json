@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 5,
+  "first_id": "build-order-16",
+  "last_id": "dup-by-body-10",
+  "findings": [
+    {
+      "id": "build-order-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/graph_projection_options.ex:221",
+      "note": "Bounded-positive option selection remains independently implemented in the graph, detail and history coordinator options; coordination skeleton duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/bounded.ex:119",
+      "note": "Bounded.same_repository? validates scalar types, while TicketDetail.Repository.same_repository? directly downcases tuple fields; divergent duplicate policies remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-18",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/route_state.ex:386",
+      "note": "RouteState and ContextRuntime still special-case nil/nil, and ContextRuntime.context_node still Enum.finds the first match instead of checking uniqueness. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-19",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/ticket_context_presenter.ex:155",
+      "note": "TicketContextPresenter still builds field views then normalizes the resulting View with parallel field normalizers. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/build_order/usage_scope.ex:55",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "build-order-20"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "build-order-21",
+      "status": "changed",
+      "anchor": "src/lib/aiur/build_order/ticket_detail_normalizer.ex:75",
+      "note": "Normalizer now preserves explicit permission/not_found/schema cases, but its unknown fallback is still :transport; coordinator unexpected-result fallback is also :transport. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-22",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:683",
+      "note": "Malformed packs still disappear from load_packs, but load_pack now calls pack_error and Logger.warning (6b00f375f); the no-log assertion is repaired while no catalog diagnostic remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-23",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:62",
+      "note": "catalog and selected_snapshot still independently call load_packs; load_pack File.read/Jason.decode and draft/status reads occur on each invocation. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/pack_paths.ex:75",
+      "note": "PackPaths.status_path still joins dirname(pack_path)/status.json, making flat workspace manifests share the same status filename. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-25",
+      "status": "changed",
+      "anchor": "src/lib/aiur/build_order/pack_status.ex:324",
+      "note": "6b00f375f replaced all-or-nothing persistence with Map.take plus persist_lifecycles and merge of prior members; the old inability to write partial pack batches is repaired. Cycle budget/incomplete health remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-26",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:289",
+      "note": "6b00f375f replaced small draft issue locators with a pack/id digest and reserved 19-digit number; old CT-101/real-101 alias no longer holds. Synthetic identities still use the tracked repository. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:8",
+      "note": "Issues still imports BuildOrder.Bounded and uses it for repository validation; generic lower GitHub code still depends on Build Order domain helpers. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/marker.ex:1",
+      "note": "Marker/DependencyChain/Graph definitions remain without production references found by pinned-tree git grep; dead/test-only surface remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/graph_projection.ex:957",
+      "note": "GraphProjection still computes scope_interval before calling schedule_after_completion, whose catalog and selected clauses both return unchanged state. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/github_graph/settings.ex:7",
+      "note": "Graph settings and projection configuration still separately hard-code root/page/call maxima 100/4/4; SelectedRoot retains a different member ceiling. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex:4",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "build-order-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "build-order-32",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:35",
+      "note": "PlanningSource still publishes constant epoch 1 with counters in generation, retaining the potential regression-order issue; run-rotation incidence is not reproduced. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-32"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_order/ticket_detail_destinations.ex:15",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "build-order-33"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "build-order-34",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/lifecycle.ex:1",
+      "note": "lifecycle.ex still first defines ProviderHealth; edge_state.ex still defines Readiness, preserving bundled/mismatched module layout. Provisional action retained; static code review only.",
+      "source_ids": [
+        "build-order-34"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-35",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/build_order/ticket_context_presenter.ex:714",
+      "note": "Context presenter/history normalizer retain separate provenance/accessor logic; removed GithubCache age helper reduces one cited copy. Provisional disposition retained.",
+      "source_ids": [
+        "build-order-35"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-36",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:518",
+      "note": "PlanningSource still resolves membership snapshot from global app-env seam; usage timers/clock/module overrides remain global test-driven API. Provisional disposition retained.",
+      "source_ids": [
+        "build-order-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/graph_projection.ex:635",
+      "note": "GraphProjection add_demand still returns unchanged identity alongside state and has duplicated timer-removal/active-scope helpers. Provisional disposition retained.",
+      "source_ids": [
+        "build-order-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-38",
+      "status": "present",
+      "anchor": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs:68",
+      "note": "On-demand test still traces private no_schedule? return and AdHoc unlabeled case asserts initial empty state after sleep. Provisional disposition retained.",
+      "source_ids": [
+        "build-order-38"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-39",
+      "status": "present",
+      "anchor": "src/lib/aiur/build_order/github_graph/queries.ex:24",
+      "note": "Queries still documents periodic labelled GraphProjection purchase and Cadence says page mount refreshes, differing from store/on-demand behavior. Provisional disposition retained.",
+      "source_ids": [
+        "build-order-39"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "build-order-40",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_order/ticket_history_provider.ex:202",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "build-order-40"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "dup-by-body-01",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/grouped_scopes.ex:422",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-01"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-02",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_answer.ex:257",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-02"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-03",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_event.ex:1011",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-03"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-04",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_process_log.ex:406",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-04"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/interrupts.ex:158",
+      "note": "Interrupts, PriorityControl and Slots retain separate 5000ms GenServer adapters; RemoteControlMode retains the parameterized timeout version. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-06",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_aggregate/checkpoint.ex:122",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/comment_wake.ex:519",
+      "note": "CommentWake and RetryEngine retain separate terminal-marker/unavailable callbacks and swallowed failure handling; identity eligibility remains caller-specific. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/build_order/analytics_runtime.ex:202",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-10",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_list/renderer/chrome.ex:261",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-10"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

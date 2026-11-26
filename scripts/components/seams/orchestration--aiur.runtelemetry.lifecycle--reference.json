@@ -1,0 +1,6 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.RunTelemetry.Lifecycle",
+  "kind": "reference",
+  "reason": "#3796: orchestration emits sanitized observed poll transitions through telemetry lifecycle"
+}

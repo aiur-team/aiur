@@ -265,6 +265,32 @@ defmodule Aiur.WipPreservationFixtures do
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
   end
 
+  @doc """
+  Waits for the Exchange event published on `topic`, skipping unrelated ones.
+
+  A dirty-leftover dispatch publishes more than one event (`wip_preservation_failed`
+  for the refusal, then the decision to continue), so tests cannot rely on the
+  next event in the mailbox being theirs.
+  """
+  def await_topic(topic, timeout \\ 2_000) do
+    receive do
+      {:event, %{topic: ^topic} = event} -> event
+      {:event, _other} -> await_topic(topic, timeout)
+    after
+      timeout -> flunk("no event published on #{topic} within #{timeout}ms")
+    end
+  end
+
+  @doc "Waits for the `{:alert, event}` broadcast named `topic`, skipping unrelated alerts."
+  def await_alert(topic, timeout \\ 2_000) do
+    receive do
+      {:alert, %{name: ^topic} = event} -> event
+      {:alert, _other} -> await_alert(topic, timeout)
+    after
+      timeout -> flunk("no alert named #{topic} within #{timeout}ms")
+    end
+  end
+
   def todo_issue(identifier),
     do: %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP", state: "todo", labels: ["agent:todo"]}
 
@@ -274,7 +300,7 @@ defmodule Aiur.WipPreservationFixtures do
   def trace_count(path), do: path |> File.read!() |> String.split("\n", trim: true) |> length()
 
   def git!(args) do
-    {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    {output, 0} = Aiur.TestGit.cmd(args)
     output
   end
 

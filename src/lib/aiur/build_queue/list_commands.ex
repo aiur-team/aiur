@@ -1,23 +1,67 @@
 defmodule Aiur.BuildQueue.ListCommands do
   @moduledoc false
-  alias Aiur.BuildQueue.{ListMutations, Model.Intent, QueueTriggers, Reconcile, Settings}
+  alias Aiur.BuildQueue.{ListMutations, Model.Intent, Observer, QueueTriggers, Reconcile, Settings}
 
-  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map()} | {:error, term()}
+  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map(), [String.t()]} | {:error, term()}
   def prepare(state, command) do
     observations = Reconcile.observations(state)
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
-         :ok <- open_members(state, command) do
-      {:ok, record(state, document, actions, observations), actions, observations}
+         {:ok, current_labels, missing} <- open_members(state, command) do
+      {actions, already_marked} = skip_existing_markers(actions, current_labels, state.settings)
+      document = record(state, document, actions, observations, current_labels)
+      document = record_existing_markers(document, already_marked, observations, state)
+      {:ok, document, actions, observations, missing}
     end
+  end
+
+  defp skip_existing_markers(actions, labels, settings) do
+    marker = "#{settings.tracker.github.label_prefix}:queued"
+
+    Enum.split_with(actions, fn
+      {:mark, id} -> marker in (get_in(labels, [id, :labels]) || [])
+      _ -> false
+    end)
+    |> then(fn {existing, remaining} -> {remaining, Enum.map(existing, &elem(&1, 1))} end)
+  end
+
+  defp record_existing_markers(document, [], _observations, _state), do: document
+
+  defp record_existing_markers(document, ids, observations, state) do
+    existing =
+      Enum.map(ids, fn id ->
+        labels = observations[id].labels
+        target_labels = Enum.uniq(labels ++ ["#{state.settings.tracker.github.label_prefix}:queued"])
+        %Intent{id: Ecto.UUID.generate(), issue_id: id, action: :mark, target_labels: target_labels, recorded_at_ms: state.clock.(), outcome: :ok}
+      end)
+
+    %{document | intents: document.intents ++ existing}
   end
 
   @spec queue_id(map()) :: {:ok, String.t()} | {:error, :queue_limit}
   defdelegate queue_id(document), to: ListMutations
 
+  @spec only_deferred_or_satisfied_marks?(list(), map(), String.t()) :: boolean()
+  def only_deferred_or_satisfied_marks?(failures, observations, marker) do
+    Enum.all?(failures, fn
+      {:mark, _id, {:error, :paced}} ->
+        true
+
+      {:mark, id, _result} ->
+        case Map.get(observations, id) do
+          %{labels: labels} -> marker in labels
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
   @spec record(map(), map(), list(), map()) :: map()
-  def record(state, document, actions, observations) do
-    intents = Enum.map(actions, &intent(&1, observations, state))
+  @spec record(map(), map(), list(), map(), map()) :: map()
+  def record(state, document, actions, observations, current_labels \\ %{}) do
+    intents = Enum.map(actions, &intent(&1, observations, current_labels, state))
     %{document | intents: document.intents ++ intents}
   end
 
@@ -51,11 +95,13 @@ defmodule Aiur.BuildQueue.ListCommands do
     case state.tracker.open_issue_labels(max_age) do
       {:ok, labels, observed_at} ->
         now = state.clock.()
+        missing = Enum.reject(ids, &Map.has_key?(labels, &1))
 
         cond do
           observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
-          Enum.any?(ids, &(not Map.has_key?(labels, &1))) -> {:error, :closed}
-          true -> :ok
+          # The listing holds only open issues, so only a closure read tells a closed issue from one not yet polled.
+          Enum.any?(missing, &match?({:ok, %{open?: false}}, Observer.closure(state, &1))) -> {:error, :closed}
+          true -> {:ok, labels, missing}
         end
 
       _ ->
@@ -63,13 +109,14 @@ defmodule Aiur.BuildQueue.ListCommands do
     end
   end
 
-  defp open_members(_state, _command), do: :ok
+  defp open_members(_state, _command), do: {:ok, %{}, []}
 
-  defp intent({action, id}, observations, state) do
+  defp intent({action, id}, observations, current_labels, state) do
     marker = "#{state.settings.tracker.github.label_prefix}:queued"
     labels = if observations[id], do: observations[id].labels, else: []
     targets = if action == :mark, do: Enum.uniq(labels ++ [marker]), else: Enum.reject(labels, &(&1 == marker))
     # Persist the request as well as each attempt, so pacing or a crash cannot lose marker work.
-    %Intent{id: Ecto.UUID.generate(), issue_id: id, action: action, target_labels: targets, recorded_at_ms: state.clock.(), outcome: nil}
+    preexisting_todo? = action == :mark and "#{state.settings.tracker.github.label_prefix}:todo" in (get_in(current_labels, [id, :labels]) || [])
+    %Intent{id: Ecto.UUID.generate(), issue_id: id, action: action, target_labels: targets, recorded_at_ms: state.clock.(), preexisting_todo?: preexisting_todo?, outcome: nil}
   end
 end

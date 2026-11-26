@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceCase do
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
   alias Aiur.{BuildOrdersCLI, RepoBase, TrackerIdentity}
-  alias AiurWeb.BuildOrder.{PlanningSource, RouteState, TicketContextAdapter, TicketContextPresenter}
+  alias AiurWeb.BuildOrder.{PlanningSource, TicketContextAdapter, TicketContextPresenter}
 
   @pack """
   {
@@ -64,10 +64,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceCase do
       alias Aiur.BuildOrder.GraphProjection.Snapshot
       alias Aiur.{BuildOrdersCLI, RepoBase, TrackerIdentity}
       alias Aiur.GitHub.Config
-      alias AiurWeb.BuildOrder.{PlanningSource, RouteState, TicketContextAdapter, TicketContextPresenter}
+      alias AiurWeb.BuildOrder.{PlanningSource, TicketContextAdapter, TicketContextPresenter}
       alias AiurWeb.BuildOrderPresenter
       alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
-      alias AiurWeb.OperatorControlCenter.BuildOrderSelected
 
       Module.put_attribute(__MODULE__, :pack, unquote(Macro.escape(@pack)))
       Module.put_attribute(__MODULE__, :canonical_pack, unquote(Macro.escape(@canonical_pack)))

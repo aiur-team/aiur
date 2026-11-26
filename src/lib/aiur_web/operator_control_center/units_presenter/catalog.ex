@@ -74,6 +74,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter.Catalog do
   end
 
   @spec catalog_message(atom(), map(), map()) :: String.t() | nil
+  def catalog_message(:loading, _membership, _snapshot), do: "The daemon is starting."
   def catalog_message(:ready, _membership, _snapshot), do: nil
   def catalog_message(:empty, _membership, _snapshot), do: "No units in this run yet."
 

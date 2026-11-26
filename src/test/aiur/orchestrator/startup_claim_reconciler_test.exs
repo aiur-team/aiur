@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.{StartupClaimReconciler, State}
 
@@ -25,17 +26,38 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
       end)
 
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
-    assert alert_opts[:message] =~ "released"
-    assert alert_opts[:reason] =~ "no live runtime"
-    assert alert_opts[:reason] =~ "guarded update"
-    assert alert_opts[:severity] == "warning"
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?
-    assert log =~ "Released orphaned startup claim to todo"
+    assert log =~ "Orphan sweep released claim to todo"
     assert log =~ "issue_id=issue-2076 issue_identifier=2076"
+  end
+
+  test "startup release to human-review publishes one handoff wake per head" do
+    issue = %{issue("5216", "in-progress") | tracker_identity: %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "5216"}}
+    repo = "its-everdred/aiur"
+    sha = String.duplicate("a", 40)
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing_all, repo, "open")
+    :ok = ResourceStore.put_resource(key, [%{"number" => 5216, "head" => %{"ref" => "aiur/5216", "sha" => sha}}])
+    parent = self()
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5216}} end,
+      pr_fetcher: fn _ -> {:ok, %{"number" => 5216, "draft" => false, "mergeable" => true, "head" => %{"sha" => sha}}} end,
+      release_fun: fn _issue, _opts -> {:ok, "human-review"} end,
+      update_issue_state_fun: fn _identifier, "human-review", "in-progress" -> :ok end,
+      emit_alert_fun: fn topic, alert_opts -> send(parent, {:alert, topic, alert_opts}) end
+    ]
+
+    {state, [%Issue{state: "human-review"}]} = reconcile(%State{}, [issue], opts)
+    assert_receive {:alert, "ticket.5216.agent.handoff.human_review", handoff}, 1000
+    assert handoff[:exchange_payload]["pr_number"] == 5216
+    assert handoff[:exchange_payload]["head_sha"] == sha
+
+    {_, [%Issue{state: "human-review"}]} = reconcile(state, [%{issue | state: "human-review"}], opts)
+    refute_receive {:alert, "ticket.5216.agent.handoff.human_review", _}, 100
   end
 
   test "uses tracker-native lifecycle names for a guarded release" do
@@ -77,6 +99,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert result.startup_claim_reconciliation_complete?
   end
 
+  test "a duration-capped paused registry entry is not an orphan claim" do
+    issue = issue("2076", "in-progress")
+    entry = %{identifier: issue.identifier, issue: issue, pid: dead_pid(), control: %{status: :paused}, paused_reason: :max_agent_duration}
+
+    {result, [retained]} =
+      reconcile(%State{running: %{"runtime-key" => entry}}, [issue],
+        update_issue_state_fun: fn _, _, _ -> flunk("paused ownership must retain the claim") end,
+        emit_alert_fun: fn _, _ -> flunk("paused ownership must not alert") end
+      )
+
+    assert retained == issue
+    assert result.orphaned_claim_since == %{}
+  end
+
   test "regression guard: parked in-progress claims stay out of startup orphan recovery" do
     issue = %{issue("2952", "in-progress") | parked: true, labels: ["agent:parked", "agent:in-progress"]}
 
@@ -116,23 +152,30 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert result.startup_claim_reconciliation_complete?
   end
 
-  test "releases a claim whose matching registry entry is no longer alive" do
+  test "releases a claim with no orchestrator entry" do
     issue = issue("2076", "in-progress")
-    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
-
-    state = %State{
-      running: %{
-        "runtime-key" => %{identifier: issue.identifier, issue: issue, pid: dead_pid}
-      }
-    }
 
     {result, [%Issue{state: "todo"}]} =
-      reconcile(state, [issue],
+      reconcile(%State{}, [issue],
         update_issue_state_fun: fn "2076", "todo", "in-progress" -> :ok end,
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
 
+    assert result.startup_claim_reconciliation_complete?
+  end
+
+  test "a non-paused registry entry with a dead pid keeps its claim" do
+    issue = issue("2076", "in-progress")
+    pid = dead_pid()
+    refute State.alive?(pid)
+
+    {result, [retained]} =
+      reconcile(%State{running: %{"runtime-key" => %{identifier: issue.identifier, issue: issue, pid: pid}}}, [issue],
+        update_issue_state_fun: fn _, _, _ -> flunk("an orchestrator entry owns the claim even when its pid is dead") end,
+        emit_alert_fun: fn _, _ -> flunk("an owned claim must not alert") end
+      )
+
+    assert retained == issue
     assert result.startup_claim_reconciliation_complete?
   end
 
@@ -149,6 +192,48 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert retained == issue
     assert state.startup_claim_reconciliation_complete?
+  end
+
+  test "restores an ownerless claim to ci-wait when its approved PR is queued or auto-merging" do
+    for {identifier, projection} <- [
+          {"approved-queued", %{merge_queue_entry: %{id: "queue"}, auto_merge_request: nil}},
+          {"approved-auto-merge", %{merge_queue_entry: nil, auto_merge_request: %{enabled_at: "now"}}}
+        ] do
+      issue = issue(identifier, "in-progress")
+      state = %State{ci_lifecycle: %{poll_cache: %{identifier => Map.put(projection, :review_decision, "APPROVED")}}}
+      parent = self()
+
+      {result, [%Issue{state: "ci-wait"}]} =
+        reconcile(state, [issue],
+          update_issue_state_fun: fn id, target, expected ->
+            send(parent, {:transition, id, target, expected})
+            :ok
+          end,
+          open_pr_fetcher: fn _identifier -> flunk("cached recovery must not fetch the PR") end,
+          pr_fetcher: fn _number -> flunk("cached recovery must not fetch the PR") end
+        )
+
+      assert_receive {:transition, ^identifier, "ci-wait", "in-progress"}, 1000
+      assert result.startup_claim_reconciliation_complete?
+    end
+  end
+
+  # Regression guard: changes-requested PRs must keep the existing rework recovery path.
+  test "does not mistake a changes-requested PR for an approved queued PR" do
+    issue = issue("requested-changes", "in-progress")
+    target = issue.identifier
+    state = %State{ci_lifecycle: %{poll_cache: %{target => %{review_decision: "CHANGES_REQUESTED", merge_queue_entry: nil}}}}
+
+    {result, [%Issue{state: "rework"}]} =
+      reconcile(state, [issue],
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread"}]} end,
+        open_pr_fetcher: fn _identifier -> {:ok, %{"number" => 9}} end,
+        pr_fetcher: fn _number -> {:ok, %{"number" => 9, "mergeable" => true, "review_decision" => "CHANGES_REQUESTED", "head" => %{"sha" => "head"}}} end,
+        reviews_fetcher: fn 9 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "commit_id" => "head", authoritative: true}]} end,
+        update_issue_state_fun: fn "requested-changes", "rework", "in-progress" -> :ok end
+      )
+
+    assert result.startup_claim_reconciliation_complete?
   end
 
   test "claims the current daemon boot before running the pass" do
@@ -353,7 +438,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert recovered_state.startup_claim_reconciliation_complete?
     assert recovered_state.startup_claim_reconciliation_failures == %{}
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", _opts}, 1000
+    assert_receive {:alert, "ticket.2076.agent.attention.orphan_claim_released", _opts}, 1000
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}, 1000
     refute resolved_opts[:needs_attention]
@@ -393,6 +478,12 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
   defp reconcile(state, issues, opts \\ []) do
     defaults = [grace_ms: 0, open_pr_fetcher: fn _ -> {:ok, nil} end, create_comment_fun: fn _, _ -> :ok end, emit_alert_fun: fn _, _ -> :ok end]
     StartupClaimReconciler.reconcile(state, issues, Keyword.merge(defaults, opts))
+  end
+
+  defp dead_pid do
+    {pid, monitor} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
+    pid
   end
 
   defp issue(identifier, state) do

@@ -4,120 +4,33 @@ defmodule Aiur.Workspace.Provisioner do
   stale workspace recreation.
   """
 
-  require Logger
-  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch}
-  alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote, WipPreservation}
+  alias Aiur.{Config, TicketBranch}
+  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Remote, WipPreservation}
+  alias Aiur.Workspace.Provisioner.{AgentSupport, Bootstrap}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
-  @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
-  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch, Aiur.Workspace.AttributionGuard]
   @remote_workspace_ready_marker "__AIUR_WORKSPACE_READY__"
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
   @doc false
-  # Install aiur's bundled agent-operating skills and command guards into a
-  # freshly populated workspace. Remote workers receive the portable subset
-  # through one idempotent SSH script; build admission is currently local-only.
   @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
-  def maybe_install_agent_support(workspace, nil) do
-    Enum.reduce_while(@local_agent_support_modules, :ok, fn module, :ok ->
-      case module.install(workspace) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
-    maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_script/3)
-  end
+  defdelegate maybe_install_agent_support(workspace, worker_host), to: AgentSupport
 
   @doc false
-  # The last check before an agent turn starts on a local workspace (#2697).
-  # A workspace can be rebuilt after `create_for_issue/3` installed its support
-  # tree (before_run reconstruction or stale-leftover recreation), and the agent
-  # environment still points PATH, GH_CONFIG_DIR and the quota path into it. A
-  # missing piece is repaired with the full local install; if it is still
-  # missing, dispatch is refused with the names of the missing pieces.
+  @spec maybe_install_agent_support(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) :: :ok | {:error, term()}
+  defdelegate maybe_install_agent_support(workspace, worker_host, runner), to: AgentSupport
+
+  @doc false
   @spec ensure_local_agent_support(Path.t()) :: :ok | {:error, term()}
-  def ensure_local_agent_support(workspace) when is_binary(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
-      [] ->
-        :ok
-
-      missing ->
-        Logger.warning("Repairing incomplete agent support before dispatch workspace=#{workspace} missing=#{inspect(missing)}")
-
-        case maybe_install_agent_support(workspace, nil) do
-          :ok ->
-            verify_local_agent_support(workspace)
-
-          {:error, reason} ->
-            {:error, {:agent_support_repair_failed, workspace, AgentGitHubGuard.missing_workspace_support(workspace), reason}}
-        end
-    end
-  end
-
-  defp verify_local_agent_support(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
-      [] -> :ok
-      missing -> {:error, {:agent_support_incomplete, workspace, missing}}
-    end
-  end
-
-  @doc false
-  @spec maybe_install_agent_support(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) ::
-          :ok | {:error, term()}
-  def maybe_install_agent_support(workspace, worker_host, runner)
-      when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    script = remote_agent_support_script(workspace, worker_host)
-
-    case runner.(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} ->
-        :ok
-
-      result ->
-        Logger.warning("remote agent support install failed worker_host=#{worker_host} result=#{inspect(result)}")
-        {:error, {:remote_agent_support_install_failed, result}}
-    end
-  end
+  defdelegate ensure_local_agent_support(workspace), to: AgentSupport
 
   @doc false
   @spec repair_agent_github_guard(Path.t(), String.t() | nil) :: :ok | {:error, term()}
-  def repair_agent_github_guard(workspace, nil), do: Aiur.AgentGitHubGuard.install(workspace)
-
-  def repair_agent_github_guard(workspace, worker_host) when is_binary(worker_host) do
-    repair_agent_github_guard(workspace, worker_host, &Remote.run_remote_script/3)
-  end
+  defdelegate repair_agent_github_guard(workspace, worker_host), to: AgentSupport
 
   @doc false
-  @spec repair_agent_github_guard(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) ::
-          :ok | {:error, term()}
-  def repair_agent_github_guard(workspace, worker_host, runner)
-      when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    case runner.(worker_host, Aiur.AgentGitHubGuard.remote_install_script(workspace, remote_host: worker_host), Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} -> :ok
-      result -> {:error, {:remote_agent_github_guard_repair_failed, result}}
-    end
-  end
-
-  # `worker_host` is passed to the modules that accept install options so the
-  # host-credential cleanup only ever runs on a genuinely remote install (#2478);
-  # the same script executed locally must not touch the operator's own `$HOME`.
-  defp remote_agent_support_script(workspace, worker_host) do
-    Enum.map_join(@remote_agent_support_modules, "\n", fn module ->
-      # `Code.ensure_loaded?/1` first: on a not-yet-loaded module
-      # `function_exported?/3` answers false, which would silently fall back to
-      # the arity-1 call and drop the remote credential cleanup rather than
-      # failing loudly.
-      if Code.ensure_loaded?(module) and function_exported?(module, :remote_install_script, 2) do
-        module.remote_install_script(workspace, remote_host: worker_host)
-      else
-        module.remote_install_script(workspace)
-      end
-    end)
-  end
+  @spec repair_agent_github_guard(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) :: :ok | {:error, term()}
+  defdelegate repair_agent_github_guard(workspace, worker_host, runner), to: AgentSupport
 
   @type worker_host :: String.t() | nil
 
@@ -173,27 +86,39 @@ defmodule Aiur.Workspace.Provisioner do
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil, pr_head_ref, branch_name, lifecycle, start_point)
       when is_binary(branch_name) do
+    with :ok <- Bootstrap.set_aside_runtime_scratch(workspace) do
+      ensure_local_workspace(workspace, pr_head_ref, branch_name, lifecycle, start_point)
+    end
+  end
+
+  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle, _start_point)
+      when is_binary(worker_host) do
+    Bootstrap.record_prewarm_point(lifecycle, :remote, :unavailable)
+    ensure_workspace(workspace, worker_host)
+  end
+
+  defp ensure_local_workspace(workspace, pr_head_ref, branch_name, lifecycle, start_point) do
     cond do
       Checkout.valid_workspace?(workspace) ->
-        record_prewarm_point(lifecycle, :existing, :skipped)
+        Bootstrap.record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
       # `created?` is creation telemetry, not a safety verdict. Retain the
       # honest existing-path outcome for an interrupted Git initialization;
       # Workspace.create_for_issue/3 separately rejects it before hooks can
       # stage or replace its contents.
-      File.dir?(workspace) and git_metadata_present?(workspace) ->
-        record_prewarm_point(lifecycle, :existing, :skipped)
+      File.dir?(workspace) and Bootstrap.git_metadata_present?(workspace) ->
+        Bootstrap.record_prewarm_point(lifecycle, :existing, :skipped)
         {:ok, workspace, false}
 
       true ->
         case workspace_readiness(workspace) do
           :ready ->
-            record_prewarm_point(lifecycle, :existing, :skipped)
+            Bootstrap.record_prewarm_point(lifecycle, :existing, :skipped)
             {:ok, workspace, false}
 
           :bootstrap ->
-            ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point)
+            Bootstrap.ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point)
 
           {:error, reason} ->
             {:error, reason}
@@ -201,35 +126,18 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  def ensure_workspace(workspace, worker_host, _pr_head_ref, _branch_name, lifecycle, _start_point)
-      when is_binary(worker_host) do
-    record_prewarm_point(lifecycle, :remote, :unavailable)
-    ensure_workspace(workspace, worker_host)
-  end
-
   @spec ensure_workspace(Path.t(), worker_host()) ::
           {:ok, Path.t(), boolean() | :materialized} | {:error, term()}
   def ensure_workspace(workspace, nil) do
-    cond do
-      Checkout.valid_workspace?(workspace) ->
-        {:ok, workspace, false}
-
-      File.dir?(workspace) and git_metadata_present?(workspace) ->
-        {:ok, workspace, false}
-
-      true ->
-        case workspace_readiness(workspace) do
-          :ready -> {:ok, workspace, false}
-          :bootstrap -> ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil, nil)
-          {:error, reason} -> {:error, reason}
-        end
+    with :ok <- Bootstrap.set_aside_runtime_scratch(workspace) do
+      ensure_local_workspace(workspace)
     end
   end
 
   def ensure_workspace(workspace, worker_host) when is_binary(worker_host) do
     case Remote.run_remote_command(
            worker_host,
-           remote_workspace_prepare_script(workspace),
+           Bootstrap.remote_workspace_prepare_script(workspace),
            Config.settings!().hooks.timeout_ms
          ) do
       {:ok, {output, 0}} ->
@@ -240,6 +148,23 @@ defmodule Aiur.Workspace.Provisioner do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp ensure_local_workspace(workspace) do
+    cond do
+      Checkout.valid_workspace?(workspace) ->
+        {:ok, workspace, false}
+
+      File.dir?(workspace) and Bootstrap.git_metadata_present?(workspace) ->
+        {:ok, workspace, false}
+
+      true ->
+        case workspace_readiness(workspace) do
+          :ready -> {:ok, workspace, false}
+          :bootstrap -> Bootstrap.ensure_bootstrap_workspace(workspace, legacy_branch_name(workspace), nil, nil, nil)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -257,39 +182,11 @@ defmodule Aiur.Workspace.Provisioner do
 
   @doc false
   @spec logs_only_workspace?(Path.t(), worker_host()) :: boolean()
-  def logs_only_workspace?(workspace, nil) when is_binary(workspace) do
-    case File.ls(workspace) do
-      {:ok, ["logs"]} -> safe_logs_tree?(Path.join(workspace, "logs")) == :ok
-      _ -> false
-    end
-  end
-
-  # Remote preparation rejects unproven non-empty directories before hooks
-  # run, so this local-only check need not attempt a second SSH inspection.
-  def logs_only_workspace?(_workspace, worker_host) when is_binary(worker_host), do: false
+  defdelegate logs_only_workspace?(workspace, worker_host), to: Bootstrap
 
   @doc false
   @spec workspace_readiness(Path.t()) :: :ready | :bootstrap | {:error, term()}
-  def workspace_readiness(workspace) when is_binary(workspace) do
-    cond do
-      Checkout.valid_workspace?(workspace) ->
-        :ready
-
-      File.dir?(workspace) and git_metadata_present?(workspace) ->
-        {:error, {:workspace_ambiguous, workspace, :invalid_git_checkout}}
-
-      File.regular?(workspace_ready_marker_path(workspace)) ->
-        :ready
-
-      File.dir?(workspace) ->
-        empty_or_logs_only_workspace(workspace)
-
-      true ->
-        :bootstrap
-    end
-  end
-
-  def workspace_readiness(_workspace), do: {:error, :invalid_workspace_path}
+  defdelegate workspace_readiness(workspace), to: Bootstrap
 
   @doc false
   @spec ensure_workspace_usable(Path.t(), worker_host(), boolean() | :materialized) ::
@@ -315,8 +212,7 @@ defmodule Aiur.Workspace.Provisioner do
 
   @doc false
   @spec workspace_ready_marker_path(Path.t()) :: Path.t()
-  def workspace_ready_marker_path(workspace) when is_binary(workspace),
-    do: Path.join(workspace, @workspace_ready_marker)
+  defdelegate workspace_ready_marker_path(workspace), to: Bootstrap
 
   @doc false
   @spec mark_workspace_ready(Path.t(), worker_host()) :: :ok | {:error, term()}
@@ -403,7 +299,7 @@ defmodule Aiur.Workspace.Provisioner do
   @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t(), String.t()) :: :ok | {:error, term()}
   def recreate(workspace, nil, pr_head_ref, branch_name, ticket) when is_binary(branch_name) and is_binary(ticket) do
     WipPreservation.guard_destroy(workspace, ticket, "recreate the stale workspace", fn ->
-      force_recreate_workspace(workspace, branch_name, pr_head_ref)
+      Bootstrap.force_recreate_workspace(workspace, branch_name, pr_head_ref)
     end)
   end
 
@@ -442,197 +338,10 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  defp create_workspace(workspace) do
-    cold_fallback_workspace(workspace)
-  end
-
-  defp force_recreate_workspace(workspace, branch_name, pr_head_ref) do
-    Reconstruction.with_log_lock(workspace, fn ->
-      replace_workspace(workspace, branch_name, pr_head_ref)
-    end)
-  end
-
-  defp replace_workspace(workspace, branch_name, pr_head_ref) do
-    File.rm_rf!(workspace)
-
-    case create_or_materialize(workspace, branch_name, pr_head_ref) do
-      {:ok, _workspace, _created?} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # A materialization failure can race the first transcript event for an
-  # otherwise-missing workspace. AgentEventLog uses this same lock, so inspect
-  # and create under it instead of deleting a directory that appeared between
-  # the failed stage and the cold fallback.
   @doc false
-  @spec cold_fallback_workspace(Path.t(), (-> term())) ::
-          {:ok, Path.t(), true} | {:error, term()}
-  def cold_fallback_workspace(workspace, before_recheck \\ fn -> :ok end)
-      when is_binary(workspace) and is_function(before_recheck, 0) do
-    Reconstruction.with_log_lock(workspace, fn ->
-      before_recheck.()
-
-      case cold_fallback_readiness(workspace) do
-        :missing ->
-          File.mkdir_p!(workspace)
-          {:ok, workspace, true}
-
-        :empty_or_logs_only ->
-          {:ok, workspace, true}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end)
-  end
-
-  defp ensure_bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
-    Reconstruction.with_log_lock(workspace, fn ->
-      ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle, start_point)
-    end)
-  end
-
-  defp ensure_bootstrap_workspace_locked(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
-    case workspace_readiness(workspace) do
-      :ready ->
-        record_prewarm_point(lifecycle, :existing, :skipped)
-        {:ok, workspace, false}
-
-      :bootstrap ->
-        bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point)
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp bootstrap_workspace(workspace, branch_name, pr_head_ref, lifecycle, start_point) do
-    cond do
-      File.dir?(workspace) ->
-        record_prewarm_point(lifecycle, :incomplete, :rebuild)
-        {:ok, workspace, true}
-
-      File.exists?(workspace) ->
-        File.rm_rf!(workspace)
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle, start_point)
-
-      true ->
-        create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle, start_point)
-    end
-  end
-
-  defp git_metadata_present?(workspace), do: File.exists?(Path.join(workspace, ".git"))
-
-  defp empty_or_logs_only_workspace(workspace) do
-    case File.ls(workspace) do
-      {:ok, []} -> :bootstrap
-      {:ok, ["logs"]} -> logs_only_bootstrap_status(workspace)
-      {:ok, _entries} -> {:error, {:workspace_ambiguous, workspace, :unproven_contents}}
-      {:error, reason} -> {:error, {:workspace_unreadable, workspace, reason}}
-    end
-  end
-
-  defp logs_only_bootstrap_status(workspace) do
-    case safe_logs_tree?(Path.join(workspace, "logs")) do
-      :ok -> :bootstrap
-      {:error, _reason} -> {:error, {:workspace_ambiguous, workspace, :unproven_contents}}
-    end
-  end
-
-  defp cold_fallback_readiness(workspace) do
-    case File.lstat(workspace) do
-      {:error, :enoent} ->
-        :missing
-
-      {:ok, %File.Stat{type: :directory}} ->
-        case File.ls(workspace) do
-          {:ok, []} -> :empty_or_logs_only
-          {:ok, ["logs"]} -> cold_logs_only_status(workspace)
-          {:ok, _entries} -> {:error, {:workspace_cold_fallback_ambiguous, workspace}}
-          {:error, reason} -> {:error, {:workspace_unreadable, workspace, reason}}
-        end
-
-      {:ok, _stat} ->
-        {:error, {:workspace_cold_fallback_ambiguous, workspace}}
-
-      {:error, reason} ->
-        {:error, {:workspace_unreadable, workspace, reason}}
-    end
-  end
-
-  defp cold_logs_only_status(workspace) do
-    case safe_logs_tree?(Path.join(workspace, "logs")) do
-      :ok -> :empty_or_logs_only
-      {:error, _reason} -> {:error, {:workspace_cold_fallback_ambiguous, workspace}}
-    end
-  end
-
-  # Logs are the only pre-provisioning subtree created by the event writer.
-  # A symlink or special node makes the interrupted bootstrap ambiguous rather
-  # than letting reconstruction follow an unverified path during promotion.
-  defp safe_logs_tree?(path) do
-    with {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
-         {:ok, entries} <- File.ls(path) do
-      safe_logs_entries?(entries, path)
-    else
-      {:ok, _stat} -> {:error, :logs_not_directory}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp safe_logs_entries?(entries, path) do
-    Enum.reduce_while(entries, :ok, fn entry, :ok ->
-      case safe_logs_entry?(Path.join(path, entry)) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp safe_logs_entry?(path) do
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :regular}} -> :ok
-      {:ok, %File.Stat{type: :directory}} -> safe_logs_tree?(path)
-      {:ok, _stat} -> {:error, :unsafe_log_entry}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # Remote hooks run in place, so an existing non-empty non-checkout cannot be
-  # safely staged or atomically promoted from this BEAM. Refuse it before the
-  # hook or provider starts; empty paths are still first-time bootstraps, and
-  # prior explicit completion markers retain the configured non-Git behavior.
-  defp remote_workspace_prepare_script(workspace) do
-    [
-      "set -eu",
-      Remote.remote_shell_assign("workspace", workspace),
-      "if [ -d \"$workspace\" ]; then",
-      "  current=\"$(cd \"$workspace\" && pwd -P)\"",
-      "  git_top=\"$(git -C \"$workspace\" rev-parse --show-toplevel 2>/dev/null || true)\"",
-      "  if [ \"$git_top\" = \"$current\" ] && git -C \"$workspace\" rev-parse --verify HEAD >/dev/null 2>&1; then",
-      "    created=0",
-      "  elif [ -f \"$workspace/.claude/.aiur-workspace-ready\" ]; then",
-      "    created=0",
-      "  elif [ -z \"$(find \"$workspace\" -mindepth 1 -maxdepth 1 -print -quit)\" ]; then",
-      "    created=1",
-      "  else",
-      "    printf '%s\\t%s\\n' '#{@remote_workspace_marker}' incomplete \"$current\"",
-      "    exit 65",
-      "  fi",
-      "elif [ -e \"$workspace\" ]; then",
-      "  rm -rf \"$workspace\"",
-      "  mkdir -p \"$workspace\"",
-      "  created=1",
-      "else",
-      "  mkdir -p \"$workspace\"",
-      "  created=1",
-      "fi",
-      "cd \"$workspace\"",
-      "printf '%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$(pwd -P)\""
-    ]
-    |> Enum.join("\n")
-  end
+  @spec cold_fallback_workspace(Path.t(), (-> term())) :: {:ok, Path.t(), true} | {:error, term()}
+  def cold_fallback_workspace(workspace, before_recheck \\ fn -> :ok end),
+    do: Bootstrap.cold_fallback_workspace(workspace, before_recheck)
 
   defp remote_workspace_readiness(workspace, worker_host) do
     script =
@@ -668,79 +377,6 @@ defmodule Aiur.Workspace.Provisioner do
         {:error, reason}
     end
   end
-
-  # A ready prewarm base carries build artifacts; otherwise use the cold hook path.
-  defp create_or_materialize(workspace, branch_name, pr_head_ref, lifecycle \\ nil, start_point \\ nil) do
-    case prewarm_base() do
-      {:ready, base} ->
-        record_prewarm(lifecycle, :start, %{prewarm_outcome: :materialized})
-
-        case Materialize.materialize_from_base(base, workspace, branch_name, pr_head_ref, start_point) do
-          :ok ->
-            record_prewarm(lifecycle, :end, %{
-              prewarm_outcome: :materialized,
-              outcome: :success
-            })
-
-            {:ok, workspace, :materialized}
-
-          {:error, reason} ->
-            record_prewarm(lifecycle, :end, %{
-              prewarm_outcome: :materialize_failed,
-              outcome: :failed,
-              reason_class: Lifecycle.reason_class(reason)
-            })
-
-            record_prewarm_point(lifecycle, :cold_fallback, :success)
-            create_workspace(workspace)
-        end
-
-      {:skip, outcome} ->
-        record_prewarm_point(lifecycle, outcome, :skipped)
-        create_workspace(workspace)
-    end
-  end
-
-  defp prewarm_base do
-    if Config.prewarm_enabled?() do
-      ready_prewarm_base()
-    else
-      {:skip, :disabled}
-    end
-  end
-
-  defp ready_prewarm_base do
-    case RepoBase.status() do
-      {:ready, base} when is_binary(base) ->
-        if File.dir?(base), do: {:ready, base}, else: {:skip, :cold_base_missing}
-
-      _other ->
-        {:skip, :cold_base_not_ready}
-    end
-  end
-
-  defp record_prewarm_point(lifecycle, prewarm_outcome, outcome) do
-    record_prewarm(lifecycle, :point, %{
-      prewarm_outcome: prewarm_outcome,
-      outcome: outcome
-    })
-  end
-
-  defp record_prewarm(
-         %{ticket: ticket, attempt_id: attempt_id, recorder: recorder},
-         boundary,
-         metadata
-       )
-       when is_binary(ticket) and is_function(recorder, 3) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata, recorder: recorder)
-  end
-
-  defp record_prewarm(%{ticket: ticket, attempt_id: attempt_id}, boundary, metadata)
-       when is_binary(ticket) do
-    Lifecycle.record(ticket, attempt_id, :prewarm, boundary, metadata)
-  end
-
-  defp record_prewarm(_lifecycle, _boundary, _metadata), do: :ok
 
   defp established_pr_head_ref(%{pr_head_ref: ref}) when is_binary(ref) and ref != "", do: ref
   defp established_pr_head_ref(_issue_context), do: nil

@@ -3,15 +3,16 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
   alias Aiur.BuildOrder.CatalogStore
   alias Aiur.BuildOrder.Features.RootImportMapping, as: Mapping
   @source "import:build-order"
-  @lists ~w(creates updates new_epics moves removes adds also also_removes conflicts deferred)a
+  @lists ~w(epic_creates epic_updates creates updates new_epics moves removes adds also also_removes conflicts deferred)a
 
   @spec plan(map(), map(), map()) :: map()
   def plan(history, features, journals) do
     roots = history.rows |> Map.values() |> Enum.filter(&root?/1) |> Enum.sort_by(& &1.number)
     initial = Map.merge(Map.new(@lists, &{&1, []}), %{skipped_cross_repo: 0, skipped_lanes: 0})
-    context = %{history: history, features: features, journals: journals}
+    context = %{history: history, features: features, journals: journals, epics: Map.new(Map.get(features, :epics, []), &{&1.slug, &1})}
     plan = Enum.reduce(roots, initial, &root(&1, &2, context))
     moved = for {_, numbers, _, _} <- plan.moves, number <- numbers, do: number
+    plan = Enum.reduce(@lists, plan, fn field, acc -> Map.update!(acc, field, &Enum.reverse/1) end)
     plan |> Map.update!(:removes, &Enum.reject(&1, fn {_, [n]} -> n in moved end)) |> group()
   end
 
@@ -34,11 +35,26 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
     members = context.history.rows |> Map.values() |> Enum.filter(&member?(&1, root.number, context.history.repository)) |> Enum.sort_by(& &1.number)
     feature = Mapping.feature(root, members)
     plan = feature(plan, feature, existing)
-    plan = Enum.reduce(members, plan, &join(&1, &2, root, context, events))
+    plan = epic(plan, root, feature, context)
+    joins = Mapping.joined_at_index(root, context.history.repository)
+    plan = Enum.reduce(members, plan, &join(&1, &2, root, Map.put(context, :joins, joins), events))
     plan = leaves(plan, feature.slug, members, context)
     cross = Enum.count(Mapping.entries(root), &(not Mapping.same_repository?(&1.ref, context.history.repository)))
     skipped = Enum.count(members, &Mapping.skipped_lane?(root.number, &1))
     %{plan | skipped_cross_repo: plan.skipped_cross_repo + cross, skipped_lanes: plan.skipped_lanes + skipped}
+  end
+
+  # A Build Order root is an epic as well as an imported feature. The import
+  # creates the epic once and follows the root's title afterwards, unless an
+  # operator has edited the label — then their label stays.
+  defp epic(plan, root, feature, context) do
+    desired = %{slug: feature.slug, label: feature.label, icon: nil, hue: nil, root: root.number}
+
+    case Map.get(context.epics, feature.slug) do
+      nil -> push(plan, :epic_creates, desired)
+      %{label_source: :import, label: label} when label != feature.label -> push(plan, :epic_updates, %{slug: feature.slug, label: feature.label})
+      _existing -> plan
+    end
   end
 
   defp feature(plan, desired, nil), do: push(plan, :creates, desired)
@@ -57,13 +73,17 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
     else
       slug = Mapping.slug(root.number)
       epic = Mapping.key(root.number, Mapping.lane(root.number, row))
-      at = Mapping.joined_at(root, row.number, context.history.repository)
+      at = Map.get(context.joins, row.number, :unknown)
       join_owner(context.features.owners[row.number], {slug, [row.number], epic, at}, plan, context)
     end
   end
 
   defp join_owner(nil, operation, plan, _), do: push(plan, :adds, operation)
   defp join_owner(%{feature: slug, epic: epic}, {slug, _, epic, _}, plan, _), do: plan
+  # A member whose lane label is absent from this snapshot keeps its lane epic: History
+  # drops and restores lane labels, and following it flapped 304 members 100k times (#7680).
+  # ponytail: a genuinely removed lane label leaves the member in its old lane epic.
+  defp join_owner(%{feature: slug}, {slug, _, "f-" <> slug, _}, plan, _), do: plan
   defp join_owner(%{feature: slug}, {slug, _, _, _} = operation, plan, _), do: push(plan, :adds, operation)
 
   defp join_owner(%{feature: "bo-" <> _, source: @source}, {_, [n], _, _} = operation, plan, context) do
@@ -77,16 +97,16 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
 
   defp leaves(plan, slug, members, context) do
     if context.history.health.complete? do
-      numbers = Enum.map(members, & &1.number)
+      numbers = MapSet.new(members, & &1.number)
       owners = for {n, %{feature: ^slug, source: @source}} <- context.features.owners, left?(n, numbers, context), do: {slug, [n]}
       links = for {n, slugs} <- context.features.also, slug in slugs, left?(n, numbers, context), do: {slug, [n]}
-      %{plan | removes: plan.removes ++ owners, also_removes: plan.also_removes ++ links}
+      %{plan | removes: Enum.reverse(owners, plan.removes), also_removes: Enum.reverse(links, plan.also_removes)}
     else
       plan
     end
   end
 
-  defp left?(n, members, context), do: n not in members and known_parent?(context.history.rows[n])
+  defp left?(n, members, context), do: not MapSet.member?(members, n) and known_parent?(context.history.rows[n])
   defp known_parent?(nil), do: false
   defp known_parent?(%{parent: :unknown}), do: false
   defp known_parent?(_), do: true
@@ -99,7 +119,7 @@ defmodule Aiur.BuildOrder.Features.RootImportPlan do
     match?(%{type: type, source: source} when type in ["member.removed", "also.removed"] and source != @source, last)
   end
 
-  defp push(plan, field, item), do: Map.update!(plan, field, &(&1 ++ [item]))
+  defp push(plan, field, item), do: Map.update!(plan, field, &[item | &1])
 
   defp group(plan) do
     Enum.reduce([:adds, :moves], plan, fn field, plan ->

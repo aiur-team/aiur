@@ -24,11 +24,82 @@ defmodule Aiur.CodingAgent.ProvidersView do
   option, so it intentionally has no effort vocabulary.
   """
   @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
-  def backends, do: Registry.entries()
+  def backends, do: Process.get({__MODULE__, :backends}) || Registry.entries()
+
+  @doc false
+  @spec with_snapshot((-> result)) :: result when result: var
+  def with_snapshot(fun) do
+    key = {__MODULE__, :backends}
+
+    if Process.get(key) do
+      fun.()
+    else
+      Process.put(key, Registry.entries())
+
+      try do
+        fun.()
+      after
+        Process.delete(key)
+        Process.delete({__MODULE__, :dispatchable})
+      end
+    end
+  end
+
+  @doc false
+  @spec snapshot_dispatchable_backends(map()) :: [backend()]
+  def snapshot_dispatchable_backends(configs) do
+    key = {__MODULE__, :dispatchable}
+
+    case Process.get(key) do
+      {^configs, backends} ->
+        backends
+
+      _ ->
+        backends = dispatchable_backends(configs)
+        if Process.get({__MODULE__, :backends}), do: Process.put(key, {configs, backends})
+        backends
+    end
+  end
+
+  @doc "Child specs registry entries declare under `:children`, de-duplicated, in `init_order`."
+  @spec child_specs(%{backend() => Aiur.CodingAgent.Backend.capabilities()}) ::
+          [Supervisor.child_spec() | module() | {module(), term()}]
+  def child_specs(entries \\ backends()) do
+    entries
+    |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
+    |> Enum.flat_map(fn {_backend, entry} -> Map.get(entry, :children, []) end)
+    |> Enum.uniq_by(&Supervisor.child_spec(&1, []).id)
+  end
 
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc """
+  The daemon-handoff transport a backend's registry entry declares, or `nil`
+  when its live sessions cannot survive `restart --keep-agents`.
+
+  * `:relay` — the provider runs as a child process behind a relay port that the
+    successor daemon re-attaches to.
+  * `:repl` — the provider runs in a tmux pane the successor daemon rebinds to.
+  * `:in_daemon` — the provider's conversation lives in this daemon's own
+    process (in-process HTTP); it is snapshotted at a safe step boundary and
+    restored into a fresh session in the successor daemon.
+
+  Absence means the backend's sessions die with the daemon, so the preflight
+  refuses `--keep-agents` for a fleet made only of them and names the blocking
+  backends. Derived from the registry so a new backend cannot be silently
+  assumed compatible by a hard-coded allowlist.
+  """
+  @spec handoff_kind(backend()) :: :relay | :repl | :in_daemon | nil
+  def handoff_kind(backend) when is_binary(backend) do
+    case get_in(backends(), [backend, :handoff]) do
+      kind when kind in [:relay, :repl, :in_daemon] -> kind
+      _ -> nil
+    end
+  end
+
+  def handoff_kind(_backend), do: nil
 
   @doc """
   Whether a backend refuses to pick a model for itself, so every route to it
@@ -188,21 +259,20 @@ defmodule Aiur.CodingAgent.ProvidersView do
   """
   @spec provider_family_map() :: %{String.t() => atom()}
   def provider_family_map do
-    for {backend, %{family: family, usage: %{adapters: adapters}}} <- backends(),
-        is_list(adapters),
-        adapters != [],
+    for {backend, %{usage: %{provider: provider}}} <- backends(),
         into: %{},
-        do: {backend, String.to_atom(family)}
+        do: {backend, provider}
   end
 
   @doc "Registry-owned usage backend and transport for a headless backend."
-  @spec usage_context(backend()) :: %{backend: atom(), transport: atom()} | nil
+  @spec usage_context(backend()) :: %{provider: atom(), backend: atom(), transport: atom()} | nil
   def usage_context(backend) when is_binary(backend) do
     case Map.get(backends(), backend) do
-      %{usage: %{adapters: adapters}} = entry when is_list(adapters) and adapters != [] ->
+      %{usage: %{provider: provider} = usage} = entry ->
         %{
-          backend: Map.get(entry, :usage_backend, :app_server),
-          transport: Map.get(entry, :usage_transport, :app_server)
+          provider: provider,
+          backend: Map.get(usage, :backend, Map.get(entry, :usage_backend, :app_server)),
+          transport: Map.get(usage, :transport, Map.get(entry, :usage_transport, :app_server))
         }
 
       _ ->

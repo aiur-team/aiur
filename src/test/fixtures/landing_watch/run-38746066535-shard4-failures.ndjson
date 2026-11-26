@@ -1,0 +1,5 @@
+{"test": "A6 — a lost delivery is still recovered by the sweep a comment whose delivery never arrived is published by the sweep, which still reads", "module": "Aiur.Events.GithubWebhook.DepositOrderingTest"}
+{"test": "A6 — a lost delivery is still recovered by the sweep a delivery-populated entry does not stop the sweep from reading", "module": "Aiur.Events.GithubWebhook.DepositOrderingTest"}
+{"test": "A8 — an edited resource is not suppressed an edit replaces the body and republishes at the new version", "module": "Aiur.Events.GithubWebhook.DepositOrderingTest"}
+{"test": "CI lifecycle coordination a ci-wait pause that lost its label is resumed instead of stranded", "module": "Aiur.Orchestrator.CiLifecycle.WaitFallbackTest"}
+{"test": "CI lifecycle coordination a deactivated ci-wait entry is recovered by the fallback rewake", "module": "Aiur.Orchestrator.CiLifecycle.WaitFallbackTest"}

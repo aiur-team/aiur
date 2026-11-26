@@ -55,6 +55,10 @@ defmodule Aiur.BuildQueue.ProgressTest do
     assert Progress.summary(items([:unknown])) == %{completed: nil, resolved: 0, total: 1, percent: nil, resolution: :unresolved}
   end
 
+  test "a list whose members all left is empty, not unresolved (#4819)" do
+    assert Progress.summary(items([:removed])).resolution == :empty
+  end
+
   test "facts preserve queue generation and stale source evidence" do
     fact = Progress.fact(queue(), items([:completed, :unknown]), %{source() | freshness: :stale})
     assert fact == %{scope: {:queue, "q-progress"}, generation: 0, completed: 1, resolved: 1, total: 2, percent: 50, resolution: :partial, freshness: :stale, observed_at: source().observed_at}

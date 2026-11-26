@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Config, Events.Publisher}
+  alias Aiur.{Config, Events}
   alias Aiur.Orchestrator.{EnvelopeStore, State}
 
   @spec boot(map()) :: map()
@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   defp seed(base, record) do
     payload = %{resume_level: record.resume_level, age_seconds: DateTime.diff(DateTime.utc_now(), record.recorded_at)}
 
-    case Publisher.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
+    case Events.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
       {:error, reason} -> Logger.warning("Envelope resume event failed: #{inspect(reason)}")
       _ -> :ok
     end
@@ -129,12 +129,27 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
     resume = envelope[:resume_level]
     stamp = envelope[:recorded_at]
 
+    Map.merge(resume_status(envelope, effective, cap, resume, stamp), envelope_status(envelope, effective, cap))
+  end
+
+  defp resume_status(_envelope, effective, cap, resume, stamp) do
     if Config.load_resume_max_age_seconds() > 0 and is_integer(resume) and effective < min(resume, cap) and match?(%DateTime{}, stamp) do
       %{resume_level: min(resume, cap), resume_recorded_ago_seconds: max(DateTime.diff(DateTime.utc_now(), stamp), 0)}
     else
       %{resume_level: nil, resume_recorded_ago_seconds: nil}
     end
   end
+
+  defp envelope_status(envelope, effective, cap) do
+    %{
+      envelope_last_change_at_ms: envelope[:last_change_at_ms],
+      envelope_last_change_reason: envelope[:last_change_reason],
+      envelope_hold_reason: envelope[:hold_reason] || default_hold_reason(effective, cap)
+    }
+  end
+
+  defp default_hold_reason(effective, cap) when effective >= cap, do: "at configured cap"
+  defp default_hold_reason(_effective, _cap), do: "waiting for first fresh pressure sample"
 
   @spec label(map()) :: String.t()
   def label(%{resume_level: level, resume_recorded_ago_seconds: age}) when is_integer(level) and is_integer(age),

@@ -61,9 +61,20 @@ defmodule Aiur.Orchestrator.Dispatcher.ThrashAndProvenanceTest do
   end
 
   describe "dispatch attempt provenance" do
+    setup do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      :ok
+    end
+
     test "captures a first rework head asynchronously before starting the runner" do
       test_pid = self()
       issue = %Issue{id: "rework-first", identifier: "repo#rework-first", state: "rework"}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       runner = fn dispatched_issue, recipient, opts ->
         send(test_pid, {:rework_runner_started, dispatched_issue, recipient, opts})
@@ -112,6 +123,7 @@ defmodule Aiur.Orchestrator.Dispatcher.ThrashAndProvenanceTest do
     test "preserves the original rework head on retry dispatch" do
       test_pid = self()
       issue = %Issue{id: "rework-retry", identifier: "repo#rework-retry", state: "rework"}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
       runner = fn dispatched_issue, recipient, opts ->
         send(test_pid, {:rework_retry_runner, dispatched_issue, recipient, opts})
@@ -155,6 +167,29 @@ defmodule Aiur.Orchestrator.Dispatcher.ThrashAndProvenanceTest do
       assert_receive {:active_first_runner, ^issue, _recipient, runner_opts}, 1000
       assert Keyword.fetch!(runner_opts, :rework_head_sha) == "existing-head"
       assert next_state.running[issue.id].rework_head_sha in [:pending, "existing-head"]
+    end
+
+    test "stores the stalled-alert marker on the running entry from dispatch options" do
+      test_pid = self()
+      issue = %Issue{id: "stalled-marker-dispatch", identifier: "repo#stalled-marker-dispatch", state: "in-progress"}
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:stalled_marker_runner, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          2,
+          nil,
+          runner: runner,
+          stalled_alert_outstanding: true
+        )
+
+      assert_receive {:stalled_marker_runner, ^issue, _recipient, _runner_opts}, 1_000
+      assert next_state.running[issue.id].stalled_alert_outstanding
     end
 
     test "carries the current fallback fence rather than a stale redispatch snapshot" do

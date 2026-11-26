@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.OptimisticFailure do
   @moduledoc "Fresh blocker evidence and idempotent parking writes for optimistic dependents."
 
-  alias Aiur.GitHub.{AgentMarker, Comments, Errors, Transport}
+  alias Aiur.GitHub.{Access, AgentMarker, Comments, HumanReviewGate}
   alias Aiur.GitHub.PullRequests.OpenPullRequests
 
   @spec optimistic_blocker(String.t() | integer(), integer() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
@@ -11,7 +11,8 @@ defmodule Aiur.GitHub.OptimisticFailure do
     with {:ok, recorded} <- recorded_pull_request(pr_number, opts),
          {:ok, replacement} <- OpenPullRequests.fetch_open_pull_request_for_branch(issue_id, opts),
          :ok <- validate_open_pull_request(replacement) do
-      {:ok, replacement || recorded}
+      pr = replacement || recorded
+      {:ok, attach_approval(pr, opts)}
     end
   end
 
@@ -52,12 +53,29 @@ defmodule Aiur.GitHub.OptimisticFailure do
   defp validate_open_pull_request(%{"number" => number, "state" => "open"}) when is_integer(number) and number > 0, do: :ok
   defp validate_open_pull_request(_pr), do: {:error, :optimistic_blocker_pr_unreadable}
 
+  defp attach_approval(%{"state" => "open", "number" => number} = pr, opts)
+       when is_integer(number) do
+    if Keyword.get(opts, :approval_check?, false) do
+      approval =
+        case HumanReviewGate.optimistic_approval_status(number, Keyword.put(opts, :caller, "optimistic_guard_approval")) do
+          {:ok, status} -> status
+          {:error, _reason} -> %{approved?: false, mergeable?: false}
+        end
+
+      Map.put(pr, "approval", Map.put(approval, :checked_conflicts, Keyword.get(opts, :approval_conflicts_count)))
+    else
+      pr
+    end
+  end
+
+  defp attach_approval(pr, _opts), do: pr
+
   defp recorded_pull_request(nil, _opts), do: {:ok, nil}
 
   defp recorded_pull_request(number, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
-         {:ok, body} <- request(%{method: :get, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}", token: token}, opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
+         {:ok, body} <- request(%{method: :get, url: "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}", token: token}, opts) do
       case body do
         %{"state" => state, "merged" => merged} when state in ["open", "closed"] and is_boolean(merged) -> {:ok, body}
         _ -> {:error, :optimistic_blocker_pr_unreadable}
@@ -71,8 +89,8 @@ defmodule Aiur.GitHub.OptimisticFailure do
   defp draft_pull_request(%{"draft" => false, "node_id" => node_id}, opts) when is_binary(node_id) and node_id != "" do
     query = "mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, response} <- request(%{method: :post, url: Transport.graphql_url(), token: token, body: %{"query" => query, "variables" => %{"id" => node_id}}}, opts) do
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, response} <- request(%{method: :post, url: Access.graphql_url(), token: token, body: %{"query" => query, "variables" => %{"id" => node_id}}}, opts) do
       case response do
         %{"data" => %{"convertPullRequestToDraft" => %{"pullRequest" => %{"isDraft" => true}}}} -> :ok
         _ -> {:error, :optimistic_park_draft_unverified}
@@ -83,9 +101,9 @@ defmodule Aiur.GitHub.OptimisticFailure do
   defp draft_pull_request(_pr, _opts), do: {:error, :optimistic_park_pr_unreadable}
 
   defp comments(issue_id, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/comments?per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/comments?per_page=100"
       Comments.fetch_repo_comment_stream(Keyword.fetch!(opts, :request_fun), token, url, [])
     end
   end
@@ -93,13 +111,13 @@ defmodule Aiur.GitHub.OptimisticFailure do
   defp request(request, opts) do
     case Keyword.fetch!(opts, :request_fun).(request) do
       {:ok, %{status: status, body: body}} when status in [200, 201] -> {:ok, body}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
     end
   end
 
   defp attributed(opts, caller) do
-    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-    Keyword.put(opts, :request_fun, fn request -> request_fun.(Map.put(request, :caller, caller)) end)
+    request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+    Keyword.put(opts, :request_fun, fn request -> request_fun.(Map.put_new(request, :caller, caller)) end)
   end
 end

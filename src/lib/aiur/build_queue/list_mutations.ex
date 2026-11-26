@@ -13,6 +13,7 @@ defmodule Aiur.BuildQueue.ListMutations do
          {:ok, queue} <- queue(document, Keyword.get(opts, :queue), now),
          {:ok, queue} <- QueueTriggers.add(queue, document, opts),
          {:ok, items, _, :current} <- ExecutorList.members(queue, document),
+         :ok <- anchor_member(document, queue, items, ids, Keyword.get(opts, :after)),
          {:ok, at} <- position(Keyword.get(opts, :at, length(items)), length(items)),
          {:ok, edges} <- edges(ids, Keyword.get(opts, :after)) do
       added = Enum.map(ids, &%Item{issue_id: &1, queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: now})
@@ -116,13 +117,29 @@ defmodule Aiur.BuildQueue.ListMutations do
   defp position(at, maximum) when is_integer(at) and at >= 0 and at <= maximum, do: {:ok, at}
   defp position(_, _), do: {:error, :invalid_position}
 
+  defp anchor_member(_document, _queue, _items, _ids, nil), do: :ok
+
+  defp anchor_member(document, queue, _items, ids, prerequisite) do
+    if Enum.any?(ids, &(&1 == prerequisite)) or Enum.any?(document.items, &(&1.queue_id == queue.id and &1.issue_id == prerequisite)),
+      do: :ok,
+      else: {:error, :anchor_not_in_queue}
+  end
+
   defp edges(_ids, nil), do: {:ok, []}
 
   defp edges(ids, prerequisite) do
+    dependents = if prerequisite in ids, do: Enum.reject(ids, &(&1 == prerequisite)), else: ids
+
     cond do
-      prerequisite in ids -> {:error, :self_edge}
-      not valid_id?(prerequisite) -> {:error, :invalid_ids}
-      true -> {:ok, Enum.map(ids, &%Edge{prerequisite: prerequisite, dependent: &1, source: :list})}
+      prerequisite in ids and dependents == [] ->
+        {:error, :self_edge}
+
+      not valid_id?(prerequisite) ->
+        {:error, :invalid_ids}
+
+      true ->
+        edges = Enum.map(dependents, &%Edge{prerequisite: prerequisite, dependent: &1, source: :list})
+        {:ok, edges}
     end
   end
 

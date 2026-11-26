@@ -248,7 +248,9 @@ defmodule AiurEngineStopTest do
     rel = fake_release()
     state = tmp_state()
     events = Aiur.TestSupport.tmp_root!("aiur-stop-miss-events")
-    caller = Aiur.TestSupport.tmp_root!("aiur-stop-miss")
+    # Identity walks up from fixture cwd, so keep this outside a checkout
+    # that may itself contain `.aiur/config` (including an agent workspace).
+    caller = Path.join("/tmp", "aiur-stop-miss-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(caller)
     File.write!(events, "")
 

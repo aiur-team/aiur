@@ -45,7 +45,7 @@ defmodule Aiur.RepoBase.ServerTest do
 
     test "build_done success marks ready and records the head", %{server: pid} do
       :sys.replace_state(pid, fn s ->
-        %{s | build: %{pid: pid, ref: make_ref(), head: "abc"}, phase: :building}
+        %{s | build: %{pid: pid, ref: make_ref(), head: "abc", timer: nil}, phase: :building}
       end)
 
       send(pid, {:build_done, pid, "abc", {:ok, "/base"}})
@@ -56,7 +56,7 @@ defmodule Aiur.RepoBase.ServerTest do
 
     test "build_done error sets the error phase", %{server: pid} do
       :sys.replace_state(pid, fn s ->
-        %{s | build: %{pid: pid, ref: make_ref(), head: nil}, phase: :building}
+        %{s | build: %{pid: pid, ref: make_ref(), head: nil, timer: nil}, phase: :building}
       end)
 
       send(pid, {:build_done, pid, nil, {:error, :boom}})
@@ -65,7 +65,7 @@ defmodule Aiur.RepoBase.ServerTest do
     end
 
     test "build_head records the locked head on the in-flight build", %{server: pid} do
-      :sys.replace_state(pid, fn s -> %{s | build: %{pid: pid, ref: make_ref(), head: nil}} end)
+      :sys.replace_state(pid, fn s -> %{s | build: %{pid: pid, ref: make_ref(), head: nil, timer: nil}} end)
 
       send(pid, {:build_head, pid, "deadbeef"})
 
@@ -74,7 +74,7 @@ defmodule Aiur.RepoBase.ServerTest do
 
     test "a crashed build process surfaces an error phase", %{server: pid} do
       ref = make_ref()
-      :sys.replace_state(pid, fn s -> %{s | build: %{pid: self(), ref: ref, head: nil}, phase: :building} end)
+      :sys.replace_state(pid, fn s -> %{s | build: %{pid: self(), ref: ref, head: nil, timer: nil}, phase: :building} end)
 
       send(pid, {:DOWN, ref, :process, self(), :killed})
 
@@ -159,7 +159,7 @@ defmodule Aiur.RepoBase.ServerTest do
       assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
     end
 
-    test "a dead checking probe is restarted and the fresh probe keeps the hold", %{server: pid, cfg: cfg} do
+    test "a respawned checking probe cannot re-arm the hold forever", %{server: pid, cfg: cfg} do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
       {dead_probe, dead_ref} = spawn_monitor(fn -> :ok end)
@@ -181,12 +181,55 @@ defmodule Aiur.RepoBase.ServerTest do
       assert fresh_probe != dead_probe
       assert Process.alive?(fresh_probe)
 
-      # A live probe self-resolves via its own 30-second timeout, so the idle
-      # watchdog must not release the hold while it is alive.
-      Process.sleep(150)
-      assert %{phase: :checking, probe: %{pid: ^fresh_probe}} = :sys.get_state(pid)
-      assert Process.alive?(fresh_probe)
-      refute_receive {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _}}}, 100
+      # Each tick respawns a lost probe, so a live probe at expiry proves no
+      # progress (#8100): the watchdog releases the hold and kills the probe.
+      assert_receive {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :checking}}}, 2_000
+      assert %{phase: {:error, {:repo_base_dispatch_hold_stalled, :checking}}, probe: nil} = :sys.get_state(pid)
+      refute Process.alive?(fresh_probe)
+    end
+
+    test "an overdue probe fails on the next dispatch even when its timeout message is lost", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, [])
+      :sys.replace_state(pid, fn state -> %{state | phase: :ready, freshness: :unknown} end)
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{probe: %{pid: probe_pid}} = :sys.get_state(pid)
+
+      # Drop the timer and push the deadline into the past.
+      :sys.replace_state(pid, fn %{probe: probe} = state ->
+        Process.cancel_timer(probe.timer)
+        %{state | probe: %{probe | timer: nil, deadline: System.monotonic_time(:millisecond) - 1}}
+      end)
+
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+      assert phase == {:error, {:repo_base_remote_probe_failed, :timeout}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+      assert %{probe: nil} = :sys.get_state(pid)
+      refute Process.alive?(probe_pid)
+    end
+
+    test "an overdue dispatch hold is released even when its watchdog message is lost", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 60_000)
+      :sys.replace_state(pid, fn state -> %{state | phase: :ready, freshness: :unknown} end)
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+
+      :sys.replace_state(pid, fn %{dispatch_watchdog: watchdog} = state ->
+        Process.cancel_timer(watchdog.timer)
+        %{state | dispatch_watchdog: %{watchdog | timer: nil, deadline: System.monotonic_time(:millisecond) - 1}}
+      end)
+
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+      assert phase == {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+    end
+
+    test "phase_age_ms reports how long the current phase has lasted", %{server: pid} do
+      assert {:idle, nil} = GenServer.call(pid, :status)
+      Process.sleep(20)
+      assert GenServer.call(pid, :phase_age_ms) >= 20
+
+      :sys.replace_state(pid, fn state -> %{state | phase: :checking} end)
+      assert GenServer.call(pid, :phase_age_ms) < 20
     end
 
     test "a lost build is released by the dispatch watchdog", %{server: pid, cfg: cfg} do
@@ -197,7 +240,7 @@ defmodule Aiur.RepoBase.ServerTest do
       refute Process.alive?(dead_build)
 
       :sys.replace_state(pid, fn state ->
-        %{state | phase: :building, build: %{pid: dead_build, ref: make_ref(), head: nil}}
+        %{state | phase: :building, build: %{pid: dead_build, ref: make_ref(), head: nil, timer: nil}}
       end)
 
       assert :building = GenServer.call(pid, :refresh_for_dispatch)
@@ -213,22 +256,6 @@ defmodule Aiur.RepoBase.ServerTest do
       phase = GenServer.call(pid, :refresh_for_dispatch)
       assert phase == {:error, {:repo_base_dispatch_hold_stalled, :building}}
       assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
-    end
-
-    test "a live build is never killed by the dispatch watchdog", %{server: pid, cfg: cfg} do
-      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
-      Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
-      build_pid = install_live_build(pid, "same")
-
-      assert :building = GenServer.call(pid, :refresh_for_dispatch)
-      assert %{dispatch_watchdog: %{}} = :sys.get_state(pid)
-
-      # A cold build (deps + compile + dialyzer PLT) can run for many minutes;
-      # the idle watchdog must re-arm rather than kill a progressing build.
-      Process.sleep(150)
-      assert %{phase: :building, build: %{pid: ^build_pid}} = :sys.get_state(pid)
-      assert Process.alive?(build_pid)
-      refute_receive {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _}}}, 100
     end
 
     test "a completed build clears the dispatch watchdog", %{server: pid, cfg: cfg} do
@@ -275,7 +302,7 @@ defmodule Aiur.RepoBase.ServerTest do
       refute Process.alive?(dead_build)
 
       :sys.replace_state(pid, fn state ->
-        %{state | build: %{pid: dead_build, ref: make_ref(), head: nil}}
+        %{state | build: %{pid: dead_build, ref: make_ref(), head: nil, timer: nil}}
       end)
 
       Process.exit(build_pid, :kill)
@@ -320,6 +347,7 @@ defmodule Aiur.RepoBase.ServerTest do
     } do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       build_pid = install_live_build(pid, "same")
+      build_monitor = Process.monitor(build_pid)
 
       assert :building = GenServer.call(pid, :refresh_for_dispatch)
       assert %{dispatch_watchdog: %{}} = :sys.get_state(pid)
@@ -342,7 +370,7 @@ defmodule Aiur.RepoBase.ServerTest do
 
       assert :idle = GenServer.call(pid, :refresh_for_dispatch)
       assert %{phase: :idle, build: nil, probe: nil, dispatch_watchdog: nil} = :sys.get_state(pid)
-      refute Process.alive?(build_pid)
+      assert_receive {:DOWN, ^build_monitor, :process, ^build_pid, :killed}, 1_000
     end
 
     test "a hold with no worker record is released by the watchdog fallback", %{server: pid, cfg: cfg} do
@@ -395,7 +423,7 @@ defmodule Aiur.RepoBase.ServerTest do
     :sys.replace_state(pid, fn state ->
       {build_pid, ref} = spawn_monitor(fn -> Process.sleep(:infinity) end)
       send(test_pid, {:build_pid, build_pid})
-      %{state | phase: :building, build: %{pid: build_pid, ref: ref, head: head}}
+      %{state | phase: :building, build: %{pid: build_pid, ref: ref, head: head, os_pid: nil, timer: nil}}
     end)
 
     assert_receive {:build_pid, build_pid}, 1000

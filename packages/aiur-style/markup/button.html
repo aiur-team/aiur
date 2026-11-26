@@ -1,0 +1,19 @@
+<!-- Import aiur-style/aiur-style.css, or tokens.css + css/base.css + css/button.css. -->
+<a class="aiur-button aiur-button--lg" href="/docs/">
+  Example Doc
+  <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <path d="M4 12h16m-6-6 6 6-6 6" />
+  </svg>
+</a>
+<button type="button" class="aiur-button aiur-button--sm">Continue</button>
+<button type="button" class="aiur-button aiur-button--ghost">Cancel</button>
+<button type="button" class="aiur-button aiur-button--danger aiur-button--rounded">Delete</button>
+<button type="button" class="aiur-button aiur-button--tool" aria-pressed="false">Pause</button>
+<button type="button" class="aiur-button aiur-button--icon" aria-label="Copy">
+  <svg class="aiur-button__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+    <rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V4H4v12h4" />
+  </svg>
+</button>
+<button type="button" class="aiur-button" disabled>Unavailable</button>
+<!-- aria-disabled exposes state only; callers must suppress activation themselves. -->
+<a class="aiur-button" aria-disabled="true" tabindex="0">Unavailable link</a>

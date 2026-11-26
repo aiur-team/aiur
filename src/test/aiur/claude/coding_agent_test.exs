@@ -2,9 +2,9 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.Transport
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
-  alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Workflow
@@ -110,7 +110,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       |> Enum.sort()
 
     expected_tool_names =
-      DynamicTool.tool_specs()
+      Dispatch.tool_specs()
       |> Enum.map(& &1["name"])
       |> Enum.sort()
 

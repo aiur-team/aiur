@@ -91,9 +91,9 @@ defmodule Aiur.BuildQueue.Reconcile do
             {p.issue_id, hint(p.rank), MapSet.member?(holds, p.issue_id) or p.state == :held or (p.state == :unknown and Hints.held?(p.issue_id)), trigger(p.issue_id, document, settings),
              elem(Map.get(ranks, p.issue_id, {0, 0}), 0)}
 
-    :ets.insert(Hints.table_name(), rows)
+    :ets.insert(Hints.table_ref(), rows)
     retained = MapSet.new(rows, &elem(&1, 0))
-    for row <- :ets.tab2list(Hints.table_name()), not MapSet.member?(retained, elem(row, 0)), do: :ets.delete(Hints.table_name(), elem(row, 0))
+    for row <- :ets.tab2list(Hints.table_ref()), not MapSet.member?(retained, elem(row, 0)), do: :ets.delete(Hints.table_ref(), elem(row, 0))
     Hints.publish_sets(Sets.snapshot(document, projections, settings, observations))
   end
 

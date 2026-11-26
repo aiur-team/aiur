@@ -21,14 +21,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.State
   alias Aiur.TrackerIdentity
 
-  # Attribution marker for agents held by the global pause switch, distinct
-  # from every per-agent pause reason. Unpause resumes only these entries, so
-  # an operator's individual pause is never overridden. See `Aiur.Orchestrator.GlobalPause`.
-  @global_pause_reason :global_pause
-
-  @spec global_pause_reason() :: :global_pause
-  def global_pause_reason, do: @global_pause_reason
-
   # Pause reasons that mean the worker itself is waiting for input (#2730).
   @input_pause_reasons [:agent_pause_request, :input_required]
 
@@ -71,14 +63,14 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
-  def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
+  def pause_agent(issue_identifier), do: pause_agent(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec pause_agent(GenServer.server(), String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(server, issue_identifier),
     do: control_api_call(server, {:pause_agent, issue_identifier})
 
   @spec resume_agent(String.t()) :: {:ok, :resumed | :started | :reactivated} | {:error, term()}
-  def resume_agent(issue_identifier), do: resume_agent(Aiur.Orchestrator, issue_identifier)
+  def resume_agent(issue_identifier), do: resume_agent(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec resume_agent(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated} | {:error, term()}
@@ -88,7 +80,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_agent_with_receipt(String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
   def resume_agent_with_receipt(issue_identifier),
-    do: resume_agent_with_receipt(Aiur.Orchestrator, issue_identifier)
+    do: resume_agent_with_receipt(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
           {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
@@ -103,7 +95,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   # a surface claiming confident success for something that did not happen
   # (#2435).
   @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
+  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
@@ -113,7 +105,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
-  def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Orchestrator, issue_identifier, action, request_id)
+  def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, action, request_id)
 
   @spec request_control(GenServer.server(), String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(server, issue_identifier, action, request_id)
@@ -122,7 +114,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
-  def control_lifecycle(issue_identifier), do: control_lifecycle(Aiur.Orchestrator, issue_identifier)
+  def control_lifecycle(issue_identifier), do: control_lifecycle(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier)
 
   @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
   def control_lifecycle(server, issue_identifier),
@@ -145,28 +137,6 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
   defdelegate request_control_call(state, issue_identifier, action, request_id), to: ControlCalls
-
-  @doc """
-  Request a pause on every running agent that the global switch should hold.
-
-  Skips agents that are already individually paused, deactivated, completed, or
-  carry an in-flight pause request — so a per-agent pause is never overridden.
-  Held agents are tagged with `#{inspect(@global_pause_reason)}` so `resume_running_from_global/1`
-  can resume exactly this set.
-  """
-  @spec pause_running_for_global(State.t()) :: State.t()
-  defdelegate pause_running_for_global(state), to: ControlCalls
-
-  @doc """
-  Resume only the agents the global switch is holding.
-
-  An agent is globally held when it is paused with reason `#{inspect(@global_pause_reason)}`
-  or carries an in-flight global-pause request. Individually paused agents are
-  left untouched, preserving the operator's per-agent pause.
-  """
-  @spec resume_running_from_global(State.t()) :: State.t()
-  @spec resume_running_from_global(State.t(), keyword()) :: State.t()
-  defdelegate resume_running_from_global(state, opts \\ []), to: ControlCalls
 
   @doc false
   @spec control_lifecycle_call(State.t(), String.t()) :: {:reply, {:ok, map()} | {:error, term()}, State.t()}
@@ -248,7 +218,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defdelegate resume_paused_issue(state, running_entry, operator? \\ true), to: Resume
 
   @doc false
-  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
+  @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, term()}
   defdelegate resume_paused_issue_preflight(state, running_entry), to: Resume
 
   @doc false

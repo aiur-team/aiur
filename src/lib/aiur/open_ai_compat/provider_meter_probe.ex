@@ -1,9 +1,9 @@
 defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, ProviderMeterSnapshot}
+  alias Aiur.CodingAgent
   alias Aiur.OpenAICompat.{BalanceBaseline, Concurrency, MeterWindows}
-  alias Aiur.ProviderMeters.{Events, ProbeCrash}
+  alias Aiur.ProviderMeters
 
   @backend :openai_compat
   @source_versions %{deepseek: 144_003, openrouter: 144_004}
@@ -26,37 +26,51 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
       {:error, reason} -> outcome(provider, false, reason)
     end
   rescue
-    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
+    error ->
+      outcome(
+        provider,
+        false,
+        ProviderMeters.log_probe_crash(provider, :error, error, __STACKTRACE__)
+      )
   catch
-    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+    kind, reason ->
+      outcome(
+        provider,
+        false,
+        ProviderMeters.log_probe_crash(provider, kind, reason, __STACKTRACE__)
+      )
   end
 
   defp publish(provider, windows, opts) do
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
     source_version = Map.fetch!(@source_versions, provider)
-    broadcast = Keyword.get(opts, :provider_meter_broadcast_fun, &Events.broadcast/1)
 
-    broadcast.(%ProviderMeterSnapshot{
-      provider: provider,
-      backend: @backend,
-      provider_account_generation: nil,
-      observed_at: observed_at,
-      ingested_at: observed_at,
-      auth_mode: :api_key,
-      source: meter_source(provider),
-      source_version: source_version,
-      update_kind: :patch,
-      freshness: :fresh,
-      health: %{
-        state: :healthy,
-        failure: nil,
-        last_observed_at: observed_at,
-        last_source_version: source_version,
-        last_attempt_at: nil,
-        consecutive_failures: 0
-      },
-      windows: Map.new(windows, &{&1.limit_id, Map.delete(&1, :limit_id)})
-    })
+    broadcast =
+      Keyword.get(opts, :provider_meter_broadcast_fun, &ProviderMeters.broadcast_snapshot/1)
+
+    broadcast.(
+      ProviderMeters.observation_snapshot(%{
+        provider: provider,
+        backend: @backend,
+        provider_account_generation: nil,
+        observed_at: observed_at,
+        ingested_at: observed_at,
+        auth_mode: :api_key,
+        source: meter_source(provider),
+        source_version: source_version,
+        update_kind: :patch,
+        freshness: :fresh,
+        health: %{
+          state: :healthy,
+          failure: nil,
+          last_observed_at: observed_at,
+          last_source_version: source_version,
+          last_attempt_at: nil,
+          consecutive_failures: 0
+        },
+        windows: Map.new(windows, &{&1.limit_id, Map.delete(&1, :limit_id)})
+      })
+    )
   end
 
   defp config(backend) do
@@ -148,8 +162,16 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
            max(credits - usage, 0),
            :openrouter_api,
            observed_at,
-           nil
+           # `total_credits` is the key's known limit, so the spend percentage
+           # is honest against it — the same field dispatch's usage floor reads
+           # (#7504). A key with no reported limit keeps dollar-only credits.
+           spend_used_percent(credits, usage)
          )
+         # The purchased-credit ceiling the remaining amount is measured
+         # against. Without it a credit reading is a bare number: a consumer
+         # cannot say "77.5 left of 100" or derive a remaining percentage.
+         |> Map.put(:limit, credits)
+         |> Map.put(:used, usage)
        ]}
     else
       _ -> {:error, :malformed}
@@ -183,6 +205,18 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
         nil
     end
   end
+
+  # A prepaid credit ceiling is its own durable baseline, so no stored state is
+  # needed: the consumed fraction is exact against the purchased credits. A key
+  # with no purchased credit has no denominator and stays dollar-only.
+  defp spend_used_percent(limit, used) when is_number(limit) and limit > 0 and is_number(used) do
+    (used / limit * 100)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
+  end
+
+  defp spend_used_percent(_limit, _used), do: nil
 
   defp credit_window(id, amount, source, observed_at, used_percent) do
     window = %{

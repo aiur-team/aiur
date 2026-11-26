@@ -254,6 +254,7 @@ defmodule ScriptsAiurdevRestartTest do
     assert out =~ "ENGINE_ARGS:"
   end
 
+  @tag :manual_sandbox_reset
   test "--test resets the single sandbox ticket then runs, stripping the flag" do
     root = fake_repo()
     home = sandbox_home()
@@ -272,16 +273,40 @@ defmodule ScriptsAiurdevRestartTest do
     assert out =~ "mix aiur.test.reset"
     assert out =~ "--single"
     assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99"
+    # --test must stay on a cwd key, never the live gateway daemon (MPG-309).
+    assert out =~ "AIUR_GATEWAY_MODE: 0\n"
     # --test is consumed by the shim, never handed to the engine/release.
     refute out =~ "ENGINE_ARGS: --test"
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     refute out =~ "agent IR sandbox"
   end
 
+  test "agent workspace refuses test3 before launch" do
+    root = fake_repo()
+    trace = engine_trace(root)
+    mise = fake_mise()
+
+    {out, 64} =
+      run_shim(["--test3"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_AGENT_WORKSPACE", root}
+      ])
+
+    assert out =~ "manual --test runs are blocked inside agent workspaces"
+    refute File.exists?(trace)
+  end
+
+  @tag :manual_sandbox_reset
   test "--test3 resets the blocker sandbox then runs, stripping the flag" do
     root = fake_repo()
     home = sandbox_home()
     mise = fake_mise()
+    engine = Path.join([root, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"])
+    File.write!(engine, File.read!(engine) <> "\necho \"AIUR_DEV_TEST_STATE_DIR: ${AIUR_DEV_TEST_STATE_DIR:-}\"\n")
 
     {out, 0} =
       run_shim(["--test3"], [
@@ -294,13 +319,28 @@ defmodule ScriptsAiurdevRestartTest do
 
     assert out =~ "mix aiur.test.reset"
     assert out =~ "--allow-remote"
+    assert out =~ "MISE_AIUR_DEV_TEST_TICKET_IDS: 99,100,101"
+    assert out =~ ~r/^MISE_AIUR_GITHUB_BUDGET_DIR: \/.*aiur-test-budget\.[^\/]+$/m
+    assert out =~ ~r/^MISE_AIUR_DEV_TEST_RUN_ID: aiur-test-budget\.[^\/]+$/m
+    assert out =~ ~r/^MISE_AIUR_DEV_TEST_STATE_DIR: \/.*aiur-test-state\.[^\/]+$/m
     assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99,100,101"
+    assert out =~ ~r/^AIUR_GITHUB_BUDGET_DIR: \/.*aiur-test-budget\.[^\/]+$/m
+    assert out =~ ~r/^AIUR_DEV_TEST_STATE_DIR: \/.*aiur-test-state\.[^\/]+$/m
+    [_, budget_dir] = Regex.run(~r/^AIUR_GITHUB_BUDGET_DIR: (.+)$/m, out)
+    [_, state_dir] = Regex.run(~r/^AIUR_DEV_TEST_STATE_DIR: (.+)$/m, out)
+
+    on_exit(fn ->
+      Aiur.TestCleanup.rm_rf!(budget_dir)
+      Aiur.TestCleanup.rm_rf!(state_dir)
+    end)
+
     refute out =~ "--single"
     refute out =~ "ENGINE_ARGS: --test3"
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     refute out =~ "agent IR sandbox"
   end
 
+  @tag :manual_sandbox_reset
   test "test launch refuses missing pinned IDs before clearing logs or stopping the daemon" do
     root = fake_repo()
     home = sandbox_home()
@@ -320,6 +360,7 @@ defmodule ScriptsAiurdevRestartTest do
     assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
   end
 
+  @tag :manual_sandbox_reset
   test "test launch refuses malformed pinned IDs before resetting tickets" do
     root = fake_repo()
     home = sandbox_home()

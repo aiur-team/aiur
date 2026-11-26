@@ -7,32 +7,29 @@ defmodule Aiur.Executor.HandoffTest do
 
   setup do
     tmp = Aiur.TestSupport.tmp_root!("aiur-executor-handoff")
-    state_root = Path.join(tmp, "state")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
+
+    # Keep repo state in the suite root, which lives until after_suite; a
+    # late writer must not race deletion of a per-test state root.
     previous_root = Application.get_env(:aiur, :repo_base_root)
+    slug = "#{System.pid()}-#{System.unique_integer([:positive])}"
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "handoff-#{slug}")
     Application.put_env(:aiur, :repo_base_root, state_root)
+    on_exit(fn -> restore_repo_root(previous_root) end)
 
-    on_exit(fn ->
-      case previous_root do
-        nil -> Application.delete_env(:aiur, :repo_base_root)
-        root -> Application.put_env(:aiur, :repo_base_root, root)
-      end
-
-      Aiur.TestCleanup.rm_rf!(tmp)
-    end)
-
-    {:ok, tmp: tmp}
+    {:ok, tmp: tmp, repo: "https://github.com/owner/handoff-#{slug}.git"}
   end
 
-  test "seeds the template after the repository state tree exists", %{tmp: tmp} do
-    repo = "https://github.com/owner/repo.git"
+  defp restore_repo_root(nil), do: Application.delete_env(:aiur, :repo_base_root)
+  defp restore_repo_root(root), do: Application.put_env(:aiur, :repo_base_root, root)
 
+  test "seeds the template after the repository state tree exists", %{tmp: tmp, repo: repo} do
     assert :ok = RepoBase.setup_state(repo, tmp)
     assert :ok = Handoff.ensure(repo, tmp)
     assert File.read!(RepoBase.handoff_path(repo)) == Templates.executor_handoff_template()
   end
 
-  test "imports only the current legacy handoff section and leaves its source intact", %{tmp: tmp} do
-    repo = "https://github.com/owner/repo.git"
+  test "imports only the current legacy handoff section and leaves its source intact", %{tmp: tmp, repo: repo} do
     source = Path.join([tmp, "source", "docs", "build-order", "EXECUTOR-HANDOFF.md"])
 
     File.mkdir_p!(Path.dirname(source))
@@ -57,8 +54,7 @@ defmodule Aiur.Executor.HandoffTest do
     assert File.read!(source) =~ "## Superseded checkpoint"
   end
 
-  test "tracked index-form handoff seeds the current section before its archive index", %{tmp: tmp} do
-    repo = "https://github.com/owner/repo.git"
+  test "tracked index-form handoff seeds the current section before its archive index", %{tmp: tmp, repo: repo} do
     source = Path.expand("../../../..", __DIR__)
 
     # Guards the tracked document ordering; production seeding already supports this shape.
@@ -71,9 +67,7 @@ defmodule Aiur.Executor.HandoffTest do
     refute seeded =~ "executor-handoff/"
   end
 
-  test "does not overwrite the current handoff on a later init", %{tmp: tmp} do
-    repo = "https://github.com/owner/repo.git"
-
+  test "does not overwrite the current handoff on a later init", %{tmp: tmp, repo: repo} do
     assert :ok = RepoBase.setup_state(repo, tmp)
     File.write!(RepoBase.handoff_path(repo), "current handoff\n")
 

@@ -54,10 +54,32 @@ elixir_deps_ready() {
   return 0
 }
 
+elixir_deps_lock_sha() {
+  [ -r "$elixir_dir/mix.lock" ] || return 1
+  { shasum -a 256 "$elixir_dir/mix.lock" 2>/dev/null || sha256sum "$elixir_dir/mix.lock"; } | awk '{print $1}'
+}
+
+elixir_deps_match_lock() {
+  local lock_sha stamp="$elixir_dir/_build/dev/aiurdev-deps-lock-sha"
+
+  [ -r "$stamp" ] || return 1
+  lock_sha="$(elixir_deps_lock_sha)" || return 1
+  [ "$(cat "$stamp")" = "$lock_sha" ]
+}
+
 ensure_elixir_deps() {
-  if ! elixir_deps_ready; then
+  if ! elixir_deps_ready || { [ -r "$elixir_dir/mix.lock" ] && ! elixir_deps_match_lock; }; then
     require_mise || return 64
     echo "🔨 fetching and compiling Hex dependencies" >&2
-    (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
+    if (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2; then
+      local lock_sha
+      lock_sha="$(elixir_deps_lock_sha || true)"
+      if [ -n "$lock_sha" ]; then
+        mkdir -p "$elixir_dir/_build/dev"
+        printf '%s\n' "$lock_sha" >"$elixir_dir/_build/dev/aiurdev-deps-lock-sha"
+      fi
+    else
+      return $?
+    fi
   fi
 }

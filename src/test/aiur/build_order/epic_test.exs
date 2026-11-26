@@ -3,13 +3,13 @@ defmodule Aiur.BuildOrder.EpicTest do
   use ExUnitProperties
   alias Aiur.BuildOrder.Epic
   alias Aiur.BuildOrder.Epic.Resolution
-  alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.Config.Schema.Lane
 
   @general [
-    %GeneralEpic{key: "bugs", labels: ["bug"]},
-    %GeneralEpic{key: "design", labels: ["design"]},
-    %GeneralEpic{key: "infra", labels: ["refactor", "chore"]},
-    %GeneralEpic{key: "docs", labels: ["documentation"]}
+    %Lane{key: "bugs", labels: ["bug"]},
+    %Lane{key: "design", labels: ["design"]},
+    %Lane{key: "infra", labels: ["refactor", "chore"]},
+    %Lane{key: "docs", labels: ["documentation"]}
   ]
   @features %{"pag" => ["f-pag-api", "f-pag-ui"], "docs-site" => ["f-docs"], "empty" => []}
   @context %{general: @general, features: @features}
@@ -47,7 +47,7 @@ defmodule Aiur.BuildOrder.EpicTest do
   end
 
   test "V-7 general override precedes labels, preserving actor" do
-    assert resolve(%{override: %{epic: "infra", actor: "agent-1", confirmed: false}, labels: ["bug"]}) == result("infra", "override:agent-1")
+    assert resolve(%{override: %{epic: "infra", actor: "agent-1", confirmed: true}, labels: ["bug"]}) == result("infra", "override:agent-1")
   end
 
   test "V-8 removed override falls through with a reason" do
