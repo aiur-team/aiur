@@ -81,28 +81,42 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"pause all", "cmd_pause_resume pause --all", :write, []}
   ]
 
-  @feature_cases %{
-    "create" => {"demo --label Demo --lane lane=Lane --lane-icon lane=command-line", :write},
-    "add" => {"demo 123 --lane lane --move", :write},
-    "remove" => {"demo 123", :write},
-    "also" => {"demo 123 --remove", :write},
-    "baseline" => {"demo --replace", :write},
-    "edit" => {"demo --label Demo --add-lane lane=Lane", :write},
-    "confirm" => {"demo 123", :write},
-    "show" => {"demo --json", :read}
+  @local_cases %{
+    "queue" => [
+      {"show --json", :read},
+      {"order", :read},
+      {"add 123 456 --queue team --rank 0", :deny},
+      {"set team --start-on default", :deny},
+      {"remove 123", :deny},
+      {"reorder 123 --to 0", :deny},
+      {"order team --to 0", :deny},
+      {"hold 123", :deny},
+      {"release 123", :deny},
+      {"recover", :deny},
+      {"clear --remove-markers --yes", :deny}
+    ],
+    "epic" => [
+      {"create demo --label Demo --root 123", :tickets},
+      {"edit demo --label Renamed", :tickets},
+      {"add demo child", :tickets},
+      {"remove demo child", :tickets},
+      {"show demo --json", :read},
+      {"list --json", :read},
+      {"set lane 123 --as operator", :tickets},
+      {"clear 123", :tickets},
+      {"confirm 123 --lane lane", :tickets}
+    ],
+    "feature" => [
+      {"create demo --label Demo --lane lane=Lane --lane-icon lane=command-line", :tickets},
+      {"add demo 123 --lane lane --move", :tickets},
+      {"remove demo 123", :tickets},
+      {"also demo 123 --remove", :tickets},
+      {"baseline demo --replace", :tickets},
+      {"edit demo --label Demo --add-lane lane=Lane", :tickets},
+      {"confirm demo 123", :tickets},
+      {"show demo --json", :read}
+    ]
   }
-
-  @guarded_queue_commands [
-    {"add", "add 123"},
-    {"set", "set team --start-on default"},
-    {"remove", "remove 123"},
-    {"reorder", "reorder 123 --to 0"},
-    {"hold", "hold 123"},
-    {"release", "release 123"},
-    {"recover", "recover"},
-    {"clear", "clear --remove-markers --yes"},
-    {"order with target", "order team --to 0"}
-  ]
   @guarded_wrappers %{
     "cmd_queue" => ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "")|,
     "cmd_operator_answer" => ~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|,
@@ -148,17 +162,21 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     end
   end
 
-  test "every feature verb emitted by the engine has its expected allowlist scope" do
-    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-feature.sh", __DIR__))
-    [_, arms] = Regex.run(~r/case "\$op" in\n(.*?)\n\s+\*\)/s, source)
-    verbs = for [_, patterns] <- Regex.scan(~r/^\s{4}([a-z|]+)\)/m, arms), verb <- String.split(patterns, "|"), do: verb
-    assert Enum.sort(verbs) == Enum.sort(Map.keys(@feature_cases))
+  for {command, cases} <- @local_cases do
+    test "every local #{command} verb has its expected allowlist scope and category" do
+      command = unquote(command)
+      cases = unquote(Macro.escape(cases))
+      tested_verbs = MapSet.new(cases, fn {args, _} -> hd(String.split(args)) end)
+      assert engine_verbs(command) == tested_verbs, "update the local #{command} fixtures when its case arms change"
 
-    for {verb, {args, scope}} <- @feature_cases do
-      expression = capture_rpc("cmd_feature #{verb} #{args}")
-      result = ControlCall.parse(expression, remote: false)
-      category = if scope == :read, do: :read, else: :tickets
-      assert {:ok, %{scope: ^scope, category: ^category}} = result, "feature #{verb} emitted #{expression}, parsed as #{inspect(result)}"
+      for {args, category} <- cases do
+        scope = Map.fetch!(%{read: :read, tickets: :write, deny: :deny}, category)
+        expression = capture_rpc("cmd_#{command} #{args}", [{"AIUR_PROJECT", "sample/repo"}])
+        result = ControlCall.parse(expression, remote: false)
+
+        assert {:ok, %{scope: ^scope, category: ^category, project: {"sample/repo", nil}, remote: false}} = result,
+               "#{command} #{args} emitted #{inspect(expression)}, parsed as #{inspect(result)}"
+      end
     end
   end
 
@@ -166,10 +184,10 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-queue.sh", __DIR__))
     assert source =~ "queue_workspace_guard"
 
-    for {verb, arguments} <- @guarded_queue_commands do
+    for {arguments, :deny} <- @local_cases["queue"] do
       expression = capture_rpc("cmd_queue #{arguments}")
       result = ControlCall.parse(expression)
-      assert result == {:error, :denied_remote}, "queue #{verb}: #{expression} parsed as #{inspect(result)}"
+      assert result == {:error, :denied_remote}, "queue #{arguments}: #{expression} parsed as #{inspect(result)}"
     end
   end
 
@@ -259,6 +277,18 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       ])
 
     output |> String.split("\n", trim: true) |> Enum.find(&String.starts_with?(&1, "Aiur."))
+  end
+
+  defp engine_verbs(command) do
+    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-#{command}.sh", __DIR__))
+    # The first case in each wrapper dispatches on the verb. Later cases parse flags.
+    [_, arms] = Regex.run(~r/^\h+case [^\n]+ in\n(.*?)^\h+esac\b/ms, source)
+
+    ~r/^\h+([\w-]+(?:\h*\|\h*[\w-]+)*)\)/m
+    |> Regex.scan(arms, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.flat_map(&String.split(&1, ~r/\h*\|\h*/))
+    |> MapSet.new()
   end
 
   defp guarded_wrapper_names(path) do
