@@ -3,7 +3,7 @@
 Standalone Elixir/Plug + Bandit reference relay. It does not depend on the Aiur daemon.
 SQLite runs in WAL mode; back up and persist the database file. This package supplies
 handle registration, bearer authentication, idempotency and asynchronous provider admission.
-APNs uses token authentication and HTTP/2. APNs and FCM are configured independently. Abuse limits and deployment are separate work.
+APNs uses token authentication and HTTP/2. APNs and FCM are configured independently.
 
 ## Run and test
 
@@ -28,6 +28,17 @@ Run these commands from `packages/aiur-push-relay`. To start with `mix run --no-
 | `AIUR_RELAY_APNS_KEY_ID` | Apple signing key ID; no default |
 | `AIUR_RELAY_APNS_KEY_FILE` | P-256 `.p8` private key path, mode `0600`; no default |
 | `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` | Optional Firebase service-account JSON file; its group and other permission bits must be unset. Without it, FCM sends return `503 provider_unavailable`. |
+| `AIUR_RELAY_SEND_PER_HOUR` | Per-handle token refill, default `60` sends/hour |
+| `AIUR_RELAY_SEND_BURST` | Per-handle burst capacity, default `10` |
+| `AIUR_RELAY_HANDLES_PER_IP_HOUR` | Handle creation burst and refill per source IP, default `20`/hour |
+| `AIUR_RELAY_LOG_RETENTION_DAYS` | Send-log retention, default `7`; values above `7` prevent startup |
+
+Rate-limit exhaustion returns `429 {"error":"rate_limited","retry_after_s":N}` and a
+matching `Retry-After` header. Replaying an accepted idempotency key does not consume a
+send token. SQLite persists token buckets across restarts; store failures fail closed with
+`503`. The relay rejects request bodies above 8 KiB and sealed envelopes above 3,400
+bytes. Idempotency rows expire after 24 hours; metadata-only send logs expire after the
+configured retention period (at most seven days).
 
 Topic slugs uppercase the topic and replace each non-ASCII-alphanumeric character with `_`.
 Fallback title and body together must be at most 200 UTF-8 bytes. Missing or invalid pins
@@ -67,9 +78,8 @@ The `sends.delivery` column records provider outcomes (`delivered`, `gone`, `ret
 Accepted payloads are held in memory only: a process or service restart can lose an
 accepted delivery; this is not a durable delivery queue. Provider errors and exceptions
 are contained and logged using only handle, status, size and allowlisted APNs reason codes, never
-sealed content, push tokens or bearer secrets. Real provider credentials and TLS
-termination belong to deployment; do not expose this skeleton publicly without the
-abuse-control and deployment work.
+sealed content, push tokens or bearer secrets. Configure provider credentials and TLS
+termination during deployment, before exposing the relay publicly.
 
 APNs refreshes its cached ES256 JWT every 40 minutes, and once on an expired-token response.
 Invalid/unregistered device tokens mark the handle gone. Throttling returns a 60-second

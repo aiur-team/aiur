@@ -12,14 +12,17 @@ defmodule AiurPushRelay.Send do
   @impl true
   def handle_call({:enqueue, row, envelope}, _, state) do
     result =
-      case Store.call(state.store, :reserve, [row, envelope, System.system_time(:second)]) do
+      case Store.call(state.store, :reserve, [row, envelope, now(state)]) do
         :new -> admit(state, row, envelope)
         {:duplicate, status} -> {:ok, status}
+        {:limited, seconds} -> {:error, {:rate_limited, seconds}}
         error -> error
       end
 
     {:reply, result, state}
   end
+
+  defp now(state), do: Map.get(state, :clock, &:erlang.system_time/1).(:second)
 
   defp admit(state, row, envelope) do
     case start_delivery(state, row, envelope) do
