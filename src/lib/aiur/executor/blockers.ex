@@ -50,11 +50,13 @@ defmodule Aiur.Executor.Blockers do
   @doc "Reads retained Commands with the store's availability status."
   @spec read_commands(GenServer.server()) :: {:ok, [Aiur.Decision.t()]} | {:error, term()}
   def read_commands(store) do
-    decisions = Commands.list_decisions(store)
-
-    case Commands.query_counts(store: store) do
-      {:ok, %{health: %{status: :available}}} -> {:ok, decisions}
+    with decisions when is_list(decisions) <- Commands.list_decisions(store),
+         {:ok, %{health: %{status: :available}}} <- Commands.query_counts(store: store) do
+      {:ok, decisions}
+    else
+      {:error, _reason} = error -> error
       {:ok, %{health: %{reason: reason}}} -> {:error, reason}
+      _ -> {:error, :invalid_command_records}
     end
   end
 
