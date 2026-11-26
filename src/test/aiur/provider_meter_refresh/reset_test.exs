@@ -5,6 +5,7 @@ defmodule Aiur.ProviderMeterRefresh.ResetTest do
   # with backoff until the new window shows, and periodically while exhausted.
   use ExUnit.Case, async: true
 
+  alias Aiur.ProviderMeterProjection.Windows
   alias Aiur.ProviderMeterRefresh
   alias Aiur.ProviderMeterRefresh.Schedule
 
@@ -86,7 +87,7 @@ defmodule Aiur.ProviderMeterRefresh.ResetTest do
         "weekly" => %{used_percent: 40, resets_at: DateTime.add(now, 3600, :second)}
       }
 
-      projected = Aiur.ProviderMeterProjection.Windows.project(windows, :stale, now)
+      projected = Windows.project(windows, :stale, now)
 
       assert projected["primary"].freshness == :unknown
       assert projected["weekly"].freshness == :stale
