@@ -154,6 +154,35 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
     assert Enum.sort(Map.keys(final.running)) == Enum.sort([urgent.id, peer.id])
   end
 
+  test "a persistent priority-one lease refusal gives every available slot to lower-priority work" do
+    urgent = %{candidate(771, 1) | labels: ["priority:1"]}
+    normal = Enum.map(772..774, &candidate(&1, nil))
+    parent = self()
+
+    final =
+      dispatch_candidates(Enum.reverse(normal) ++ [urgent], 3,
+        lease_claim_fun: fn issue ->
+          send(parent, {:lease_attempt, issue.id})
+          if issue.id == urgent.id, do: :held, else: :acquired
+        end,
+        lease_release_fun: fn _ -> :ok end
+      )
+
+    attempts =
+      for _ <- 1..6 do
+        assert_receive {:lease_attempt, id}, 100
+        id
+      end
+
+    assert attempts == Enum.flat_map(normal, &[urgent.id, &1.id])
+    refute_received {:lease_attempt, _id}
+    assert Enum.sort(Map.keys(final.running)) == Enum.map(normal, & &1.id)
+    assert final.tracker_tasks == %{}
+
+    assert Enum.map(Enum.reverse(final.dispatch_selections), &{&1.chosen, &1.skipped}) ==
+             Enum.map(normal, &{&1.identifier, [%{ticket: urgent.identifier, reason: "shared_lease_held"}]})
+  end
+
   test "a lower-priority automatic recovery cannot overtake an in-flight priority-one todo" do
     urgent = candidate(751, 1)
     recovery = candidate(752, nil)
@@ -214,6 +243,71 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
 
     final = drain(after_normal_validation)
     assert Map.keys(final.running) == [urgent.id]
+    wait_for_runners(final)
+  end
+
+  test "a priority-one validation timeout unblocks waiting normal dispatch and automatic recovery" do
+    urgent = candidate(781, 1)
+    normal = candidate(782, nil)
+    recovery = candidate(783, nil)
+    issues = Map.new([urgent, normal, recovery], &{&1.id, &1})
+    urgent_id = urgent.id
+    parent = self()
+    state = %State{snapshot_key: self(), max_concurrent_agents: 2, effective_concurrent_agents: 2, last_polled_issues: issues}
+
+    opts = [
+      issue_fetcher: fn
+        [^urgent_id] ->
+          send(parent, :urgent_validation_started)
+
+          receive do
+            :release_validation -> {:ok, [urgent]}
+          after
+            10_000 -> {:error, :test_validation_timeout}
+          end
+
+        [id] ->
+          {:ok, [Map.fetch!(issues, id)]}
+      end,
+      blocked_by_hydrator: &{:ok, &1},
+      runner: fn _, _, _ -> :ok end,
+      todo_dispatch_tracker: Aiur.Memory.Tracker
+    ]
+
+    recovery_opts = Keyword.put(opts, :automatic_recovery, true)
+
+    pending =
+      state
+      |> Dispatcher.dispatch_issue(urgent, 1, nil, recovery_opts)
+      |> Dispatcher.dispatch_issue(recovery, 1, nil, recovery_opts)
+
+    assert_receive :urgent_validation_started, 1_000
+    yielded = apply_result(pending, {:dispatch, recovery.id})
+    assert yielded.dispatch_declines[recovery.id] == :higher_priority_pending
+    assert yielded.running == %{}
+
+    waiting = Dispatcher.choose_issues(yielded, [normal], opts)
+    refute TrackerTasks.running?(waiting, {:dispatch, normal.id})
+    assert [{ref, %{key: {:dispatch, ^urgent_id}, timer: timer}}] = Map.to_list(waiting.tracker_tasks)
+    remaining_ms = Process.read_timer(timer)
+    assert is_integer(remaining_ms) and remaining_ms > 0
+
+    # Deliver the deadline directly so the test exercises the production handler without sleeping.
+    assert {:noreply, timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, ref}, waiting)
+    assert timed_out.dispatch_declines[urgent_id] == :tracker_revalidation_failed
+    assert TrackerTasks.running?(timed_out, {:dispatch, normal.id})
+    resumed = apply_result(timed_out, {:dispatch, normal.id})
+    assert Map.keys(resumed.running) == [normal.id]
+
+    # Starting the normal ticket gives the urgent ticket one attempt at the remaining slot.
+    assert_receive :urgent_validation_started, 1_000
+    assert [{retry_ref, %{key: {:dispatch, ^urgent_id}}}] = Map.to_list(resumed.tracker_tasks)
+    assert {:noreply, retry_timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, retry_ref}, resumed)
+    assert retry_timed_out.tracker_tasks == %{}
+
+    final = retry_timed_out |> Dispatcher.dispatch_issue(recovery, 1, nil, recovery_opts) |> apply_result({:dispatch, recovery.id})
+    assert Enum.sort(Map.keys(final.running)) == [normal.id, recovery.id]
+    assert final.tracker_tasks == %{}
     wait_for_runners(final)
   end
 
