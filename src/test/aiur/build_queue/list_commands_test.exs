@@ -214,6 +214,25 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert labels["1"].labels == []
   end
 
+  # OGM's `aiur queue add <ids> --queue launch-blobs` crashed with a badmap when a
+  # ticket already carried the queued marker from another list while an earlier
+  # marker write was still pending: the pending intent makes the reconcile
+  # observations empty, and the existing marker was looked up there. The crash
+  # aborted the whole add, so the new list was never saved.
+  test "adding a ticket that already carries the queued marker works while a marker write is pending" do
+    settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
+    pending = %Aiur.BuildQueue.Model.Intent{id: "pending", issue_id: "9", action: :mark, target_labels: ["agent:queued"], recorded_at_ms: 1_000, outcome: nil}
+    update(:snapshot, {:ok, %{"3" => %{labels: ["agent:queued", "game:blobs"]}, "9" => %{labels: []}}, 900})
+    state = %{document: %{@empty | intents: [pending]}, settings: settings, tracker: Boundary, clock: fn -> 1_000 end}
+
+    assert Aiur.BuildQueue.Reconcile.observations(state) == %{}
+    assert {:ok, document, actions, _observations, []} = ListCommands.prepare(state, {:add, ["3"], [queue: "launch-blobs"]})
+
+    assert Enum.map(document.items, & &1.issue_id) == ["3"]
+    refute {:mark, "3"} in actions
+    assert [%{issue_id: "3", action: :mark, outcome: :ok, target_labels: ["agent:queued", "game:blobs"]}] = Enum.filter(document.intents, &(&1.issue_id == "3"))
+  end
+
   defp server(max_writes \\ 20) do
     pid = start(max_writes)
     assert_received {:scheduled, ^pid, {:reconcile, token}}
