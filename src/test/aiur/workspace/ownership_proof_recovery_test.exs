@@ -1,10 +1,10 @@
 defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Workspace.Ownership
-  alias Aiur.Workspace.Ownership.{Guardian, Store}
   alias Aiur.TestCleanup
   alias Aiur.TestSupport.Isolation
+  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.{Guardian, Store}
 
   @registry __MODULE__.Registry
   @store __MODULE__.Store
