@@ -25,8 +25,8 @@ defmodule Aiur.SystemLoad do
 
   @doc """
   Subtracts sampled background CPU core equivalents from host demand.
-  Background means processes niced above the daemon (`Aiur.BackgroundCpu`);
-  the fleet inherits the daemon's nice, so it always counts. Unknown
+  Background means processes niced above the daemon and outside registered
+  fleet-agent trees (`Aiur.BackgroundCpu`). Unknown
   background CPU leaves demand unchanged.
   """
   @spec gate_signal(number() | :unavailable, map() | :unavailable, pos_integer()) :: number() | :unavailable

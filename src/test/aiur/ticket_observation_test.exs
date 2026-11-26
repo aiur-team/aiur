@@ -147,6 +147,22 @@ defmodule Aiur.TicketObservationTest do
     refute Jason.encode!(stage) =~ "secret"
   end
 
+  test "retains only allowlisted compaction states for the ticket activity view" do
+    observation =
+      TicketObservation.normalize(%{"message" => "private provider detail"},
+        identity: identity(),
+        source: %{kind: :agent_alert, name: "compaction.failed"}
+      )
+
+    assert observation.source == %{kind: :agent_alert, name: "compaction.failed"}
+    assert observation.attributes == %{compaction_status: :failed}
+    refute Jason.encode!(observation) =~ "private provider detail"
+
+    unsafe = TicketObservation.normalize(%{}, source: %{kind: :agent_alert, name: "compaction.secret"})
+    assert unsafe.source == %{kind: :agent_alert, name: "alert"}
+    assert unsafe.attributes == %{}
+  end
+
   test "inventories every migrated agent-event observation" do
     assert %{observations: [:progress, :progress_checkin, :progress_phase]} =
              Enum.find(TicketObservation.producer_inventory(), &(&1.producer == :agent_event))

@@ -8,3 +8,6 @@ pin="$(sed -n 's/^PINNED_SKILL_COMMIT = "\(.*\)"$/\1/p' .claude/skills/aiur-buil
 git cat-file -e "${pin}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$pin"
 python3 -m unittest discover -s .claude/skills/aiur-build/scripts/tests
 python3 -m unittest discover -s docs/build-order/scripts/tests
+python3 .claude/skills/aiur-build/scripts/publication/pack_format.py --check \
+  docs/build-order/build-order.json src/priv/build_orders/croptracker-demo.json \
+  src/priv/build_orders/aiur-build-order.json

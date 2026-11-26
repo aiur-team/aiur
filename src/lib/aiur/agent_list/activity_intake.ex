@@ -182,6 +182,9 @@ defmodule Aiur.AgentList.ActivityIntake do
     rest |> String.replace(".", " ") |> String.capitalize()
   end
 
+  defp evidence_message(%{attributes: %{compaction_status: status}}),
+    do: "Compaction #{status}"
+
   defp evidence_message(%{attributes: %{needs_attention: true}}), do: "Needs attention"
   defp evidence_message(%{source: %{kind: :agent_alert}}), do: "Agent alert"
   defp evidence_message(_evidence), do: "Agent activity"

@@ -13,13 +13,13 @@ defmodule Aiur.Orchestrator.PriorityControl do
   @prioritized_label "priority:1"
 
   @spec prioritize_agent(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
-  def prioritize_agent(identifier), do: prioritize_agent(Aiur.Orchestrator, identifier)
+  def prioritize_agent(identifier), do: prioritize_agent(Aiur.Project.whereis(Aiur.Orchestrator), identifier)
 
   @spec prioritize_agent(GenServer.server(), String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
   def prioritize_agent(server, identifier) when is_binary(identifier), do: control_api_call(server, {:prioritize_agent, identifier})
 
   @spec deprioritize_agent(String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
-  def deprioritize_agent(identifier), do: deprioritize_agent(Aiur.Orchestrator, identifier)
+  def deprioritize_agent(identifier), do: deprioritize_agent(Aiur.Project.whereis(Aiur.Orchestrator), identifier)
 
   @spec deprioritize_agent(GenServer.server(), String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
   def deprioritize_agent(server, identifier) when is_binary(identifier), do: control_api_call(server, {:deprioritize_agent, identifier})

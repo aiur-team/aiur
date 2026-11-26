@@ -31,7 +31,10 @@ defmodule Aiur.BuildQueue.Readiness do
   def evidence(observation, prefix) do
     states = for label <- observation.labels, String.starts_with?(label, prefix <> ":"), do: String.replace_prefix(label, prefix <> ":", "")
     # An error must win over any competing lifecycle label.
-    state = if "error" in states, do: "error", else: Enum.find(["done", "merging", "human-review", "rework", "ci-wait"], &(&1 in states))
+    state =
+      if "error" in states,
+        do: "error",
+        else: Enum.find(["budget-exhausted", "done", "merging", "human-review", "rework", "ci-wait"], &(&1 in states))
 
     %Aiur.StartTrigger.Evidence{
       identifier: observation.issue_id,

@@ -27,6 +27,9 @@ defmodule AiurWeb.Routes.Decisions do
 
         get("/api/v1/decisions", AiurWeb.DecisionApiController, :index)
         get("/api/v1/decisions/:decision_id", AiurWeb.DecisionApiController, :show)
+        # Command media is served under the Decision read identity so a reader
+        # authorized for the Command is exactly a reader authorized for its media.
+        get("/api/v1/decisions/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show)
       end
     end
   end

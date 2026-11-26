@@ -68,9 +68,9 @@ defmodule Aiur.GitHub.ResourceEvents do
 
   require Logger
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.ResourceStore
 
-  @pubsub Aiur.PubSub
   @message :github_resource_changed
   @prefix "github:resource"
 
@@ -320,7 +320,7 @@ defmodule Aiur.GitHub.ResourceEvents do
   defp do_subscribe(nil), do: :ok
 
   defp do_subscribe(topic) do
-    Phoenix.PubSub.subscribe(@pubsub, topic)
+    Phoenix.PubSub.subscribe(pubsub(), topic)
     :ok
   rescue
     error -> unavailable("subscribe", topic, error)
@@ -331,7 +331,7 @@ defmodule Aiur.GitHub.ResourceEvents do
   defp do_unsubscribe(nil), do: :ok
 
   defp do_unsubscribe(topic) do
-    Phoenix.PubSub.unsubscribe(@pubsub, topic)
+    Phoenix.PubSub.unsubscribe(pubsub(), topic)
     :ok
   rescue
     error -> unavailable("unsubscribe", topic, error)
@@ -342,13 +342,16 @@ defmodule Aiur.GitHub.ResourceEvents do
   defp broadcast(nil, _message), do: :ok
 
   defp broadcast(topic, message) do
-    Phoenix.PubSub.broadcast(@pubsub, topic, message)
+    Phoenix.PubSub.broadcast(pubsub(), topic, message)
     :ok
   rescue
     error -> unavailable("broadcast", topic, error)
   catch
     :exit, reason -> unavailable("broadcast", topic, reason)
   end
+
+  # An unset `settings.pubsub` raises inside the callers' rescue, answering `:ok` like a stopped PubSub.
+  defp pubsub, do: Settings.current().pubsub
 
   defp unavailable(action, topic, reason) do
     Logger.debug("GitHub.ResourceEvents #{action} unavailable topic=#{topic} reason=#{inspect(reason)}")

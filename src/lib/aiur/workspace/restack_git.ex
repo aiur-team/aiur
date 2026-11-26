@@ -1,6 +1,6 @@
 defmodule Aiur.Workspace.RestackGit do
   @moduledoc false
-  alias Aiur.{AgentEnvironment, AgentGitHubGuard, ProcessTree}
+  alias Aiur.{AgentEnvironment, ProcessTree}
   alias Aiur.Workspace.Ownership
 
   @credential_helper ~S"""
@@ -18,7 +18,7 @@ defmodule Aiur.Workspace.RestackGit do
   defp start(workspace, args, lease) do
     env =
       AgentEnvironment.port_shell_startup_env() ++
-        [{~c"GIT_TERMINAL_PROMPT", ~c"0"}, {~c"GITHUB_TOKEN", false}, {~c"GH_TOKEN", false}, {~c"AIUR_GITHUB_CREDENTIAL_FILE", String.to_charlist(AgentGitHubGuard.agent_token_path())}]
+        [{~c"GIT_TERMINAL_PROMPT", ~c"0"}, {~c"GITHUB_TOKEN", false}, {~c"GH_TOKEN", false}, {~c"AIUR_GITHUB_CREDENTIAL_FILE", credential_file()}]
 
     port =
       Port.open({:spawn_executable, System.find_executable("bash")}, [
@@ -35,6 +35,15 @@ defmodule Aiur.Workspace.RestackGit do
     if lease, do: :ok = Ownership.track_provider(lease, %{root_pid: pid, process_group_id: pid})
     Port.command(port, "ready\n")
     {port, pid}
+  end
+
+  defp credential_file do
+    {module, function, args} = Application.get_env(:aiur, :workspace_git_credential_file, {Aiur.Workspace.NoToken, :path, []})
+
+    case apply(module, function, args) do
+      nil -> false
+      path -> String.to_charlist(path)
+    end
   end
 
   defp config do

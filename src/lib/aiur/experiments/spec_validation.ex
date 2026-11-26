@@ -5,17 +5,19 @@ defmodule Aiur.Experiments.SpecValidation do
 
   @spec validate(map()) :: [map()]
   def validate(map) do
-    object(map, Map.keys(Spec.to_map(%Spec{})), "") ++
+    object(map, Map.keys(Spec.to_map(%Spec{})), "", Map.keys(Spec.to_map(%Spec{})) -- ["confounder_sources", "report_reason"]) ++
       field(map, "schema_version", &(&1 == 1), "must equal 1") ++
       field(map, "id", &(is_nil(&1) or Paths.valid_id?(&1)), "invalid experiment id") ++
       field(map, "key", &(is_nil(&1) or text?(&1)), "must be a nonempty string or null") ++
       field(map, "title", &text?/1, "must be a nonempty string") ++
       Enum.flat_map(~w(hypothesis notes), &field(map, &1, fn value -> is_binary(value) end, "must be a string")) ++
-      field(map, "status", &(&1 in ~w(draft active concluded abandoned)), "unknown status") ++
+      field(map, "status", &(&1 in ~w(draft active concluded abandoned report_due reported cancelled)), "unknown status") ++
+      field(map, "report_reason", &(&1 in [nil, "guard_met", "insufficient_data", "truncated"]), "unknown report reason") ++
       field(map, "min_samples", &positive?/1, "must be a positive integer") ++
       Enum.flat_map(~w(alpha power_target), &field(map, &1, fn value -> probability?(value) end, "must be between 0 and 1")) ++
       Enum.flat_map(~w(created_at updated_at), &field(map, &1, fn value -> timestamp?(value) end, "must be an ISO-8601 timestamp with an offset")) ++
       field(map, "registered_at", &optional_timestamp?/1, "must be a timestamp or null") ++
+      confounder_sources(map["confounder_sources"]) ++
       owner(map["owner"]) ++
       origin(map["origin"]) ++
       design(map["design"]) ++
@@ -25,6 +27,20 @@ defmodule Aiur.Experiments.SpecValidation do
       field(map, "stratify_by", &unique_attributes?/1, "must contain unique cohort attributes") ++
       field(map, "tags", &unique_strings?/1, "must contain unique strings")
   end
+
+  defp confounder_sources(sources) do
+    keys = ~w(base_branch required_workflows incident_labels)
+
+    object(sources, keys, "confounder_sources", []) ++
+      Enum.flat_map(keys, &confounder_field(sources, &1))
+  end
+
+  defp confounder_field(sources, key) do
+    valid? = if key == "base_branch", do: &text?/1, else: &unique_texts?/1
+    if is_map(sources) and Map.has_key?(sources, key), do: field(sources, key, valid?, "must be a nonempty branch or unique nonempty strings", "confounder_sources"), else: []
+  end
+
+  defp unique_texts?(values), do: is_list(values) and Enum.uniq(values) == values and Enum.all?(values, &text?/1)
 
   defp owner(owner) do
     object(owner, ~w(kind id), "owner") ++ field(owner, "kind", &(&1 in ~w(human agent)), "unknown owner kind", "owner") ++ field(owner, "id", &text?/1, "must be a nonempty string", "owner")

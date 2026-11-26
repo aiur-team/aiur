@@ -20,10 +20,11 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
 
   require Logger
 
-  alias Aiur.Shell
+  alias Aiur.{AgentSkills, Shell}
   alias Aiur.Workspace.WipPreservation.Command
 
   @patch "tracked.patch"
+  @check_index "reverse-check.index"
   @untracked "untracked.tar"
   @untracked_list "untracked.list"
   @bundle "unpushed-commits.bundle"
@@ -48,6 +49,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
          {:ok, branch} <- branch(context),
          base = head || @empty_tree,
          {:ok, tracked} <- git_list(context, ["diff", "--name-only", "-z", "--no-renames", base]),
+         {:ok, added} <- git_list(context, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", base]),
          {:ok, patch_bytes} <- write_patch(context, base, tracked),
          {:ok, archived, skipped} <- select_untracked(context, patch_bytes),
          {:ok, tar?} <- write_untracked(context, archived),
@@ -68,7 +70,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
          "untracked_files" => archived,
          "skipped_untracked" => skipped,
          "files" => files,
-         "restore_commands" => restore_commands(workspace, Path.basename(final), files)
+         "restore_commands" => restore_commands(workspace, Path.basename(final), files, added)
        }}
     end
   end
@@ -147,8 +149,69 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
     with {:ok, _} <- git(context, args, true),
          {:ok, size} <- nonempty(path),
          :ok <- private(path),
-         {:ok, _} <- git(context, ["apply", "--check", "--reverse", "--binary", path], true) do
+         :ok <- check_reverses(context, base, path) do
       {:ok, size}
+    end
+  end
+
+  # #7543: the worktree can hold a file the patch deletes, because the agent
+  # dropped it from the index but the bytes are still on disk (`git rm
+  # --cached`) or something re-created it. A reverse apply on the worktree then
+  # fails with "already exists in working directory" although the save is
+  # exact, and the ticket was held. The check runs against a private copy of
+  # the index with the tracked changes of the worktree staged into it: the same
+  # tree, without any untracked entry, so it keeps its strength.
+  defp check_reverses(context, base, patch) do
+    index = Path.join(context.partial, @check_index)
+    env = [{"GIT_INDEX_FILE", index}]
+
+    result =
+      with :ok <- seed_index(context, base, index, env),
+           {:ok, _out} <- git(context, ["add", "--update"], true, env),
+           {:ok, _out} <- git(context, ["apply", "--check", "--reverse", "--cached", "--binary", patch], true, env) do
+        :ok
+      end
+
+    _ = File.rm(index)
+    result
+  end
+
+  # A copy is stamped "now", and git trusts an entry's stat only when the index
+  # file is not newer than the entry. A copy stamped later therefore hides an
+  # edit whose size did not change in the second the checkout wrote the file:
+  # `git add --update` skipped it and the reverse check failed on a save that
+  # was exact (soak seed 973359). Carrying the source's stamp keeps the copy as
+  # racy as the index it copies.
+  defp seed_index(context, base, index, env) do
+    with {:ok, path} <- index_path(context) do
+      case File.cp(path, index) do
+        :ok -> keep_stamp(path, index)
+        {:error, :enoent} -> read_tree(context, base, env)
+        {:error, reason} -> {:error, {:index_copy_failed, path, reason}}
+      end
+    end
+  end
+
+  # Best effort: a stamp that cannot be read or carried only leaves git's racy
+  # check stricter, never the staged content wrong.
+  defp keep_stamp(path, index) do
+    with {:ok, stat} <- File.stat(path, time: :posix) do
+      _ = File.touch(index, stat.mtime)
+      :ok
+    end
+  end
+
+  defp index_path(context) do
+    case git(context, ["rev-parse", "--git-path", "index"]) do
+      {:ok, path} -> {:ok, Path.expand(String.trim(path), context.workspace)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp read_tree(context, base, env) do
+    case git(context, ["read-tree", base], true, env) do
+      {:ok, _out} -> :ok
+      {:error, _reason} = error -> error
     end
   end
 
@@ -327,10 +390,11 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   # gone. Only a bundle brings old commits back; they land on a local
   # `aiur-wip/<save>` branch and fast-forward the current branch when they can.
   # The patch then applies to the current HEAD, with a three-way fallback.
-  defp restore_commands(workspace, save_name, files) do
+  defp restore_commands(workspace, save_name, files, added) do
     [
       "cd #{Shell.escape(workspace)}",
       files["unpushed_bundle"] && bundle_command(files["unpushed_bundle"], "aiur-wip/" <> save_name),
+      files["tracked_patch"] && skill_collision_command(added),
       files["tracked_patch"] && patch_command(files["tracked_patch"]),
       files["untracked_tar"] && "tar -x -f #{Shell.escape(files["untracked_tar"])}"
     ]
@@ -340,6 +404,37 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   defp bundle_command(bundle, branch) do
     "git fetch --quiet #{Shell.escape(bundle)} HEAD && git branch -f #{Shell.escape(branch)} FETCH_HEAD && " <>
       "{ git merge --ff-only --quiet FETCH_HEAD || echo #{Shell.escape("unpushed commits kept on branch " <> branch)}; }"
+  end
+
+  # A fresh workspace materializes untracked skill links and files, so `git
+  # apply` refuses a patch that adds the same path (#4557). The command removes
+  # such an untracked entry first, the skill root before the path in it, and
+  # never follows a symlink: a path below one is left alone.
+  defp skill_collision_command(added) do
+    roots = Enum.map(AgentSkills.install_paths(), &(String.trim_trailing(&1, "/") <> "/"))
+
+    added
+    |> Enum.flat_map(fn path ->
+      case Enum.find(roots, &String.starts_with?(path, &1)) do
+        nil -> []
+        root -> [root <> (path |> String.replace_prefix(root, "") |> String.split("/") |> hd()), path]
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.map_join(" && ", &clear_untracked_command/1)
+    |> case do
+      "" -> nil
+      command -> command
+    end
+  end
+
+  defp clear_untracked_command(path) do
+    escaped = Shell.escape(path)
+    ancestors = path |> Path.split() |> Enum.drop(-1) |> Enum.scan(&Path.join(&2, &1))
+    guards = Enum.map(ancestors, &"[ -L #{Shell.escape(&1)} ] || ")
+
+    "{ #{guards}! { [ -L #{escaped} ] || [ -f #{escaped} ]; } || " <>
+      "git ls-files --error-unmatch -- #{escaped} >/dev/null 2>&1 || rm -f -- #{escaped}; }"
   end
 
   defp patch_command(patch) do
@@ -377,19 +472,19 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
 
   # Commands whose stdout is parsed keep stderr apart; the others fold it in
   # so a failure reason carries git's own message.
-  defp git(context, args, stderr_to_stdout? \\ false) do
-    case git_raw(context, args, stderr_to_stdout?) do
+  defp git(context, args, stderr_to_stdout? \\ false, env \\ []) do
+    case git_raw(context, args, stderr_to_stdout?, env) do
       {:ok, {out, 0}} -> {:ok, out}
       {:ok, {out, status}} -> {:error, {:git_failed, args, status, String.slice(out, 0, 2_000)}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp git_raw(context, args, stderr_to_stdout? \\ false),
-    do: run(git_executable(), ["-C", context.workspace | args], context, stderr_to_stdout?)
+  defp git_raw(context, args, stderr_to_stdout? \\ false, env \\ []),
+    do: run(git_executable(), ["-C", context.workspace | args], context, stderr_to_stdout?, env)
 
-  defp run(command, args, context, stderr_to_stdout?) do
-    Command.run(command, args, timeout_ms: context.limits.command_timeout_ms, env: @git_env, stderr_to_stdout: stderr_to_stdout?)
+  defp run(command, args, context, stderr_to_stdout?, env \\ []) do
+    Command.run(command, args, timeout_ms: context.limits.command_timeout_ms, env: @git_env ++ env, stderr_to_stdout: stderr_to_stdout?)
   end
 
   # A test seam: the suite points this at a wrapper that stalls one command.

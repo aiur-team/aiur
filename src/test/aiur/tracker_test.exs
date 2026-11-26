@@ -8,7 +8,7 @@ defmodule Aiur.TrackerTest do
     on_exit(fn -> OpenIssueSnapshot.reset() end)
     assert :none = Tracker.open_issue_labels(60_000)
     labels = %{"7" => %{labels: ["agent:queued"], updated_at: nil}}
-    OpenIssueSnapshot.put("owner", "repo", [7], labels)
+    OpenIssueSnapshot.put("owner", "repo", [7], labels, DateTime.utc_now())
     assert {:ok, ^labels, _} = Tracker.open_issue_labels(60_000)
   end
 

@@ -1,0 +1,26 @@
+defmodule Aiur.HarnessSessionCLI do
+  @moduledoc """
+  Legacy direct control RPC for the Executor harness handle. Retained for callers
+  of `Aiur.HarnessSessionCLI.rpc/1`; the launcher now uses the binding projection
+  from `Aiur.AgentControlCLI.executor_session/1`, with this handle nested under
+  `harness_session`.
+  """
+
+  import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
+
+  alias Aiur.Executor.HarnessSession
+
+  @doc "RPC entry point: runs the read under the control-protocol guard and emits the exit marker."
+  @spec rpc(keyword()) :: :ok
+  def rpc(opts), do: guarded("executor-session", fn -> opts |> run() |> exit_marker() end)
+
+  @spec run(keyword()) :: 0
+  def run(opts \\ []) do
+    handle = HarnessSession.current(Keyword.take(opts, [:now, :path]))
+    IO.puts(if Keyword.get(opts, :json, false), do: Jason.encode!(handle), else: render(handle))
+    0
+  end
+
+  defp render(%{"state" => "live"} = handle), do: "live #{handle["harness"]} #{handle["session_id"]} pid=#{handle["harness_pid"] || "-"} cwd=#{handle["cwd"] || "-"}"
+  defp render(%{"reason" => reason}), do: "unknown (#{reason})"
+end

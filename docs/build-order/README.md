@@ -70,7 +70,7 @@ selected-order integration into independently verifiable work.
 11. [Late-wave consolidation research](10-late-wave-consolidation.md)
 12. [Binding execution amendment](11-execution-amendment.md)
 13. [Current seven-wave execution plan](12-current-execution-waves.md)
-14. [Executor handoff](EXECUTOR-HANDOFF.md)
+14. [Executor handoff](EXECUTOR-HANDOFF.md) — dated checkpoints and the standing contract are archived in [`executor-handoff/`](executor-handoff/); agent chat entries in [`agent-chat/`](agent-chat/)
 
 Supporting context: [research spike](00-research-spike.md),
 [decomposition patterns](01-decomposition-patterns.md),

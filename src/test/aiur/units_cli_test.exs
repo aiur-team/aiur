@@ -1,5 +1,5 @@
 defmodule Aiur.UnitsCLITest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 
@@ -77,6 +77,14 @@ defmodule Aiur.UnitsCLITest do
     assert human_output =~ "Ticket: Visible but not running (meta)"
     assert human_output =~ "Latest: Awaiting dispatch; 60%; 5m"
     assert human_output =~ "Command: Unit is retrying; chat unavailable; remote control unavailable; read-only"
+  end
+
+  test "a Unit line ends with the capacity reason (#7892)" do
+    waiting = "waiting: no authorized source: codex limited"
+    catalog = update_in(ready_catalog(), [:snapshot, :rows], fn [row] -> [Map.put(row, :capacity_reason, waiting)] end)
+    output = capture_io(fn -> assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: catalog} end, scope: :all, conditions: ["queued"], now: ~U[2026-08-09 12:05:00Z]) end)
+
+    assert output =~ "Unit: Codex · Cx:3 · gpt-5.6 · MED · " <> waiting
   end
 
   test "rejects policy-only conditions that the Units page does not expose" do

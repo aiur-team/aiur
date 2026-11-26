@@ -1,0 +1,97 @@
+{
+  "generated_at": "2026-10-09T00:00:00Z",
+  "body": {
+    "schema_version": "experiment-result/v1",
+    "experiment_id": "generic-binary",
+    "group_order": [
+      "before",
+      "after"
+    ],
+    "engine": {
+      "name": "experiment-stats",
+      "version": "1.0.0"
+    },
+    "inputs": {
+      "snapshot_sha256": "4d0c332674c3b26725b039c0dae1647ae6a44b07aa8fecd90899ba6dccd51fa2",
+      "spec_sha256": "ae5af84687dfa6ad1f674645b5223b711044fddd2781442d9f3ff8e69f80e6ac",
+      "annotations_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "defaults": {
+      "alpha": 0.05,
+      "min_samples": 10,
+      "power_target": 0.8,
+      "bootstrap_primary": 10000,
+      "bootstrap_exploratory": 2000,
+      "permutation_resamples": 20000
+    },
+    "metrics": {
+      "custom/binary": {
+        "kind": "binary",
+        "groups": {
+          "before": {
+            "n": 20,
+            "median": 0.0,
+            "q1": 0.0,
+            "q3": 0.0,
+            "iqr": 0.0,
+            "p90": 0.1,
+            "min": 0.0,
+            "max": 1.0,
+            "n_censored": 0
+          },
+          "after": {
+            "n": 20,
+            "median": 1.0,
+            "q1": 0.0,
+            "q3": 1.0,
+            "iqr": 1.0,
+            "p90": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "n_censored": 0
+          }
+        },
+        "min_achievable_p": 1.45088891e-11,
+        "excluded_counts": {
+          "before": 0,
+          "after": 0
+        },
+        "flags": [],
+        "analyst_flags": [],
+        "status": "significant",
+        "direction": "regressed",
+        "adjustment": "holm",
+        "tests": {
+          "fisher": {
+            "statistic": 13.5,
+            "p_value": 0.002199641243,
+            "method": "exact"
+          }
+        },
+        "effects": {
+          "proportion_difference": {
+            "estimate": 0.5,
+            "lo": 0.2068072608,
+            "hi": 0.6950238889,
+            "method": "newcombe",
+            "null": 0,
+            "unbounded": []
+          }
+        },
+        "primary_effect": "proportion_difference",
+        "p_raw": 0.002199641243,
+        "p_adj": 0.002199641243,
+        "summary_text": "custom/binary: n 20 vs 20, median 0 to 1, proportion_difference 0.5, 95% CI [0.2068072608, 0.6950238889], p 0.002199641243 (holm 0.002199641243); significant, regressed; 0 units excluded; flags: none."
+      }
+    },
+    "exclusions": [],
+    "warnings": [],
+    "overall": {
+      "primary_statuses": {
+        "custom/binary": "significant"
+      },
+      "note": "",
+      "flags": []
+    }
+  }
+}

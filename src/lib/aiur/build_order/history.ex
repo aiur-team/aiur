@@ -56,6 +56,15 @@ defmodule Aiur.BuildOrder.History do
     |> read_result()
   end
 
+  @spec numbers(keyword()) :: {:ok, [pos_integer()], ProviderHealth.t()} | {:error, ProviderHealth.t()}
+  def numbers(opts \\ []) do
+    read(opts, fn table ->
+      health = :ets.lookup_element(table, :__health__, 2)
+      if health.state == :healthy, do: {:ok, :ets.select(table, [{{:"$1", :_}, [{:is_integer, :"$1"}], [:"$1"]}]), health}, else: {:error, health}
+    end)
+    |> read_result()
+  end
+
   defp read_rows(table, numbers) do
     health = :ets.lookup_element(table, :__health__, 2)
     if health.state == :healthy, do: {:ok, Enum.flat_map(numbers, &lookup_row(table, &1)), health}, else: {:error, health}
@@ -88,7 +97,7 @@ defmodule Aiur.BuildOrder.History do
     table = table(Keyword.get(opts, :name, __MODULE__))
     :ets.new(table, [:named_table, :set, :protected, read_concurrency: true])
     Process.put(:build_history_table, table)
-    state = initial_state(opts) |> Map.merge(%{table: table, flush_ms: Keyword.get(opts, :flush_ms, 2_000), timer: nil, synced?: false})
+    state = initial_state(opts) |> Map.merge(%{table: table, flush_ms: Keyword.get(opts, :flush_ms, 30_000), timer: nil, synced?: false, encoded_rows: %{}})
     mirror(state, Map.values(state.rows))
     {:ok, schedule(state)}
   end
@@ -144,7 +153,7 @@ defmodule Aiur.BuildOrder.History do
       rows = Enum.reduce(events, state.rows, &merge_event/2)
       changed = Enum.filter(Map.values(rows), &(Map.get(state.rows, &1.number) != &1))
       state = commit(state, changed, checkpoint)
-      {:reply, {:ok, %{generation: state.health.generation, changed: numbers(changed)}}, state}
+      {:reply, {:ok, %{generation: state.health.generation, changed: row_numbers(changed)}}, state}
     else
       {:error, _reason} = error -> {:reply, error, state}
     end
@@ -184,11 +193,11 @@ defmodule Aiur.BuildOrder.History do
     rows = Enum.reduce(changed_rows, state.rows, &Map.put(&2, &1.number, &1))
     state = %{state | rows: rows, health: health, checkpoints: checkpoints, dirty?: state.dirty? or changed? or checkpoints != state.checkpoints}
     mirror(state, changed_rows)
-    if changed?, do: broadcast(state, numbers(changed_rows))
+    if changed?, do: broadcast(state, row_numbers(changed_rows))
     schedule(state)
   end
 
-  defp numbers(rows), do: Enum.sort(Enum.map(rows, & &1.number))
+  defp row_numbers(rows), do: Enum.sort(Enum.map(rows, & &1.number))
   defp newest(rows, initial), do: Enum.reduce(rows, initial, fn row, acc -> if is_nil(acc) or DateTime.compare(row.observed_at, acc) == :gt, do: row.observed_at, else: acc end)
   defp mirror(state, rows), do: :ets.insert(state.table, [{:__health__, state.health}, {:__checkpoints__, state.checkpoints} | Enum.map(rows, &{&1.number, &1})])
 
@@ -237,7 +246,7 @@ defmodule Aiur.BuildOrder.History do
 
   defp do_flush(state) do
     case Persistence.write(state) do
-      :ok ->
+      {:ok, encoded_rows} ->
         failure =
           cond do
             state.status == "rebuilding" -> :history_rebuilding
@@ -245,7 +254,7 @@ defmodule Aiur.BuildOrder.History do
             true -> nil
           end
 
-        state = %{state | dirty?: false, synced?: true, health: %{state.health | last_success_at: DateTime.utc_now(), failure: failure}}
+        state = %{state | dirty?: false, synced?: true, encoded_rows: encoded_rows, health: %{state.health | last_success_at: DateTime.utc_now(), failure: failure}}
         mirror(state, [])
         {:ok, state}
 

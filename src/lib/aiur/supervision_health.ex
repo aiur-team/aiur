@@ -10,7 +10,7 @@ defmodule Aiur.SupervisionHealth do
 
   use GenServer
 
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.SupervisionHealth.Formatter
   alias Aiur.SupervisionHealth.Tree
   require Logger
@@ -159,11 +159,11 @@ defmodule Aiur.SupervisionHealth do
   end
 
   defp emit_alert(%{missing: []}, _missing_ids, opts) do
-    Alerts.emit_system("system.supervision.degraded.resolved", Keyword.merge(opts, message: "Supervision healthy", needs_attention: false))
+    Signal.alert("system.supervision.degraded.resolved", Keyword.merge(opts, message: "Supervision healthy", needs_attention: false))
   end
 
   defp emit_alert(snapshot, _missing_ids, opts) do
-    Alerts.emit_system(
+    Signal.alert(
       "system.supervision.degraded",
       Keyword.merge(opts,
         message: format(snapshot),

@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.UsageUpdates do
   import Phoenix.Component, only: [assign: 2]
   alias Aiur.ProviderMeterRefresh
   alias AiurWeb.Build.{Payload, Protocol, Read, Usage}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
 
   @ticks %{build_usage_github_tick: 15_000, build_usage_elevenlabs_tick: 60_000}
 
@@ -18,7 +18,7 @@ defmodule AiurWeb.Build.UsageUpdates do
 
   def queue(socket, message) do
     unless socket.assigns.build_usage_flush_scheduled do
-      case Endpoint.config(:build_usage_flush_timer) do
+      case EndpointConfig.get(:build_usage_flush_timer) do
         timer when is_function(timer, 3) -> timer.(self(), :build_usage_flush, 250)
         _ -> Process.send_after(self(), :build_usage_flush, 250)
       end
@@ -94,5 +94,5 @@ defmodule AiurWeb.Build.UsageUpdates do
     |> Protocol.changes(%{resync: true}, opts)
   end
 
-  defp source, do: Endpoint.config(:build_usage_source) || Usage
+  defp source, do: EndpointConfig.get(:build_usage_source) || Usage
 end

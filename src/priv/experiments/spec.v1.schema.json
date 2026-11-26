@@ -10,7 +10,8 @@
     "title": {"type": "string", "minLength": 1},
     "hypothesis": {"type": "string"},
     "owner": {"type": "object", "properties": {"kind": {"enum": ["human", "agent"]}, "id": {"type": "string", "minLength": 1}}, "required": ["kind", "id"], "additionalProperties": false},
-    "status": {"enum": ["draft", "active", "concluded", "abandoned"]},
+    "status": {"enum": ["draft", "active", "concluded", "abandoned", "report_due", "reported", "cancelled"]},
+    "report_reason": {"enum": [null, "guard_met", "insufficient_data", "truncated"]},
     "origin": {
       "type": "object",
       "properties": {"kind": {"enum": ["manual", "release", "epic_merge", "analyst"]}, "ref": {"type": ["string", "null"]}},
@@ -95,6 +96,15 @@
     "stratify_by": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}},
     "tags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "notes": {"type": "string"},
+    "confounder_sources": {
+      "type": "object",
+      "properties": {
+        "base_branch": {"type": "string", "minLength": 1},
+        "required_workflows": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "incident_labels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
     "created_at": {"type": "string", "format": "date-time"},
     "updated_at": {"type": "string", "format": "date-time"},
     "registered_at": {"type": ["string", "null"], "format": "date-time"}

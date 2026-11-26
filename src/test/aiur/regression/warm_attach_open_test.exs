@@ -25,7 +25,7 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
 
   use ExUnit.Case, async: true
 
-  @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
+  @attach_pool_source Enum.flat_map(~w(attach_pool.ex attach_pool/*.ex), &Path.wildcard(Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__)))
   @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
   @log_path Path.expand("../../../log/aiur.log", __DIR__)
 
@@ -42,7 +42,7 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
     # of the equivalent perf invariants moves to U11
     # (test/aiur/regression/shared_prewarm_e2e_test.exs).
     test "AttachPool waits for the `Build · issue-` paint marker before warming" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       assert source =~ ~r/defp wait_for_paint\(/,
              """
@@ -58,7 +58,7 @@ defmodule Aiur.Regression.WarmAttachOpenTest do
     end
 
     test "AttachPool ensures hidden-window geometry once before warming" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       assert source =~ ~r/defp ensure_hidden_geometry/,
              """

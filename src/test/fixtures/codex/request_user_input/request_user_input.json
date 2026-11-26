@@ -1,0 +1,30 @@
+{
+  "method": "item/tool/requestUserInput",
+  "id": 0,
+  "params": {
+    "threadId": "<uuid>",
+    "turnId": "<uuid>",
+    "itemId": "call_<id>",
+    "questions": [
+      {
+        "id": "colour",
+        "header": "Colour",
+        "question": "Which colour should README.md mention: red or blue?",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "Red (Recommended)",
+            "description": "Append \u201cred\u201d to README.md."
+          },
+          {
+            "label": "Blue",
+            "description": "Append \u201cblue\u201d to README.md."
+          }
+        ]
+      }
+    ],
+    "isBlocking": false,
+    "autoResolutionMs": null
+  }
+}

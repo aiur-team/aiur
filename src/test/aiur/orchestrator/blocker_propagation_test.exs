@@ -103,6 +103,14 @@ defmodule Aiur.Orchestrator.BlockerPropagationTest do
     assert BlockerPropagation.flush(%{queued | running: %{"30" => %{}}}).tracker_tasks == %{}
   end
 
+  test "budget-exhausted dependents ignore later blocker pushes", ctx do
+    issue = %{ctx.state.last_polled_issues["20"] | state: "budget-exhausted"}
+    state = %{ctx.state | last_polled_issues: Map.put(ctx.state.last_polled_issues, "20", issue)}
+    queued = BlockerPropagation.pushed(state, "10", push("10"), ctx.opts)
+
+    refute Map.has_key?(queued.blocker_propagations, {"20", "10"})
+  end
+
   test "conflict dispatches rework with paths, without a descendant push", ctx do
     state = %{ctx.state | last_polled_issues: Map.take(ctx.state.last_polled_issues, ["20", "30"])}
     queued = BlockerPropagation.pushed(state, "10", push("10"), ctx.opts)

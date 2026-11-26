@@ -9,7 +9,7 @@ defmodule Aiur.Init do
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Init.Alerts
   alias Aiur.Init.BackendConfigs
-  alias Aiur.Init.ElevenLabs
+  alias Aiur.Init.Contributions
   alias Aiur.Init.Format
   alias Aiur.Init.GitHubApp
   alias Aiur.Init.Prewarm
@@ -20,7 +20,6 @@ defmodule Aiur.Init do
   alias Aiur.Init.Templates
 
   @prompt_basename "prompt.md"
-  @env_file_name ".env"
   @token_url "https://github.com/settings/tokens"
   @linear_key_url "https://linear.app/settings/api"
 
@@ -36,6 +35,7 @@ defmodule Aiur.Init do
 
   @spec run(%{force: boolean()}, io(), deps()) :: :ok | {:error, String.t()}
   def run(opts, io, deps) do
+    Contributions.registered!()
     io.puts.(init_warning())
 
     case existing_config_target(opts, deps) do
@@ -168,7 +168,7 @@ defmodule Aiur.Init do
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         alerts = Alerts.prompt_alerts(io, deps, target)
-        elevenlabs = ElevenLabs.prompt_eleven_labs(io, deps, location)
+        contributions = Contributions.prompt(io, deps, location)
 
         fills =
           Templates.build_fills(%{
@@ -186,7 +186,7 @@ defmodule Aiur.Init do
             prompt_file: prompt_file,
             prewarm: prewarm,
             alerts: alerts,
-            elevenlabs: elevenlabs
+            contributions: contributions
           })
 
         config_yaml = Templates.fill_template(deps.read_example.(), fills)
@@ -340,9 +340,9 @@ defmodule Aiur.Init do
     io.puts.("       • Click `Generate new token (classic)`")
     io.puts.("       • Check `repo` (broad access that includes Administration)")
     io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
-    io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
+    io.puts.("     Do not add that operator token to ~/.aiur/.env, ./.env, or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
-    io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
+    io.puts.("  2. Set GITHUB_TOKEN in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
   end
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from .event_fields import RESOURCE_EVIDENCE
+
 
 RESOURCE_METRICS = (
     "cpu_percent",
@@ -28,16 +30,6 @@ RESOURCE_METRICS = (
     "build_gate_active",
     "build_gate_queued",
     "build_queue_oldest_wait_seconds",
-)
-
-RESOURCE_EVIDENCE = (
-    "fleet_capacity_status",
-    "fleet_capacity_age_ms",
-    "fleet_capacity_observed_at_ms",
-    "fleet_admission_signal",
-    "build_gate_enabled",
-    "build_gate_status",
-    "build_gate_observed_at_ms",
 )
 
 DEFAULT_SAMPLE_INTERVAL_MS = 5_000

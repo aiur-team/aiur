@@ -9,6 +9,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -34,7 +35,7 @@ HTTPIE_VALUE_OPTIONS = {
     "--timeout",
     "--verify",
 }
-GH_GUARD = Path(__file__).resolve().parents[2] / "src/priv/github_quota_guard.sh"
+GH_GUARD_PARTS = Path(__file__).resolve().parents[2] / "src/priv/github_guard/gh"
 REST_ISSUES_URL = re.compile(
     r"https://api\.github\.com/repos/[^/\s]+/[^/\s]+/issues/?(?:[?\s'\"]|$)"
 )
@@ -287,17 +288,28 @@ def has_request_body(client: str, arguments: list[str]) -> bool:
     return False
 
 
+def gh_guard_source() -> str:
+    # The guard is kept as ordered fragments, each under a one-line header;
+    # Aiur.AgentGitHubGuard.Script assembles the installed copy the same way.
+    return "".join(
+        part.read_text().split("\n", 1)[1] for part in sorted(GH_GUARD_PARTS.glob("*.sh"))
+    )
+
+
 def gh_policy_error(segment: list[str]) -> str | None:
     arguments = executable_argv(segment)
     if not arguments or executable_name(arguments[0]) != "gh":
         return None
 
-    result = subprocess.run(
-        ["sh", str(GH_GUARD), "--validate-issue-command", *arguments[1:]],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    with tempfile.NamedTemporaryFile("w", suffix=".sh") as guard:
+        guard.write(gh_guard_source())
+        guard.flush()
+        result = subprocess.run(
+            ["sh", guard.name, "--validate-issue-command", *arguments[1:]],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode == 0:
         return None
     return result.stderr.strip() or "aiur: GitHub issue command failed disposition validation (#1793)."

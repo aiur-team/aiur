@@ -32,6 +32,11 @@ defmodule Aiur.ExecutorBindingsTest do
     assert ExecutorBindings.allowlisted?("ticket.42.agent.handoff.human_review")
   end
 
+  test "a mandatory-skill gate block wakes the Executor as an attention, but a warning does not" do
+    assert ExecutorBindings.attention_topic?("ticket.7866.skills.blocked")
+    refute ExecutorBindings.attention_topic?("ticket.7866.skills.warning")
+  end
+
   test "queue attention defaults deliver firing and resolved events to the Executor" do
     for {reason, topic} <- [
           {"attention:auto", "ticket.12.queue.attention.prerequisite_failed"},
@@ -43,6 +48,18 @@ defmodule Aiur.ExecutorBindingsTest do
 
       assert ExecutorBindings.allowlisted?(topic <> ".resolved")
     end
+  end
+
+  test "fixer attentions acquire persisted Executor subscriptions without broadening system access" do
+    assert :ok = ExecutorBindings.reconcile()
+    entries = ExecutorEvents.subscription_entries()
+
+    for topic <- ["system.main.fixer.stalled", "system.main.fixer.needs_triage", "system.main.fixer.no_pr", "system.main.fixer.failed", "system.main.fixer.dispatch_unavailable"] do
+      assert Enum.any?(entries, &(&1["reason"] == "attention:auto" and Topic.matches?(&1["topic"], topic)))
+      assert ExecutorEvents.validate_binding_topic(topic) == :ok
+    end
+
+    refute ExecutorBindings.allowlisted?("system.main.#")
   end
 
   test "allowlist accepts exact instances but rejects broader candidate wildcards" do

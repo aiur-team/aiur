@@ -6,12 +6,12 @@ defmodule Aiur.Events.SubscriptionStoreSupervisor do
   `subscription_store.ex`) per the repo's existing `Aiur.IssueLog`
   convention — avoids a 3-deep nested module path.
   """
-
+  # aiur:event-bus-boundary-member
   use DynamicSupervisor
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
-    DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
+    DynamicSupervisor.start_link(__MODULE__, opts, name: Keyword.get(opts, :name) || Aiur.Events.subscription_store_supervisor())
   end
 
   @impl true

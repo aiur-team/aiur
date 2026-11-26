@@ -6,10 +6,12 @@ defmodule Aiur.Init.TemplatesTest do
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
     assert Templates.config_example() =~ "host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST)"
-    assert Templates.config_example() =~ "set host explicitly for remote access"
+    assert Templates.config_example() =~ "0.0.0.0 exposes the LAN"
     assert Templates.config_example() =~ "GITHUB_TOKEN is the default daemon credential"
     assert Templates.config_example() =~ "github_app.account names the daemon's distinct App bot login"
     refute Templates.config_example() =~ "the App private key are set (preferred"
+    assert Templates.config_example() =~ "#   relay_operator_answers: true\n"
+    assert Templates.config_example() =~ "On by default; set false to opt out."
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
@@ -179,6 +181,25 @@ defmodule Aiur.Init.TemplatesTest do
   end
 
   describe "elevenlabs voice-input section" do
+    test "prompt and rendered config name both dotenv files in precedence order" do
+      parent = self()
+
+      io = %{
+        confirm: fn _question, _default -> true end,
+        puts: fn message -> send(parent, {:voice_prompt, IO.chardata_to_string(message)}) end,
+        input: fn _label, default, _hint -> default end
+      }
+
+      assert %{enabled: true, api_key: "$ELEVENLABS_API_KEY"} = ElevenLabs.prompt_eleven_labs(io, %{}, :repo_local)
+      assert_received {:voice_prompt, prompt}
+      assert prompt =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(prompt, "~/.aiur/.env") < :binary.match(prompt, "./.env")
+
+      yaml = IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
+      assert yaml =~ "set the value in `~/.aiur/.env` or `./.env`"
+      assert :binary.match(yaml, "~/.aiur/.env") < :binary.match(yaml, "./.env")
+    end
+
     test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 

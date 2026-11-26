@@ -1,13 +1,16 @@
 defmodule Aiur.Config.Schema.BuildOrder do
   @moduledoc false
 
+  require Logger
+
+  @external_resource Path.relative_to(Path.join(__DIR__, "lane.ex"), File.cwd!(), force: true)
   use Ecto.Schema
 
   import Ecto.Changeset
 
-  alias Aiur.Config.Schema.GeneralEpic
+  alias Aiur.Config.Schema.Lane
 
-  @default_epics [
+  @default_lanes [
     %{"key" => "bugs", "label" => "Bugs", "labels" => ["bug"], "hue" => 38, "icon" => "bug"},
     %{"key" => "design", "label" => "Design", "labels" => ["design"], "hue" => 312, "icon" => "pen"},
     %{"key" => "infra", "label" => "Infra", "labels" => ["refactor", "chore"], "hue" => 200, "icon" => "server"},
@@ -22,17 +25,36 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # tracker polled every 5 seconds; leaving them as constants is what let them
     # survive #2064 moving the tracker to 120 seconds. An explicit setting still
     # wins, so this removes a stale default rather than an operator's control.
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_freshness_ms
+    # @config-detail build_order.ticket_detail_freshness_ms | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
     field(:ticket_detail_freshness_ms, :integer, default: nil)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_max_entries
+    # @config-detail build_order.ticket_detail_max_entries | integer | 32 | Maximum cached ticket-detail entries. |
     field(:ticket_detail_max_entries, :integer, default: 32)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_detail_max_description_bytes
+    # @config-detail build_order.ticket_detail_max_description_bytes | integer | 16384 | Maximum cached ticket-description size. |
     field(:ticket_detail_max_description_bytes, :integer, default: 16_384)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_limit
+    # @config-detail build_order.ticket_history_limit | integer | 50 | Maximum ticket history records per view. |
     field(:ticket_history_limit, :integer, default: 50)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_max_identities
+    # @config-detail build_order.ticket_history_max_identities | integer | 100 | Maximum distinct ticket identities retained in history. |
     field(:ticket_history_max_identities, :integer, default: 100)
+    # @config-reference config-configuration-build-order-00 build_order.ticket_history_stale_after_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.ticket_history_stale_after_ms | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
     field(:ticket_history_stale_after_ms, :integer, default: 60_000)
     # Failure-backoff and age-display base for the catalog snapshot. The catalog
     # is event-sourced from daemon-owned store state and does not refresh on this
     # cadence; `nil` means "derive from the tracker poll interval" (see
     # `Aiur.BuildOrder.Cadence`).
+    # @config-reference config-configuration-build-order-00 build_order.graph_catalog_refresh_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.graph_catalog_refresh_ms | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
     field(:graph_catalog_refresh_ms, :integer, default: nil)
+    # @config-reference config-configuration-build-order-00 build_order.graph_catalog_labels_refresh_ms
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.graph_catalog_labels_refresh_ms | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
     field(:graph_catalog_labels_refresh_ms, :integer, default: nil)
     # `graph_selected_refresh_ms` and `graph_demand_refresh_ms` are gone. They
     # were the two settings that let *viewing* buy GitHub reads — one repeating
@@ -44,16 +66,29 @@ defmodule Aiur.Config.Schema.BuildOrder do
     # A configuration that still sets them keeps loading: `cast/3` ignores keys
     # outside the permitted list, so an operator upgrading gets the new behaviour
     # and not a boot failure.
+    # @config-reference config-configuration-build-order-00 build_order.graph_refresh_timeout_ms
+    # @config-detail build_order.graph_refresh_timeout_ms | integer | 30000 | Maximum graph-refresh request duration. |
     field(:graph_refresh_timeout_ms, :integer, default: 30_000)
+    # @config-reference config-configuration-build-order-00 build_order.graph_max_selected_roots
+    # @config-detail build_order.graph_max_selected_roots | integer | 32 | Maximum selected Build Order roots. |
     field(:graph_max_selected_roots, :integer, default: 32)
+    # @config-reference config-configuration-build-order-00 build_order.graph_max_inflight
+    # @config-detail build_order.graph_max_inflight | integer | 4 | Maximum concurrent graph refreshes. |
     field(:graph_max_inflight, :integer, default: 4)
-    embeds_many(:general_epics, GeneralEpic, on_replace: :delete)
+    # @config-reference config-configuration-build-order-00 build_order.feature_order
+    # @config-detail build_order.feature_order | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
+    field(:feature_order, {:array, :string}, default: [])
+    # @config-reference config-configuration-build-order-00 build_order.lanes
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.lanes | array | Bugs, Design, Infra, Docs (below) | Lane definitions in column order. A list replaces the defaults; `[]` disables lanes. The deprecated `build_order.general_epics` is read as this list. |
+    embeds_many(:lanes, Lane, on_replace: :delete)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
+    {attrs, conflict?} = lane_attrs(attrs)
     # Ecto forces embeds_many's struct default to [], so defaults go into attrs.
-    attrs = Map.put_new(attrs, "general_epics", @default_epics)
+    attrs = Map.put_new(attrs, "lanes", @default_lanes)
 
     schema
     |> cast(
@@ -69,7 +104,8 @@ defmodule Aiur.Config.Schema.BuildOrder do
         :graph_catalog_labels_refresh_ms,
         :graph_refresh_timeout_ms,
         :graph_max_selected_roots,
-        :graph_max_inflight
+        :graph_max_inflight,
+        :feature_order
       ],
       empty_values: []
     )
@@ -84,16 +120,44 @@ defmodule Aiur.Config.Schema.BuildOrder do
     |> validate_number(:graph_refresh_timeout_ms, greater_than: 0, less_than_or_equal_to: 120_000)
     |> validate_number(:graph_max_selected_roots, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:graph_max_inflight, greater_than: 0, less_than_or_equal_to: 16)
+    |> validate_length(:feature_order, max: 200)
     |> validate_labels_cadence()
-    |> cast_embed(:general_epics, with: &GeneralEpic.changeset/2)
-    |> validate_unique_epics()
+    |> cast_embed(:lanes, with: &Lane.changeset/2)
+    |> validate_unique_lanes()
+    |> validate_lane_alias(conflict?)
   end
 
-  defp validate_unique_epics(changeset) do
-    case get_change(changeset, :general_epics) do
+  # `build_order.general_epics` was the name of this list before lanes. It keeps
+  # loading as an alias so an upgraded install boots, but it names the new key so
+  # the operator can rename it. Setting both is ambiguous, so it is refused.
+  defp lane_attrs(attrs) do
+    case {Map.has_key?(attrs, "lanes"), Map.get(attrs, "general_epics")} do
+      {false, nil} ->
+        {attrs, false}
+
+      {false, legacy} ->
+        Logger.warning("build_order.general_epics is deprecated; rename it to build_order.lanes (the same list, read as an alias for one release)")
+        {attrs |> Map.delete("general_epics") |> Map.put("lanes", legacy), false}
+
+      {true, nil} ->
+        {attrs, false}
+
+      {true, _legacy} ->
+        {attrs, true}
+    end
+  end
+
+  defp validate_lane_alias(changeset, false), do: changeset
+
+  defp validate_lane_alias(changeset, true) do
+    add_error(changeset, :lanes, "must be the only lane list; build_order.general_epics is the deprecated alias of build_order.lanes, so set one of them")
+  end
+
+  defp validate_unique_lanes(changeset) do
+    case get_change(changeset, :lanes) do
       children when is_list(children) ->
         if Enum.all?(children, & &1.valid?),
-          do: check_unique_epics(changeset, Enum.map(children, &apply_changes/1)),
+          do: check_unique_lanes(changeset, Enum.map(children, &apply_changes/1)),
           else: changeset
 
       _no_change ->
@@ -101,21 +165,21 @@ defmodule Aiur.Config.Schema.BuildOrder do
     end
   end
 
-  defp check_unique_epics(changeset, epics) do
-    duplicate_key = epics |> Enum.map(& &1.key) |> Enum.frequencies() |> Enum.find(fn {_key, count} -> count > 1 end)
+  defp check_unique_lanes(changeset, lanes) do
+    duplicate_key = lanes |> Enum.map(& &1.key) |> Enum.frequencies() |> Enum.find(fn {_key, count} -> count > 1 end)
 
     changeset =
       case duplicate_key do
-        {key, _count} -> add_error(changeset, :general_epics, "key #{inspect(key)} is used by more than one epic")
+        {key, _count} -> add_error(changeset, :lanes, "key #{inspect(key)} is used by more than one lane")
         nil -> changeset
       end
 
-    epics
-    |> Enum.flat_map(fn epic -> Enum.map(epic.labels, &{&1, epic.key}) end)
+    lanes
+    |> Enum.flat_map(fn lane -> Enum.map(lane.labels, &{&1, lane.key}) end)
     |> Enum.reduce_while({changeset, %{}}, fn {label, key}, {current, owners} ->
       case Map.fetch(owners, label) do
         {:ok, owner} ->
-          {:halt, {add_error(current, :general_epics, "label #{inspect(label)} is in both #{owner} and #{key}; a label can place a ticket in one epic only"), owners}}
+          {:halt, {add_error(current, :lanes, "label #{inspect(label)} is in both #{owner} and #{key}; a label can place a ticket in one lane only"), owners}}
 
         :error ->
           {:cont, {current, Map.put(owners, label, key)}}

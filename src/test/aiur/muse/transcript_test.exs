@@ -43,7 +43,7 @@ defmodule Aiur.Muse.TranscriptTest do
     assert {:ok, event} = Transcript.extract(message, nil)
     assert event.body == "Muse futureKind (inProgress)"
     assert event.payload == %{native_kind: "futureKind", status: "inProgress"}
-    refute inspect(event) =~ "hidden"
+    Aiur.TestSupport.refute_leak(event, "hidden")
   end
 
   test "a text delta requires a known assistant item rather than mislabeling reasoning" do

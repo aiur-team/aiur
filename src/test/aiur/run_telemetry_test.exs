@@ -7,16 +7,9 @@ defmodule Aiur.RunTelemetryTest do
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-run-telemetry")
-    prior_repo_root = Application.fetch_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, root)
 
     on_exit(fn ->
-      Aiur.TestCleanup.rm_rf!(root, unset: [:repo_base_root])
-
-      case prior_repo_root do
-        {:ok, value} -> Application.put_env(:aiur, :repo_base_root, value)
-        :error -> Application.delete_env(:aiur, :repo_base_root)
-      end
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{root: root}
@@ -165,7 +158,11 @@ defmodule Aiur.RunTelemetryTest do
 
     start_supervised!(
       {Aiur.RunTelemetry.Supervisor,
-       name: __MODULE__.Supervisor, writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")], sampler_opts: [name: __MODULE__.Sampler, start_immediately?: false]}
+       name: __MODULE__.Supervisor,
+       facts_opts: [name: nil, path: Path.join(root, "facts-pending.json"), enabled: fn -> false end],
+       timeline_opts: [name: nil, path: Path.join(root, "repo-timeline.ndjson"), enabled_fun: fn -> false end],
+       writer_opts: [name: __MODULE__.Writer, path: Path.join(root, "log/telemetry.ndjson")],
+       sampler_opts: [name: __MODULE__.Sampler, start_immediately?: false]}
     )
 
     assert :ok =
@@ -223,6 +220,8 @@ defmodule Aiur.RunTelemetryTest do
     start_supervised!(
       {Aiur.RunTelemetry.Supervisor,
        name: __MODULE__.PipelineSupervisor,
+       facts_opts: [name: nil, path: Path.join(root, "facts-pending.json"), enabled: fn -> false end],
+       timeline_opts: [name: nil, path: Path.join(root, "repo-timeline.ndjson"), enabled_fun: fn -> false end],
        writer_opts: [name: __MODULE__.PipelineWriter, path: telemetry_path],
        sampler_opts: [
          name: __MODULE__.PipelineSampler,

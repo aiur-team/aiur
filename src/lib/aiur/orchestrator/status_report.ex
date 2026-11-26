@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.SnapshotStore
@@ -39,7 +40,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   that does not render them (`agents`) does not pay for them.
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []) do
+  def fleet_view(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout, opts \\ []) do
     case SnapshotStore.read(server, timeout, opts) do
       {:current, snapshot, freshness} -> {:ok, snapshot, freshness}
       {:stale, snapshot, freshness} -> {:ok, snapshot, freshness}
@@ -76,22 +77,39 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
-  def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
+  def snapshot_api, do: snapshot_api(Aiur.Project.whereis(Aiur.Orchestrator), 15_000)
 
   @spec snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
-  def snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
+  def snapshot_api(server, timeout) do
+    case SnapshotStore.read(server, timeout) do
+      {:current, snapshot, _freshness} -> snapshot
+      {:stale, snapshot, _freshness} -> snapshot
+      :snapshot_unpublished -> status_api_call(server, :snapshot, timeout, true)
+      :orchestrator_unavailable -> :unavailable
+    end
+  end
+
+  # Handoff needs the exact provider pids now; a retained snapshot can lag a publish interval.
+  @spec live_snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
+  def live_snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
 
   @spec status_api() :: [map()] | :timeout | :unavailable
-  def status_api, do: status_api(Aiur.Orchestrator, 5_000)
+  def status_api, do: status_api(Aiur.Project.whereis(Aiur.Orchestrator), 5_000)
 
   @spec status_api(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
-  def status_api(server, timeout), do: status_api_call(server, :status, timeout, true)
+  def status_api(server, timeout) do
+    case fleet_view(server, timeout, fleet_rows?: true) do
+      {:ok, %{statuses: statuses}, _freshness} -> statuses
+      {:error, :timeout} -> :timeout
+      {:error, :unavailable} -> :unavailable
+    end
+  end
 
   @spec status_with_capacity_api(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
   def status_with_capacity_api(server, timeout), do: status_api_call(server, :status_with_capacity, timeout, true)
 
   @spec poll_status_api() :: map() | :unavailable
-  def poll_status_api, do: poll_status_api(Aiur.Orchestrator, 1_000)
+  def poll_status_api, do: poll_status_api(Aiur.Project.whereis(Aiur.Orchestrator), 1_000)
 
   @spec poll_status_api(GenServer.server(), timeout()) :: map() | :unavailable
   def poll_status_api(server, timeout),
@@ -123,6 +141,19 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
+  @spec has_live_owner_api(GenServer.server(), String.t(), timeout()) :: boolean() | :unknown
+  def has_live_owner_api(server, identifier, timeout) do
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, {:has_live_owner, identifier}, timeout)
+      catch
+        :exit, _ -> :unknown
+      end
+    else
+      :unknown
+    end
+  end
+
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
     # `snapshot_ready?` means this generation has completed a poll attempt, so a
@@ -137,9 +168,16 @@ defmodule Aiur.Orchestrator.StatusReport do
       :ok = publish_snapshot(state)
     end
 
-    state
-    |> running_summaries()
-    |> AgentPubSub.broadcast_running_change()
+    summaries = running_summaries(state)
+
+    # Live conversation status is consumed by running-topic subscribers but is
+    # intentionally not part of the compact agent-list summary payload.
+    runtime_signature =
+      Map.new(state.running, fn {issue_id, entry} ->
+        {issue_id, Map.get(entry, :live_conversation)}
+      end)
+
+    :ok = AgentPubSub.broadcast_running_projection_change(summaries, {summaries, runtime_signature})
 
     AgentPubSub.broadcast_poll_state(%{
       checking?: state.poll_check_in_progress == true,
@@ -168,6 +206,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   @doc false
   @spec snapshot_input(State.t()) :: State.t()
   def snapshot_input(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
     state
     |> Map.take([
       :orphaned_agent_reap_count,
@@ -190,6 +230,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       :last_polled_issues,
       :tracker_observations,
       :last_dispatch_poll_at_ms,
+      :dispatch_cycle_started_at_ms,
+      :last_dispatch_cycle_completed_at_ms,
+      :dispatch_cycle_stalled?,
+      :dispatch_cycle_stage,
       :load_envelope_state,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -198,6 +242,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :idle_poll_backoff,
       :poll_interval_ms,
       :retry_attempts,
+      :rework_attempts,
       :auto_resume,
       :released_claims,
       :running,
@@ -205,17 +250,17 @@ defmodule Aiur.Orchestrator.StatusReport do
       :waiting_for_human_episodes
     ])
     |> then(&struct!(State, &1))
-    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> SnapshotStore.without_issue_descriptions()
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state, identifiers))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
-    |> Map.put(:queue_store, snapshot_queue_store(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state, identifiers))
     |> Map.put(:status_observed_at, DateTime.utc_now())
   end
 
   # The asynchronous projection needs only the cached result for rows it can
   # render. Keeping the rest of this lifecycle map out of the cast prevents
   # historical CI data from being copied along with every dashboard refresh.
-  defp snapshot_ci_lifecycle(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_ci_lifecycle(%State{} = state, identifiers) do
     cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
     waiting = Map.filter(cache, fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end)
     poll_cache = Map.merge(Map.take(cache, identifiers), waiting)
@@ -225,8 +270,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: state.ci_lifecycle |> Map.get(:ci_observed_at_ms, %{}) |> Map.take(Map.keys(poll_cache)),
       poll_cache: poll_cache,
       rewakes: %{},
+      # The dashboard does not render the one-shot CI retry marker, so keep its
+      # default in the reduced lifecycle map instead of copying live state.
+      broker_fast_retry_pending?: false,
       # The dashboard never renders the parked-ready ledger, so the projection
       # carries the struct default rather than copying the live one. It still
       # has to be present: `State.t()` declares `ci_lifecycle` as a closed map,
@@ -247,22 +296,24 @@ defmodule Aiur.Orchestrator.StatusReport do
   # Queue depth and visible operator messages are dashboard contract fields.
   # Copy only the queue entries for rows this snapshot can render so an
   # unrelated queue backlog cannot inflate the projection cast.
-  defp snapshot_queue_store(%State{} = state) do
-    identifiers = snapshot_identifiers(state)
+  defp snapshot_queue_store(%State{queue_store: %AgentQueueStore{items: items}}, _identifiers) when map_size(items) == 0,
+    do: %AgentQueueStore{}
 
-    {items, pending_ids_by_target} =
-      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+  defp snapshot_queue_store(%State{} = state, identifiers) do
+    {items, pending_ids_by_target, item_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}, %{}}, fn identifier, {items, pending_ids_by_target, item_ids_by_target} ->
         pending = AgentQueueStore.list_pending(state.queue_store, identifier)
         visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
-        queue_items = pending ++ visible
+        queue_items = Map.new(pending ++ visible, &{&1.id, &1})
 
         {
-          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
-          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+          Map.merge(items, queue_items),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id)),
+          Map.put(item_ids_by_target, identifier, Map.keys(queue_items))
         }
       end)
 
-    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target, item_ids_by_target: item_ids_by_target}
   end
 
   defp snapshot_identifiers(%State{} = state) do
@@ -309,6 +360,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Enum.reject(&is_nil/1)
 
     {:reply, identifiers, state}
+  end
+
+  @spec has_live_owner(State.t(), String.t()) :: {:reply, boolean(), State.t()}
+  def has_live_owner(%State{} = state, identifier) do
+    issue_id =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.find_value(identifier, fn issue -> if issue.identifier == identifier, do: issue.id end)
+
+    ownership = state.dispatch_recovery.workspace_ownership
+
+    live? =
+      not is_nil(State.find_running_by_identifier(state.running, identifier)) or
+        IssueSync.owned_or_scheduled?(state, issue_id) or
+        Map.has_key?(ownership.waits, identifier) or Map.has_key?(ownership.ready, issue_id)
+
+    {:reply, live?, state}
   end
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}

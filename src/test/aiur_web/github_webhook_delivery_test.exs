@@ -63,7 +63,6 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     )
 
     _endpoint = Aiur.TestSupport.start_owned_endpoint!()
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     Auth.reset_alert_throttle()
     Publisher.set_tracked_fn(fn _ -> true end)

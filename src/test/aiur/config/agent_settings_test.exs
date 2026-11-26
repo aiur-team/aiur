@@ -1,7 +1,7 @@
 defmodule Aiur.Config.AgentSettingsTest do
   use Aiur.TestSupport
   alias Aiur.CodingAgent
-  alias Aiur.Config.{RoutingValue, Schema}
+  alias Aiur.Config.{AgentSettings, RoutingValue, Schema}
   alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
   alias Ecto.Changeset
 
@@ -46,6 +46,19 @@ defmodule Aiur.Config.AgentSettingsTest do
     # so resolve_model/2 supplies that backend's own default.
     elsewhere = %Issue{labels: ["complexity:4", "model:codex"]}
     assert CodingAgent.model_for(elsewhere) == nil
+  end
+
+  test "agent_routing_candidates/0 keeps every route per level as a list" do
+    # Usage readers outside the coding agent need the configured routes without
+    # depending on `Aiur.CodingAgent.HeadroomDispatch`, so this accessor merges
+    # the single-route `agent.routing` table with the derived candidate lists.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_routing: %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => "claude:opus"}
+    )
+
+    expected = %{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => ["claude:opus"]}
+    assert AgentSettings.agent_routing_candidates() == expected
+    assert Aiur.Config.agent_routing_candidates() == expected
   end
 
   test "the label set the add-agent modal writes keeps the picked model and effort" do
@@ -231,7 +244,7 @@ defmodule Aiur.Config.AgentSettingsTest do
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.budget_broker_rate_window_seconds == 300
     assert settings.agent.budget_broker_degraded_retry_threshold == 5
-    assert settings.agent.budget_broker_degraded_alert_after_seconds == 600
+    assert settings.agent.budget_broker_degraded_alert_after_seconds == 60
 
     assert {:ok, settings} =
              Schema.parse(%{
@@ -281,7 +294,7 @@ defmodule Aiur.Config.AgentSettingsTest do
              Schema.parse(%{tracker: %{kind: "memory"}, agent: %{synthetic_load_process_cap: -1}})
   end
 
-  test "prewarm defaults to disabled and validates poll_seconds" do
+  test "prewarm defaults to disabled and validates timeout and poll settings" do
     # Pre-warm is opt-in: an absent block must yield disabled + no base_build +
     # no polling (byte-for-byte back-compat), an explicit block must round-trip,
     # and a negative poll interval must be rejected.
@@ -289,19 +302,24 @@ defmodule Aiur.Config.AgentSettingsTest do
     assert settings.prewarm.enabled == false
     assert settings.prewarm.base_build == nil
     assert settings.prewarm.poll_seconds == 0
+    assert settings.prewarm.build_timeout_minutes == 60
 
     assert {:ok, settings} =
              Schema.parse(%{
                tracker: %{kind: "memory"},
-               prewarm: %{enabled: true, base_build: "mise exec -- mix compile", poll_seconds: 30}
+               prewarm: %{enabled: true, base_build: "mise exec -- mix compile", poll_seconds: 30, build_timeout_minutes: 90}
              })
 
     assert settings.prewarm.enabled == true
     assert settings.prewarm.base_build == "mise exec -- mix compile"
     assert settings.prewarm.poll_seconds == 30
+    assert settings.prewarm.build_timeout_minutes == 90
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{poll_seconds: -1}})
+
+    assert {:error, {:invalid_workflow_config, _}} =
+             Schema.parse(%{tracker: %{kind: "memory"}, prewarm: %{build_timeout_minutes: 0}})
   end
 
   test "alerts default to enabled with OS sounds off (back-compat) and round-trip overrides" do

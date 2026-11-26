@@ -34,6 +34,11 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert opts[:timestamp] == ~U[2026-07-11 12:00:00Z]
   end
 
+  test "the dispatch point keeps the capacity policy's chosen reason (#7889)" do
+    assert :ok = Lifecycle.record("930", "930:attempt", :dispatch, :point, %{reason: :last_resort_used}, recorder: recorder(self()))
+    assert_receive {:recorded, :lifecycle, %{event: "dispatch", reason: "last_resort_used"}, _opts}, 1000
+  end
+
   test "records workspace ownership without leaking process details" do
     recorder = recorder(self())
 
@@ -190,7 +195,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert opened_attrs.ticket == "930"
     assert opened_attrs.pr_number == 77
     refute Map.has_key?(opened_attrs, :pr)
-    refute inspect(opened_attrs) =~ "private"
+    Aiur.TestSupport.refute_leak(opened_attrs, "private")
 
     trusted = %{
       id: 42,
@@ -205,7 +210,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
     assert comment_attrs.event == "comment_received"
     assert comment_attrs.comment_id == 88
     assert comment_attrs.author_trusted == true
-    refute inspect(comment_attrs) =~ "please change"
+    Aiur.TestSupport.refute_leak(comment_attrs, "please change")
 
     assert :skip = Lifecycle.external_anchor(%{trusted | author_trusted?: false})
 

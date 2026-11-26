@@ -109,7 +109,12 @@ defmodule Aiur.GitHub.CommentPollBatch.Query do
 
   defp pull_request_identity_fields do
     """
-    number state headRefName headRefOid baseRefName isDraft reviewDecision
+    number state headRefName headRefOid baseRefName isDraft reviewDecision mergeable updatedAt
+    mergeQueueEntry { id } autoMergeRequest { enabledAt } createdAt
+    reviews(last: 1) { nodes { state commit { oid } } }
+    timelineItems(last: 10, itemTypes: [READY_FOR_REVIEW_EVENT]) {
+      nodes { __typename ... on ReadyForReviewEvent { createdAt } }
+    }
     commits(last: 1) { nodes { commit { committedDate } } }
     """
   end

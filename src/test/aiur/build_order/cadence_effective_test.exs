@@ -195,7 +195,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   # The reference's idle column has to agree with what the code does, or an
   # operator reads a number that is not the one being spent.
   describe "the configuration reference's idle column" do
-    @doc_path Path.expand("../../../../website/docs-app/reference/configuration.md", __DIR__)
+    @doc_glob Path.expand("../../../../website/docs-app/reference/configuration*.md", __DIR__)
 
     # Both idle columns. The second is the default webhook-backed case, where
     # `webhooks.poll_widen_factor` doubles the interval again to 1200s — the
@@ -204,7 +204,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     @webhook_idle_interval_ms 1_200_000
 
     test "documents the values derived at 600s and at 1200s effective" do
-      reference = File.read!(@doc_path)
+      reference = @doc_glob |> Path.wildcard() |> Enum.sort() |> Enum.map_join("\n", &File.read!/1)
 
       for {column, interval_ms} <- [{:polling, @idle_interval_ms}, {:webhook, @webhook_idle_interval_ms}] do
         PollCadence.publish_effective_interval_ms(interval_ms)
@@ -219,7 +219,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     # `ticket_detail_freshness_ms` is documented as the same number in all three
     # columns, because it deliberately does not follow the effective interval.
     test "documents ticket_detail_freshness_ms as not moving" do
-      reference = File.read!(@doc_path)
+      reference = @doc_glob |> Path.wildcard() |> Enum.sort() |> Enum.map_join("\n", &File.read!/1)
       # The table is stated "at a 120s base interval", which is the shipped
       # default rather than whatever this test VM's config happens to carry.
       base = Cadence.derive(120).ticket_detail_freshness_ms

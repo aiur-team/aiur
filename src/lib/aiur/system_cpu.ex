@@ -4,10 +4,11 @@ defmodule Aiur.SystemCpu do
 
   CPU counters are cumulative, so callers retain one snapshot and compare it
   with the next poll. Each snapshot also embeds the latest
-  `Aiur.BackgroundCpu` reading: CPU of processes niced above the daemon. Only
+  `Aiur.BackgroundCpu` reading: CPU niced above the daemon and outside
+  registered fleet-agent trees. Only
   that background share counts as reclaimable beside idle time. The aggregate
-  nice column is reported for information only, because the fleet inherits
-  the daemon's nice and would be inside it. Missing or malformed procfs data
+  nice column is reported for information only because it does not separate
+  detached fleet relays from external work. Missing or malformed procfs data
   returns `:unavailable` and lets admission fall back to the load-average
   envelope; a missing background reading means no discount.
   """

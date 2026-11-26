@@ -25,7 +25,7 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
   alias Aiur.AgentEvents
   alias Aiur.AgentList.{App, Renderer}
 
-  @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
+  @attach_pool_source Enum.flat_map(~w(attach_pool.ex attach_pool/*.ex), &Path.wildcard(Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__)))
   @app_source Path.expand("../../../lib/aiur/agent_list/app.ex", __DIR__)
   @renderer_source Path.expand("../../../lib/aiur/agent_list/renderer.ex", __DIR__)
 
@@ -49,7 +49,7 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
     # synchronously when the user opens an agent. Behavioral coverage
     # of "no false 🟢 / no false ⚪" moves to U11.
     test "AttachPool waits for `Build · issue-` paint before flipping to :warm" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       assert source =~ ~r/defp wait_for_paint\(pane_id,/,
              "wait_for_paint/2 must exist"
@@ -63,7 +63,7 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
     end
 
     test "paint_timeout drops the attachment (does NOT mark warm)" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       # The :timeout branch lives in finish_warm_attach_after_paint/5,
       # the helper that spawn_warm_attach delegates to once Slot.select
@@ -103,7 +103,7 @@ defmodule Aiur.Regression.WarmMarkerSemanticsTest do
     # visible_in alongside :slot_visible_changed broadcasts — no
     # interleave race exists. Behavioral coverage moves to U11.
     test "AttachPool broadcasts :attach_warming when dispatching warm Task" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       assert source =~ ~r/broadcast_event\(\{:attach_warming,/,
              """

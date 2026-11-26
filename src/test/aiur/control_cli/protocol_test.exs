@@ -1,5 +1,5 @@
 defmodule Aiur.ControlCLI.ProtocolTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport, async: false
 
   import ExUnit.CaptureIO
 
@@ -28,7 +28,7 @@ defmodule Aiur.ControlCLI.ProtocolTest do
       end
 
     assert output ==
-             "__AIUR_CONTROL_ERROR__:aiur: x query timed out after 1500ms; outcome is unknown. " <>
+             "__AIUR_CONTROL_ERROR__:aiur: x query timed out after 1500ms. Outcome is unknown. " <>
                "The orchestrator process is not registered, so the daemon is down or still starting.\n" <>
                "__AIUR_CONTROL_EXIT__:124\n"
   end

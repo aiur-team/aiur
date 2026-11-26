@@ -15,7 +15,10 @@ defmodule Aiur.RunTelemetry.Procfs do
 
   # A `stat` read that fails this way means the process exited between the
   # `/proc` listing and the read — ordinary churn, not a fault.
-  @vanished_reasons [:enoent, :esrch]
+  @vanished_reasons [
+    :enoent,
+    :esrch
+  ]
 
   @type process :: %{
           pid: pos_integer(),

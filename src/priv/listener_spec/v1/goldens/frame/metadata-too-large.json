@@ -1,0 +1,15 @@
+{
+  "budget": 8,
+  "entries": [
+    {
+      "body": "a"
+    }
+  ],
+  "error": "frame_metadata_too_large",
+  "suffix": "…",
+  "template": {
+    "close": "</frame>",
+    "open": "<frame>",
+    "separator": "\n"
+  }
+}

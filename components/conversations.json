@@ -1,0 +1,67 @@
+{
+  "id": "conversations",
+  "name": "Conversations",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/agent_event_feed.ex",
+    "src/lib/aiur/agent_log.ex",
+    "src/lib/aiur/agent_log/**",
+    "src/lib/aiur/conversation/**"
+  ],
+  "facades": [
+    "Aiur.AgentEventFeed",
+    "Aiur.Conversation.AnchorResolver",
+    "Aiur.Conversation.Anchors",
+    "Aiur.Conversation.Entry",
+    "Aiur.Conversation.HeadTable",
+    "Aiur.Conversation.History",
+    "Aiur.Conversation.Ingest",
+    "Aiur.Conversation.JumpPoints",
+    "Aiur.Conversation.Ref",
+    "Aiur.Conversation.Session",
+    "Aiur.Conversation.Store"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "agent-runner",
+    "config",
+    "event-bus",
+    "harness-adapters",
+    "identity",
+    "kernel"
+  ],
+  "optional": [
+    "executor-attention"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [
+      "conversation_state_dir"
+    ],
+    "capabilities": [
+      "conversations.read"
+    ]
+  },
+  "prior": [
+    "PRJ",
+    "RUN",
+    "SD"
+  ],
+  "dependency_kind": "optional",
+  "summary": "Provides access to agent transcripts and links events to their conversation context.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/gui.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [
+    "conversations.read"
+  ],
+  "goal": "steer"
+}

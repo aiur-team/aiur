@@ -16,7 +16,8 @@ defmodule Aiur.Orchestrator.SustainedLoad do
     cooldown_elapsed? = is_nil(last_decrease_ms) or options.now_ms - last_decrease_ms >= options.cooldown_ms
 
     if sustained? and cooldown_elapsed? do
-      reduced = max(div(effective + 1, 2), 1)
+      half = div(effective + 1, 2)
+      reduced = min(effective, max(half, Map.get(options, :running_floor, 1)))
       {reduced, if(reduced < effective, do: options.now_ms, else: last_decrease_ms)}
     else
       {effective, last_decrease_ms}

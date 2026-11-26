@@ -46,6 +46,12 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     refute File.read!(ControlLifecycleStore.path_for()) =~ "workspace"
   end
 
+  test "persists the operator max-agents override across orchestrator restarts" do
+    assert :ok = ControlLifecycleStore.update(&%{&1 | max_agents: 4})
+
+    assert ControlLifecycleStore.load().max_agents == 4
+  end
+
   test "a stale control projection preserves another daemon's lifecycle event" do
     stale =
       ControlLifecycle.new(now: @now)

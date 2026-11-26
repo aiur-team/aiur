@@ -10,14 +10,12 @@ src/test/aiur/decision_store_test.exs,4866,DECISIONS,Decision persistence and AP
 src/lib/aiur/decision_store.ex,4826,DECISIONS,Decision persistence and API,split,medium
 src/test/aiur_engine_test.exs,4362,CLI,Aiur CLI/integration tests,split,medium
 packaging/npm/aiur-cli/libexec/aiur-engine.sh,4224,CLI,npm CLI packaging,split,medium
-src/test/aiur/agent_control_cli_test.exs,4125,CLI,Agent control CLI tests,split,medium
 src/test/aiur/core_test.exs,4025,TEST_HARNESS,Aiur core/integration tests,split,medium
 src/test/aiur/workspace_and_config_test.exs,3641,WORKSPACE,Workspace lifecycle tests,split,medium
 docs/build-order/prototype/Aiur Operator Control Center.2026-07-13-refresh.html,3515,BO_DESIGN,Build Order design and generated artifacts,remove,low
 docs/build-order/EXECUTOR-HANDOFF.md,3426,BO_DESIGN,Build Order design and generated artifacts,split,medium
 src/priv/github_quota_guard.sh,3403,GH_GUARD,Runtime launcher and guard scripts,split,medium
 docs/build-order/prototype/Aiur Operator Control Center.html,3369,BO_DESIGN,Build Order design and generated artifacts,remove,low
-src/lib/aiur/agent_control_cli.ex,3362,CLI,Agent control CLI,split,medium
 src/test/aiur/build_gate_test.exs,3231,BUILD_GATE,Build gate tests,split,medium
 src/test/aiur/orchestrator/dispatcher_test.exs,3197,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium
 src/test/aiur/orchestrator/issue_sync_test.exs,3032,LIFECYCLE_DISPATCH,Orchestrator tests,split,medium

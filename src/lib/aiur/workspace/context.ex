@@ -15,7 +15,7 @@ defmodule Aiur.Workspace.Context do
 
   @spec build(map() | String.t() | nil) :: map()
   def build(%{id: issue_id, identifier: identifier} = issue) do
-    pr_head_ref = pr_head_ref_from(issue)
+    pr_head_ref = Map.get(issue, :continuation_head_ref) || pr_head_ref_from(issue)
     issue_identifier = identifier || "issue"
 
     %{
@@ -24,7 +24,7 @@ defmodule Aiur.Workspace.Context do
       # legacy `<id>` leaf), so a watched human PR never collides with a tracker
       # ticket of the same number. The running-entry identifier stays `<pr#>`
       # (the comment topic / resume key) — only the on-disk leaf is prefixed.
-      issue_identifier: workspace_identifier(issue_identifier, pr_head_ref),
+      issue_identifier: workspace_identifier(issue_identifier, pr_head_ref_from(issue)),
       issue_state: Map.get(issue, :state),
       issue_labels: Map.get(issue, :labels, []),
       pr_head_ref: pr_head_ref,

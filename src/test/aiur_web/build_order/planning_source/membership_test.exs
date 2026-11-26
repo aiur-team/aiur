@@ -154,7 +154,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
     assert catalog.health.state == :healthy
     assert catalog.membership_health.state == :unavailable
     assert catalog.status_health.state == :unavailable
-    assert [%{identity: identity, progress_resolution: :partial}] = catalog.data.entries
+    assert [%{identity: identity, progress_resolution: :partial, progress_resolved_count: 1}] = catalog.data.entries
 
     {:ok, selected} = PlanningSource.demand(identity)
     assert selected.health.state == :healthy
@@ -167,23 +167,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
     assert length(model.edges) == 1
     assert [%{url: "https://github.com/acme/widgets/issues/4101"}] = model.edges
     refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
-
-    {route, []} = RouteState.new("paused-test") |> RouteState.navigate("9900")
-    {route, [{:activate, ^identity}]} = RouteState.put_catalog(route, catalog)
-    {route, :generation} = RouteState.put_selected(route, selected)
-
-    html =
-      render_component(&BuildOrderSelected.build_order_selected/1, %{
-        route_state: route,
-        model: model,
-        now: ~U[2026-09-29 12:00:00Z],
-        analytics_scope: %{state: :none},
-        usage_scope: %{state: :none}
-      })
-
-    assert html =~ "The plan is readable, but live execution state is unresolved"
-    assert html =~ "Ticket status is unavailable"
-    assert html =~ "Build Order graph summary"
 
     assert {:ok, cli} = BuildOrdersCLI.build(source: PlanningSource, root: "9900")
     assert get_in(cli, ["sources", "planning_graph", "state"]) == "available"

@@ -1,0 +1,6 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.RunTelemetry",
+  "kind": "reference",
+  "reason": "#3796: terminal membership schedules optional fail-open usage capture through the telemetry facade"
+}

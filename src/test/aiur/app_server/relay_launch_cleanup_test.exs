@@ -24,11 +24,11 @@ defmodule Aiur.AppServer.RelayLaunchCleanupTest do
 
     try do
       assert {:error, {:relay_launch_failed, 7, _}} =
-               RelayPort.start(File.cwd!(), "exec cat", [{"AIUR_RELAY_OVERRIDE_TEST", "overridden"}, {"AIUR_RELAY_REMOVE_TEST", false}], relay_script: script)
+               RelayPort.start(root, "exec cat", [{"AIUR_RELAY_OVERRIDE_TEST", "overridden"}, {"AIUR_RELAY_REMOVE_TEST", false}], relay_script: script)
 
       env = observed |> File.read!() |> Jason.decode!()
       assert env == %{"AIUR_RELAY_TOOLCHAIN_TEST" => "inherited", "AIUR_RELAY_OVERRIDE_TEST" => "overridden", "AIUR_RELAY_REMOVE_TEST" => nil}
-      assert_no_launch_artifacts()
+      assert_no_launch_artifacts(root)
     after
       Enum.each(~w(AIUR_RELAY_TOOLCHAIN_TEST AIUR_RELAY_OVERRIDE_TEST AIUR_RELAY_REMOVE_TEST), &restore_env(&1, previous[&1]))
     end
@@ -71,15 +71,16 @@ defmodule Aiur.AppServer.RelayLaunchCleanupTest do
     System.put_env("PATH", root)
 
     try do
-      assert {:error, {:relay_launch_failed, _}} = RelayPort.start(File.cwd!(), "exec cat", [])
-      assert_no_launch_artifacts()
+      assert {:error, {:relay_launch_failed, _}} = RelayPort.start(root, "exec cat", [])
+      assert_no_launch_artifacts(root)
     after
       System.put_env("PATH", previous)
     end
   end
 
-  defp assert_no_launch_artifacts do
+  # Relay ids embed the workspace basename, so a unique workspace keeps concurrent tests' relays out of the check.
+  defp assert_no_launch_artifacts(workspace) do
     {:ok, root} = Paths.runtime_state_dir()
-    assert Path.wildcard(Path.join([root, "agent-relays", "*"])) == []
+    assert Path.wildcard(Path.join([root, "agent-relays", "*.#{Paths.sanitize(Path.basename(workspace))}.*"])) == []
   end
 end

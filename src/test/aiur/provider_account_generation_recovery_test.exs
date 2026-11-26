@@ -211,8 +211,8 @@ defmodule Aiur.ProviderAccountGenerationRecoveryTest do
     assert_receive {:provider_account_generation_changed, event}, 2_000
     assert event.schema_version == 1
     assert event.generation == bound.generation
-    refute inspect(event) =~ raw_identity
-    refute inspect(:sys.get_state(owner)) =~ raw_identity
+    Aiur.TestSupport.refute_leak(event, raw_identity)
+    Aiur.TestSupport.refute_leak(:sys.get_state(owner), raw_identity)
   end
 
   test "rejects untrusted sources, invalid bindings, and unsupported auth modes", %{owner: owner} do

@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.NoopWait do
   # `max_consecutive_noop_turns` in minutes. Not a config key; opts is a test seam.
   @park_timeout_ms 120_000
 
-  alias Aiur.AgentRunner.{QueueDrain, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{QueueDrain, ReworkFindings, TurnAlerts, TurnLoop, TurnProgress}
 
   @spec park(map(), map(), fun(), Aiur.Issue.t(), TurnProgress.t()) ::
           :ok | {:completed, Aiur.Issue.t()} | {:error, term()}
@@ -27,6 +27,8 @@ defmodule Aiur.AgentRunner.NoopWait do
         result
 
       other ->
+        emit_findings_alert(turn_context, issue)
+
         # A failed handoff write must not crash the worker; park instead and
         # let the bounded wait or the no-op cap retry it.
         with {:error, reason} <- other,
@@ -53,6 +55,21 @@ defmodule Aiur.AgentRunner.NoopWait do
 
         disarm_timeout(timer)
         with :ok <- result, do: TurnLoop.continue_after_resume(turn_context, app_session)
+    end
+  end
+
+  defp emit_findings_alert(%{workspace: workspace, worker_host: worker_host, opts: opts}, issue) do
+    case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{findings: [_ | _] = findings}} ->
+        key = {__MODULE__, :rework_findings_alerted, issue.identifier}
+
+        unless Process.get(key, false) do
+          Process.put(key, true)
+          TurnAlerts.emit_rework_findings_open_alert(issue, workspace, worker_host, findings)
+        end
+
+      _ ->
+        :ok
     end
   end
 

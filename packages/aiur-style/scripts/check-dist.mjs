@@ -57,9 +57,9 @@ try {
       diffs.push(`Missing in dist/: ${file}`);
     } else {
       // Compare file contents
-      const actualContent = fs.readFileSync(path.join(distDir, file), 'utf8');
-      const tempContent = fs.readFileSync(path.join(tempDistDir, file), 'utf8');
-      if (actualContent !== tempContent) {
+      const actualContent = fs.readFileSync(path.join(distDir, file));
+      const tempContent = fs.readFileSync(path.join(tempDistDir, file));
+      if (!actualContent.equals(tempContent)) {
         diffs.push(`Mismatch: ${file}`);
       }
     }

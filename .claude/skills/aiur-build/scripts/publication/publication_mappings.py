@@ -11,6 +11,7 @@ from publication_live_graph import MARKER, MARKER_NAME
 from publication_rendering import authority_preamble, MARKER_KEYS
 from publication_client import PublicationError
 from publication_context import IssueSpec
+from pack_format import format_pack
 
 
 def scan_all(publisher) -> list[dict[str, Any]]:
@@ -391,7 +392,7 @@ def persist_mapping(publisher, logical_id: str, mapping: dict[str, Any]) -> None
         issue_mappings = reconciliation.setdefault("issue_mappings", {})
         issue_mappings[logical_id] = receipt_mapping
     files = {
-        publisher.context.build_path: json.dumps(build, indent=1) + "\n",
+        publisher.context.build_path: format_pack(build),
     }
     if publisher.context.skill_id is not None:
         files[publisher.context.publication_path] = json.dumps(publication, indent=2) + "\n"

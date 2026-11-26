@@ -70,7 +70,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   def fetch_issue(identity, configured_repository, opts) do
     issue_opts =
       opts
-      |> Keyword.take([:request_fun, :revalidate, :freshness_ms])
+      |> Keyword.take([:token, :request_fun, :revalidate, :freshness_ms])
       |> Keyword.put(:repository, configured_repository)
 
     Issues.fetch_issue_raw_conditional(identity.identifier, issue_opts)

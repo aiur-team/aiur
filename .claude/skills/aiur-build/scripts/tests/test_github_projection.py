@@ -10,6 +10,11 @@ from validation_publication_authority import PublicationAuthority
 
 
 class GithubMappingTests(GithubProjectionCase):
+    def test_feature_todo_does_not_collide_with_lifecycle_todo(self) -> None:
+        data = example()
+        data["label_projection"]["required_ticket_labels"].append("feature:todo")
+        self.assert_clean(data)
+
     def test_valid_same_owner_mapping(self) -> None:
         self.assert_clean(self.materialized())
 

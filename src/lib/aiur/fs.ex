@@ -17,19 +17,32 @@ defmodule Aiur.Fs do
 
   @spec atomic_write(Path.t(), iodata(), keyword()) :: :ok | {:error, term()}
   def atomic_write(path, contents, opts \\ []) when is_binary(path) do
-    tmp = path <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
+    tmp = path <> ".tmp." <> System.pid() <> "." <> Integer.to_string(System.unique_integer([:positive]))
     mode = Keyword.get(opts, :mode)
 
-    result =
+    written =
       if Keyword.get(opts, :fsync, false) do
         write_with_fsync(tmp, contents, mode)
       else
         write(tmp, contents, mode)
       end
 
-    case result do
-      :ok -> rename_or_cleanup(tmp, path)
-      {:error, reason} -> cleanup_error(tmp, reason)
+    result = with :ok <- written, do: injected_fault(path)
+
+    result =
+      case result do
+        :ok -> rename_or_cleanup(tmp, path)
+        {:error, reason} -> cleanup_error(tmp, reason)
+      end
+
+    Aiur.DiskFull.observe(path, result)
+  end
+
+  # Test seam: a full disk cannot be produced for a temp-and-rename write without root (#7925).
+  defp injected_fault(path) do
+    case Application.get_env(:aiur, :atomic_write_fault_fun) do
+      nil -> :ok
+      fault -> fault.(path)
     end
   end
 
@@ -59,7 +72,8 @@ defmodule Aiur.Fs do
           :file.sync(fd)
         end
       after
-        :ok = :file.close(fd)
+        # Sync already reported any write failure; a close error must not raise out of a store's server.
+        _ = :file.close(fd)
       end
     end
   end
@@ -88,6 +102,26 @@ defmodule Aiur.Fs do
     case System.cmd("sync", [], stderr_to_stdout: true) do
       {_output, 0} -> :ok
       {output, status} -> {:error, {:sync_failed, status, output}}
+    end
+  end
+
+  @doc """
+  Appends `data` to `path` for a hot path, such as one write per agent event.
+
+  The file is opened `:raw`, so the write does not queue behind the node's
+  single file server, and the parent directory is created only when the
+  append finds it missing. Calling `File.mkdir_p/1` before every append cost
+  about 16 file-server round trips per event and stalled the orchestrator on a
+  loaded host (#8051).
+  """
+  @spec append_raw(Path.t(), iodata()) :: :ok | {:error, term()}
+  def append_raw(path, data) when is_binary(path) do
+    case File.write(path, data, [:append, :raw]) do
+      {:error, :enoent} ->
+        with :ok <- File.mkdir_p(Path.dirname(path)), do: File.write(path, data, [:append, :raw])
+
+      result ->
+        result
     end
   end
 

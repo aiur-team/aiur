@@ -3,7 +3,7 @@ defmodule Aiur.TestReset.Cleanup do
 
   alias Aiur.Config.Paths
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.GitHub.HostCommand
+  alias Aiur.GitHub.Access
   alias Aiur.{TestReset, TicketBranch}
   alias Aiur.Workspace.Layout
 
@@ -15,7 +15,7 @@ defmodule Aiur.TestReset.Cleanup do
   @doc false
   @spec delete_workpad_comments(integer() | String.t()) :: :ok
   def delete_workpad_comments(id) do
-    case HostCommand.run(
+    case Access.host_command(
            ["api", "repos/{owner}/{repo}/issues/#{id}/comments", "--paginate"],
            stderr_to_stdout: true,
            bot_token: true
@@ -41,7 +41,7 @@ defmodule Aiur.TestReset.Cleanup do
   defp delete_each_workpad(id, comments) do
     failures =
       Enum.reduce(comments, 0, fn comment, acc ->
-        case HostCommand.run(
+        case Access.host_command(
                [
                  "api",
                  "-X",
@@ -215,7 +215,7 @@ defmodule Aiur.TestReset.Cleanup do
   end
 
   defp close_pr_for_branch(id, branch) do
-    case HostCommand.run(["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true, bot_token: true) do
+    case Access.host_command(["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true, bot_token: true) do
       {_, 0} -> TestReset.ok("##{id} PR on #{branch} closed")
       {_, _} -> :ok
     end

@@ -44,7 +44,7 @@ def _validate_label_sets(
     routing_prefixes = tuple(
         f"{prefix}:" for prefix in (
             normalized_lifecycle_prefix, "human", "model", "phase",
-            "complexity", "build-lane",
+            "complexity", "lane", "build-lane", "feature",
         )
     )
     expected: dict[str, set[str]] = {}

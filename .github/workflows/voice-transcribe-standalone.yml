@@ -1,0 +1,40 @@
+name: voice-transcribe-standalone
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/elixir/voice_transcribe/**'
+      - 'scripts/check-voice-transcribe-isolation.sh'
+      - '.github/workflows/voice-transcribe-standalone.yml'
+  pull_request:
+    paths:
+      - 'packages/elixir/voice_transcribe/**'
+      - 'scripts/check-voice-transcribe-isolation.sh'
+      - '.github/workflows/voice-transcribe-standalone.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  voice-transcribe-standalone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          version: "2026.8.8"
+          install: true
+          cache: true
+      - name: No host, Phoenix or Stream Deck reference
+        run: scripts/check-voice-transcribe-isolation.sh
+      - name: No bare assert_receive
+        run: python3 scripts/check-bare-assert-receive.py packages/elixir/voice_transcribe/test
+      - name: Compile and test the package alone
+        working-directory: packages/elixir/voice_transcribe
+        run: |
+          bash ../../../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get
+          mise exec -- mix compile --warnings-as-errors
+          mise exec -- mix format --check-formatted
+          mise exec -- mix test

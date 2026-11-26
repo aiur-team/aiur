@@ -1,7 +1,15 @@
 defmodule Aiur.AgentPubSub.FleetRefreshTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
+  alias Aiur.AgentPubSub
   alias Aiur.AgentPubSub.FleetRefresh
+
+  test "fleet invalidation subscription excludes running payloads" do
+    assert :ok = AgentPubSub.subscribe_fleet_invalidation()
+    assert :ok = AgentPubSub.broadcast_fleet_refresh()
+    assert_receive :fleet_changed, 1_000
+    refute_received {:running_changed, _summaries}
+  end
 
   test "a missing fleet table does not crash broadcasts to other consumers" do
     owner = Process.whereis(FleetRefresh)

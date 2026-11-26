@@ -15,7 +15,7 @@ defmodule Aiur.Experiments.Paths do
   end
 
   @spec valid_id?(term()) :: boolean()
-  def valid_id?(id), do: is_binary(id) and Regex.match?(~r/^[a-z0-9][a-z0-9._-]{2,79}$/, id)
+  def valid_id?(id), do: is_binary(id) and id != "capture" and Regex.match?(~r/^[a-z0-9][a-z0-9._-]{2,79}$/, id)
 
   @spec experiment(String.t()) :: Path.t()
   def experiment(id) do

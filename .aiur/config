@@ -44,6 +44,8 @@ merge_policy:
     fixer_label: main-fix
     canary_minutes: 45
     red_fallback_minutes: 0 # Optional: 60 waits for full CI after main is red for one hour.
+build_queue:
+  set_order: ranked
 polling:
   # 5s burned the whole 5000/hr GraphQL budget (~7 points x 720 polls); 120s is the default.
   interval_seconds: 120

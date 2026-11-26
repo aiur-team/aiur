@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "preregistration.v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": "preregistration.v1"},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "registered_at": {"type": "string", "format": "date-time"},
+    "registered_by": {"type": "object", "properties": {"role": {"type": "string", "minLength": 1}, "agent": {"type": "string", "minLength": 1}, "model": {"type": "string", "minLength": 1}, "ticket": {"type": ["integer", "string"]}}, "required": ["role", "agent", "model", "ticket"]},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "primary_metrics": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "expected": {"enum": ["decrease", "increase", "no-change", "no-increase", "no-decrease"]}}, "required": ["id", "expected"]}, "minItems": 1},
+    "secondary_metrics": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "expected": {"enum": ["decrease", "increase", "no-change", "no-increase", "no-decrease"]}}, "required": ["id", "expected"]}},
+    "guardrail_metrics": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "expected": {"enum": ["decrease", "increase", "no-change", "no-increase", "no-decrease"]}}, "required": ["id", "expected"]}},
+    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "secondary_correction": {"enum": ["benjamini-hochberg"]},
+    "fdr_q": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "mde": {"type": "object", "properties": {"metric": {"type": "string", "minLength": 1}, "relative": {"type": "number"}}, "required": ["metric", "relative"]},
+    "power_target": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "planned_n_per_cohort": {"type": "integer", "minimum": 1},
+    "projected_ready_at": {"type": "string", "minLength": 1},
+    "stratify_by": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "exclusions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "stopping_rule": {"type": "string", "minLength": 1},
+    "baseline_snapshot_hash": {"type": "string", "minLength": 1},
+    "post_hoc": {"type": "boolean"},
+    "amendments": {"type": "array", "items": {"type": "object"}}
+  },
+  "required": ["schema_version", "experiment_id", "registered_at", "registered_by", "hypothesis", "primary_metrics", "secondary_metrics", "guardrail_metrics", "alpha", "secondary_correction", "fdr_q", "mde", "power_target", "planned_n_per_cohort", "projected_ready_at", "stratify_by", "exclusions", "stopping_rule", "baseline_snapshot_hash"]
+}

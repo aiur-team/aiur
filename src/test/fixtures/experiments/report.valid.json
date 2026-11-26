@@ -1,0 +1,200 @@
+{
+  "schema_version": "report.v1",
+  "header": {
+    "experiment_id": "report-example",
+    "title": "Latency experiment",
+    "report_version": 1,
+    "analysis_type": "confirmatory",
+    "generated_at": "2026-10-15T18:00:00Z",
+    "analyst": {
+      "role": "analyst",
+      "agent": "codex",
+      "model": "fixture",
+      "ticket": 3801
+    },
+    "stats_snapshot_hash": "stats-fixture",
+    "events_snapshot_hash": "events-fixture",
+    "preregistration_hash": "9eb7c03545f17a417d303f7c16526fbae45e2c97645b459686770463b85ec925"
+  },
+  "summary": "Both cohorts contain 40 tickets. The median difference is -2 ms with CI [-5, 1]. The result is inconclusive at p=0.2.",
+  "preregistration": {
+    "record": {
+      "schema_version": "preregistration.v1",
+      "experiment_id": "report-example",
+      "registered_at": "2026-10-09T18:00:00Z",
+      "registered_by": {
+        "role": "analyst",
+        "agent": "codex",
+        "model": "fixture",
+        "ticket": 3801
+      },
+      "hypothesis": "Latency decreases by 20 percent.",
+      "primary_metrics": [
+        {
+          "id": "delivery/start",
+          "expected": "decrease"
+        }
+      ],
+      "secondary_metrics": [],
+      "guardrail_metrics": [],
+      "alpha": 0.05,
+      "secondary_correction": "benjamini-hochberg",
+      "fdr_q": 0.1,
+      "mde": {
+        "metric": "delivery/start",
+        "relative": -0.2
+      },
+      "power_target": 0.8,
+      "planned_n_per_cohort": 40,
+      "projected_ready_at": "2026-10-23",
+      "stratify_by": [
+        "complexity"
+      ],
+      "exclusions": [],
+      "stopping_rule": "One confirmatory analysis at planned n.",
+      "baseline_snapshot_hash": "baseline-fixture",
+      "post_hoc": false,
+      "amendments": []
+    },
+    "deviations": []
+  },
+  "design": {
+    "kind": "line",
+    "windows": {
+      "before": {
+        "start": "2026-10-01",
+        "end": "2026-10-08"
+      },
+      "after": {
+        "start": "2026-10-09",
+        "end": "2026-10-15"
+      }
+    },
+    "cohorts": [],
+    "unit_of_analysis": "ticket",
+    "inclusions": {
+      "before": 40,
+      "after": 40
+    },
+    "exclusions": {},
+    "strata": [
+      "complexity"
+    ]
+  },
+  "sample": {
+    "cohorts": [
+      {
+        "cohort": "before",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      },
+      {
+        "cohort": "after",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      }
+    ],
+    "balance": "No material imbalance; standardized complexity difference 0.01.",
+    "srm_p": null
+  },
+  "results": [
+    {
+      "metric": "delivery/start",
+      "role": "primary",
+      "unit": "ms",
+      "n": {
+        "before": 40,
+        "after": 40
+      },
+      "median": {
+        "before": 12,
+        "after": 10
+      },
+      "iqr": {
+        "before": [
+          8,
+          16
+        ],
+        "after": [
+          7,
+          13
+        ]
+      },
+      "effect": {
+        "kind": "median_difference",
+        "value": -2
+      },
+      "ci95": [
+        -5,
+        1
+      ],
+      "p": 0.2,
+      "p_adjusted": 0.2,
+      "family": "holm-primary",
+      "power_at_mde": 0.65,
+      "mde_at_n": 0.3,
+      "n_needed_per_cohort": 60,
+      "engine_label": "inconclusive",
+      "label": "inconclusive",
+      "label_reason": "",
+      "modifiers": [],
+      "direction": "none"
+    }
+  ],
+  "confounders": [
+    {
+      "event_id": "cap-1",
+      "kind": "capacity",
+      "at": "2026-10-10T00:00:00Z",
+      "ref": "capacity:1",
+      "title": "Cap changed",
+      "classification": "capacity",
+      "affects": [
+        "delivery/start"
+      ],
+      "bias": "unknown",
+      "severity": "low",
+      "handling": "noted",
+      "note": "Cap 8 to 6; no evidence of saturation."
+    }
+  ],
+  "sensitivity": [],
+  "threats": {
+    "internal": [
+      "Capacity change: cap-1."
+    ],
+    "construct": [
+      "Latency excludes review time."
+    ],
+    "external": [
+      "One repository, 80 tickets."
+    ],
+    "statistical_conclusion": [
+      "Power 0.65 below target 0.8."
+    ]
+  },
+  "labels": [
+    "inconclusive"
+  ],
+  "recommendation": {
+    "action": "extend-window",
+    "why": "Need 60 tickets per cohort",
+    "condition": "CI excludes zero",
+    "next_analysis": {
+      "kind": "at_n",
+      "value": 60
+    }
+  },
+  "reproduce": {
+    "commands": [
+      "aiur experiments stats report-example --json"
+    ],
+    "snapshot_hashes": {
+      "stats": "stats-fixture",
+      "events": "events-fixture"
+    },
+    "analyst_computed": []
+  }
+}

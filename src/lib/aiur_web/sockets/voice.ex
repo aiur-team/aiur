@@ -3,12 +3,12 @@ defmodule AiurWeb.Sockets.Voice do
   Socket mount contributed by the speech-to-text component.
   """
 
-  defmacro mount(session_options) do
+  defmacro mount(_session_options) do
     quote do
       # Dashboard dictation audio. The browser streams PCM here and the server owns
       # the ElevenLabs STT session; auth reuses the LiveView session proof.
       socket("/voice", AiurWeb.VoiceSocket,
-        websocket: [connect_info: [session: unquote(session_options)], max_frame_size: 400_000],
+        websocket: [connect_info: [session: {Aiur.Config.SessionOptions, :runtime_options, []}], max_frame_size: 400_000],
         longpoll: false
       )
     end

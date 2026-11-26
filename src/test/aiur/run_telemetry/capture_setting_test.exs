@@ -107,6 +107,7 @@ defmodule Aiur.RunTelemetry.CaptureSettingTest do
 
   defp build_conn do
     Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_private(:aiur_dashboard_credentials, {"operator", "test-dashboard-secret"})
     |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
   end
 

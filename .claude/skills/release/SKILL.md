@@ -9,6 +9,8 @@ Tag, release, and publish a new version of Aiur via npm (the `release-npm` workf
 
 > **Homebrew auto-update is currently disabled.** The `bump-homebrew` workflow's tap repo (`its-everdred/homebrew-aiur`) and `HOMEBREW_TAP_TOKEN` secret aren't set up, so releases are **npm-only**. Re-enable the tag trigger in `.github/workflows/bump-homebrew.yml` once the tap + token exist.
 
+With automatic experiments enabled, the release tag or version upgrade creates one before/after experiment and freezes its baseline at the detected line.
+
 ## Procedure
 
 ### 1. Pre-flight Checks

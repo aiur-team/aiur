@@ -1,6 +1,6 @@
 defmodule Aiur.BuildQueue.PRObserver do
   @moduledoc false
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.StartTrigger.ProgressStore
   require Logger
 
@@ -93,7 +93,7 @@ defmodule Aiur.BuildQueue.PRObserver do
   defp publish(_id, _pr, state), do: state
 
   defp publish_event(id, payload) do
-    Publisher.publish("ticket.#{id}.pr.closed_unmerged", payload)
+    Events.publish("ticket.#{id}.pr.closed_unmerged", payload)
   rescue
     error -> {:error, {:publication_unavailable, Exception.message(error)}}
   catch

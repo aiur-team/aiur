@@ -52,7 +52,7 @@ def discover_telemetry_files(inputs: list[str]) -> list[Path]:
         if path.is_file():
             found.append(path)
         elif path.is_dir():
-            found.extend(path.rglob(TELEMETRY_FILENAME))
+            found.extend(path.rglob(TELEMETRY_FILENAME + "*"))
         # Missing inputs are ignored (discovery is best-effort).
 
     # De-duplicate while preserving a stable, deterministic order.

@@ -10,11 +10,23 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
-        if state.save_result == :ok, do: {:ok, %{state | document: doc}}, else: {state.save_result, state}
+        {result, state} = next_save_result(state)
+        if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
       end)
     end
 
-    def open_issue_labels(_), do: Agent.get(__MODULE__, &{:ok, &1.labels, 1_000})
+    defp next_save_result(state) do
+      case Map.get(state, :save_results, []) do
+        [result | rest] -> {result, Map.put(state, :save_results, rest)}
+        [] -> {state.save_result, state}
+      end
+    end
+
+    def open_issue_labels(_), do: Agent.get(__MODULE__, &if(Map.get(&1, :observation_unavailable?, false), do: {:error, :offline}, else: {:ok, Map.get(&1, :observation_labels, &1.labels), 1_000}))
+
+    def issue_closure(id, _age),
+      do: Agent.get_and_update(__MODULE__, &{Map.get(Map.get(&1, :closures, %{}), id, {:error, :not_found}), Map.update(&1, :closure_reads, [id], fn ids -> ids ++ [id] end)})
+
     def blocked_by(id), do: Agent.get(__MODULE__, &{:ok, Map.get(Map.get(&1, :dependencies, %{}), id, [])})
 
     def ticket_pull_request(id) do
@@ -45,7 +57,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   setup do
-    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
+    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
     Process.register(boundary, Boundary)
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
@@ -79,32 +91,157 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert document() == @empty
   end
 
-  test "add prints owning queue and closed IDs while retaining partial successes", %{server: pid} do
+  test "add queues unobserved IDs pending while retaining partial successes", %{server: pid} do
     assert {:ok, [{"#1", :ok}]} = MutationCLI.execute(verb: :add, ids: ["1"], queue: "paseo", server: pid)
+    Agent.update(Boundary, fn state -> Map.put(state, :observation_labels, Map.delete(state.labels, "9")) end)
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2", "9"], queue: "other", server: pid) == 1 end)
     assert output =~ "#1: already in queue paseo"
     assert output =~ "#2: ok"
-    assert output =~ "#9: closed"
+    assert output =~ "#9: not yet observed (retry after next poll) for #9; queued pending"
+    refute output =~ "#9: closed"
+    assert Enum.map(document().items, & &1.issue_id) == ["1", "2", "9"]
+    assert document().intents |> Enum.map(&{&1.issue_id, &1.action}) |> Enum.uniq() == [{"1", :mark}, {"2", :mark}, {"9", :mark}]
+    assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
+  end
+
+  test "same-command anchor add gets the same first-observation verdict in either order", %{server: pid} do
+    # Regression guard: the CLI must send either order through the server's mutation gate.
+    state = :sys.get_state(pid)
+    :sys.replace_state(pid, &%{&1 | phase: :awaiting_first_observation})
+
+    verdicts =
+      for ids <- [["1", "2"], ["2", "1"]] do
+        assert {:ok, results} = MutationCLI.execute(verb: :add, ids: ids, queue: "e2e", after: "9", server: pid)
+        Enum.map(results, &elem(&1, 1))
+      end
+
+    assert verdicts == List.duplicate([{:error, :awaiting_first_observation}, {:error, :awaiting_first_observation}], 2)
+
+    assert document() == @empty
+    :sys.replace_state(pid, fn current -> %{current | phase: state.phase} end)
+  end
+
+  test "after anchor must be a member of the target queue unless added in this command", %{server: pid} do
+    assert {:ok, [{"#2", {:error, :anchor_not_in_queue}}]} = MutationCLI.execute(verb: :add, ids: ["2"], queue: "e2e", after: "1", server: pid)
+    assert document() == @empty
+
+    assert {:ok, _} = MutationCLI.execute(verb: :add, ids: ["1", "2"], queue: "e2e", after: "1", server: pid)
+    assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"1", "2"}]
+  end
+
+  test "a batch crossing an already queued ID retains independent additions", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "paseo")
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], queue: "other", server: pid) == 1 end)
+    assert output =~ "#1: already in queue paseo"
+    assert output =~ "#2: ok"
     assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
-    assert document().intents |> Enum.map(&{&1.issue_id, &1.action}) |> Enum.uniq() == [{"1", :mark}, {"2", :mark}]
+  end
+
+  test "same-command batch reports only the queued ID as the cause of atomic refusal", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "paseo")
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], queue: "other", after: "1", server: pid) == 1 end)
+    assert output =~ "#1: already in queue paseo"
+    assert output =~ "#2: not applied because another ID in this all-or-nothing batch was refused"
+    assert Enum.map(document().items, & &1.issue_id) == ["1"]
+  end
+
+  test "add reports an unobserved but closed issue closed and does not queue it", %{server: pid} do
+    Agent.update(Boundary, &Map.merge(&1, %{observation_labels: Map.delete(&1.labels, "9"), closures: %{"9" => {:ok, %{open?: false, state_reason: "completed"}}}}))
+    output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["2", "9"], queue: "paseo", server: pid) == 1 end)
+    assert output =~ "#2: ok"
+    assert output =~ "#9: closed"
+    refute output =~ "not yet observed"
+    assert Enum.map(document().items, & &1.issue_id) == ["2"]
+    refute Enum.any?(document().intents, &(&1.issue_id == "9"))
+    assert Agent.get(Boundary, & &1.closure_reads) == ["9"]
+  end
+
+  test "add reads a cached closure without a tracker call", %{server: pid} do
+    Agent.update(Boundary, &Map.put(&1, :observation_labels, Map.delete(&1.labels, "9")))
+    :sys.replace_state(pid, &%{&1 | closure_cache: %{"9" => {:ok, %{open?: false, state_reason: "completed"}}}})
+    assert {:ok, [{"#9", {:error, :closed}}]} = MutationCLI.execute(verb: :add, ids: ["9"], queue: "paseo", server: pid)
+    assert document().items == []
+    refute Map.has_key?(Agent.get(Boundary, & &1), :closure_reads)
   end
 
   test "batch insertion order survives marker-write failure after membership is saved", %{server: pid} do
-    Agent.update(Boundary, &%{&1 | marker_result: {:error, :transient}})
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :transient})
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :add, ids: ["1", "2"], at: 0, server: pid) == 1 end)
     assert output =~ "#1:"
     assert output =~ "#2:"
-    assert output =~ "marker_write_failed"
+    assert output =~ "marker write failed; retry is scheduled"
     assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
   end
 
+  test "paced marker is reported as queued and retried, while an existing marker counts as success", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      Map.put(state, :observation_labels, Map.put(state.labels, "1", %{labels: ["agent:queued"]}))
+      |> Map.put(:marker_result, {:error, :paced})
+    end)
+
+    output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["1"], queue: "paseo", server: pid) == 0 end)
+    assert output =~ "#1: ok"
+    refute output =~ "marker_write_failed"
+    refute output =~ "{:"
+
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :paced})
+      |> Map.put(:observation_labels, Map.put(state.labels, "2", %{labels: []}))
+    end)
+
+    output = capture_io(fn -> assert MutationCLI.run(verb: :add, ids: ["2"], queue: "paseo", server: pid) == 0 end)
+    assert output =~ "queued; marker write deferred and will retry"
+    refute output =~ "marker_write_failed"
+    refute output =~ "{:"
+  end
+
+  test "paced adds advance an explicit insertion position", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:marker_result, {:error, :paced})
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
+    assert {:ok,
+            [
+              {"#1", {:ok, {:marker_deferred, ["1"]}}},
+              {"#2", {:ok, {:marker_deferred, ["2"]}}}
+            ]} = MutationCLI.execute(verb: :add, ids: ["1", "2"], at: 0, server: pid)
+
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"2", 1}]
+  end
+
+  test "marker failure cannot hide a durable store failure", %{server: pid} do
+    Agent.update(Boundary, fn state ->
+      state
+      |> Map.put(:save_results, [:ok, {:error, :disk_full}])
+      |> Map.put(:observation_labels, Map.new(state.labels, fn {id, _} -> {id, %{labels: []}} end))
+    end)
+
+    assert {:ok, [{"#1", {:error, :store_unavailable}}]} = MutationCLI.execute(verb: :add, ids: ["1"], server: pid)
+  end
+
+  test "rank at list creation persists in a batch and cannot silently reorder an existing set", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "first")
+    run(pid, :add, ids: ["2", "3"], queue: "second", rank: 0)
+    assert Enum.map(document().queues, &{&1.name, &1.rank}) == [{"second", 0}, {"first", 1}]
+    assert Enum.map(document().items, & &1.issue_id) == ~w(1 2 3)
+    assert {:ok, [{"#9", {:error, :rank_requires_new_queue}}]} = MutationCLI.execute(verb: :add, ids: ["9"], queue: "first", rank: 0, server: pid)
+    assert {:ok, [{"first", {:error, :invalid_position}}]} = MutationCLI.execute(verb: :order, queue: "first", to: 5, server: pid)
+  end
+
   test "positions edges reorder and remove traverse real persisted commands", %{server: pid} do
-    run(pid, :add, ids: ["1", "2"], after: "3")
-    run(pid, :add, ids: ["3"], at: 1)
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"1", 0}, {"3", 1}, {"2", 2}]
+    run(pid, :add, ids: ["3", "1", "2"], after: "3")
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"3", 0}, {"1", 1}, {"2", 2}]
     assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"3", "1"}, {"3", "2"}]
     run(pid, :reorder, ids: ["2"], to: 0)
-    assert Enum.map(document().items, & &1.issue_id) == ["2", "1", "3"]
+    assert Enum.map(document().items, & &1.issue_id) == ["2", "3", "1"]
     run(pid, :remove, ids: ["1", "3"])
     assert [%Model.Item{issue_id: "2", position: 0}] = document().items
   end
@@ -139,6 +276,18 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     run(restarted, :release, ids: ["1"])
     assert %{hold: nil, override: nil} = Enum.find(document().items, &(&1.issue_id == "1"))
     assert %{hold: :external, override: :manual_promotion} = Enum.find(document().items, &(&1.issue_id == "2"))
+  end
+
+  test "unobserved release results render a successful notice", %{server: pid} do
+    run(pid, :add, ids: ["2"], queue: "default")
+    Agent.update(Boundary, &Map.put(&1, :observation_unavailable?, true))
+
+    output = capture_io(fn -> send(self(), {:release_result, Aiur.BuildQueueCLI.run(verb: :release, queue: "default", server: pid)}) end)
+    assert_received {:release_result, result}
+
+    assert result == 0, output
+    assert output =~ "default: released; no observation for #2"
+    assert Enum.all?(document().items, &is_nil(&1.hold))
   end
 
   test "a persisted hold prevents real promotion and publishes the dispatch hold", %{server: pid} do
@@ -206,19 +355,21 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
   test "optimistic add promotes through real reconciliation", %{server: pid} do
     Agent.update(Boundary, &%{&1 | labels: Map.put(&1.labels, "2", %{labels: ["agent:ci-wait"]})})
+    run(pid, :add, ids: ["2"], start_on: "pr_opened")
     run(pid, :add, ids: ["1"], after: "2", start_on: "pr_opened")
     reconcile(pid)
     assert "agent:todo" in labels("1")
-    assert hd(document().items).promoted_at != nil
-    assert hd(hd(Aiur.BuildQueue.show(pid).queues).items).state == :ready
+    assert Enum.find(document().items, &(&1.issue_id == "1")).promoted_at != nil
+    assert Enum.find(hd(Aiur.BuildQueue.show(pid).queues).items, &(&1.number == 1)).state == :ready
   end
 
   test "a merged local prerequisite cannot bypass another native blocker", %{server: pid} do
     Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => %{merged?: true, state: :closed}}}))
+    run(pid, :add, ids: ["2"])
     run(pid, :add, ids: ["1"], after: "2")
     reconcile(pid)
     refute "agent:todo" in labels("1")
-    item = hd(hd(Aiur.BuildQueue.show(pid).queues).items)
+    item = Enum.find(hd(Aiur.BuildQueue.show(pid).queues).items, &(&1.number == 1))
     assert item.state == :waiting
     assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
   end
@@ -226,6 +377,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   test "a merge arriving during reconciliation cannot change unchecked native eligibility", %{server: pid} do
     merged = %{merged?: true, state: :closed}
     Agent.update(Boundary, &Map.merge(&1, %{dependencies: %{"1" => ["3"]}, prs: %{"2" => [nil, merged, merged]}}))
+    run(pid, :add, ids: ["2"])
     run(pid, :add, ids: ["1"], after: "2")
     reconcile(pid)
     refute "agent:todo" in labels("1")
@@ -234,7 +386,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     assert :ok = GenServer.call(pid, :reconcile_now)
     reconcile(pid)
     refute "agent:todo" in labels("1")
-    assert hd(:sys.get_state(pid).projections).verdict == :waiting
+    assert Enum.find(:sys.get_state(pid).projections, &(&1.issue_id == "1")).verdict == :waiting
     assert Enum.any?(:sys.get_state(pid).planned_edges, &(&1.prerequisite == "3" and &1.dependent == "1"))
   end
 
@@ -256,6 +408,13 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   defp labels(id), do: Agent.get(Boundary, & &1.labels[id].labels)
-  defp run(pid, verb, opts), do: capture_io(fn -> assert Aiur.BuildQueueCLI.run(Keyword.merge(opts, verb: verb, server: pid)) == 0 end)
+
+  defp run(pid, verb, opts) do
+    output = capture_io(fn -> send(self(), {:run_result, Aiur.BuildQueueCLI.run(Keyword.merge(opts, verb: verb, server: pid))}) end)
+    assert_received {:run_result, result}
+    assert result == 0, output
+    output
+  end
+
   defp document, do: Agent.get(Boundary, & &1.document)
 end

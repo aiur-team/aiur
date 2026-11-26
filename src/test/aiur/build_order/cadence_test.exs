@@ -74,13 +74,13 @@ defmodule Aiur.BuildOrder.CadenceTest do
   # reference's derived table has to agree with the derivation itself, at the
   # documented poll interval.
   describe "the configuration reference's derived table" do
-    @doc_path Path.expand("../../../../website/docs-app/reference/configuration.md", __DIR__)
+    @doc_glob Path.expand("../../../../website/docs-app/reference/configuration*.md", __DIR__)
 
     # The reference's "busy fleet" column is the derivation at a 120s effective
     # interval. Its idle column is asserted in `CadenceEffectiveTest`, which can
     # publish an effective interval without racing an async test.
     test "documents the values this module derives at a 120s poll interval" do
-      reference = File.read!(@doc_path)
+      reference = @doc_glob |> Path.wildcard() |> Enum.sort() |> Enum.map_join("\n", &File.read!/1)
       derived = Cadence.derive(120)
 
       for {key, field} <- [

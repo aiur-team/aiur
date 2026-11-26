@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "topics": [
+    {
+      "pattern": "ticket.*.pr.merged",
+      "class": "live",
+      "payload_version": 1
+    }
+  ]
+}

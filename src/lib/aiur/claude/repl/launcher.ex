@@ -8,11 +8,13 @@ defmodule Aiur.Claude.Repl.Launcher do
   require Logger
 
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
+  alias Aiur.AgentEnvironment.ProviderAuth
   alias Aiur.Claude.Config
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
   alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   @ready_prompt "❯"
   @ready_poll_ms 200
@@ -20,7 +22,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   @spec start_session(Path.t(), keyword()) :: {:ok, Aiur.Claude.ReplAgent.session()} | {:error, term()}
   def start_session(workspace, opts \\ []) when is_binary(workspace) do
-    tmux = Keyword.get(opts, :tmux, Tmux)
+    tmux = Keyword.get(opts, :tmux, Socket.agents())
     expanded = Path.expand(workspace)
     model = Keyword.get(opts, :model) || Config.model()
     effort = Keyword.get(opts, :effort)
@@ -65,6 +67,19 @@ defmodule Aiur.Claude.Repl.Launcher do
   end
 
   defp do_start_session(ctx, settings_path) do
+    case ProviderAuth.stage(ctx.workspace, Keyword.get(ctx.opts, :env, [])) do
+      {:ok, env, auth_file} ->
+        opts = ctx.opts |> Keyword.put(:env, env) |> Keyword.put(:provider_auth_file, auth_file)
+        result = do_start_staged_session(%{ctx | opts: opts}, settings_path)
+        if match?({:error, _}, result), do: ProviderAuth.cleanup(auth_file)
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp do_start_staged_session(ctx, settings_path) do
     # Resume the prior conversation across an aiur restart when the runner
     # handed us a persisted session id whose transcript still exists (#613).
     # nil means a clean start (no handle, or its transcript is gone).
@@ -79,7 +94,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         ctx.rc_name,
         settings_path,
         resume_id,
-        Keyword.take(ctx.opts, [:base_branch])
+        Keyword.take(ctx.opts, [:base_branch, :provider_auth_file])
       )
 
     Aiur.Perf.event(:repl_agent_spawn,
@@ -235,7 +250,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         # The pane runs `exec claude`, so the pane pid IS the REPL; register
         # both so shutdown reaps survive either teardown path going stale.
         actor_meta = [ticket: ctx.identifier, backend: "claude-repl", worker_host: nil, remote: false]
-        ProcessReaper.register(ctx.process_reaper, :agent, {:pane, pane_id}, actor_meta)
+        ProcessReaper.register(ctx.process_reaper, :agent, Socket.pane_ref(ctx.tmux, pane_id), actor_meta)
         ProcessReaper.register(ctx.process_reaper, :agent, {:os_pid, os_pid}, [comm: "claude"] ++ actor_meta)
 
         build_ready_session(ctx, pane_id, os_pid, process_group_id, process_group_identity)
@@ -313,7 +328,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       # Set only when lifecycle hooks were injected (see maybe_hook_settings/2);
       # its presence is what routes run_turn to hook-driven detection.
       identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),
-      tmux: ctx.tmux
+      tmux: ctx.tmux,
+      tmux_socket: Socket.name(ctx.tmux)
     }
   end
 

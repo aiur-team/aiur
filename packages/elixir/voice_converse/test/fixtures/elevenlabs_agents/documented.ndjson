@@ -1,0 +1,7 @@
+{"type":"user_transcript","user_transcription_event":{"user_transcript":"start"}}
+{"type":"user_transcript","user_transcription_event":{"user_transcript":"start run"}}
+{"type":"agent_response","agent_response_event":{"agent_response":"Starting.","response_id":"turn-1"}}
+{"type":"agent_response_correction","agent_response_correction_event":{"corrected_agent_response":"Started.","response_id":"turn-1"}}
+{"type":"audio","audio_event":{"audio_base_64":"AAA=","event_id":7}}
+{"type":"interruption","interruption_event":{"event_id":7}}
+{"type":"client_tool_call","client_tool_call":{"tool_call_id":"call-1","tool_name":"unknown_tool","parameters":{"command":"start run"},"expects_response":true}}

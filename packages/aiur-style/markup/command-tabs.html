@@ -1,0 +1,15 @@
+<div class="aiur-command aiur-keepout" data-aiur="command" id="command-tabs">
+  <div class="aiur-tabs" role="tablist" aria-label="Get started">
+    <button type="button" role="tab" id="t-prompt" aria-selected="true" aria-controls="cmd-panel" tabindex="0" data-aiur-text="Let's run parallel agents with: https://aiur.team/" data-aiur-kind="prompt">Prompt</button>
+    <button type="button" role="tab" id="t-npm" aria-selected="false" aria-controls="cmd-panel" tabindex="-1" data-aiur-text="npm i -g aiur-cli">npm</button>
+    <button type="button" role="tab" id="t-bun" aria-selected="false" aria-controls="cmd-panel" tabindex="-1" data-aiur-text="bun add -g aiur-cli">bun</button>
+    <button type="button" role="tab" id="t-pnpm" aria-selected="false" aria-controls="cmd-panel" tabindex="-1" data-aiur-text="pnpm add -g aiur-cli">pnpm</button>
+    <button type="button" role="tab" id="t-yarn" aria-selected="false" aria-controls="cmd-panel" tabindex="-1" data-aiur-text="yarn global add aiur-cli">yarn</button>
+  </div>
+  <div class="aiur-command__row" id="cmd-panel" role="tabpanel" aria-labelledby="t-prompt" tabindex="0">
+    <span class="aiur-command__prompt" aria-hidden="true" hidden>$</span>
+    <code class="aiur-command__text">Let's run parallel agents with: https://aiur.team/</code>
+    <button type="button" class="aiur-command__copy aiur-button aiur-button--ghost aiur-button--icon" aria-label="Copy prompt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></svg></button>
+    <span class="aiur-visually-hidden" role="status" aria-live="polite"></span>
+  </div>
+</div>

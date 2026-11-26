@@ -3,7 +3,7 @@ defmodule Aiur.Init.Templates do
   One home for all compile-time embedded scaffold templates and config-template fill rendering.
   """
 
-  alias Aiur.Init.{ElevenLabs, Questions}
+  alias Aiur.Init.{Contributions, Questions}
 
   # Scaffolded prompt_file template. PromptBuilder renders this as the whole
   # turn template (Liquid), so it must reference the issue or the agent gets
@@ -106,7 +106,7 @@ defmodule Aiur.Init.Templates do
       "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm),
       "{{ALERTS_ENABLED}}" => to_string(d.alerts.enabled),
       "{{ALERTS_OS_SOUNDS}}" => to_string(d.alerts.use_os_default_sounds),
-      "{{ELEVENLABS_SECTION}}" => elevenlabs_section(d.elevenlabs)
+      "{{ELEVENLABS_SECTION}}" => Contributions.yaml(d)
     }
   end
 
@@ -121,13 +121,6 @@ defmodule Aiur.Init.Templates do
     do: "  base_build_file: #{@prewarm_file_name}\n"
 
   defp prewarm_base_build_file_line(_), do: ""
-
-  # The whole section comes from the renderer shared with resume backfill, so
-  # both init paths persist the same accepted-or-declined state. The token sits
-  # alone at column 0; the block owns its comments, indentation and newline.
-  defp elevenlabs_section(answer) do
-    "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(answer))
-  end
 
   @doc false
   @spec render_backend_configs(map()) :: String.t()

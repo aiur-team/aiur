@@ -333,6 +333,11 @@ defmodule Aiur.ProviderMeterProbeBalanceTest do
     assert_receive {:request, %{url: "https://openrouter.ai/api/v1/credits"}}, 1000
     assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.windows["credits-remaining"].credits.amount == 77.5
+    # The credit ceiling travels with the remaining amount: 77.5 left is a bare
+    # number without "of 100", and a usage floor cannot read a fraction from it.
+    assert snapshot.windows["credits-remaining"].limit == 100
+    assert snapshot.windows["credits-remaining"].used == 22.5
+    assert snapshot.windows["credits-remaining"].used_percent == 22.5
   end
 
   # A baseline write that fails (read-only mount, full disk, an un-creatable

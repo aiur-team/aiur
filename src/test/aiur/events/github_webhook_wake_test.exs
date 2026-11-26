@@ -77,9 +77,41 @@ defmodule Aiur.Events.GithubWebhookWakeTest do
       }
 
       assert %{status: :published, published: [^ticket_topic]} =
-               GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+               GithubWebhook.handle_delivery("pull_request", delivery,
+                 repo: @repo,
+                 request_refresh_fun: request_refresh_fun,
+                 request_fun: fn request ->
+                   if String.contains?(request.url, "/pulls/901/commits"),
+                     do: {:ok, %{status: 200, body: [], headers: []}},
+                     else: flunk("unexpected request #{request.url}")
+                 end
+               )
 
       assert_receive :request_refresh, 500
+    end
+
+    test "a synchronize delivery runs the stale approval check and wakes the dispatcher" do
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      delivery = %{
+        "action" => "synchronize",
+        "repository" => %{"full_name" => @repo},
+        "sender" => %{"login" => "its-everdred"},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "new-head"}}
+      }
+
+      assert %{status: :reconciled, hint: %{kind: :ci, action: "synchronize", pr_number: 901}} =
+               GithubWebhook.handle_delivery("pull_request", delivery,
+                 repo: @repo,
+                 request_refresh_fun: request_refresh_fun,
+                 orchestrator: self()
+               )
+
+      assert_received {:github_pr_synchronize, ^ticket, 901}
+      assert_received :request_refresh
     end
 
     test "a comment publish does not wake the dispatcher" do

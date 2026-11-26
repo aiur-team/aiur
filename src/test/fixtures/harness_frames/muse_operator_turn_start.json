@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "turn/start",
+  "params": {
+    "commandId": "command-golden",
+    "sessionId": "session-golden",
+    "input": [
+      {
+        "type": "text",
+        "text": "Operator says: check \"frames\".\nThen continue — safely."
+      }
+    ],
+    "ifBusy": "queue"
+  }
+}

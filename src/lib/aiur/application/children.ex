@@ -1,0 +1,489 @@
+defmodule Aiur.Application.Children do
+  @moduledoc """
+  The one boot-order authority: the supervision child list for a run shape.
+  """
+
+  alias Aiur.Application.ExportChildren
+  alias Aiur.Application.ProjectChildren
+  alias Aiur.BuildOrder.Component, as: BuildOrders
+  alias Aiur.Config, as: AiurConfig
+  alias Aiur.Executor.Roster
+  alias Aiur.Experiments.Auto
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, BlockerProgress, Config}
+  alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
+  alias Aiur.Orchestrator.{InstanceHeartbeatMetadata, PremiseChanges}
+  alias Aiur.Ownership
+  alias Aiur.Ownership.{Fence, FenceCommand}
+  alias Aiur.Project.Supervisors, as: ProjectSupervisors
+
+  @doc """
+  Build the supervision children for the given run shape.
+
+  `--bg`/headless runs (`headless?: true`) skip terminal-only work — the
+  opencode chat-pane machinery and the whole interactive CLI block (tmux,
+  pane manager, opencode pre-warm, agent-list panes). Dashboard supervision
+  is independent and remains enabled unless `--no-dashboard` is supplied.
+  The agent **backends** that
+  actually run agents (session writers, the opencode bridge, token
+  registry) are kept so a headless node still does real work; an Executor
+  drives it over the control RPC (`status` / `agents` / `message` /
+  `pause` / `set max-agents`) instead of attaching to panes.
+
+  Pure so the gating is unit-testable without booting the application —
+  pass the resolved booleans and assert which children appear.
+  """
+  @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
+  def child_specs(opts) do
+    interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
+    headless? = Keyword.fetch!(opts, :headless?)
+    dashboard? = Keyword.fetch!(opts, :dashboard?)
+
+    tailscale_funnel? =
+      Keyword.get_lazy(opts, :tailscale_funnel?, &AiurConfig.server_tailscale_funnel?/0)
+
+    telemetry? = Keyword.get(opts, :telemetry?, true)
+
+    executor_mode? =
+      Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+
+    ls_remote_ticker? =
+      Keyword.get(
+        opts,
+        :ls_remote_ticker?,
+        Application.get_env(:aiur, :ls_remote_ticker_enabled?, true)
+      )
+
+    instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
+
+    # The shared unit-test app turns repository services off: they poll GitHub and log into other tests' captures (#6474).
+    github_tracker? =
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end) and
+        Keyword.get(opts, :repository_services?, Application.get_env(:aiur, :repository_services?, true))
+
+    main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
+
+    # Always true for a real run. The unit-test singleton turns it off so the
+    # shared app process does not hold a VM-wide inbox and listener that every
+    # case would then contend on; cases that exercise recording supervise their
+    # own pair against their own isolated state directory.
+    recording? =
+      Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
+
+    recording_children = recording_children(recording?)
+    projects = Keyword.get_lazy(opts, :projects, &configured_projects/0)
+
+    cli_children =
+      if interactive_cli? do
+        [
+          {Aiur.Tmux, name: Aiur.Tmux},
+          {Aiur.PaneManager, name: Aiur.PaneManager},
+          Aiur.Opencode.PrewarmSupervisor,
+          Aiur.AgentList.App,
+          Aiur.AgentList.Input,
+          Aiur.LauncherWatchdog
+        ]
+      else
+        []
+      end
+
+    [
+      # First, ahead of `Aiur.PubSub` itself. `ModeTable` reads no config,
+      # subscribes to nothing and calls no sibling — its `init/1` creates one
+      # named ETS table and stops — so under `:rest_for_one` every child placed
+      # ahead of it declares a dependency it does not have, and pays for it: an
+      # ETS table dies with the process that created it, so a crash anywhere in
+      # front of `ModeTable` restarted it and silently emptied the entire
+      # delivery-mode view (#2531).
+      #
+      # That is not a bounded cost. Nothing republishes a proven mode on
+      # `ModeTable`'s boot — `ModeRegistry` restarts in the same cascade and
+      # rebuilds `state.repos` from config as configured-*unproven* — so every
+      # webhook-backed repo silently fell back to the 30-second polling TTL and
+      # stayed there until a fresh delivery re-proved it; siblings cannot reach it.
+      #
+      # Going first also means a `ModeTable` crash would now restart the whole
+      # tree behind it, which is only acceptable because it has no way to crash:
+      # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
+      # against a `:public` table, so the server itself exposes no `handle_call`
+      # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
+      Aiur.Webhooks.ModeTable,
+      Aiur.Capabilities.Table,
+      # Owns the turn table agent tasks write. Ahead of `Aiur.TaskSupervisor`
+      # and the Orchestrator so adopted or redispatched tasks never find it
+      # missing, and so a later child's `:rest_for_one` restart cannot delete
+      # it under live tasks (#4664).
+      Aiur.Opencode.ActiveTurns,
+      # `Aiur.PubSub.Boot` wraps `{Phoenix.PubSub, name: Aiur.PubSub}` and waits for a previous incarnation's registry names to be released before starting.
+      # Without that wait, a PubSub crash restarts into its own still-registered partitions, fails three times inside a millisecond,
+      # and takes this whole supervisor down with it (#2557).
+      {Aiur.PubSub.Boot, name: Aiur.PubSub},
+      Aiur.AgentPubSub.FleetRefresh,
+      {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
+      {Registry, keys: :unique, name: Aiur.ProjectRegistry},
+      {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
+      {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
+      {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
+      # Before Task.Supervisor: children stop in reverse order, so the
+      # reaper outlives the runner tasks/ports whose OS processes it must
+      # sweep in its terminate/2 backstop.
+      Aiur.ProcessReaper,
+      Aiur.PauseContainment,
+      Aiur.AgentResourceGuard,
+      Aiur.AgentProcessLog,
+      Aiur.SaturationSentinel,
+      Aiur.BuildGateHoldMonitor,
+      Aiur.AppServer.ToolCallLedger,
+      Aiur.Workspace.Ownership.Store,
+      {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
+      Aiur.Workspace.Ownership.Reconciler,
+      {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
+      Aiur.AlertFeed.Backfill,
+      Aiur.CoordinationTasks,
+      Aiur.DecisionDispatchTasks,
+      Aiur.WorkflowStore,
+      Aiur.RepoBase,
+      Access.app_token_refresher_child_spec([]),
+      # The next three are passive tables a GitHub request consults, started in
+      # the order a request touches them: choose a credential, then look for a
+      # cached answer, then price and admit what is left. Neither of the first
+      # two depends on the other — `ReadCache` is keyed on the request's shape
+      # and never asks who is authenticating, and `CredentialHeadroom` is filled
+      # from response headers and never asks what was cached — so the order is
+      # chosen to be explicable rather than because either would fail otherwise.
+      #
+      # Owns the per-credential rate-limit table the selector reads. First of the
+      # three because selection happens in `default_request_fun`, outside the
+      # cache: a request has picked its credential before a lookup is attempted.
+      Access.credential_headroom_child_spec([]),
+      # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
+      # consults on every request. It starts before `Quota` and before anything
+      # that polls, because a request issued while its tables do not exist is a
+      # request that pays: the lookup degrades to a miss rather than failing, and
+      # a miss is the full price. Reads never call this process.
+      Access.read_cache_child_spec([]),
+      Access.quota_child_spec([]),
+      # Turns the budget-broker-timeout retry rate into a signal (#2464): a
+      # queryable retry event per backoff plus one dwelled degraded alert. The
+      # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
+      # owns the sliding-window rate and alert latch.
+      Access.broker_timeout_child_spec([]),
+      Aiur.GitHub.HoldPressure,
+      Access.budget_broker_child_spec([]),
+      Aiur.Voice.child_specs(),
+      Aiur.TicketContext.child_specs(:early, opts),
+      BuildOrders.child_specs(:early, opts),
+      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
+      Aiur.Conversation.HeadTable,
+      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
+      {Aiur.Events.Exchange, name: Aiur.Events.exchange_server()},
+      Aiur.Conversation.ResolverSupervisor,
+      # Subscribe before the orchestrator's immediate first poll so a merge
+      # observed during startup also reaches the durable checklist.
+      Aiur.PostDeployChecklist,
+      Aiur.Events.BranchRefStore,
+      # Restart-durable GitHub state keyed by resource identity. Starts before
+      # the Publisher and before anything that polls or receives, so the first
+      # delivery of the boot already has somewhere to record that it handled a
+      # comment — and so the first poll sweep already has last run's ETags.
+      # Owns open-issue close signals (#2714); a poll-writer-owned table would die with it.
+      Aiur.GitHub.OpenIssueSnapshot,
+      Access.resource_store_child_spec([]),
+      # Carries store changes into the agents' `gh` answer store, so a fact
+      # learned for free retires the paid reads of the same resource. Starts
+      # after the store because it subscribes to it.
+      Access.agent_cache_bridge_child_spec([]),
+      if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
+      Aiur.Events.Publisher,
+      Aiur.Capabilities.Monitor,
+      # Per-repo delivery mode. Starts before anything that polls or receives
+      # so a repo always has a mode to read; with no configured repos every
+      # lookup answers "polling", which is exactly the pre-webhook behavior.
+      #
+      # The ETS view it publishes into (`Aiur.Webhooks.ModeTable`) is the first
+      # child of the whole tree, so the registry always has somewhere to publish
+      # and the table outlives every restart the registry can take part in. The
+      # reverse is not guaranteed: if the registry crashes, its `state.repos`
+      # rebuilds as configured-unproven while the table keeps its old `:webhook`
+      # records, so a repo can hold the long TTL until the next sweep
+      # republishes. Bounded (the TTL is a backstop, never a freshness claim)
+      # and corrected automatically, so it is a note, not a fix.
+      Aiur.Webhooks.ModeRegistry,
+      Aiur.ProviderAccountGeneration,
+      Aiur.ProviderMeters.Store,
+      # Reads the store's observations and serves them to consumer surfaces
+      # without a binding. Starts after the store so no accepted observation
+      # is broadcast before there is anything retaining it.
+      Aiur.ProviderMeters.HostObservations,
+      Aiur.ProviderMeterProjection,
+      # Subscribe after the projection exists and before refresh emits the
+      # baseline observation used to initialize low-usage alert episodes.
+      Aiur.Usage.Alerts,
+      # Decides when usage is observed: one baseline after boot, then while a
+      # surface is watched or headroom account selection is on. Starts after the projection so a baseline
+      # observation always has somewhere to land.
+      Aiur.ProviderMeterRefresh,
+      Aiur.UsageLedger,
+      # Owns the one destructive storage seam: retention/compaction of retired
+      # raw usage. Starts after the raw ledger it reads but before the aggregate,
+      # so its boot reconciliation resolves any in-flight destructive phase into
+      # a consistent ledger + compacted-floor state before the aggregate rebuilds
+      # over it.
+      Aiur.UsageCompaction.Coordinator,
+      Aiur.UsageAggregate.Store,
+      # Premise changes: the store reports, orchestration flags tickets, the inbox wakes the Executor.
+      {Aiur.DecisionStore, name: Aiur.DecisionStore, premise_notifier: &__MODULE__.premise_notifier/1},
+      {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
+      Aiur.DecisionMetrics,
+      Aiur.RecentMergeStore,
+      {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
+      Aiur.Webhooks.DeliveryLog,
+      Aiur.GitHub.CodeOwners,
+      # The repository's label descriptions, read once an hour and served locally to the
+      # build index's Features rows. A feature whose tickets have all merged wears no label
+      # an open-issue observation or a persisted history row can describe, so this is the
+      # only source that still names it. Refresh is off in tests via
+      # `:label_catalogue_refresh?`; the table is always there for tests to drive.
+      Aiur.GitHub.LabelCatalogue,
+      {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
+      {Aiur.Events.SubscriptionStoreSupervisor, name: Aiur.Events.subscription_store_supervisor()},
+      {Aiur.DecisionAttention, owner_lookup: &Aiur.Orchestrator.has_live_owner?/1},
+      Aiur.OperatorWaitLog,
+      Aiur.Orchestrator.OptimisticLedger,
+      Aiur.Capacity.LedgerStore,
+      Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotCache,
+      Aiur.Orchestrator.SnapshotStore,
+      Aiur.Orchestrator.SnapshotPublisher,
+      Aiur.CurrentRunMembership.Store,
+      # LiveConversation is projection-only: it never replays workspace logs
+      # after restart, so a missing key truthfully reports :restart_unknown.
+      Aiur.LiveConversation,
+      # Durable last-known progress retention. Starts before TicketActivity so
+      # the projection can seed from it at boot and cast retains into it.
+      Aiur.ProgressRetention,
+      # Remote-write replay ledger; must be up before the endpoint takes control calls.
+      Aiur.ControlCall.ReplayStore,
+      Aiur.TicketActivity,
+      # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
+      Aiur.CodingAgent.child_specs(),
+      BuildOrders.child_specs(:history, opts),
+      Aiur.TicketContext.child_specs(:late, opts),
+      BuildOrders.child_specs(:late, opts),
+      {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
+      # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
+      BuildOrders.child_specs(:view_state_sweep, opts),
+      # Seed the fail-closed admission table before the Orchestrator can perform
+      # its initial dispatch.
+      Aiur.Orchestrator.SpendCap.Store,
+      # Intent store and sync precede the Orchestrator: its boot reads the fleet pause after a bounded pull.
+      intent_children(),
+      Aiur.GitHub.Listeners,
+      {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
+      Aiur.DecisionExpiry,
+      Aiur.CurrentRunMembership.Reconciler,
+      # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
+      {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
+      maybe_ls_remote_ticker(ls_remote_ticker?),
+      Aiur.PRLifecycle.HealthScanner,
+      Aiur.PRLifecycle.ReworkRequeue,
+      Aiur.ProgressCheckin.Worker,
+      Aiur.Executor.TakeoverAlert.Store,
+      Aiur.Executor.TakeoverAlert.Monitor,
+      Aiur.DaemonHeartbeatWriter,
+      Aiur.Logs.Retention,
+      # The daemon-resident Executor recording path is armed on EVERY run, with
+      # or without `--executor`. Recording is the only part that cannot be added
+      # after the fact: a run that did not record leaves an agent arriving later
+      # with nothing to replay, and that cost is invisible when it is incurred.
+      # `--executor` now governs authority (and Command alerting), not whether
+      # anything is written down. These come after the Exchange and the
+      # Publisher they subscribe to, so they sit at the end of the always-on
+      # block. `Claims` starts first: it arbitrates who may advance the shared
+      # cursor the inbox owns.
+      recording_children,
+      executor_principal_child(recording?, executor_mode?),
+      # Dashboard supervision is independent of terminal attachment/headless
+      # mode. Aiur.HttpServer retains its own bind and credential guards.
+      dashboard_children(
+        dashboard?,
+        Keyword.get(opts, :dashboard_pages?, true),
+        tailscale_funnel?
+      ),
+      Aiur.Opencode.TokenRegistry,
+      # Chat-pane machinery — UI-only, never read by a headless run.
+      unless(headless?, do: Aiur.Opencode.PaneSupervisor),
+      Aiur.Opencode.SessionSupervisor,
+      Aiur.Opencode.BridgeSupervisor,
+      # Allowed-contributor intake (#2957) feeds the Executor wake path armed
+      # above; BuildProgress and its observer run with recording and are
+      # last in this `:rest_for_one` list so their restarts can never cascade
+      # into the dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
+      BuildOrders.child_specs(:final, opts)
+    ]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
+    |> Kernel.++(
+      cli_children ++
+        [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter, Aiur.MemoryWatchdog, Aiur.DiskWatchdog] ++
+        Aiur.Experiments.children(recording?) ++
+        Auto.child_specs(
+          recording?: recording?,
+          feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]
+        ) ++
+        BuildOrders.child_specs(:label_projection, opts) ++
+        executor_sweep_children() ++
+        Aiur.Experiments.window_children(recording?) ++
+        dashboard_cache_children(dashboard?, opts) ++
+        coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        [Aiur.Netlify.Usage] ++
+        Aiur.VoiceConversation.child_specs() ++
+        [toolchain_child()] ++
+        dashboard_final_children(dashboard?, opts) ++
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
+        BuildOrders.child_specs(:label_backfill, opts) ++
+        List.wrap(
+          if(recording?,
+            do: [
+              Aiur.Executor.Session,
+              Aiur.Executor.SessionIngest,
+              {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
+              Aiur.Executor.TranscriptIngest,
+              Aiur.ControlCLI.PendingCommands
+            ]
+          )
+        ) ++
+        [Aiur.Orchestrator.UnresponsiveWatchdog]
+    )
+    |> with_projects(projects, recording?)
+  end
+
+  # `projects:` empty leaves today's tree untouched. Otherwise the machine list drops
+  # what polls or dispatches one repository, and one project tree per entry starts last.
+  defp with_projects(children, [], _recording?), do: children
+
+  defp with_projects(children, _projects, recording?) do
+    pollers = ProjectChildren.pollers()
+
+    Enum.reject(children, &(child_module(&1) in pollers)) ++
+      [Aiur.Gateway.Capacity, ProjectSupervisors, {Aiur.Project.Watcher, alert_fun: &Aiur.Alerts.emit_system/2}, ProjectSupervisors.boot_child_spec(recording?: recording?)]
+  end
+
+  defp child_module({module, _opts}), do: module
+  defp child_module(module) when is_atom(module), do: module
+  defp child_module(_spec), do: nil
+
+  defp configured_projects, do: if(Application.get_env(:aiur, :projects_enabled?, true), do: Aiur.Project.Config.configured(), else: [])
+
+  # Probes worker CLIs at boot and hourly (#7443). Dispatch reads its snapshot
+  # and holds nothing until the first probe lands. Off wherever the boot
+  # dispatch poll is off (the shared test app).
+  defp toolchain_child, do: {Aiur.Toolchain, probe_on_start: Application.get_env(:aiur, :orchestrator_initial_poll?, true)}
+
+  defp dashboard_final_children(dashboard?, opts) do
+    List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: AgentBudgetSocket)) ++
+      Fence.child_specs() ++
+      fence_socket_child() ++
+      BuildOrders.child_specs(:estimates, opts) ++
+      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
+  end
+
+  defp fence_socket_child do
+    if Ownership.enabled?() do
+      [
+        Supervisor.child_spec(
+          {AgentBudgetSocket, name: Ownership.FenceSocket, socket_path: AgentBudgetSocket.fence_socket_path(), command_fun: &FenceCommand.execute/1},
+          id: Ownership.FenceSocket
+        )
+      ]
+    else
+      []
+    end
+  end
+
+  defp dashboard_cache_children(dashboard?, opts) do
+    List.wrap(
+      if(dashboard?,
+        do: [
+          Aiur.RunTelemetry.RetainedCache,
+          {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
+        ]
+      )
+    ) ++ if(dashboard?, do: BuildOrders.child_specs(:timeline_cache, opts), else: [])
+  end
+
+  defp intent_children do
+    [Aiur.Intent.Hlc, Aiur.Intent.Store] ++
+      if(LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &heartbeat_metadata/0}, Aiur.Intent.Sync],
+        else: []
+      )
+  end
+
+  defp coordination_children(role, github_tracker?, main_watch_enabled?) do
+    store_children = if(LeaseStore.configured?(), do: [Aiur.Gateway.Liveness], else: [])
+
+    services =
+      []
+      |> maybe_service(github_tracker?, Aiur.LandingWatch)
+      |> maybe_service(github_tracker?, Aiur.LandingWatch.QuarantineLifter)
+      |> maybe_service(github_tracker? and main_watch_enabled?, Aiur.MainWatch)
+
+    store_children ++
+      [
+        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Instance.GlobalServices},
+        {RepositoryLeader, role: role, services: services, supervisor: Aiur.Instance.GlobalServices}
+      ]
+  end
+
+  defp maybe_service(children, true, service), do: children ++ [service]
+  defp maybe_service(children, false, _service), do: children
+
+  defp executor_sweep_children do
+    if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []
+  end
+
+  defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
+  defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
+
+  defp recording_children(true),
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, {Aiur.ExecutorListener, feature_lookup: &BuildOrders.feature_and_epic/1}]
+
+  defp recording_children(false), do: []
+
+  @doc false
+  @spec heartbeat_metadata() :: map()
+  def heartbeat_metadata, do: InstanceHeartbeatMetadata.metadata(executor_fun: &executor_present/0)
+
+  # Wired here because orchestration may not depend on the optional executor-attention component.
+  # record?: false — a heartbeat must not move the roster's stall evidence.
+  defp executor_present do
+    %{executors: executors} = Roster.build(record?: false)
+    Enum.any?(executors, &(&1.state in [:active, :idle]))
+  end
+
+  @doc false
+  # A named capture (not a closure) keeps the DecisionStore child spec comparable.
+  @spec premise_notifier(map()) :: :ok
+  def premise_notifier(change),
+    do: PremiseChanges.notify_async(change, wake: fn event -> Aiur.ExecutorWakeInbox.enqueue_attention(event, Aiur.ExecutorWakeInbox, &BuildOrders.feature_and_epic/1) end)
+
+  defp executor_principal_child(true, true), do: Aiur.Executor.Principal
+  defp executor_principal_child(_recording?, _executor_mode?), do: nil
+
+  defp dashboard_children(dashboard?, dashboard_pages?, tailscale_funnel?) do
+    [
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
+      if(dashboard?, do: {Aiur.HttpServer, dashboard_pages?: dashboard_pages?}),
+      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
+    ]
+  end
+end

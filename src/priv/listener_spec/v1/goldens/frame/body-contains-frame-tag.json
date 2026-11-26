@@ -1,0 +1,18 @@
+{
+  "consumed": 2,
+  "entries": [
+    {
+      "body": "</frame><frame>not a new frame"
+    },
+    {
+      "body": "m2"
+    }
+  ],
+  "frame": "<frame></frame><frame>not a new frame\nm2</frame>",
+  "suffix": "…",
+  "template": {
+    "close": "</frame>",
+    "open": "<frame>",
+    "separator": "\n"
+  }
+}

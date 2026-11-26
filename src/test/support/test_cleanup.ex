@@ -31,9 +31,15 @@ defmodule Aiur.TestCleanup do
     Enum.each(Keyword.get(opts, :unset, []), &Application.delete_env(:aiur, &1))
 
     case for {key, value} <- Application.get_all_env(:aiur), inside?(value, path), do: key do
-      [] -> remove!(path, Keyword.get(opts, :rm, &File.rm_rf/1), @retries)
+      [] -> remove!(path, Keyword.get(opts, :rm, &writable_rm_rf/1), @retries)
       keys -> raise "cannot remove #{path}: :aiur env #{inspect(Enum.sort(keys))} still points into it; restore before cleanup"
     end
+  end
+
+  # Build-gate hook snapshots are read-only, and rm_rf cannot clear a read-only directory.
+  defp writable_rm_rf(path) do
+    _ = System.cmd("chmod", ["-R", "u+w", path], stderr_to_stdout: true)
+    File.rm_rf(path)
   end
 
   defp inside?(value, path) when is_binary(value), do: value == path or String.starts_with?(value, path <> "/")

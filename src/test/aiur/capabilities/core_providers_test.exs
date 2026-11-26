@@ -107,7 +107,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
       caps = Commands.evaluate(@context, inputs(token: unquote(token)))
       expected = if unquote(token) == "invalid", do: @unknown, else: %{state: :unavailable, reason: :not_configured}
       assert caps["commands.supervisor_api"] == expected
-      refute inspect(caps) =~ "token:"
+      Aiur.TestSupport.refute_leak(caps, "token:")
     end
   end
 
@@ -161,7 +161,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     assert Executor.evaluate(@context, inputs())["executor.wakes"] == @available
     caps = Executor.evaluate(@context, inputs(lookup_fun: fn _ -> nil end))
     assert caps["executor.wakes"] == %{state: :unavailable, reason: :not_running}
-    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed}
+    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
   end
 
   for state <- ~w(active idle stalled expired unknown) do

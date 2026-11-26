@@ -249,6 +249,53 @@ defmodule Aiur.Events.GithubWebhook.DepositBodiesTest do
                PollSnapshots.ci_contexts(@repo, number)
     end
 
+    test "a pull_request lifecycle delivery retires held CI contexts for its ticket" do
+      ticket = ticket_id()
+      number = ticket_number()
+
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 @repo,
+                 number,
+                 "deadbeef",
+                 [%{"id" => 5501, "name" => "ci gate", "status" => "queued", "conclusion" => nil, "output" => %{}}],
+                 %{"state" => "pending", "statuses" => []}
+               )
+
+      # A check_run delivery makes the snapshot delivery-backed, so it is served.
+      check_run = %{
+        "action" => "completed",
+        "check_run" => %{
+          "id" => 5501,
+          "name" => "ci gate",
+          "status" => "completed",
+          "conclusion" => "failure",
+          "head_sha" => "deadbeef",
+          "app" => %{"id" => 15_368},
+          "started_at" => "2026-10-16T07:40:00Z",
+          "completed_at" => "2026-10-16T07:41:00Z",
+          "output" => %{},
+          "pull_requests" => [%{"head" => %{"ref" => "aiur/#{ticket}-work"}}]
+        }
+      }
+
+      GithubWebhook.Deposit.deposit("check_run", check_run, @repo)
+      assert {:ok, %{"check_runs" => [%{"conclusion" => "failure"}]}} = PollSnapshots.ci_contexts(@repo, number)
+
+      delivery = %{
+        "action" => "reopened",
+        "pull_request" => %{
+          "number" => 77,
+          "updated_at" => "2026-10-16T07:54:00Z",
+          "head" => %{"ref" => "aiur/#{ticket}-work", "sha" => "deadbeef"}
+        }
+      }
+
+      GithubWebhook.Deposit.deposit("pull_request", delivery, @repo)
+
+      assert :miss = PollSnapshots.ci_contexts(@repo, number)
+    end
+
     test "a resolved review-thread delivery advances an existing complete thread collection" do
       ticket = ticket_id()
       number = ticket_number()

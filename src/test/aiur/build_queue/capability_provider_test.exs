@@ -113,8 +113,8 @@ defmodule Aiur.BuildQueue.CapabilityProviderTest do
     try do
       report = Aiur.Capabilities.report(table: :absent_queue_capabilities, providers: [CapabilityProvider])
       assert_received :status_read_blocked
-      assert report.capabilities["build_queue"] == %{state: :unknown, reason: :unknown}
-      assert report.capabilities["build_queue.build_order_source"] == %{state: :unknown, reason: :unknown}
+      assert %{state: :unknown, reason: :unknown, detail: "timed out after " <> _elapsed} = report.capabilities["build_queue"]
+      assert %{state: :unknown, reason: :unknown, detail: "timed out after " <> _elapsed} = report.capabilities["build_queue.build_order_source"]
     after
       send(server, :release)
       :sys.get_state(server)

@@ -13,8 +13,8 @@ defmodule Aiur.AgentChatTest do
   end
 
   test "send delegates to orchestrator control path" do
-    assert {:error, reason} = AgentChat.send("MT-CHAT", "hello")
-    assert reason in [:unavailable, :no_running_agent]
+    assert {:ok, request_id} = AgentChat.send("MT-CHAT", "hello")
+    assert is_integer(request_id) and request_id > 0
   end
 
   test "pause delegates to orchestrator control path" do

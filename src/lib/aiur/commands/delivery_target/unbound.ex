@@ -22,4 +22,7 @@ defmodule Aiur.Commands.DeliveryTarget.Unbound do
 
   @impl true
   def active_identifiers, do: {:error, :delivery_target_unbound}
+
+  @impl true
+  def override_context(_ticket_identifier), do: %{pr: :unknown, worker: :unknown, capacity: :unknown}
 end

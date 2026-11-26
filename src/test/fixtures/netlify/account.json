@@ -1,0 +1,1 @@
+{"id":"acct","type_name":"Personal","plan_credits":500,"current_billing_period_start":"2026-10-01T00:00:00Z","next_billing_period_start":"2026-11-01T00:00:00Z","auto_topup_enabled":false,"plan_auto_topup_amount":0,"usages_exceeded":false,"sites_with_usage_exceeded":[],"in_operational_mode":true,"credit_alert_percentage":50}

@@ -1,10 +1,14 @@
 defmodule Aiur.ExecutorBindings do
   @moduledoc false
 
+  alias Aiur.Events
   alias Aiur.ExecutorEvents
 
   @defaults [
     {"executor.#", "commands:auto"},
+    {"system.newsletter.ready", "newsletter:auto"},
+    {"system.feature_supply_low", "dispatch:auto"},
+    {"system.feature_supply_low.resolved", "dispatch:auto"},
     {"system.dispatch.capacity_starved", "dispatch:auto"},
     {"system.dispatch.capacity_starved.resolved", "dispatch:auto"},
     {"system.fleet.capacity.starved", "dispatch:auto"},
@@ -14,11 +18,19 @@ defmodule Aiur.ExecutorBindings do
     {"system.dispatch.todo_capacity_exceeded", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
+    {"system.toolchain.erlang_missing", "dispatch:auto"},
+    {"system.toolchain.erlang_missing.resolved", "dispatch:auto"},
+    {"system.toolchain.below_minimum", "dispatch:auto"},
+    {"system.toolchain.below_minimum.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels.resolved", "dispatch:auto"},
     {"system.github.connectivity_lost", "dispatch:auto"},
+    {"system.pr.merged", "pr:auto"},
+    {"system.experiment.*.preregister", "experiments:auto"},
+    {"system.experiment.*.report_due", "experiments:auto"},
+    {"system.experiment.*.cancelled", "experiments:auto"},
     {"ticket.*.pr.opened", "pr:auto"},
     {"ticket.*.branch.push", "rework:auto"},
     {"ticket.*.pr.merged", "pr:auto"},
@@ -30,6 +42,16 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.agent.retry_exhausted", "attention:auto"},
     {"ticket.*.agent.handoff.human_review", "handoff:auto"},
     {"ticket.*.pr.parked_ready", "attention:auto"},
+    # A mandatory-skill gate refused the ticket start; only the operator can unblock it.
+    {"ticket.*.skills.blocked", "attention:auto"},
+    {"system.main.ci.failed", "ci:auto"},
+    {"system.main.ci.failed.resolved", "ci:auto"},
+    {"system.main.ci.flaked", "ci:auto"},
+    {"system.main.ci.flake_rerun", "ci:auto"},
+    {"system.main.ci.canary", "attention:auto"},
+    {"system.main.ci.unavailable", "attention:auto"},
+    {"system.main.fixer.*", "attention:auto"},
+    {"system.agent.synthetic_load_cap", "attention:auto"},
     {"ticket.*.ci.passed", "ci:auto"},
     {"ticket.*.ci.failed", "ci:auto"},
     {"ticket.*.pr.ready_for_review", "pr:auto"},
@@ -42,6 +64,13 @@ defmodule Aiur.ExecutorBindings do
 
   @spec patterns() :: [String.t()]
   def patterns, do: Enum.map(@defaults, &elem(&1, 0))
+
+  @spec attention_topic?(String.t()) :: boolean()
+  def attention_topic?(topic) do
+    Enum.any?(@defaults, fn {pattern, class} ->
+      class == "attention:auto" and String.starts_with?(pattern, "ticket.") and Events.matches?(pattern, topic)
+    end)
+  end
 
   @spec allowlisted?(String.t()) :: boolean()
   def allowlisted?(pattern) when is_binary(pattern) do

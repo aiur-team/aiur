@@ -37,6 +37,29 @@ class ReduceFilesTest(unittest.TestCase):
                     expected_ms = reducer._parse_timestamp("2026-10-09T" + time + "Z") if time else None
                     self.assertEqual(actual, int(expected_ms.timestamp() * 1000) if time else None)
 
+    def test_daemon_events_match_elixir_shared_fixture(self):
+        dataset = reducer.reduce_files([FIXTURES / "daemon-events" / "telemetry.ndjson"], {})
+        events = {event["event"]: event for event in dataset["tickets"]["42"]["events"]}
+        expected = {
+            "state_change": {"from_state": "in-progress", "to_state": "ci-wait", "cause": "observed"},
+            "ci_result": {"outcome": "failed", "pr_number": 77, "head_sha": "0123456789ab"},
+            "pr_ready": {"pr_number": 77},
+            "dependency_cleared": {"blocker": "11", "cause": "terminal"},
+            "ticket_usage": {
+                "input_tokens": 120000,
+                "output_tokens": 30000,
+                "cached_tokens": 5,
+                "cost_amount": "1.50",
+                "cost_currency": "USD",
+                "coverage": "complete",
+            },
+        }
+        for name, fields in expected.items():
+            for field, value in fields.items():
+                with self.subTest(event=name, field=field):
+                    self.assertEqual(events[name][field], value)
+        self.assertEqual(dataset["actors"]["_daemon"]["samples"][0]["fleet_binding_kind"], "config_cap")
+
     def test_preserves_fleet_build_pressure_and_source_evidence(self):
         metrics = {
             "fleet_agents_occupied": 13,

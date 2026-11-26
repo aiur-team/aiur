@@ -49,7 +49,8 @@ defmodule Aiur.ProcessExhaustionTest do
     assert ProcessExhaustion.cmd("ps", ["-p", "1"]) == {:error, :eagain}
 
     assert_received {:alert, "system.host.process_exhaustion", _opts}
-    refute_received {:alert, _topic, _opts}
+    # Scoped to this topic: the sink is app-wide, so a real SupervisionHealth alert can land here (#4896).
+    refute_received {:alert, "system.host.process_exhaustion", _opts}
   end
 
   test "descriptor exhaustion skips the probe too" do

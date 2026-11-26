@@ -1,6 +1,89 @@
 defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   use AiurWeb.BuildOrder.PlanningSourceCase
 
+  alias Aiur.GitHub.ResourceStore
+
+  test "root progress includes published members across every Build Order in the pack" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    tickets = for id <- ["T-1", "T-2", "T-3", "T-4"], do: %{"id" => id, "title" => id, "lane" => "core", "phase" => 1, "depends_on" => [], "ticket" => nil, "doc" => "tickets/#{id}.md"}
+    File.write!(path, Jason.encode!(%{"build_order_id" => "acme/widgets:demo", "title" => "Demo Plan", "repository" => "acme/widgets", "completed" => false, "tickets" => tickets}))
+
+    seed_order(9000, "closed", "completed", [9010, 9011])
+    seed_order(9001, "open", nil, [9012, 9013])
+    seed_member(9010, "T-1", "closed", "completed", 0)
+    seed_member(9011, "T-2", "closed", "completed", 0)
+    seed_member(9012, "T-3", "closed", "completed", 1)
+    seed_member(9013, "T-4", "open", nil, 1)
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 4
+    assert root.progress == 75
+    assert root.progress_resolution == :resolved
+    assert root.progress_resolved_count == 4
+  end
+
+  test "reconciliation-shaped entries resolve matching completed members" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    tickets = for id <- ["T-1", "T-2"], do: %{"id" => id, "title" => id, "lane" => "core", "phase" => 1, "depends_on" => [], "ticket" => nil, "doc" => "tickets/#{id}.md"}
+    File.write!(path, Jason.encode!(%{"build_order_id" => "acme/widgets:demo", "title" => "Demo Plan", "repository" => "acme/widgets", "completed" => false, "tickets" => tickets}))
+
+    seed_reconciled_order(9000, [9010, 9011])
+    seed_reconciled_member(9010, "T-1")
+    seed_reconciled_member(9011, "T-2")
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 2
+    assert root.progress == 100
+    assert root.progress_resolution == :resolved
+  end
+
+  test "catalog loads live progress stores once per repository for several packs" do
+    directory = Aiur.TestSupport.tmp_root!("planning-source-multiple-packs")
+    File.mkdir_p!(directory)
+
+    repository = Config.repo()
+
+    paths =
+      for index <- 1..4 do
+        path = Path.join(directory, "pack-#{index}.json")
+
+        pack =
+          Jason.decode!(@pack)
+          |> Map.put("repository", repository)
+          |> Map.put("build_order_id", "#{repository}:demo-#{index}")
+
+        File.write!(path, Jason.encode!(pack))
+        path
+      end
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, paths)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      Aiur.TestCleanup.rm_rf!(directory)
+    end)
+
+    {snapshot, reads} = trace_resource_store_reads(PlanningSource, :catalog, [])
+
+    assert length(snapshot.data.entries) == 4
+    assert Enum.sort(reads) == [:issue, :issue_labels, :sub_issue]
+  end
+
+  test "catalog skips issue and sub-issue entries without bodies" do
+    seed_order(9000, "open", nil, [9010])
+    seed_member(9010, "T-1", "closed", "completed", 0)
+
+    ResourceStore.put_etag(ResourceStore.key_for_repo(:issue, "acme/widgets", 9999), ~s("issue"))
+    ResourceStore.put_etag(ResourceStore.key_for_repo(:sub_issue, "acme/widgets", "9000:9999"), ~s("edge"))
+
+    [root] = PlanningSource.catalog().data.entries
+
+    assert root.member_count == 2
+  end
+
   test "full draft IDs retain distinct identities and dependency edges including T00" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     pack = Jason.decode!(@pack)
@@ -141,6 +224,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.icon == "bolt"
     assert root.progress == 50
     assert root.progress_resolution == :resolved
+    assert root.progress_resolved_count == 2
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -217,5 +301,83 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert model.status == :ready
     assert [%{url: nil, state: :unknown}] = model.edges
     refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
+  end
+
+  defp seed_order(number, state, reason, members) do
+    seed_resource(:issue, number, %{
+      "number" => number,
+      "title" => "Build Order #{number}",
+      "body" => "- Build Order id: `acme/widgets:demo`",
+      "state" => state,
+      "state_reason" => reason
+    })
+
+    seed_resource(:issue_labels, number, [%{"name" => "build-order"}])
+
+    Enum.each(members, fn member ->
+      seed_resource(:sub_issue, "#{number}:#{member}", %{"present" => true, "parent_issue_number" => number, "sub_issue_number" => member})
+    end)
+  end
+
+  defp seed_member(number, ticket_id, state, reason, phase) do
+    body = "Build Order member: `#{ticket_id}` (acme/widgets:demo, wave #{phase} / phase #{phase}, lane `core`)"
+    seed_resource(:issue, number, %{"number" => number, "title" => ticket_id, "body" => body, "state" => state, "state_reason" => reason})
+  end
+
+  defp seed_reconciled_order(number, members) do
+    seed_resource(:issue, number, %{"number" => number, "title" => "Build Order #{number}", "body" => "Build Order id: `acme/widgets:demo`", "state" => "OPEN"})
+    seed_resource(:issue_labels, number, [%{"name" => "build-order"}])
+
+    Enum.each(members, fn member ->
+      seed_resource(:sub_issue, "#{number}:#{member}", %{"present" => true, "parent_issue_number" => number, "sub_issue_number" => member})
+    end)
+  end
+
+  defp seed_reconciled_member(number, ticket_id) do
+    body = "Build Order member: `#{ticket_id}` (acme/widgets:demo, wave 1 / phase 1, lane `core`)"
+    seed_resource(:issue, number, %{"number" => number, "title" => ticket_id, "body" => body, "state" => "CLOSED", "state_reason" => "completed"})
+  end
+
+  defp seed_resource(type, id, data) do
+    key = ResourceStore.key_for_repo(type, "acme/widgets", id)
+    ResourceStore.put_resource(key, data, source: :webhook, version: "2026-10-11T12:00:00Z")
+  end
+
+  defp trace_resource_store_reads(module, function, arguments) do
+    mfa = {ResourceStore, :list, 3}
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        receive do
+          :run ->
+            send(parent, {:catalog_result, self(), apply(module, function, arguments)})
+            receive do: (:stop -> :ok)
+        end
+      end)
+
+    :erlang.trace_pattern(mfa, true, [])
+    :erlang.trace(pid, true, [:call, {:tracer, parent}])
+
+    try do
+      send(pid, :run)
+      assert_receive {:catalog_result, ^pid, result}, 5_000
+      ref = :erlang.trace_delivered(pid)
+      assert_receive {:trace_delivered, ^pid, ^ref}, 5_000
+      {result, collect_resource_store_reads([])}
+    after
+      :erlang.trace(pid, false, [:call])
+      :erlang.trace_pattern(mfa, false, [])
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end
+  end
+
+  defp collect_resource_store_reads(reads) do
+    receive do
+      {:trace, _pid, :call, {ResourceStore, :list, [type, _owner, _repo]}} ->
+        collect_resource_store_reads([type | reads])
+    after
+      0 -> reads
+    end
   end
 end

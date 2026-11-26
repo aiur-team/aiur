@@ -29,6 +29,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `attention.<slug>` | Need the Executor to look at the ticket (opens ❗; projected legacy Command is human-required). Use `decision.requested` for an answer, including a factual observation. | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |
 | `pause.request` | Ask Aiur to pause your turn at the next checkpoint. A guard-reported GitHub budget hold uses payload `{reason: "github_budget_hold", resource, reset_at_ms}` and resumes automatically without an attention. | `ticket.<id>.agent.pause.request` |
+| `optimistic.integrated` | Report a direct blocker integration with `{blocker, sha, conflict, non_ff}` | `ticket.<id>.optimistic.integrated` |
 | `custom.<slug>` | Anything else — a name no other category fits | `ticket.<id>.agent.custom.<slug>` |
 
 > **Also allowed, but Executor-facing (not cross-ticket coordination):** the bare

@@ -1,0 +1,9 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.BuildOrder.History.LabelBackfill",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/history_label_writes_cli.ex"
+  ],
+  "reason": "#3182 optional history writer control returns explicit unavailable errors when the supervised component is absent"
+}

@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.GitMetadata do
   @moduledoc ".git writability probes and stale-lock repair, local and remote, including the git-dir-inside-workspace containment guard."
   alias Aiur.{Config, PathSafety}
-  alias Aiur.Workspace.{Checkout, Remote}
+  alias Aiur.Workspace.{Checkout, Remote, StaleGitLock}
   @agent_logs_exclusion "logs/"
   @tool_results_exclusion ".aiur-runtime/"
   @type worker_host :: String.t() | nil
@@ -53,6 +53,7 @@ defmodule Aiur.Workspace.GitMetadata do
 
   def ensure_git_metadata_writable(workspace, nil) when is_binary(workspace) do
     with {:ok, paths} <- local_git_metadata_probe_paths(workspace),
+         :ok <- StaleGitLock.recover_paths(paths, workspace: workspace, git_dirs: [Path.dirname(hd(paths))]),
          :ok <- probe_lock_files(paths) do
       probe_git_index_write(workspace)
     else
@@ -284,8 +285,9 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp probe_lock_file(path) do
+    # Recovery runs before the probe. If a lock still exists, preserve it and
+    # let the exclusive create report that Git metadata is currently busy.
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- remove_stale_lock(path),
          {:ok, io} <- File.open(path, [:write, :exclusive]) do
       File.close(io)
       File.rm(path)
@@ -316,13 +318,6 @@ defmodule Aiur.Workspace.GitMetadata do
 
       {:error, reason} ->
         {:error, {:workspace_git_metadata_unwritable, probe_path, reason}}
-    end
-  end
-
-  defp remove_stale_lock(path) do
-    case File.rm(path) do
-      result when result in [:ok, {:error, :enoent}] -> :ok
-      {:error, reason} -> {:error, reason}
     end
   end
 

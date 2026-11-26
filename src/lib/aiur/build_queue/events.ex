@@ -1,7 +1,7 @@
 defmodule Aiur.BuildQueue.Events do
+  alias Aiur.Events
   @moduledoc "Live transition hints emitted only after the queue document is saved."
   require Logger
-  alias Aiur.Events.Publisher
 
   @doc "Publishes transitions between two saved documents; `removed_cause` names why members left."
   @spec saved(map(), map(), atom()) :: :ok
@@ -47,7 +47,7 @@ defmodule Aiur.BuildQueue.Events do
   def publish(verb, item, cause, intent_id) when verb in [:promoted, :withdrawn, :held, :released, :overridden, :removed] do
     payload = %{"ticket" => item.issue_id, "queue_id" => item.queue_id, "cause" => Atom.to_string(cause)}
 
-    case Publisher.publish("ticket.#{item.issue_id}.queue.#{verb}", payload, dedup_key: {"build_queue", "queue", intent_id}) do
+    case Events.publish("ticket.#{item.issue_id}.queue.#{verb}", payload, dedup_key: {"build_queue", "queue", intent_id}) do
       {:ok, _, _} -> :ok
       :deduped -> :ok
       result -> Logger.warning("Build queue event rejected: #{inspect(result)}")

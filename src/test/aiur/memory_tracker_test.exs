@@ -22,6 +22,24 @@ defmodule Aiur.MemoryTrackerTest do
     assert Tracker.blocked_by("missing") == {:error, :issue_not_found}
   end
 
+  test "added issues are visible to candidate polling and announce the seed" do
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+    issue = %Issue{id: "seed-1", identifier: "DEMO-1", title: "Seeded", state: "todo", labels: ["agent:todo"]}
+
+    assert :ok = Tracker.add_issue(issue)
+    assert {:ok, [^issue]} = Tracker.fetch_candidate_issues()
+    assert_received {:memory_tracker_issue_added, ^issue}
+  end
+
+  test "added issues reject duplicate ids and identifiers" do
+    existing = %Issue{id: "seed-1", identifier: "DEMO-1"}
+    Application.put_env(:aiur, :memory_tracker_issues, [existing])
+
+    assert {:error, :duplicate_id} = Tracker.add_issue(%Issue{id: "seed-1", identifier: "DEMO-2"})
+    assert {:error, :duplicate_identifier} = Tracker.add_issue(%Issue{id: "seed-2", identifier: "DEMO-1"})
+    assert {:ok, [^existing]} = Tracker.fetch_candidate_issues()
+  end
+
   test "expected_state :none only matches an issue with no state" do
     Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "42", identifier: "42", state: nil}])
     assert :ok = Tracker.update_issue_state("42", "todo", expected_state: :none)

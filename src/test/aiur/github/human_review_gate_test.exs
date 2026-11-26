@@ -1,12 +1,11 @@
 defmodule Aiur.GitHub.HumanReviewGateTest do
   use Aiur.TestSupport
 
-  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.GitHub.{Client, HumanReviewGate, ResourceStore}
-  alias Aiur.GitHub.ReadCache.Policy
-  alias Aiur.Issue
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @tested_head String.duplicate("a", 40)
+  @current_head String.duplicate("b", 40)
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -47,7 +46,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 42, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 42, "body" => local_tests_body(@tested_head), "head" => %{"ref" => "aiur/42", "sha" => @tested_head, "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
@@ -90,6 +89,94 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       assert detail.pr_number == 77
       assert detail.count == 1
       assert "PRRT_blocking" in detail.review_thread_ids
+    end
+
+    test "rejects human-review handoff when Local tests Tested head trails the PR head" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{"sha" => "parent"}]}]}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert {:error, {:stale_pr_body_evidence, detail}} =
+               HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+
+      assert detail.pr_number == 77
+      assert detail.head_sha == @current_head
+      assert detail.tested_head == @tested_head
+      assert detail.body_update_line == "Tested head: #{@current_head}"
+      assert detail.reason == "Local tests Tested head does not match PR head"
+    end
+
+    test "carries stale evidence only across merge-only commits with identical PR contribution" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/pulls/77" ->
+            {:ok, %{status: 200, body: pr(@tested_head, @current_head)}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{}, %{}]}]}}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@tested_head}" ->
+            {:ok, %{status: 200, body: comparison("old-base")}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@current_head}" ->
+            {:ok, %{status: 200, body: comparison("new-base")}}
+
+          req.method == :get and req.url =~ "/compare/old-base...new-base" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "files" => []}}}
+
+          req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+            {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"pullRequest" => %{"reviewThreads" => %{"pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}, "nodes" => []}}}}}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert :ok = HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+    end
+
+    test "rejects stale evidence when a merge-only commit changes the PR contribution" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/pulls/77" ->
+            {:ok, %{status: 200, body: pr(@tested_head, @current_head)}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{}, %{}]}]}}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@tested_head}" ->
+            {:ok, %{status: 200, body: comparison("old-base")}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@current_head}" ->
+            {:ok, %{status: 200, body: comparison("new-base", [{"src/lib/a.ex", "current", "@@ -1,1 +1,1 @@\n-old\n+new"}])}}
+
+          req.method == :get and req.url =~ "/compare/old-base...new-base" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "files" => []}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert {:error, {:stale_pr_body_evidence, detail}} =
+               HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+
+      assert detail.body_update_line == "Tested head: #{@current_head}"
     end
 
     # #1756: reverting an approved PR to rework deadlocks the ticket — the
@@ -201,160 +288,6 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       assert ResourceStore.data(key) == approved
     end
 
-    test "stale disjoint heads permit the label write for both behind and diverged bases" do
-      for status <- ["behind", "diverged"] do
-        pr_files = if status == "behind", do: [], else: [%{"filename" => "feature.ex"}]
-        request_fun = stale_request_fun(status, pr_files, [%{"filename" => "upstream.ex"}], mergeability(), true)
-        assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-        assert_receive :label_written, 1000
-      end
-    end
-
-    test "a lagging GraphQL baseRefOid does not block a disjoint head against the REST base tip" do
-      detail = Map.put(mergeability(), "baseRefOid", "old-base")
-      request_fun = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [%{"filename" => "upstream.ex"}], detail, true)
-
-      assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      assert_receive :label_written, 1000
-    end
-
-    test "UNKNOWN mergeability allows a disjoint head without a conflict signal" do
-      detail = Map.put(mergeability(nil), "baseRefOid", "old-base")
-      request_fun = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [%{"filename" => "upstream.ex"}], detail, true)
-
-      assert :ok = Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      assert_receive :label_written, 1000
-    end
-
-    test "overlap refuses labels and returns one actionable worker packet" do
-      request_fun = stale_request_fun("diverged", [%{"filename" => "shared.ex"}], [%{"filename" => "shared.ex"}], mergeability())
-
-      executor =
-        ToolExecutor.build(%Issue{id: "42", identifier: "42"}, nil, nil, %{},
-          coordination_runner: fn _key, operation, _opts -> operation.() end,
-          ticket_state_writer: fn id, state ->
-            Client.update_issue_state(id, state, request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-          end
-        )
-
-      response = executor.("aiur_set_ticket_state", %{"state" => "human-review"})
-      assert response["success"] == false
-      error = Jason.decode!(response["output"])["error"]
-      assert error["reason"] == "stale_review_base"
-      assert error["detail"] == %{"pr_number" => 77, "base_branch" => "release/next", "head_sha" => "tested-head"}
-      assert error["message"] =~ "ci-wait"
-      refute_receive :label_written, 100
-    end
-
-    test "renames overlap through either previous filename and conflicts refuse disjoint heads" do
-      cases = [
-        {[%{"filename" => "new.ex", "previous_filename" => "old.ex"}], [%{"filename" => "old.ex"}], mergeability()},
-        {[%{"filename" => "old.ex"}], [%{"filename" => "new.ex", "previous_filename" => "old.ex"}], mergeability()},
-        {[%{"filename" => "feature.ex"}], [%{"filename" => "upstream.ex"}], mergeability(false)}
-      ]
-
-      for {pr_files, upstream_files, detail} <- cases do
-        request_fun = stale_request_fun("diverged", pr_files, upstream_files, detail)
-
-        assert {:error, {:stale_review_base, %{head_sha: "tested-head"}}} =
-                 Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      end
-    end
-
-    test "truncated or malformed file lists and malformed or mismatched mergeability fail closed" do
-      valid = [%{"filename" => "feature.ex"}]
-      other = [%{"filename" => "upstream.ex"}]
-      capped = List.duplicate(%{"filename" => "file.ex"}, 300)
-
-      cases = [
-        {nil, other, mergeability()},
-        {valid, nil, mergeability()},
-        {"invalid", other, mergeability()},
-        {valid, "invalid", mergeability()},
-        {capped, other, mergeability()},
-        {valid, capped, mergeability()},
-        {[%{}], other, mergeability()},
-        {[%{"filename" => "new.ex", "status" => "renamed"}], other, mergeability()},
-        {valid, [%{"filename" => "new.ex", "status" => "renamed", "previous_filename" => nil}], mergeability()},
-        {valid, [%{"filename" => ""}], mergeability()},
-        {[%{"filename" => "new.ex", "previous_filename" => 42}], other, mergeability()},
-        {valid, other, Map.put(mergeability(), "mergeable", nil)},
-        {valid, other, Map.put(mergeability(), "mergeable", "invalid")},
-        {valid, other, Map.delete(mergeability(), "mergeable")},
-        {valid, other, put_in(mergeability(), ["headRefOid"], "new-head")},
-        {valid, other, put_in(mergeability(), ["baseRefName"], "other-base")}
-      ]
-
-      for {pr_files, upstream_files, detail} <- cases do
-        request_fun = stale_request_fun("diverged", pr_files, upstream_files, detail)
-
-        assert {:error, :review_base_ancestry_unavailable} =
-                 Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      end
-    end
-
-    test "compatibility checks observe upstream movement after a disjoint handoff" do
-      {:ok, snapshots} = Agent.start_link(fn -> [[%{"filename" => "other.ex"}], [%{"filename" => "feature.ex"}]] end)
-      fallback = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [], mergeability(), true)
-
-      request_fun = fn req ->
-        if req.url =~ "/compare/tested-head...observed-base" do
-          files = Agent.get_and_update(snapshots, fn [files | rest] -> {files, rest} end)
-          {:ok, %{status: 200, body: %{"status" => "diverged", "files" => files}}}
-        else
-          fallback.(req)
-        end
-      end
-
-      opts = [request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next"]
-      assert :ok = Client.update_issue_state("42", "human-review", opts)
-      assert_receive :label_written, 1000
-      assert {:error, {:stale_review_base, %{head_sha: "tested-head"}}} = Client.update_issue_state("42", "human-review", opts)
-      refute_receive :label_written, 100
-      assert Agent.get(snapshots, & &1) == []
-    end
-
-    test "stale compatibility network errors and missing observed base do not permit labels" do
-      fallback = stale_request_fun("diverged", [%{"filename" => "feature.ex"}], [%{"filename" => "other.ex"}], mergeability())
-
-      for path <- ["/compare/tested-head...observed-base", "mergeability"] do
-        request_fun = fn req ->
-          if (mergeability_request?(req) and path == "mergeability") or String.starts_with?(req.url, "https://api.github.com/repos/owner/repo" <> path <> "?") do
-            {:error, :timeout}
-          else
-            fallback.(req)
-          end
-        end
-
-        assert {:error, {:github, :timeout, %{reason: :timeout}}} =
-                 Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      end
-
-      for body <- [%{"files" => []}, %{"status" => "unknown", "files" => []}] do
-        request_fun = fn req ->
-          if req.url =~ "/compare/tested-head...observed-base" do
-            {:ok, %{status: 200, body: body}}
-          else
-            fallback.(req)
-          end
-        end
-
-        assert {:error, :review_base_ancestry_unavailable} =
-                 Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-      end
-
-      request_fun = fn req ->
-        if req.url =~ "/compare/release%2Fnext...tested-head" do
-          {:ok, %{status: 200, body: %{"status" => "diverged", "files" => []}}}
-        else
-          fallback.(req)
-        end
-      end
-
-      assert {:error, :review_base_ancestry_unavailable} =
-               Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
-    end
-
     test "unavailable ancestry never becomes permission to hand off" do
       fallback = handoff_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
 
@@ -387,7 +320,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         end
       end
 
-      assert {:error, :review_base_ancestry_unavailable} =
+      assert {:error, {:stale_pr_body_evidence, %{reason: "PR head or body is missing"}}} =
                Client.update_issue_state("42", "human-review", request_fun: missing_head, bot_account: "aiur-bot")
     end
 
@@ -406,57 +339,6 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
                )
     end
   end
-
-  defp mergeability(mergeable? \\ true) do
-    %{"headRefOid" => "tested-head", "baseRefName" => "release/next", "baseRefOid" => "observed-base", "mergeable" => mergeable_value(mergeable?)}
-  end
-
-  defp mergeable_value(true), do: "MERGEABLE"
-  defp mergeable_value(false), do: "CONFLICTING"
-  defp mergeable_value(nil), do: "UNKNOWN"
-
-  defp mergeability_request?(%{method: :post, body: %{"query" => query}}), do: String.contains?(query, "AiurHumanReviewMergeability")
-  defp mergeability_request?(_req), do: false
-
-  defp stale_request_fun(status, pr_files, upstream_files, detail, allow_labels? \\ false) do
-    parent = self()
-    fallback = handoff_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
-
-    responses = %{
-      "https://api.github.com/repos/owner/repo/compare/release%2Fnext...tested-head?per_page=1" => %{"status" => status, "base_commit" => %{"sha" => "observed-base"}, "files" => pr_files},
-      "https://api.github.com/repos/owner/repo/compare/tested-head...observed-base?per_page=1" => %{"status" => "diverged", "files" => upstream_files},
-      "https://api.github.com/graphql" => %{"data" => %{"repository" => %{"pullRequest" => detail}}}
-    }
-
-    fn req ->
-      response = if req.url != "https://api.github.com/graphql" or mergeability_request?(req), do: Map.fetch(responses, req.url), else: :error
-
-      case response do
-        {:ok, body} ->
-          assert req.caller == "human_review_base_ancestry"
-          verify_uncached_mergeability(req)
-          {:ok, %{status: 200, body: body}}
-
-        :error ->
-          verify_label_write(req, allow_labels?, parent)
-          fallback.(req)
-      end
-    end
-  end
-
-  defp verify_uncached_mergeability(req) do
-    if mergeability_request?(req) do
-      assert {:no_cache, :unsafe_kind} == Policy.classify(req)
-      refute req.body["query"] =~ "baseRefOid"
-    end
-  end
-
-  defp verify_label_write(%{method: method, url: url}, allow?, parent) when method in [:post, :delete] and url != "https://api.github.com/graphql" do
-    assert allow?, "unsafe stale head must not mutate labels"
-    if method == :post, do: send(parent, :label_written)
-  end
-
-  defp verify_label_write(_req, _allow?, _parent), do: :ok
 
   defp handoff_request_fun(reviews) do
     fallback = blocking_thread_request_fun(reviews)
@@ -490,7 +372,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "body" => local_tests_body(@tested_head), "head" => %{"ref" => "aiur/42", "sha" => @tested_head, "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
@@ -536,6 +418,21 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
     end
   end
+
+  defp local_tests_body(head) do
+    "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
+  end
+
+  defp pr(tested_head, head) do
+    %{
+      "number" => 77,
+      "body" => local_tests_body(tested_head),
+      "head" => %{"ref" => "aiur/42", "sha" => head, "repo" => %{"full_name" => "owner/repo"}}
+    }
+  end
+
+  defp comparison(base_sha, files \\ []),
+    do: %{"status" => "ahead", "merge_base_commit" => %{"sha" => base_sha}, "files" => Enum.map(files, fn {filename, sha, patch} -> %{"filename" => filename, "sha" => sha, "patch" => patch} end)}
 
   defp review(login, state, submitted_at) do
     %{"id" => :erlang.phash2({login, state, submitted_at}), "user" => %{"login" => login}, "state" => state, "submitted_at" => submitted_at, "body" => ""}

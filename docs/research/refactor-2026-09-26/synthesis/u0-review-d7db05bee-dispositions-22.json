@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 22,
+  "first_id": "skills-prompts-cont-68",
+  "last_id": "telemetry-usage-28",
+  "findings": [
+    {
+      "id": "skills-prompts-cont-68",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-run/SKILL.md:807",
+      "note": "Recovery recipe still says config floors CLI cap, whereas CLI stores highest-precedence override and explicitly warns CLI wins. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-68"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-69",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-run/SKILL.md:862",
+      "note": "Example still says 1.5 on 16 cores holds near load 18; load_gate multiplies threshold by schedulers, yielding 24 for 16.",
+      "source_ids": [
+        "skills-prompts-cont-69"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-70",
+      "status": "changed",
+      "anchor": ".claude/skills/aiur-run/SKILL.md:313",
+      "note": "Hard-coded count was updated to 28 and now matches the 28 ExecutorBindings defaults; future-drift exposure remains, old 24-versus-26 mismatch does not.",
+      "source_ids": [
+        "skills-prompts-cont-70"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-71",
+      "status": "changed",
+      "anchor": "src/prompts/shared-agent-instructions.md:130",
+      "note": "Shared prompt still permits legacy attention/operator_decision pause without structured decision options; main skill requires them. Attention reference now advises enrichment, so not every cited recipe remains wrong. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-71"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-72",
+      "status": "present",
+      "anchor": "src/prompts/shared-agent-instructions.md:113",
+      "note": "Shared prompt and stub instructions still demand explicit agent.unblocked while merged dependency readiness is a runtime route. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-72"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "skills-prompts-cont-73",
+      "status": "present",
+      "anchor": ".claude/skills/aiur-agent/emit-and-subscribe.md:231",
+      "note": "Dismissal recipe still asks for decision.resolved after best judgement; store resolution requires durable answer/acknowledgment. Provisional disposition retained.",
+      "source_ids": [
+        "skills-prompts-cont-73"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage_ledger/counter_policy.ex:30",
+      "note": "Accepted envelope still permanently adds idempotency key; full key set dump and Store checkpoint/key capacity gate remain while raw retirement does not prune policy. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage/headless/normalizer.ex:22",
+      "note": "Normalizer still runs all registered adapters; thread and turn usage produce separate envelopes while GroupedScopes adds every selected token cell without overlap exclusion. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex:94",
+      "note": "Pricing partition still uses provider defaults rather than retained cell tiers; price data relationship revisions remain source-version names rather than headless adapter relationships. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage_aggregate/store.ex:79",
+      "note": "Aggregate subscribes only during bootstrap and refreshes only ledger_delta notification; restarted ledger subscriber map has no resubscription route. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage_compaction/coordinator.ex:153",
+      "note": "Non-ok compaction health still skips cycles; halt persists degraded state and scheduler only arms when ok, leaving recovery at boot. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage/headless/emitter.ex:27",
+      "note": "Emitter still publishes envelopes only, dropping coverage outcome from persistent accounting; append result is ignored and exceptions swallowed. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "telemetry-usage-06"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-07",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/dataset.ex:146",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-07"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-08",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_aggregate/key.ex:17",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-08"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_account_generation/continuity.ex:21",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry/sampler.ex:12",
+      "note": "Sampler defaults still directly call observed runtime services; injection does not remove production package coupling. Provisional disposition retained.",
+      "source_ids": [
+        "telemetry-usage-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-11",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/writer.ex:96",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-11"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-12",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/writer.ex:96",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-12"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-13",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/retention.ex:54",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-14",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/summaries.ex:108",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-14"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/dataset.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-15"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry/sampler.ex:88",
+      "note": "Sampler retains supervision, fleet/build probing, attribution and metrics math; Writer retains admission, retention and lifecycle encoding. Provisional disposition retained.",
+      "source_ids": [
+        "telemetry-usage-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-17",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/dashboard.ex:137",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-17"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry/dataset.ex:16",
+      "note": "Dataset and Summaries still duplicate resource metric/evidence lists and decoding; independent catalogues remain. Provisional disposition retained.",
+      "source_ids": [
+        "telemetry-usage-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry/writer.ex:438",
+      "note": "Writer retains timestamp helpers with different invalid-input fallback policies; Dataset independently returns :error. Provisional disposition retained.",
+      "source_ids": [
+        "telemetry-usage-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_aggregate/query.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-20"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/pricing.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-21"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_ledger/checkpoint.ex:118",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-23",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_ledger/store.ex:192",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/headless/claude/request_usage.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-24"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-25",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_meters/input.ex:74",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-25"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_account_generation/state.ex:42",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-26"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-27",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_metrics/collector.ex:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-27"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/github_enricher.ex:16",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

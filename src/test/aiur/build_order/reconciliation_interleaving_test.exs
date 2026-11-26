@@ -44,14 +44,14 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
       {:ok, response}
     end
 
-    assert {:error, :membership_changed} = Reconciliation.run(request_fun: request)
+    assert {:error, :membership_changed} = Reconciliation.run(token: "test-gh-token", request_fun: request)
     assert edge(592)["present"] == true
     assert edge(10)["present"] == false
     refute_receive {:github_resource_changed, %{key: nil}}, 30
 
     # The next bounded attempt uses a new fence and converges on new truth.
     assert {:ok, :reconciled, %{roots: 1}} =
-             Reconciliation.run(request_fun: fn _ -> {:ok, response([592, 609])} end)
+             Reconciliation.run(token: "test-gh-token", request_fun: fn _ -> {:ok, response([592, 609])} end)
 
     assert members() == [592, 609]
     assert :miss = ResourceStore.fetch(key(10))

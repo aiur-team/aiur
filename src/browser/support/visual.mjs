@@ -48,6 +48,10 @@ export async function openVisualRoute(page, { theme, palette, route, collapsed =
   await page.goto(route)
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+  if (new URL(page.url()).pathname === '/analytics') {
+    await expect(page.getByRole('status').filter({ hasText: 'Loading run analytics…' })).toHaveCount(0)
+    await expect(page.locator('[data-source-kind], [data-empty-reason]:not([data-empty-reason="loading"])')).toBeVisible()
+  }
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
   await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', String(collapsed))
   await page.evaluate(() => document.fonts.ready)
@@ -80,7 +84,7 @@ function browserEndpoint(child) {
 async function dockerConfig(scratch, browserRoot, endpoint) {
   const configPath = path.join(scratch, 'playwright.docker.config.mjs')
   const configUrl = new URL('../playwright.config.mjs', import.meta.url).href
-  await writeFile(configPath, `import config from ${JSON.stringify(configUrl)};\nexport default { ...config, testDir: ${JSON.stringify(path.join(browserRoot, 'tests'))}, use: { ...config.use, connectOptions: { wsEndpoint: ${JSON.stringify(endpoint)} } }, webServer: { ...config.webServer, cwd: ${JSON.stringify(browserRoot)} } };\n`)
+  await writeFile(configPath, `import config from ${JSON.stringify(configUrl)};\nexport default { ...config, testDir: ${JSON.stringify(path.join(browserRoot, 'tests'))}, use: { ...config.use, connectOptions: { wsEndpoint: ${JSON.stringify(endpoint)} } }, webServer: config.webServer ? { ...config.webServer, cwd: ${JSON.stringify(browserRoot)} } : undefined };\n`)
   return configPath
 }
 

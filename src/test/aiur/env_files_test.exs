@@ -1,6 +1,8 @@
 defmodule Aiur.EnvFilesTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Env
   alias Aiur.Env.Schema
 
@@ -230,6 +232,18 @@ defmodule Aiur.EnvFilesTest do
       File.write!(repo_env, "AIUR_BASE_BRANCH=main\n")
 
       assert Env.precedence_conflicts(home_env, repo_env) == []
+    end
+
+    test "environment-only startup skips dotenv precedence reads", %{home_env: home_env, repo_env: repo_env} do
+      File.write!(home_env, "AIUR_DASHBOARD_PASSWORD=home-value\n")
+      File.write!(repo_env, "AIUR_DASHBOARD_PASSWORD=repo-value\n")
+
+      log =
+        capture_log(fn ->
+          assert :ok = Env.warn_precedence_conflicts(%{"AIUR_SECRETS_FROM_ENV" => "1"}, home_env, repo_env)
+        end)
+
+      refute log =~ "environment precedence conflict"
     end
   end
 

@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.Budget
+
   for scenario <- ["lock", "commit", "margin"] do
     @scenario scenario
     test "expired request remains isolated during #{@scenario}" do
@@ -9,8 +11,8 @@ defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
       on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       script = """
-      import importlib.util, json, sqlite3, sys
-      spec = importlib.util.spec_from_file_location("broker", sys.argv[1])
+      import importlib.machinery, importlib.util, json, sqlite3, sys
+      spec = importlib.util.spec_from_file_location("broker", sys.argv[1], loader=importlib.machinery.SourceFileLoader("broker", sys.argv[1]))
       broker = importlib.util.module_from_spec(spec)
       spec.loader.exec_module(broker)
       broker.SESSION_CONNECTIONS = {}
@@ -44,7 +46,7 @@ defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
                         "consumers": [row[0] for row in external.execute("SELECT consumer_key FROM admissions")]}))
       """
 
-      {output, 0} = System.cmd("python3", ["-c", script, Path.expand("../../../priv/github_budget.py", __DIR__), root, @scenario])
+      {output, 0} = System.cmd("python3", ["-c", script, Budget.broker_path(state_dir: root), root, @scenario])
       assert Jason.decode!(output) == %{"statuses" => %{"1" => 2, "2" => 0}, "leases" => 1, "consumers" => ["long"]}
     end
   end

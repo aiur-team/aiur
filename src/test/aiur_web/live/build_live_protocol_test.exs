@@ -1,9 +1,10 @@
 defmodule AiurWeb.BuildLiveProtocolTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
+  alias Aiur.TestSupport.LiveViewAsync
 
   test "resync returns mount epoch and reuses the first read only" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert_received :subscribed
     assert_received {:read, [time_zone: "Etc/UTC", financial: {:ok, %AiurWeb.FinancialDataAccess.Context{}}]}
     render_hook(view, "build-resync", %{})
@@ -26,8 +27,8 @@ defmodule AiurWeb.BuildLiveProtocolTest do
   test "each connected process has a different epoch" do
     {:ok, a, _} = live(build_conn(), "/build")
     {:ok, b, _} = live(build_conn(), "/build")
-    render_async(a)
-    render_async(b)
+    LiveViewAsync.render_when_complete(a)
+    LiveViewAsync.render_when_complete(b)
     render_hook(a, "build-resync", %{})
     render_hook(b, "build-resync", %{})
     assert_reply(a, one)
@@ -40,7 +41,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
     source(ignore_financial: true)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, false)
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     revoke_access()
     render_hook(view, "build-resync", %{})
     assert_reply(view, reply)
@@ -52,7 +53,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
 
   test "broadcast diffs advance once and stale index changes never advance" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     row = hd(data()["sections"]["now"])
     Phoenix.PubSub.broadcast(Aiur.PubSub, "build-home:fixture", {:build_changes, change(row, 5)})
     render(view)
@@ -70,7 +71,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
 
   test "index restart creates a gap and clears private index generation" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     row = hd(data()["sections"]["now"])
     for index <- 7..9, do: send(view.pid, {:build_changes, change(row, index)})
     render(view)
@@ -85,7 +86,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
 
   test "locked socket strips usage but retains the row upsert" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     revoke_access()
     row = hd(data()["sections"]["now"])
     changes = %{change(row) | set: %{usage: data()["usage"]}}
@@ -98,7 +99,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
   test "paging uses the mount zone, accepts days, and expands the diff window" do
     conn = put_connect_params(build_conn(), %{"time_zone" => "America/Los_Angeles"})
     {:ok, view, _} = live(conn, "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     render_hook(view, "build-resync", %{})
     assert_reply(view, initial)
     from = initial["history"]["from"]
@@ -127,7 +128,7 @@ defmodule AiurWeb.BuildLiveProtocolTest do
 
   test "invalid paging parameters reply without crashing or changing history" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     original = :sys.get_state(view.pid).socket.assigns.build_history
 
     for params <- [%{}, %{"before" => "x"}, %{"before" => -1}, %{"before" => System.system_time(:millisecond) + 172_800_000}, %{"before" => 1, "days" => 0}, %{"before" => 1, "days" => 32}] do

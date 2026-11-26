@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionStore.ProjectionRecovery do
   @moduledoc false
 
-  alias Aiur.{Alerts, Decision, DecisionEvent, DecisionProjection, JsonStore}
+  alias Aiur.{Decision, DecisionEvent, DecisionProjection, JsonStore, Signal}
   alias Aiur.Protocol.ObservationAge
   require Logger
 
@@ -46,11 +46,27 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
     prior = Map.get(current, event.decision_id)
     decision = DecisionProjection.reduce(List.wrap(prior) ++ [event]).current[event.decision_id]
     withheld? = MapSet.member?(ids, event.event_id)
+    pending = attribute_pending_request(pending, decision, event)
     pending = if withheld?, do: [{decision, event} | pending], else: pending
     {Map.put(current, event.decision_id, decision), pending}
   end
 
   defp replay_record(_unknown, acc, _ids), do: acc
+
+  # A crash between the two appends and projection repair must still publish
+  # the requested notification with its subsequently replayed attribution.
+  defp attribute_pending_request(pending, decision, %DecisionEvent{type: :request_attributed}) do
+    Enum.map(pending, fn
+      {%Decision{decision_id: id, version: version}, %DecisionEvent{type: :requested} = request}
+      when id == decision.decision_id and version == decision.version ->
+        {decision, request}
+
+      other ->
+        other
+    end)
+  end
+
+  defp attribute_pending_request(pending, _decision, _event), do: pending
 
   defp last_id(records) do
     Enum.reduce(records, nil, fn record, id -> Map.get(record, :event_id, id) end)
@@ -114,7 +130,7 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
     unless match?({:stale, _, _}, state.projection) do
       Logger.error("aiur_decision_store phase=projection_repair_failed reason=#{inspect(reason)}")
 
-      Alerts.emit_custom("decision_store.repair_failed", "Decision projection stale since #{DateTime.to_iso8601(since)}; journal remains authoritative and writable.",
+      Signal.agent_alert("decision_store.repair_failed", "Decision projection stale since #{DateTime.to_iso8601(since)}; journal remains authoritative and writable.",
         reason: inspect(reason),
         needs_attention: true
       )

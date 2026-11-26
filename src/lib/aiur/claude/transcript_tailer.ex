@@ -36,11 +36,15 @@ defmodule Aiur.Claude.TranscriptTailer do
 
   @type option ::
           {:path, Path.t()}
+          | {:extractor, (map(), String.t() | nil -> [Aiur.AgentEvents.transcript_event()])}
           | {:on_message, (Aiur.AgentEvents.transcript_event() -> any())}
           | {:on_backfill_message, (Aiur.AgentEvents.transcript_event() -> any())}
           | {:on_turn_end, (turn_end_signal() -> any())}
           | {:turn_id, String.t() | nil}
-          | {:from, :start | :end}
+          | {:from, :start | :end | non_neg_integer() | {:offset, non_neg_integer()}}
+          | {:on_record, (map() -> any())}
+          | {:on_offset, (non_neg_integer() -> any())}
+          | {:on_status, (:readable | :unreadable | :reset -> any())}
           | {:backfill_until, non_neg_integer()}
           | {:interval_ms, pos_integer() | nil}
           | {:name, GenServer.name()}
@@ -56,8 +60,12 @@ defmodule Aiur.Claude.TranscriptTailer do
   Run one read cycle synchronously and return the number of events emitted.
   Used in tests for deterministic stepping; production relies on the timer.
   """
-  @spec poll(GenServer.server()) :: {:ok, non_neg_integer()}
-  def poll(server), do: GenServer.call(server, :poll)
+  @spec poll(GenServer.server(), timeout()) :: {:ok, non_neg_integer()}
+  def poll(server, timeout \\ 5000), do: GenServer.call(server, :poll, timeout)
+
+  @doc false
+  @spec handoff_cursor(GenServer.server()) :: map()
+  def handoff_cursor(server), do: GenServer.call(server, :handoff_cursor)
 
   @impl true
   def init(opts) do
@@ -66,17 +74,24 @@ defmodule Aiur.Claude.TranscriptTailer do
     on_backfill_message = Keyword.get(opts, :on_backfill_message, on_message)
     on_turn_end = Keyword.get(opts, :on_turn_end, fn _reason -> :ok end)
     turn_id = Keyword.get(opts, :turn_id)
+    extractor = Keyword.get(opts, :extractor, &Transcript.extract_disk_record/2)
     interval_ms = Keyword.get(opts, :interval_ms, @default_interval_ms)
 
     offset =
       case Keyword.get(opts, :from, :end) do
         :end -> current_size(path)
         :start -> 0
+        {:offset, offset} when is_integer(offset) and offset >= 0 -> offset
+        offset when is_integer(offset) and offset >= 0 -> offset
       end
 
     state = %{
       path: path,
+      extractor: extractor,
       offset: offset,
+      on_record: Keyword.get(opts, :on_record, fn _ -> :ok end),
+      on_offset: Keyword.get(opts, :on_offset, fn _ -> :ok end),
+      on_status: Keyword.get(opts, :on_status, fn _ -> :ok end),
       on_message: on_message,
       on_backfill_message: on_backfill_message,
       backfill_until: Keyword.get(opts, :backfill_until, 0),
@@ -90,6 +105,9 @@ defmodule Aiur.Claude.TranscriptTailer do
   end
 
   @impl true
+  def handle_call(:handoff_cursor, _from, state),
+    do: {:stop, :normal, Map.take(state, [:path, :offset, :backfill_until]), state}
+
   def handle_call(:poll, _from, state) do
     {emitted, state} = read_new(state)
     {:reply, {:ok, emitted}, state}
@@ -114,6 +132,7 @@ defmodule Aiur.Claude.TranscriptTailer do
       {:ok, %{size: size}} ->
         state =
           if size < state.offset do
+            state.on_status.(:reset)
             %{state | offset: 0, backfill_until: 0}
           else
             state
@@ -122,12 +141,14 @@ defmodule Aiur.Claude.TranscriptTailer do
         offset = state.offset
 
         if size == offset do
+          state.on_status.(:readable)
           {0, %{state | offset: offset}}
         else
           consume(state, offset, size)
         end
 
       {:error, _reason} ->
+        state.on_status.(:unreadable)
         {0, state}
     end
   end
@@ -135,11 +156,14 @@ defmodule Aiur.Claude.TranscriptTailer do
   defp consume(state, offset, size) do
     case read_chunk(state.path, offset, size - offset) do
       {:ok, chunk} ->
+        state.on_status.(:readable)
         {complete, consumed} = complete_lines(chunk)
         emitted = emit_lines(state, complete, offset)
+        if consumed > 0, do: state.on_offset.(offset + consumed)
         {emitted, %{state | offset: offset + consumed}}
 
       :error ->
+        state.on_status.(:unreadable)
         {0, %{state | offset: offset}}
     end
   end
@@ -199,7 +223,8 @@ defmodule Aiur.Claude.TranscriptTailer do
 
       case decode(line) do
         {:ok, record} ->
-          events = Transcript.extract_disk_record(record, state.turn_id)
+          state.on_record.(record)
+          events = state.extractor.(record, state.turn_id)
           Enum.each(events, callback)
           maybe_fire_turn_end(state, record)
           {emitted + length(events), next_cursor}

@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Status.SnapshotPublisherTest do
 
   import Aiur.OrchestratorStatusSupport
 
+  alias Aiur.Orchestrator.Client
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
@@ -60,8 +61,35 @@ defmodule Aiur.Orchestrator.Status.SnapshotPublisherTest do
                  Task.yield(task, 25)
       end)
 
-    assert log =~ "Dashboard snapshot timed out"
+    assert log =~ "Dashboard snapshot projection is stale"
     assert log =~ "orchestrator_mailbox_depth="
+  end
+
+  test "status reads a retained snapshot while the orchestrator mailbox is blocked" do
+    orchestrator_name = Module.concat(__MODULE__, :StatusSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    state = :sys.get_state(pid)
+    issue = %Aiur.Issue{id: "8104-test", identifier: "repo#8104", state: "in-progress", title: "Snapshot status"}
+    running = %{identifier: issue.identifier, issue: issue, started_at: DateTime.utc_now(), control: %{status: :working}}
+    snapshot_state = %{state | running: %{issue.id => running}}
+    :ok = SnapshotStore.publish(orchestrator_name, StatusReport.snapshot_payload(snapshot_state), snapshot_state)
+
+    :sys.suspend(pid)
+    send(pid, :mailbox_backlog)
+
+    assert [%{identifier: "repo#8104", title: "Snapshot status", state: :running}] =
+             Client.status(orchestrator_name, 100)
   end
 
   test "keeps a busy-but-publishing orchestrator's fleet snapshot current within its load-aware window" do

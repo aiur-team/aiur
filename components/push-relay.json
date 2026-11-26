@@ -1,0 +1,42 @@
+{
+  "id": "push-relay",
+  "name": "Encrypted notifications",
+  "layer": 3,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/push/crypto/primitives.ex"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "commands",
+    "event-bus",
+    "identity",
+    "pairing-discovery"
+  ],
+  "optional": [
+    "build-orders",
+    "build-queue"
+  ],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Checks runtime crypto support for planned encrypted device notifications.",
+  "status": "experimental",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N4",
+  "goal": "notify"
+}

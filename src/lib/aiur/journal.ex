@@ -131,23 +131,48 @@ defmodule Aiur.Journal do
 
   @doc "Classifies an append; injectable file operations implement write/2 and sync/1."
   @spec append(Path.t(), map(), keyword()) :: :accepted | {:failed | :ambiguous, term()}
-  def append(path, event, opts) when is_binary(path) and is_map(event) do
-    with :ok <- reject_symlink(path),
-         {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
-      try do
-        append_record(fd, path, event, Keyword.get(opts, :file_ops, :file))
-      after
-        :file.close(fd)
-      end
-    else
-      {:error, reason} -> {:failed, reason}
+  def append(path, event, opts) when is_binary(path) and is_map(event), do: append_many(path, [event], opts)
+
+  @doc "Appends a batch through one write and fsync, preserving record order."
+  @spec append_many(Path.t(), [map()]) :: :ok | {:error, term()}
+  def append_many(path, events) do
+    case append_many(path, events, []) do
+      :accepted -> :ok
+      {_outcome, reason} -> {:error, reason}
     end
   end
 
-  defp append_record(fd, path, event, file_ops) do
+  @spec append_many(Path.t(), [map()], keyword()) :: :accepted | {:failed | :ambiguous, term()}
+  def append_many(_path, [], _opts), do: :accepted
+
+  def append_many(path, events, opts) when is_binary(path) and is_list(events) do
+    encoded = Enum.map_join(events, "", fn event when is_map(event) -> Jason.encode!(event) <> "\n" end)
+
+    result =
+      with :ok <- reject_symlink(path),
+           {:ok, fd} <- :file.open(path, [:append, :binary, :raw]) do
+        try do
+          append_record(fd, path, encoded, Keyword.get(opts, :file_ops, :file))
+        after
+          :file.close(fd)
+        end
+      else
+        {:error, reason} -> {:failed, reason}
+      end
+
+    Aiur.DiskFull.observe(path, result)
+  end
+
+  @doc "Atomically replaces a prepared journal with pre-encoded records."
+  @spec rewrite(Path.t(), iodata()) :: :ok | {:error, term()}
+  def rewrite(path, contents) when is_binary(path) do
+    Fs.atomic_write(path, contents, fsync: true, mode: 0o600)
+  end
+
+  defp append_record(fd, path, encoded, file_ops) do
     case :file.position(fd, :eof) do
       {:ok, offset} ->
-        case file_ops.write(fd, Jason.encode!(event) <> "\n") do
+        case file_ops.write(fd, encoded) do
           :ok -> sync_appended_record(fd, path, file_ops)
           {:error, reason} -> classify_write_error(fd, offset, reason)
         end

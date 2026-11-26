@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicyTest do
   use ExUnit.Case, async: true
+  @moduletag :r7_characterization
 
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy

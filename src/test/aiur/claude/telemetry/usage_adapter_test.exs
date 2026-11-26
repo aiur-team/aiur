@@ -141,7 +141,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
 
     assert unsupported_source.class == :unsupported_source_revision
     assert unsupported_source.field == :source_version
-    refute inspect(unsupported_source) =~ "future"
+    Aiur.TestSupport.refute_leak(unsupported_source, "future")
 
     missing_producer = update_in(event(), [:correlation], &Map.delete(&1, :producer_generation))
     assert {:coverage, %{class: :missing_required_identity, field: :producer_generation}} = UsageAdapter.normalize(missing_producer, @ingested_at)
@@ -155,7 +155,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
     unsafe_model = put_in(event(), [:attributes, "model"], "owner@example.invalid")
     assert {:coverage, unsafe_model_coverage} = UsageAdapter.normalize(unsafe_model, @ingested_at)
     assert unsafe_model_coverage == coverage(:ambiguous_measurement_semantics, :model)
-    refute inspect(unsafe_model_coverage) =~ "owner@example.invalid"
+    Aiur.TestSupport.refute_leak(unsafe_model_coverage, "owner@example.invalid")
 
     {:ok, empty_catalog} = RelationshipRegistry.new([])
 
@@ -178,8 +178,8 @@ defmodule Aiur.Claude.Telemetry.UsageAdapterTest do
     assert envelope.resolved_model == "claude-opus-4-6"
     assert envelope.effort == "max"
     assert envelope.query_source == "compact"
-    refute inspect(envelope) =~ "TOP_SECRET"
-    refute inspect(envelope) =~ "CAPABILITY"
+    Aiur.TestSupport.refute_leak(envelope, "TOP_SECRET")
+    Aiur.TestSupport.refute_leak(envelope, "CAPABILITY")
   end
 
   property "all supported token dimensions contribute exactly once" do

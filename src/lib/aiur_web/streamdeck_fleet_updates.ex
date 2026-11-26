@@ -2,11 +2,14 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
   @moduledoc false
   import Phoenix.Socket, only: [assign: 3]
   alias Aiur.AgentPubSub
+  alias AiurWeb.Streamdeck.Deck.TicketUpdates
+  alias AiurWeb.Streamdeck.FrameUpdates
+  alias AiurWeb.Streamdeck.UsageUpdates
   alias AiurWeb.StreamdeckProjection
 
   @spec subscribe(:atomics.atomics_ref()) :: :ok | {:error, term()}
   def subscribe(latch) do
-    subscriber = AiurWeb.Endpoint.config(:streamdeck_fleet_subscribe_fun) || (&AgentPubSub.subscribe_fleet_refresh/1)
+    subscriber = AiurWeb.EndpointConfig.get(:streamdeck_fleet_subscribe_fun) || (&AgentPubSub.subscribe_fleet_refresh/1)
     subscriber.(latch)
   end
 
@@ -22,7 +25,10 @@ defmodule AiurWeb.StreamdeckFleetUpdates do
   @spec flush(Phoenix.Socket.t(), reference()) :: {:noreply, Phoenix.Socket.t()}
   def flush(%{assigns: %{fleet_flush: token}} = socket, token) when is_reference(token) do
     :atomics.put(socket.assigns.fleet_latch, 1, 0)
-    Phoenix.Channel.push(socket, "fleet", StreamdeckProjection.fleet_with_grid(AgentPubSub.latest_fleet_summaries()))
+    socket = TicketUpdates.refresh(socket)
+    fleet = StreamdeckProjection.fleet_with_grid(AgentPubSub.latest_fleet_summaries())
+    Phoenix.Channel.push(socket, "fleet", fleet)
+    socket = socket |> assign(:deck_grid, fleet["grid"]) |> UsageUpdates.refresh() |> FrameUpdates.push()
     {:noreply, assign(socket, :fleet_flush, nil)}
   end
 

@@ -17,7 +17,7 @@ defmodule Aiur.TestSupportIsolationTest do
   """
   use Aiur.TestSupport
 
-  alias Aiur.Config.Paths
+  alias Aiur.{AlertLedger, Config.Paths, PollCadence}
   alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.GitHub.Issues
   alias Aiur.GitHub.ResourceStore
@@ -100,6 +100,26 @@ defmodule Aiur.TestSupportIsolationTest do
     assert :ok = Aiur.TestSupport.reset_global_state!()
     assert ResourceStore.running?()
     assert ResourceStore.size() == 0
+  end
+
+  test "request_refresh cannot start a live poll or write the shared alert ledger" do
+    orchestrator = Process.whereis(Aiur.Orchestrator)
+    assert is_pid(orchestrator)
+
+    prior_cycles = :sys.get_state(orchestrator).poll_cycles_completed
+    assert %{queued: true} = Aiur.Orchestrator.request_refresh()
+    assert :sys.get_state(orchestrator).poll_frozen
+    send(orchestrator, :tick)
+
+    ledger = AlertLedger.path()
+
+    assert :ok = PollCadence.forget_effective_interval_ms()
+    Process.sleep(50)
+    assert PollCadence.published_effective_interval_ms(class: :ci) == nil
+    refute :sys.get_state(orchestrator).poll_check_in_progress
+    assert :sys.get_state(orchestrator).poll_cycles_completed == prior_cycles
+    assert Path.dirname(ledger) == Application.fetch_env!(:aiur, :runtime_state_dir)
+    assert ledger =~ "aiur-elixir-tests"
   end
 
   # Regression guard for #2082. `DispatchAuthorization` keeps its decision cache

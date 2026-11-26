@@ -31,23 +31,8 @@ defmodule Aiur.Docs.ControlCenterFixture.MeterSource do
     }
   end
 
-  def streamdeck_meters do
-    %{
-      "claude" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 34, "remaining" => "3h 48m", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 58, "remaining" => "4d", "freshness" => "fresh"}
-        }
-      },
-      "codex" => %{
-        "state" => "observed",
-        "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 61, "remaining" => "1h 12m", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "remaining" => "4d", "freshness" => "fresh"}
-        }
-      }
-    }
+  def streamdeck_inputs(_context, _opts) do
+    %{families: [:claude, :codex], meters: snapshots(), accounts: %{}, durable: %{}, github: {:error, :unavailable}, elevenlabs: %{state: :unconfigured}}
   end
 
   defp snapshot(provider, backend, generation, tier, session_used, weekly_used) do

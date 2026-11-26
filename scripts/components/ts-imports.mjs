@@ -16,6 +16,16 @@ function* sources(directory) {
   }
 }
 
+function belongsToMixPackage(file, packageDirectory) {
+  let directory = path.dirname(file);
+  while (directory.startsWith(packageDirectory)) {
+    if (fs.existsSync(path.join(directory, 'mix.exs'))) return true;
+    if (directory === packageDirectory) return false;
+    directory = path.dirname(directory);
+  }
+  return false;
+}
+
 function resolve(specifier, file) {
   if (isBuiltin(specifier)) return '<builtin>';
   const resolved = ts.resolveModuleName(specifier, file, {
@@ -71,11 +81,17 @@ try {
     for (const entry of fs.readdirSync(packages, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue;
       const directory = path.join(packages, entry.name);
+      const manifest = path.join(directory, 'package.json');
       // A non-JS package folder (e.g. packages/elixir) has no manifest and no sources to scan.
-      if (!fs.existsSync(path.join(directory, 'package.json')) && [...sources(directory)].length === 0) continue;
-      JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'));
+      const packageSources = [...sources(directory)];
+      if (!fs.existsSync(manifest) && packageSources.length === 0) continue;
+      // Mix packages may expose a build-free static client without becoming npm packages.
+      if (!fs.existsSync(manifest) && !packageSources.every(file => belongsToMixPackage(file, directory))) {
+        JSON.parse(fs.readFileSync(manifest, 'utf8'));
+      }
+      if (fs.existsSync(manifest)) JSON.parse(fs.readFileSync(manifest, 'utf8'));
       // Tests outside src are subject to the same boundary as shipped source.
-      for (const file of sources(directory)) {
+      for (const file of packageSources) {
         visit(file, ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true));
       }
     }

@@ -5,12 +5,20 @@ defmodule Aiur.BuildQueue.ProgressTest do
   alias Aiur.Config.Schema
 
   defmodule Boundary do
-    def open_issue_labels(_age), do: {:ok, %{"1" => %{labels: ["agent:queued", "agent:in-progress"]}}, 1_000}
+    def open_issue_labels(_age), do: {:ok, %{"3" => %{labels: ["agent:queued", "agent:in-progress"]}}, 1_000}
+    def issue_closure(id, _age) when id in ["1", "2"], do: {:ok, %{open?: false, state_reason: "completed"}}
+    def issue_closure(_id, _age), do: {:error, :not_found}
+    def remove_label(_id, _label), do: :ok
 
     def load do
       queue = %Model.Queue{id: "q-progress", name: "Progress", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-08 00:00:00Z]}
-      item = %Model.Item{issue_id: "1", queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
-      {:ok, %{queues: [queue], items: [item], edges: [], intents: [], latches: []}}
+
+      items =
+        Enum.with_index(["1", "2", "3"], fn id, position ->
+          %Model.Item{issue_id: id, queue_id: queue.id, position: position, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
+        end)
+
+      {:ok, %{queues: [queue], items: items, edges: [], intents: [], latches: []}}
     end
 
     def blocked_by(_), do: {:ok, []}
@@ -45,6 +53,10 @@ defmodule Aiur.BuildQueue.ProgressTest do
   test "partial and unresolved lifecycles preserve uncertainty" do
     assert Progress.summary(items([:completed, :unknown])) == %{completed: 1, resolved: 1, total: 2, percent: 50, resolution: :partial}
     assert Progress.summary(items([:unknown])) == %{completed: nil, resolved: 0, total: 1, percent: nil, resolution: :unresolved}
+  end
+
+  test "a list whose members all left is empty, not unresolved (#4819)" do
+    assert Progress.summary(items([:removed])).resolution == :empty
   end
 
   test "facts preserve queue generation and stale source evidence" do
@@ -93,7 +105,7 @@ defmodule Aiur.BuildQueue.ProgressTest do
     send(pid, message)
     model = GenServer.call(pid, :read_model)
     assert [%{progress: progress}] = model.queues
-    assert [%{scope: {:queue, "q-progress"}, generation: 0, percent: 0, freshness: :current} = fact] = BuildProgress.facts({:queue, "q-progress"})
+    assert [%{scope: {:queue, "q-progress"}, generation: 0, completed: 2, total: 3, percent: 66, freshness: :current} = fact] = BuildProgress.facts({:queue, "q-progress"})
     assert Map.take(fact, Map.keys(progress)) == progress
     assert fact.observed_at == DateTime.from_unix!(1_000, :millisecond)
 
