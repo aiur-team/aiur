@@ -35,6 +35,7 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
           context,
           source_event_id: source_event_id(adapter, payload, dimensions, context),
           ingested_at: ingested_at,
+          occurred_at: completed_at(payload),
           measurement_kind: :delta,
           counter_scope: :request,
           update_kind: if(partial?(dimensions), do: :partial, else: :full),
@@ -133,6 +134,14 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
         dimensions.output,
         dimensions.provider_reported_total
       ])
+  end
+
+  # When the daemon's own HTTP request completed; absent (and so undated) for any other source.
+  defp completed_at(payload) do
+    case payload["completed_at"] || payload[:completed_at] do
+      %DateTime{} = at -> DateTime.shift_zone!(at, "Etc/UTC")
+      _other -> nil
+    end
   end
 
   defp string(value) when is_binary(value) do

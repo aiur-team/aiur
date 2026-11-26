@@ -33,7 +33,7 @@ source_flags="$(
   {
     # The release parser owns normal run, init, todo, and acknowledgement flags.
     sed -n '/@switches \[/,/^  \]/p' "$parser" \
-      | sed -n 's/^    \([a-z_][a-z_]*\): .*/--\1/p' \
+      | sed -n 's/^    \([a-z_][a-z_0-9]*\): .*/--\1/p' \
       | tr '_' '-'
     sed -n 's/^  @acknowledgement_switch :\([a-z_][a-z_]*\)$/--\1/p' "$parser" | tr '_' '-'
 
@@ -53,12 +53,12 @@ source_flags="$(
 
     # Experiments transports argv in the shell; its control client validates flags.
     sed -n '/^  @switches \[/,/^  \]/p' "$repo_root/src/lib/aiur/experiments_cli.ex" \
-      | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
-      | sed '/^\(spec_json\|contract_json\)$/d; s/^/--/; s/_/-/g'
+      | sed -n 's/^[[:space:]]*\([a-z_][a-z_0-9]*\):.*/\1/p' \
+      | sed '/^\(spec_json\|contract_json\|source_base64\)$/d; s/^/--/; s/_/-/g'
 
     # Listener mode control validates its transported argv in Elixir.
     sed -n '/^  @switches \[/,/^  \]/p' "$repo_root/src/lib/aiur/listen_mode_cli.ex" \
-      | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
+      | sed -n 's/^[[:space:]]*\([a-z_][a-z_0-9]*\):.*/\1/p' \
       | sed 's/^/--/; s/_/-/g'
 
     # The offline statistics CLI owns its arguments in argparse declarations.

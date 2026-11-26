@@ -241,7 +241,7 @@ defmodule Aiur.Executor.Session do
 
   defp end_binding(%{provider_session_id: id, state: state} = binding, reason) when is_binary(id) and state != "detached" do
     case {binding.harness, Process.whereis(Aiur.Executor.TranscriptIngest)} do
-      {"claude", pid} when is_pid(pid) -> send(pid, {:end_binding, id, reason})
+      {harness, pid} when harness in ["claude", "codex"] and is_pid(pid) -> send(pid, {:end_binding, id, reason})
       _ -> Ingest.end_session(Ref.executor(), id, reason)
     end
   end

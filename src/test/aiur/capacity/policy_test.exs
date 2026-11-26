@@ -127,8 +127,14 @@ defmodule Aiur.Capacity.PolicyTest do
     end
 
     test "a limit is checked before the reserve" do
-      policy = %{sources: %{"claude" => %{reserve: %{percent: 30}, limits: %{daily_usd: 1}}}}
+      policy = %{sources: %{"claude" => %{billing: "metered", reserve: %{percent: 30}, limits: %{daily_usd: 1}}}}
       assert [{_, _, {:hold, :spend_unknown}}] = verdicts([candidate("claude", "default", 90)], policy)
+    end
+
+    test "a subscription source has no USD cost, so its limits never hold it" do
+      policy = %{sources: %{"claude" => %{billing: "subscription", limits: %{daily_usd: 1}}}}
+      assert [{_, _, :allow}] = verdicts([candidate("claude", "default", 90)], policy)
+      assert [{_, _, :allow}] = verdicts([candidate("claude", "default", 90)], policy, spend: %{"claude" => %{daily_usd: 5}})
     end
   end
 

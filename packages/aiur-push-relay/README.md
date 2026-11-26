@@ -3,7 +3,7 @@
 Standalone Elixir/Plug + Bandit reference relay. It does not depend on the Aiur daemon.
 SQLite runs in WAL mode; back up and persist the database file. This package supplies
 handle registration, bearer authentication, idempotency and asynchronous provider admission.
-APNs/FCM adapters, abuse limits, and deployment are separate work.
+APNs/FCM adapters and deployment are configured independently. Abuse limits are separate work.
 
 ## Run and test
 
@@ -24,6 +24,7 @@ Run these commands from `packages/aiur-push-relay`. To start with `mix run --no-
 | `AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>` | Required JSON `{"title":"Aiur","body":"Open Aiur"}` per topic |
 | `AIUR_RELAY_DATABASE` | SQLite file, default `relay.sqlite3` |
 | `AIUR_RELAY_PORT` | HTTP port, default `4001` |
+| `AIUR_RELAY_FCM_SERVICE_ACCOUNT_FILE` | Optional Firebase service-account JSON file; its group and other permission bits must be unset. Without it, FCM sends return `503 provider_unavailable`. |
 
 Topic slugs uppercase the topic and replace each non-ASCII-alphanumeric character with `_`.
 Fallback title and body together must be at most 200 UTF-8 bytes. Missing or invalid pins
@@ -68,3 +69,11 @@ It sends `{:delivery, task_pid, handle_row, envelope}` to that process and waits
 2 seconds for `{:result, provider_result}` (default `:ok`). The fixture also accepts
 `{:result, :raise}` to exercise exception redaction. These application settings are
 for isolated test runs; they are not credentials or a production provider.
+
+## FCM HTTP v1
+
+When configured, FCM exchanges a service-account RS256 JWT for a Firebase Messaging OAuth token and refreshes the cached token five minutes before expiry. Each send is data-only: `data` contains the sealed value, key id and protocol version; the request never includes a `notification` block. Android priority follows `push_class` (`alert_high` → `HIGH`, otherwise `NORMAL`), TTL is sent as seconds (for example `3600s`), and collapse key is `a` for `alert_high` or `b` for `alert_normal`. FCM does not receive the envelope's APNs `collapse_token`.
+
+FCM `UNREGISTERED` marks a handle gone; quota errors retry after the provider's `Retry-After` value or 60 seconds; server and transport failures retry after 60 seconds; invalid arguments are recorded with the `INVALID_ARGUMENT` code but no response body. A serialized outbound message over 4,096 bytes is rejected before token exchange or send. `/healthz` includes `fcm: ok`, `unconfigured`, or `degraded` without exposing credential details.
+
+The cross-platform push contract §5 source is not present in this checkout. This README records the relay's selected FCM behavior, including the two-key collapse mapping; the authoritative contract should carry the same detail when its source repository is available.
