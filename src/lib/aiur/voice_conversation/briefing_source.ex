@@ -9,8 +9,11 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   """
   @behaviour VoiceConverse.Ports.BriefingSource
 
-  alias Aiur.{AgentStatusNote, BuildOrdersCLI, Commands, Orchestrator}
+  alias Aiur.{AgentStatusNote, Commands, Orchestrator}
+  alias Aiur.BuildOrder.{Catalog, ProgressRenderer}
+  alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.VoiceConversation.ExecutorTranscript
+  alias AiurWeb.BuildOrder.{DataSource, Runtime}
   alias VoiceConverse.Briefing
 
   @sections [
@@ -36,10 +39,11 @@ defmodule Aiur.VoiceConversation.BriefingSource do
     now = DateTime.utc_now()
 
     extra =
-      Enum.map(@sections, fn section ->
+      @sections
+      |> Enum.reject(&(&1.id == "transcript"))
+      |> Enum.map(fn section ->
         {:ok, text} = details(:executor, section.id, Keyword.merge(opts, n: 10))
-        title = if section.id == "build_order", do: "Build-order progress and blockers", else: section.description
-        %{title: title, text: text, observed_at: now}
+        %{title: section.description, text: text, observed_at: now}
       end)
 
     {:ok, %Briefing{summary: %{value: "Read-only Executor voice briefing.", observed_at: now, max_age_s: 30}, extra: extra}}
@@ -96,7 +100,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
 
   def transcript_text(_snapshot, _n), do: "Executor transcript unavailable."
 
-  # Reserve space for all three sections under the package's opening briefing budget.
+  # Keep each rendered section within the briefing budget.
   defp compact_lines(rows, render) do
     rows |> Enum.map_join("\n", &(render.(&1) |> excerpt(120))) |> excerpt(300)
   end
@@ -149,11 +153,13 @@ defmodule Aiur.VoiceConversation.BriefingSource do
     end
   end
 
-  defp read_section("build_order", _n, opts) do
-    reader = Keyword.get(opts, :build_orders, &BuildOrdersCLI.published/0)
+  defp read_section("build_order", n, opts) do
+    source = Application.get_env(:aiur, :build_order_data_source, DataSource)
+    reader = Keyword.get(opts, :build_orders, fn -> Runtime.safe_source_call(source, :catalog, [], nil) end)
 
     case reader.() do
-      {:ok, %{data: %{catalog: catalog}}} -> build_order_text(catalog)
+      %Snapshot{data: %Catalog{entries: []}} -> "No Build Orders."
+      %Snapshot{data: %Catalog{entries: entries}} -> entries |> Enum.take(n) |> compact_lines(&"#{&1.title}: #{ProgressRenderer.terminal(&1)}")
       _unavailable -> "Build-order progress unavailable."
     end
   rescue
@@ -198,28 +204,14 @@ defmodule Aiur.VoiceConversation.BriefingSource do
         _ -> nil
       end
 
-    doing = if is_map(note), do: Map.get(note, "doing", "No note yet"), else: "No note yet"
-    "#{identifier}: #{title}; #{activity}; #{doing}"
+    doing = if is_map(note), do: Map.get(note, "doing")
+    line = "#{identifier}: #{title}; #{activity}"
+    if doing, do: "#{line}; #{doing}", else: line
   end
 
   defp running_agents(%{running: running}) when is_list(running), do: running
   defp running_agents(_snapshot), do: []
 
-  defp build_order_text(catalog) when is_map(catalog) do
-    entries = Map.get(catalog, "epics", [])
-    progress = Map.get(catalog, "progress", %{})
-    blockers = Map.get(catalog, "edges", [])
-    percent = value(progress, "percent", nil)
-    progress_text = if is_number(percent), do: "#{percent}%", else: "progress unavailable"
-    blocker_text = if is_list(blockers) and blockers != [], do: "; #{length(blockers)} blocker edge(s)", else: ""
-
-    title = entries |> List.first() |> then(&if(is_map(&1), do: value(&1, "title", "Build orders"), else: "Build orders"))
-    "#{title}: #{progress_text}#{blocker_text}"
-  end
-
-  defp build_order_text(_catalog), do: "Build-order progress unavailable."
-  defp value(map, key, default) when is_map(map), do: Map.get(map, key, default)
-  defp value(_map, _key, default), do: default
   defp empty_as("", fallback), do: fallback
   defp empty_as(value, _fallback), do: value
 end

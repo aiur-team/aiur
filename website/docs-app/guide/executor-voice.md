@@ -107,6 +107,10 @@ milestones. Updates enter context silently and coalesce over five seconds.
 The worker briefing shows phase, progress, note age, CI, listener state, open
 Commands and recent milestones. Unavailable values say "not reported".
 
+The Executor briefing shows active agents, open Commands, blocked tickets
+and Build Order progress, including partial completion. The assistant can
+retrieve the retained transcript on demand through `get_details`.
+
 Each event is redacted and saved before delivery. When a Command resolves elsewhere,
 unconfirmed instruction drafts become stale so you can review them against the new
 context. A missing live subscription is reported as a gap; tool calls still refresh

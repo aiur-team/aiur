@@ -21,7 +21,7 @@ defmodule Aiur.VoiceConverse.Host.BriefingSource do
   def brief(target), do: brief(target, [])
 
   @spec brief(Worker.t() | :executor, keyword()) :: {:ok, Briefing.t()} | {:error, :unavailable}
-  def brief(:executor, _opts), do: Executor.brief(:executor)
+  def brief(:executor, opts), do: Executor.brief(:executor, opts)
 
   def brief(%Worker{} = target, opts) do
     with {:ok, row} <- status(target, opts) do

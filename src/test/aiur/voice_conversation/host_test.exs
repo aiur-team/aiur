@@ -40,7 +40,7 @@ defmodule Aiur.VoiceConversation.HostTest do
     specs = VoiceConverse.Tools.specs(config, :executor)
     assert Enum.map(specs, & &1.name) == ["get_status", "get_details", "record_summary", "end_conversation"]
     details = Enum.find(specs, &(&1.name == "get_details"))
-    assert details.parameters["properties"]["section"]["enum"] == ["transcript", "agents", "decisions"]
+    assert details.parameters["properties"]["section"]["enum"] == ["transcript", "agents", "decisions", "build_order", "blockers", "commands"]
   end
 
   test "selects OpenAI without an Agent id and keeps the shared read-only tools" do

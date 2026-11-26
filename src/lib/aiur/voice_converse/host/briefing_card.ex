@@ -12,13 +12,20 @@ defmodule Aiur.VoiceConverse.Host.BriefingCard do
 
     %Briefing{
       summary: optional_field(row[:state] && to_string(row[:state]), status_observed_at, 30),
-      current_task: field(note_value(note, "doing") || "No note from the agent yet", note_at, 600),
+      current_task: current_task(row, note, note_at, status_observed_at),
       next_steps: optional_list_field(note_value(note, "next"), note_at, 600),
       waiting_on: optional_field(note_value(note, "waiting_on"), note_at, 600),
       questions: optional_list_field(note_value(note, "asks"), note_at, 600),
       extra: card_lines(row, note, target, opts, status_observed_at),
       gaps: if(note == :none, do: ["No note from the agent yet."], else: [])
     }
+  end
+
+  defp current_task(row, note, note_at, status_observed_at) do
+    case note_value(note, "doing") do
+      nil -> optional_field(row[:title], status_observed_at, 30)
+      doing -> field(doing, note_at, 600)
+    end
   end
 
   defp status_note(%Worker{identity: identity}, opts) do
@@ -32,15 +39,18 @@ defmodule Aiur.VoiceConverse.Host.BriefingCard do
 
   defp card_lines(row, note, target, opts, observed_at) do
     history = Aiur.IssueLog.history(target.identity.identifier, 100)
-    status_lines(row, note, observed_at) ++ note_lines(note, observed_at) ++ conversation_lines(row, history, target, opts, observed_at) ++ recent_milestones(history, observed_at)
+
+    status_lines(row, note, target.identity.identifier, observed_at) ++
+      note_lines(note, observed_at) ++ conversation_lines(row, history, target, opts, observed_at) ++ recent_milestones(history, observed_at)
   rescue
     _error -> [extra("Status", "Some briefing data is unavailable", observed_at)]
   end
 
-  defp status_lines(row, note, observed_at) do
+  defp status_lines(row, note, identifier, observed_at) do
     ci = row[:ci_result] || %{}
 
     [
+      extra("Ticket", "#{identifier}: #{row[:title] || "not reported"}", observed_at),
       extra("Phase", row[:activity_stage] || "not reported", observed_at),
       extra("Progress", progress(row), observed_at),
       extra("PR", note_value(note, "pr") || value(ci, :pr_number) || "not reported", observed_at),

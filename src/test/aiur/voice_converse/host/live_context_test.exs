@@ -70,9 +70,19 @@ defmodule Aiur.VoiceConverse.Host.LiveContextTest do
   end
 
   test "executor refreshes its briefing on system and target changes", %{exchange: exchange} do
-    assert :ok = LiveContext.subscribe(:executor, self(), :briefing, exchange: exchange, capabilities: Capabilities)
+    opts = [
+      exchange: exchange,
+      capabilities: Capabilities,
+      snapshot: fn -> %{running: []} end,
+      query_decisions: fn _ -> {:ok, %{health: %{status: :available}, decisions: []}} end,
+      blocked_tickets: fn -> {:ok, MapSet.new()} end,
+      build_orders: fn -> nil end
+    ]
+
+    assert :ok = LiveContext.subscribe(:executor, self(), :briefing, opts)
     publish(exchange, "system.build_order.root.progress", %{percent: 50})
-    assert_receive {:briefing, %VoiceConverse.Briefing{}}, 1_000
+    assert_receive {:briefing, %VoiceConverse.Briefing{extra: sections}}, 1_000
+    assert Enum.any?(sections, &(&1.title == "Current run agents" and &1.text == "No running agents."))
     publish(exchange, "system.capabilities.changed", %{revision: 2})
     assert_receive {:context_update, "Executor state: idle", []}, 1_000
     publish(exchange, "ticket.42.queue.attention.prerequisite_failed", %{blocked: ["43", "44", "45"]})

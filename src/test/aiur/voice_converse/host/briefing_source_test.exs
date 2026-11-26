@@ -58,13 +58,14 @@ defmodule Aiur.VoiceConverse.Host.BriefingSourceTest do
     assert Enum.any?(briefing.extra, &(&1.title == "Last operator message" and &1.text == "Please check the update (consumed)"))
     assert {rendered, _meta} = Briefing.render(briefing, now: DateTime.add(now, 15, :minute))
     assert rendered =~ "Summary: running"
+    assert rendered =~ "Ticket: 42: Ticket 42"
     assert rendered =~ "Doing now: Run the focused suite (as of 15 min ago)"
     assert note["observed_at"] == DateTime.to_iso8601(now)
   end
 
   test "a missing worker note has an explicit fallback", ctx do
     assert {:ok, %Briefing{} = briefing} = brief(ctx)
-    assert briefing.current_task.value == "No note from the agent yet"
+    assert briefing.current_task.value == "Ticket 42"
     assert briefing.gaps == ["No note from the agent yet."]
   end
 
