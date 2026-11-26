@@ -54,9 +54,8 @@ defmodule Aiur.Executor.Blockers do
          {:ok, %{health: %{status: :available}}} <- Commands.query_counts(store: store) do
       {:ok, decisions}
     else
-      {:error, _reason} = error -> error
       {:ok, %{health: %{reason: reason}}} -> {:error, reason}
-      _ -> {:error, :invalid_command_records}
+      _ -> {:error, :command_list_unavailable}
     end
   end
 
