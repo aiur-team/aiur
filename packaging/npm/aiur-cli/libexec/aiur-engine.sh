@@ -65,7 +65,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run crash-evidence container processes reap instance session remote remote_request_id remote_all project fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run crash-evidence container processes reap instance session remote remote_request_id remote_all project fleet_pause gateway gateway_enroll node_name control commands command_request question_answers executor_commands notify report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage voice"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -151,6 +151,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-wait [--timeout <seconds>] [--session-id <uuid> [--harness codex]] [--json]  block until Executor work arrives
        aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
+       aiur notify <review_ready|live|stalled|info> <text> [--ticket <N>] [--url <URL>]  notify the operator's devices
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
        aiur workspace-recover <ticket-identifier> <generation>  release a held workspace after verified provider exit
@@ -393,6 +394,7 @@ aiur_engine_main() {
       fi
       cmd_executor_wait "$@"
       ;;
+    notify) shift; cmd_notify "$@" ;;
     executor-emit)
       shift
       cmd_executor_emit "$@"

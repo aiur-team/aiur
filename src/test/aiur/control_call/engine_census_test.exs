@@ -28,6 +28,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"listen mode read", "cmd_listen_mode 123 --json", :read, []},
     {"listen mode write", "cmd_listen_mode 123 async --expected-version 0", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
+    {"notify", "cmd_notify review_ready PR is green --ticket 645 --url https://example.test/pr/1", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
     {"message status", "cmd_message --status 7", :read, []},
     {"set max agents", "cmd_set max-agents 5", :write, []},

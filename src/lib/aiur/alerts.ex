@@ -10,6 +10,7 @@ defmodule Aiur.Alerts do
   alias Aiur.Alerts.{Config, Sound}
   alias Aiur.Config.Paths
   alias Aiur.Events
+  alias Aiur.OperatorNotify
   alias Aiur.Signal
 
   @type definition :: %{
@@ -72,7 +73,8 @@ defmodule Aiur.Alerts do
     if not Keyword.get(opts, :durable, false) and repeat_resolution?(topic) do
       :ok
     else
-      emit_alert(topic, override_message, opts)
+      message = override_message || config_message(definition_for_topic(topic))
+      OperatorNotify.on_alert(topic, message, fn -> emit_alert(topic, override_message, opts) end)
     end
   end
 
