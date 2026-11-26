@@ -160,7 +160,7 @@ defmodule Aiur.Experiments.Snapshot do
   defp existing_revisions(id, journal) do
     missing? =
       journal
-      |> Enum.filter(&(&1["kind"] == "frozen"))
+      |> Enum.filter(&(&1["kind"] in ["frozen", "baseline_imported"]))
       |> Enum.any?(fn entry ->
         not File.regular?(Paths.file(id, "snapshots/#{entry["window"]}.r#{entry["revision"]}.json"))
       end)
@@ -180,6 +180,7 @@ defmodule Aiur.Experiments.Snapshot do
   def read(path) do
     with {:ok, snapshot} <- Reader.json(path),
          true <- Evidence.hash(Map.delete(snapshot, "sha256")) == snapshot["sha256"],
+         :ok <- imported_source_valid(snapshot),
          {:ok, snapshot} <- Schema.migrate(snapshot) do
       {:ok, snapshot}
     else
@@ -188,8 +189,27 @@ defmodule Aiur.Experiments.Snapshot do
     end
   end
 
+  defp imported_source_valid(%{"baseline_import" => %{"source_bytes_base64" => encoded, "source_sha256" => sha}}) do
+    with {:ok, bytes} <- Base.decode64(encoded),
+         true <- :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower) == sha do
+      :ok
+    else
+      _ -> {:error, :tampered}
+    end
+  end
+
+  defp imported_source_valid(_snapshot), do: :ok
+
   defp journaled(snapshot, entries) do
-    found = Enum.any?(entries, &(&1["kind"] == "frozen" and &1["window"] == snapshot["window_name"] and &1["revision"] == snapshot["revision"] and &1["sha256"] == snapshot["sha256"]))
+    kind = if snapshot["baseline_import"], do: "baseline_imported", else: "frozen"
+
+    found =
+      Enum.any?(entries, fn entry ->
+        entry["kind"] == kind and entry["window"] == snapshot["window_name"] and entry["revision"] == snapshot["revision"] and
+          entry["sha256"] == snapshot["sha256"] and
+          (kind == "frozen" or entry["source_sha256"] == get_in(snapshot, ["baseline_import", "source_sha256"]))
+      end)
+
     if found, do: :ok, else: {:error, :tampered}
   end
 end

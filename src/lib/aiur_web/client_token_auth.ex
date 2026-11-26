@@ -69,6 +69,7 @@ defmodule AiurWeb.ClientTokenAuth do
 
   # REST write routes carry no category of their own: only a token holding every category
   # (legacy write) passes, except the messages route, which maps to `message`.
+  defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", "executor", "thread" | _]}, cats), do: "executor" in cats or full?(cats)
   defp rest_write_allowed?(%Plug.Conn{path_info: ["api", "v1", _, "messages"]}, cats), do: "message" in cats or full?(cats)
   defp rest_write_allowed?(_conn, cats), do: full?(cats)
 

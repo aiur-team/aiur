@@ -64,6 +64,34 @@ defmodule Aiur.ExperimentsCLITest do
     assert Jason.decode!(output)["problems"] == []
   end
 
+  test "import-baseline command reads exact source bytes and stores a showable snapshot" do
+    {:ok, spec} =
+      Experiments.create(
+        %{title: "import fixture", design: %{kind: "before_after", change: %{type: "manual", ref: "test", time: "2026-10-09T00:00:00Z"}}, metrics: [%{ref: "delivery/start"}]},
+        freeze: false
+      )
+
+    source = Jason.encode!(%{"window_start" => "2026-10-06T00:00:00Z", "cut" => "2026-10-09T17:55:20Z", "primary" => %{"gap" => %{"all" => %{"n" => 27, "median_h" => 0.775}}}})
+    root = Aiur.TestSupport.tmp_root!("baseline-import")
+    path = Path.join(root, "baseline.json")
+    File.mkdir_p!(root)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    File.write!(path, source)
+    sha = :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+
+    output =
+      capture_io(fn ->
+        assert ExperimentsCLI.run(verb: :import_baseline, argv: [spec.id, "--source", path, "--sha256", sha, "--metric", "delivery/start", "--summary-path", "primary.gap.all", "--json"]) == 0
+      end)
+
+    imported = Jason.decode!(output)
+    assert imported["baseline_import"]["source_sha256"] == sha
+    assert imported["metrics"]["delivery/start"]["summary"]["n"] == 27
+    assert imported["metrics"]["delivery/start"]["observations"] == []
+    shown = capture_io(fn -> assert ExperimentsCLI.run(verb: :show, argv: [spec.id, "--json"]) == 0 end) |> Jason.decode!()
+    assert Enum.any?(shown["snapshots"], &(&1["baseline_import"]["source_sha256"] == sha))
+  end
+
   test "malformed packs are reported by metrics and show without hiding registered metrics" do
     base = Aiur.RepoBase.base_path(Paths.repo())
     packs = Path.join(base, ".aiur/experiments/packs")
