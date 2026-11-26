@@ -1,4 +1,4 @@
-defmodule Aiur.AgentWorkpadProgress do
+defmodule Aiur.Events.AgentWorkpadProgress do
   @moduledoc """
   Parses only the safe checklist facts needed for ticket progress.
   """

@@ -1,7 +1,7 @@
 defmodule Aiur.AgentWorkpadProgressTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentWorkpadProgress
+  alias Aiur.Events.AgentWorkpadProgress
 
   test "maps checked workpad steps into the current phase band and names next step" do
     progress =

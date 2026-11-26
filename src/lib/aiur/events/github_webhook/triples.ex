@@ -11,8 +11,8 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   `Aiur.Events.GithubWebhook.Normalizer` for why one shape has two producers.
   """
 
-  alias Aiur.AgentWorkpadProgress
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, PostDeployChecks}
+  alias Aiur.Events.AgentWorkpadProgress
   alias Aiur.Events.GithubWebhook.Identity
   alias Aiur.GitHub.{Access, PullRequests}
   alias Aiur.RecentMerge

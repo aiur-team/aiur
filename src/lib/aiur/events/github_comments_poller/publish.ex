@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
   already been processed.
   """
 
-  alias Aiur.AgentWorkpadProgress
+  alias Aiur.Events.AgentWorkpadProgress
   alias Aiur.Events
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, Sanitizer}
   alias Aiur.GitHub.Access
