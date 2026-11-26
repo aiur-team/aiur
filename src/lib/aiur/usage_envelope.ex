@@ -11,6 +11,14 @@ defmodule Aiur.UsageEnvelope do
 
   import Aiur.UsageEnvelope.Fields, except: [pricing_effective_date: 1, ledger_safe_identifier: 1]
 
+  @type relationship_catalog :: RelationshipRegistry.catalog()
+
+  @spec new_relationship_catalog([map()]) :: {:ok, relationship_catalog()} | {:error, atom()}
+  def new_relationship_catalog(definitions \\ []), do: RelationshipRegistry.new(definitions)
+
+  @spec resolve_relationship(relationship_catalog(), t()) :: {:ok, map()} | {:error, atom()}
+  def resolve_relationship(catalog, envelope), do: RelationshipRegistry.resolve(catalog, envelope)
+
   @version 1
   # Registry-derived at compile time: the provider families that meter, so a new
   # backend's envelopes validate without editing this list.

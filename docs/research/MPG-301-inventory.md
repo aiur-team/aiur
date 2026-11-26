@@ -66,6 +66,7 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 54 | `Aiur.Executor.TakeoverAlert.Monitor` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 55 | `Aiur.Executor.TakeoverAlert.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 56 | `Aiur.Executor.TranscriptIngest` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 57 | `Aiur.Executor.HarnessState` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 57 | `Aiur.ExecutorWakeInbox` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 58 | `Aiur.Experiments.Analyst` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 59 | `Aiur.Experiments.AnalystTrigger` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |

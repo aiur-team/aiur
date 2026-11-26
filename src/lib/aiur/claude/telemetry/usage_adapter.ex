@@ -11,7 +11,6 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
   alias Aiur.Claude.Telemetry.UsageAdapter.Relationship
   alias Aiur.Claude.Telemetry.UsageAdapter.Validation
   alias Aiur.UsageEnvelope
-  alias Aiur.UsageEnvelope.RelationshipRegistry
 
   @source Contract.source()
   @source_version Contract.source_version()
@@ -44,7 +43,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
   @spec relationship_definition() :: map()
   def relationship_definition, do: Relationship.definition()
 
-  @spec relationship_catalog() :: RelationshipRegistry.catalog()
+  @spec relationship_catalog() :: UsageEnvelope.relationship_catalog()
   def relationship_catalog, do: Relationship.catalog()
 
   @doc false
@@ -59,7 +58,7 @@ defmodule Aiur.Claude.Telemetry.UsageAdapter do
     }
   end
 
-  @spec normalize(map(), DateTime.t(), RelationshipRegistry.catalog()) ::
+  @spec normalize(map(), DateTime.t(), UsageEnvelope.relationship_catalog()) ::
           {:ok, UsageEnvelope.t(), [coverage()]} | {:coverage, coverage()}
   def normalize(event, ingested_at, catalog \\ relationship_catalog()) do
     with {:ok, normalized} <- Validation.validate(event, ingested_at),

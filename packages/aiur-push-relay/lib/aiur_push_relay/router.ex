@@ -16,13 +16,14 @@ defmodule AiurPushRelay.Router do
 
   defp route(%{method: "GET", path_info: ["healthz"]} = conn, opts) do
     case Store.call(opts.store, :health) do
-      :ok -> json(conn, 200, %{store: "ok", fcm: opts[:fcm_health] || "unconfigured"})
-      _ -> json(conn, 503, %{store: "error", fcm: opts[:fcm_health] || "unconfigured"})
+      :ok -> json(conn, 200, health(opts, "ok"))
+      _ -> json(conn, 503, health(opts, "error"))
     end
   end
 
   defp route(%{method: "POST", path_info: ["v1", "handles"]} = conn, opts) do
     with {:ok, params, conn} <- body(conn),
+         :ok <- provider_available(opts, params),
          {:ok, result} <- Handles.create(opts.store, opts.pins, params) do
       json(conn, 201, result)
     else
@@ -57,6 +58,25 @@ defmodule AiurPushRelay.Router do
 
   defp route(conn, _), do: json(conn, 404, %{error: "not_found"})
 
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{platform: platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: registry}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if registry.available?(platform), do: :ok, else: {:error, :provider_unavailable}
+  end
+
   defp provider_available(opts, %{platform: "fcm"}) do
     allow_test_fcm = Application.get_env(:aiur_push_relay, :allow_test_fcm, false)
 
@@ -68,6 +88,16 @@ defmodule AiurPushRelay.Router do
   end
 
   defp provider_available(_opts, _row), do: :ok
+
+  defp health(%{providers: AiurPushRelay.Provider.Router}, store) do
+    Map.merge(%{store: store}, AiurPushRelay.Provider.Router.health())
+  end
+
+  defp health(%{providers: registry}, store) do
+    %{store: store, apns: if(registry.available?("apns"), do: "available", else: "unavailable")}
+  end
+
+  defp health(opts, store), do: %{store: store, fcm: opts[:fcm_health] || "unconfigured"}
 
   defp body(conn) do
     case read_body(conn, length: 8192, read_length: 8193) do

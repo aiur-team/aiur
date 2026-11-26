@@ -32,7 +32,7 @@ defmodule Aiur.OpenAICompat.Registry do
               "rgba(116, 217, 232, 0.4)",
               "rgba(116, 217, 232, 0.12)"
             ),
-          usage: %{adapters: [Aiur.Usage.Headless.Kimi.RequestUsage]},
+          usage: %{provider: :kimi},
           account_generation: account_generation(:kimi)
         }),
       "deepseek" =>
@@ -64,7 +64,7 @@ defmodule Aiur.OpenAICompat.Registry do
               "rgba(111, 156, 255, 0.4)",
               "rgba(111, 156, 255, 0.12)"
             ),
-          usage: %{adapters: [Aiur.Usage.Headless.DeepSeek.RequestUsage]},
+          usage: %{provider: :deepseek},
           account_generation: account_generation(:deepseek)
         }),
       "openrouter" =>
@@ -107,7 +107,7 @@ defmodule Aiur.OpenAICompat.Registry do
               "rgba(181, 156, 255, 0.4)",
               "rgba(181, 156, 255, 0.12)"
             ),
-          usage: %{adapters: [Aiur.Usage.Headless.OpenRouter.RequestUsage]},
+          usage: %{provider: :openrouter},
           account_generation: account_generation(:openrouter)
         })
     }

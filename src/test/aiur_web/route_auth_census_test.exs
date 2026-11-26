@@ -22,6 +22,8 @@ defmodule AiurWeb.RouteAuthCensusTest do
     :supervisor_auth,
     :executor_hook_auth,
     :executor_hook_delivery_auth,
+    :executor_thread_read,
+    :executor_thread_write,
     :github_webhook,
     :gateway_summary,
     :gateway_write

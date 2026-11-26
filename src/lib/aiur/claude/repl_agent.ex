@@ -181,7 +181,7 @@ defmodule Aiur.Claude.ReplAgent do
 
   defp drive_turn(session, prompt, opts) do
     if is_binary(Map.get(session, :identifier)) do
-      HookTurn.run(session, prompt, opts)
+      HookTurn.run(session, prompt, Keyword.put_new(opts, :pubsub, Map.get(session, :pubsub, Aiur.PubSub)))
     else
       TranscriptTurn.run(session, prompt, opts)
     end
