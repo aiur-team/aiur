@@ -1,9 +1,10 @@
 defmodule Aiur.BuildQueue.MutationCLITest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.{ControlCall, Project}
   alias Aiur.BuildQueue.{Hints, Model, MutationCLI, Server}
   alias Aiur.Config.Schema
+  alias Aiur.ControlCall
+  alias Aiur.Project
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
   @project "queue-control/sandbox"
 
