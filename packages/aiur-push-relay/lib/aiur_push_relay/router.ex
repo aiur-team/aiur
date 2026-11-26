@@ -15,16 +15,15 @@ defmodule AiurPushRelay.Router do
   end
 
   defp route(%{method: "GET", path_info: ["healthz"]} = conn, opts) do
-    fcm_health = fcm_health(opts)
-
     case Store.call(opts.store, :health) do
-      :ok -> json(conn, 200, %{store: "ok", fcm: fcm_health})
-      _ -> json(conn, 503, %{store: "error", fcm: fcm_health})
+      :ok -> json(conn, 200, health(opts, "ok"))
+      _ -> json(conn, 503, health(opts, "error"))
     end
   end
 
   defp route(%{method: "POST", path_info: ["v1", "handles"]} = conn, opts) do
     with {:ok, params, conn} <- body(conn),
+         :ok <- provider_available(opts, params),
          :ok <- limit_handle_creation(conn, opts),
          {:ok, result} <- Handles.create(opts.store, opts.pins, params) do
       json(conn, 201, result)
@@ -76,10 +75,29 @@ defmodule AiurPushRelay.Router do
     end
   end
 
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{platform: platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: registry}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if registry.available?(platform), do: :ok, else: {:error, :provider_unavailable}
+  end
+
   defp provider_available(opts, %{platform: "fcm"}) do
     allow_test_fcm = Application.get_env(:aiur_push_relay, :allow_test_fcm, false)
 
-    case fcm_health(opts) do
+    case opts[:fcm_health] do
       "ok" -> :ok
       "test" when allow_test_fcm -> :ok
       _ -> {:error, :provider_unavailable}
@@ -88,12 +106,15 @@ defmodule AiurPushRelay.Router do
 
   defp provider_available(_opts, _row), do: :ok
 
-  defp fcm_health(opts) do
-    case Process.whereis(AiurPushRelay.Provider.Router) do
-      nil -> opts[:fcm_health] || "unconfigured"
-      _pid -> AiurPushRelay.Provider.Router.health()
-    end
+  defp health(%{providers: AiurPushRelay.Provider.Router}, store) do
+    Map.merge(%{store: store}, AiurPushRelay.Provider.Router.health())
   end
+
+  defp health(%{providers: registry}, store) do
+    %{store: store, apns: if(registry.available?("apns"), do: "available", else: "unavailable")}
+  end
+
+  defp health(opts, store), do: %{store: store, fcm: opts[:fcm_health] || "unconfigured"}
 
   defp body(conn) do
     case read_body(conn, length: 8192, read_length: 8193) do

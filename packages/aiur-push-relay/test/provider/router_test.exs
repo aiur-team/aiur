@@ -16,6 +16,6 @@ defmodule AiurPushRelay.Provider.RouterTest do
     start_supervised!({Router, []})
 
     assert Router.provider() == Fake
-    assert Router.health() == "test"
+    assert Router.health().fcm == "test"
   end
 end

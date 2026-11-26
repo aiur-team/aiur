@@ -3,6 +3,12 @@ defmodule Aiur.Claude.HookEventsTest do
 
   alias Aiur.Claude.HookEvents
 
+  setup do
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+    %{pubsub: pubsub}
+  end
+
   describe "normalize/1" do
     test "classifies the lifecycle events and unknowns" do
       assert HookEvents.normalize(%{"hook_event_name" => "UserPromptSubmit"}).event ==
@@ -50,29 +56,49 @@ defmodule Aiur.Claude.HookEventsTest do
   end
 
   describe "dispatch/2" do
-    test "broadcasts the normalized event to subscribers of the agent topic" do
-      :ok = HookEvents.subscribe("MT-HOOK")
+    test "broadcasts the normalized event to subscribers of the agent topic", %{pubsub: pubsub} do
+      :ok = HookEvents.subscribe("MT-HOOK", pubsub)
 
       :ok =
-        HookEvents.dispatch("MT-HOOK", %{
-          "hook_event_name" => "Stop",
-          "last_assistant_message" => "PONG",
-          "session_id" => "s9"
-        })
+        HookEvents.dispatch(
+          "MT-HOOK",
+          %{
+            "hook_event_name" => "Stop",
+            "last_assistant_message" => "PONG",
+            "session_id" => "s9"
+          },
+          pubsub: pubsub
+        )
 
       assert_receive {:claude_hook, "MT-HOOK", %{event: :stop, message: "PONG", session_id: "s9"}}, 1000
     end
 
-    test "is scoped per identifier" do
-      :ok = HookEvents.subscribe("MT-HOOK-A")
+    test "is scoped per identifier", %{pubsub: pubsub} do
+      :ok = HookEvents.subscribe("MT-HOOK-A", pubsub)
 
       :ok =
-        HookEvents.dispatch("MT-HOOK-B", %{
-          "hook_event_name" => "Stop",
-          "last_assistant_message" => "x"
-        })
+        HookEvents.dispatch(
+          "MT-HOOK-B",
+          %{
+            "hook_event_name" => "Stop",
+            "last_assistant_message" => "x"
+          },
+          pubsub: pubsub
+        )
 
       refute_receive {:claude_hook, _, _}, 50
+    end
+
+    test "dispatch reports hook activity through the injected composition callback", %{pubsub: pubsub} do
+      parent = self()
+
+      assert :ok =
+               HookEvents.dispatch("MT-HOOK-ACTIVITY", %{"hook_event_name" => "PostToolUse"},
+                 pubsub: pubsub,
+                 activity_fun: fn identifier -> send(parent, {:hook_activity, identifier}) end
+               )
+
+      assert_receive {:hook_activity, "MT-HOOK-ACTIVITY"}, 1_000
     end
 
     test "always returns :ok, even on a malformed payload" do

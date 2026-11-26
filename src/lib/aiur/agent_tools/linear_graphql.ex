@@ -7,7 +7,6 @@ defmodule Aiur.AgentTools.LinearGraphQL do
 
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
-  alias Aiur.Linear.Client, as: LinearClient
 
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Aiur's configured auth.
@@ -48,14 +47,21 @@ defmodule Aiur.AgentTools.LinearGraphQL do
   @impl true
   @spec execute(String.t(), term(), keyword()) :: map()
   def execute("linear_graphql", arguments, opts) do
-    linear_client = Keyword.get(opts, :linear_client, &LinearClient.graphql/3)
+    linear_client = Keyword.get(opts, :linear_client) || Application.get_env(:aiur, :linear_graphql_client)
 
     with {:ok, query, variables} <- normalize_linear_graphql_arguments(arguments),
-         {:ok, response} <- linear_client.(query, variables, []) do
+         client when is_function(client, 3) <- linear_client,
+         {:ok, response} <- client.(query, variables, []) do
       graphql_response(response)
     else
+      nil ->
+        Response.failure(Errors.payload(:linear_graphql_unavailable))
+
       {:error, reason} ->
         Response.failure(Errors.payload(reason))
+
+      _unavailable ->
+        Response.failure(Errors.payload(:linear_graphql_unavailable))
     end
   end
 

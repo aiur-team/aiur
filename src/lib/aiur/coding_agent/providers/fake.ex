@@ -43,7 +43,7 @@ defmodule Aiur.CodingAgent.Providers.Fake do
         },
         component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
       },
-      usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
+      usage: %{provider: :fake},
       account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
     }
   end
