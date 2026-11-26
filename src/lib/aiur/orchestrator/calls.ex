@@ -220,6 +220,8 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:operator_message_snapshot, item_id}, _from, state) when is_integer(item_id),
     do: Snapshot.handle_call(state, item_id)
 
+  def handle_call(:queued_executor_messages, _from, state), do: Snapshot.handle_queued_executor_messages(state)
+
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)

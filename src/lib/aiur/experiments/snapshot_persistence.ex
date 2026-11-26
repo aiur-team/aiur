@@ -16,6 +16,12 @@ defmodule Aiur.Experiments.SnapshotPersistence do
       "actor" => Keyword.get(opts, :actor, "operator")
     }
 
+    entry =
+      case Keyword.get(opts, :imported_source_sha256) do
+        nil -> entry
+        sha -> Map.merge(entry, %{"source_sha256" => sha, "source_path" => Keyword.get(opts, :source_path), "kind" => "baseline_imported"})
+      end
+
     transaction = %{"schema_version" => Schema.current(), "snapshot" => snapshot, "entry" => entry}
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.file(id, "snapshots")),

@@ -40,8 +40,11 @@ defmodule Aiur.Events.Catalog.Entries do
     },
     # aiur/executor_events.ex — private to the Executor principal.
     %Entry{pattern: "executor.#", class: :journaled, owner: "executor-attention"},
+    %Entry{pattern: "executor.thread.message", class: :journaled, owner: "executor-attention"},
     %Entry{pattern: "executor.newsletter.failed", class: :journaled, owner: "newsletter"},
     %Entry{pattern: "system.newsletter.ready", class: :journaled, owner: "newsletter"},
+    # aiur/operator_notify.ex — operator-authored text a host app shows as a device push.
+    %Entry{pattern: "operator.notify.*", class: :live, export?: true, attrs: [title: :text, body: :text, ticket: :id, url: :text, created_at: :text], owner: "executor-attention"},
     # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
     %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
     # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex

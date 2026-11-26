@@ -196,6 +196,25 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     :ok
   end
 
+  @doc "Tells the reviewer why a ticket reached human review with its pull request still a draft."
+  @spec emit_draft_handoff_alert(String.t(), integer(), String.t(), Path.t() | nil, String.t() | nil) :: :ok
+  def emit_draft_handoff_alert(identifier, pr_number, reason, workspace, worker_host) do
+    message = "#{identifier} moved to agent:human-review with draft PR ##{pr_number}, blocked outside the ticket: #{reason}"
+
+    Signal.alert(
+      "ticket.#{identifier}.agent.draft_handoff",
+      issue: identifier,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
   @doc "Records a stopped rework run kept in rework because review findings are still unanswered (#5746)."
   @spec emit_rework_findings_open_alert(Issue.t(), Path.t() | nil, String.t() | nil, [map()]) :: :ok
   def emit_rework_findings_open_alert(%Issue{} = issue, workspace, worker_host, findings) do
