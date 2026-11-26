@@ -93,7 +93,7 @@
       ]
     },
     "filters": {"$ref": "#/definitions/predicate"},
-    "stratify_by": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}},
+    "stratify_by": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"}},
     "tags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "notes": {"type": "string"},
     "confounder_sources": {
@@ -138,20 +138,20 @@
       "oneOf": [
         {
           "type": "object",
-          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "eq"}, "value": {}},
+          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "eq"}, "value": {}},
           "required": ["attr", "op", "value"],
           "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "neq"}, "value": {}},
+          "properties": {"attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"}, "op": {"const": "neq"}, "value": {}},
           "required": ["attr", "op", "value"],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"},
             "op": {"const": "in"},
             "value": {"type": "array"}
           },
@@ -161,7 +161,7 @@
         {
           "type": "object",
           "properties": {
-            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"},
             "op": {"const": "prefix"},
             "value": {"type": "string"}
           },
@@ -171,7 +171,7 @@
         {
           "type": "object",
           "properties": {
-            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|tags\\.[a-zA-Z0-9_-]+)$"},
+            "attr": {"type": "string", "pattern": "^(aiur_version|backend|model|epic|feature_tags|config_hash|complexity|queue_id|start_trigger|tags\\.[a-zA-Z0-9_-]+)$"},
             "op": {"const": "exists"},
             "value": {"type": "boolean"}
           },

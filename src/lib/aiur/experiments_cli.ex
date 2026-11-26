@@ -287,6 +287,7 @@ defmodule Aiur.ExperimentsCLI do
   defp print_human(data, _verb), do: IO.puts(Jason.encode!(data, pretty: true))
 
   defp print_snapshot(snapshot) do
+    print_imported_summary(snapshot["baseline_import"])
     window = snapshot["window"]
     coverage = snapshot["metrics"] |> Enum.sort() |> Enum.map_join(", ", fn {ref, metric} -> "#{ref}=#{Jason.encode!(metric["coverage"])} (n=#{metric["summary"]["n"]})" end)
 
@@ -294,6 +295,13 @@ defmodule Aiur.ExperimentsCLI do
       "froze #{snapshot["window_name"]} window #{window["start"]}..#{window["end"]}: #{snapshot["observation_count"]} observations, coverage #{coverage}; r#{snapshot["revision"]} sha #{String.slice(snapshot["sha256"], 0, 12)}"
     )
   end
+
+  defp print_imported_summary(%{"metric_ref" => ref, "summary" => %{"n" => n, "median_h" => median}, "source_sha256" => sha}) do
+    hours = :erlang.float_to_binary(median * 1.0, decimals: 2)
+    IO.puts("imported baseline #{ref}: n=#{n}, median=#{hours} h; source sha #{sha}")
+  end
+
+  defp print_imported_summary(_), do: :ok
 
   defp usage(opts) do
     error_fun = Keyword.get(opts, :error_fun, &IO.puts(:stderr, &1))
