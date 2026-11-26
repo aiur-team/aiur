@@ -85,15 +85,15 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     "queue" => [
       {"show --json", :read},
       {"order", :read},
-      {"add 123 456 --queue team --rank 0", :deny},
-      {"set team --start-on default", :deny},
-      {"remove 123", :deny},
-      {"reorder 123 --to 0", :deny},
-      {"order team --to 0", :deny},
-      {"hold 123", :deny},
-      {"release 123", :deny},
-      {"recover", :deny},
-      {"clear --remove-markers --yes", :deny}
+      {"add 123 456 --queue team --rank 0", :tickets},
+      {"set team --start-on default", :tickets},
+      {"remove 123", :tickets},
+      {"reorder 123 --to 0", :tickets},
+      {"order team --to 0", :tickets},
+      {"hold 123", :tickets},
+      {"release 123", :tickets},
+      {"recover", :tickets},
+      {"clear --remove-markers --yes", :tickets}
     ],
     "epic" => [
       {"create demo --label Demo --root 123", :tickets},
@@ -170,11 +170,11 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       assert engine_verbs(command) == tested_verbs, "update the local #{command} fixtures when its case arms change"
 
       for {args, category} <- cases do
-        scope = Map.fetch!(%{read: :read, tickets: :write, deny: :deny}, category)
+        scope = Map.fetch!(%{read: :read, tickets: :write}, category)
         expression = capture_rpc("cmd_#{command} #{args}", [{"AIUR_PROJECT", "sample/repo"}])
         result = ControlCall.parse(expression, remote: false)
 
-        assert {:ok, %{scope: ^scope, category: ^category, project: {"sample/repo", nil}, remote: false}} = result,
+        assert match?({:ok, %{scope: ^scope, category: ^category, project: {"sample/repo", nil}, remote: false}}, result),
                "#{command} #{args} emitted #{inspect(expression)}, parsed as #{inspect(result)}"
       end
     end
@@ -184,9 +184,9 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-queue.sh", __DIR__))
     assert source =~ "queue_workspace_guard"
 
-    for {arguments, :deny} <- @local_cases["queue"] do
+    for {arguments, :tickets} <- @local_cases["queue"] do
       expression = capture_rpc("cmd_queue #{arguments}")
-      result = ControlCall.parse(expression)
+      result = ControlCall.parse(expression, remote: true)
       assert result == {:error, :denied_remote}, "queue #{arguments}: #{expression} parsed as #{inspect(result)}"
     end
   end
