@@ -42,6 +42,8 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.agent.retry_exhausted", "attention:auto"},
     {"ticket.*.agent.handoff.human_review", "handoff:auto"},
     {"ticket.*.pr.parked_ready", "attention:auto"},
+    # A mandatory-skill gate refused the ticket start; only the operator can unblock it.
+    {"ticket.*.skills.blocked", "attention:auto"},
     {"system.main.ci.failed", "ci:auto"},
     {"system.main.ci.failed.resolved", "ci:auto"},
     {"system.main.ci.flaked", "ci:auto"},

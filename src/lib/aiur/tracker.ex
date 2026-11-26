@@ -64,6 +64,16 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 2), do: tracker.issue_closure(issue_id, max_age_ms), else: {:error, :unsupported}
   end
 
+  @doc "Like `issue_closure/2`, attributing the read to `caller` where the tracker meters reads."
+  @spec issue_closure(String.t(), pos_integer(), String.t()) :: issue_closure_result()
+  def issue_closure(issue_id, max_age_ms, caller) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 3),
+      do: tracker.issue_closure(issue_id, max_age_ms, caller),
+      else: issue_closure(issue_id, max_age_ms)
+  end
+
   @doc "Reads open-issue labels already observed by the tracker, without a remote request."
   @spec open_issue_labels(pos_integer()) :: open_issue_labels_result()
   def open_issue_labels(max_age_ms) do

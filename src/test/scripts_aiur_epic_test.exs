@@ -13,6 +13,7 @@ defmodule Aiur.ScriptsEpicTest do
         "epic-test",
         @engine
       ],
+      cd: "/",
       env: [{"USER", "tester"} | env],
       stderr_to_stdout: true
     )
@@ -28,6 +29,7 @@ defmodule Aiur.ScriptsEpicTest do
         "epic-test",
         @engine
       ],
+      cd: "/",
       env: [{"USER", "tester"} | env],
       stderr_to_stdout: true
     )

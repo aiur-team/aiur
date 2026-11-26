@@ -337,6 +337,20 @@ defmodule Aiur.Orchestrator.Dispatcher.EntryTest do
     refute Map.has_key?(state.running, candidate.id)
   end
 
+  # Open-Games #310: a ci-wait ticket rides the candidate list unauthorized as
+  # label-repair evidence. Reporting it `:unauthorized` sent the operator after
+  # label provenance when the ticket was only waiting on its state.
+  test "does not report a ci-wait ticket as unauthorized" do
+    candidate = %{issue("ci-wait-evidence") | state: "ci-wait", dispatch_authorized?: false, dispatch_authorization: :deferred}
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    state = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate])
+
+    refute Map.has_key?(state.dispatch_declines, candidate.id)
+    refute Map.has_key?(state.running, candidate.id)
+    refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
   test "clearing an attention decline emits its matching resolution" do
     candidate = issue("orphaned-claim")
     :ok = AgentPubSub.subscribe_agent(candidate.identifier)

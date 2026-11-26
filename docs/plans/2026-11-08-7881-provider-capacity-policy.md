@@ -133,14 +133,15 @@ Paths in this table are under `src/lib/aiur/`.
 |---|---|---|---|
 | Claude (subscription OAuth) | `GET /api/oauth/usage` per account: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet` used %, `resets_at`. Live `rate_limit/update` status `allowed`, `allowed_warning`, `rejected` with `resets_at` | Window size is implied by name, not reported. Event stream has no consumed fraction. API-key accounts have no usage at all. Executor vs worker share of one account is not separable | `claude/usage_api.ex:26,42-53`; `claude/rate_limit_adapter.ex:8-12`; `provider_meter_probe.ex:14-19,219-268`; `config/schema/agent.ex:180` |
 | Codex (subscription) | `account/rateLimits/updated`: `primary` and `secondary` used % (integer), `windowDurationMins`, `resetsAt`, `planType`; `credits` as `hasCredits`/`unlimited` | Credit amount. Readings arrive only when a session starts or the probe runs, so an idle Codex keeps an old reading. Ledger is per backend, so several Codex accounts read as unknown | `codex/rate_limit_adapter.ex:258-300,395-406`; `provider_meter_probe.ex:8-12,42`; `concepts/headroom-dispatch.md` |
-| OpenRouter (prepaid) | `GET /credits` with `OPENROUTER_MANAGEMENT_KEY`: `total_credits`, `total_usage`, giving remaining USD. Per-route spend from the usage aggregate | Per-key limit and its reset; rate limits. Without the management key the balance is unknown. A $0 balance is learned only by a 402 per claim (#7879) | `open_ai_compat/provider_meter_probe.ex:70,90-96,139-217`; `usage/provider/open_router.ex:202-311`; `open_ai_compat/transport.ex:50-61` |
+| OpenRouter (prepaid) | `GET /credits` with `OPENROUTER_MANAGEMENT_KEY`: `total_credits`, `total_usage`, giving remaining USD. Per-route spend from the usage aggregate | Rate limits. Without the management key the balance is unknown. A $0 balance is learned only by a 402 per claim (#7879). **Per-key limit: known, not yet polled.** `GET /api/v1/key` with the inference key returns `limit`, `limit_remaining`, `limit_reset` (type only) and `effective_budget.resets_at` (PCP-2) | `open_ai_compat/provider_meter_probe.ex:70,90-96,139-217`; `usage/provider/open_router.ex:202-311`; `open_ai_compat/transport.ex:50-61`; PCP-2: [`docs/research/2026-11-09-7887-openrouter-key-moonshot-balance.md`](../research/2026-11-09-7887-openrouter-key-moonshot-balance.md) (documented; unauthenticated 401 vs 404 captured) |
 | DeepSeek (prepaid) | `GET /user/balance`: USD `total_balance`. In-flight request count against a fixed 2500 | Used % is derived from a stored baseline, not reported. No rate limits or resets. No `aiur usage` adapter | `open_ai_compat/provider_meter_probe.ex:69,82-136`; `open_ai_compat/balance_baseline.ex:3-22`; `open_ai_compat/meter_windows.ex:4-21`; `usage.ex:6-14` |
-| Moonshot / Kimi | Per-request token usage after the fact | Balance, limits, resets: everything before the request | `open_ai_compat/provider_meter_probe.ex:12-13`; `usage/headless/kimi/request_usage.ex` |
+| Moonshot / Kimi | Per-request token usage after the fact. **Balance: known, not yet polled.** `GET /v1/users/me/balance` returns USD `available_balance`, `voucher_balance`, `cash_balance` (PCP-2) | Rate limits and resets: per user, set by recharge tier, reported by no endpoint or header (429 only) | `open_ai_compat/provider_meter_probe.ex:12-13`; `usage/headless/kimi/request_usage.ex`; PCP-2: [`docs/research/2026-11-09-7887-openrouter-key-moonshot-balance.md`](../research/2026-11-09-7887-openrouter-key-moonshot-balance.md) (documented; unauthenticated 401 vs 404 captured) |
 | Gemini, OpenAI (voice, vision) | Local `voice.conversation.daily_minutes_cap` (minutes) | Provider usage and balance; no meter | `config/schema/voice_conversation.ex:61-64`; `usage/price_table/data.ex:19-22` |
 | ElevenLabs (voice) | `GET /v1/user/subscription` quota | Not a coding source; out of this policy | `eleven_labs/quota.ex:3-15` |
 
-Not checked for this plan: whether OpenRouter's per-key endpoint and Moonshot's balance endpoint return limits
-Aiur could poll. PCP-2 checks both before any code depends on them; until then they stay unknown.
+PCP-2 (#7887) found both endpoints exist and documented their fields, but captured no authenticated response:
+agent workspaces have no provider keys. An operator capture, listed in the research note, confirms the field shapes
+before code depends on them.
 
 Consequences for the policy:
 
@@ -149,7 +150,7 @@ Consequences for the policy:
   unknown spend, which holds a source that has a limit.
 - A prepaid balance reading, when present, also holds the source at `remaining <= 0`, before any 402.
 - Moonshot, and OpenRouter without the management key, can only be governed by the USD limits Aiur records
-  itself. The policy says so in its reason text instead of showing headroom.
+  itself until the PCP-2 endpoints are polled. The policy says so in its reason text instead of showing headroom.
 
 ## 4. Reservation model
 

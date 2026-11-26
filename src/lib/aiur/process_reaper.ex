@@ -35,7 +35,8 @@ defmodule Aiur.ProcessReaper do
 
   A **dead BEAM** (e.g. an `:emfile` crash) can reap nothing from inside itself,
   so on each `:agent` register this module also appends the agent's os_pid/pane
-  to the `AIUR_AGENT_TMPFILE` pidfile (see `record_agent_pidfile/3`). The bash
+  to the `AIUR_AGENT_TMPFILE` pidfile (see `record_agent_pidfile/4`; a
+  `:pidfile` start option overrides the env var, which is read once at start). The bash
   launcher's BEAM-death watchdog reads that file to kill pane + headless agents
   after the BEAM is gone — mirroring how `AIUR_SESSION_TMPFILE` feeds the
   opencode-session cleanup trap.
@@ -189,11 +190,13 @@ defmodule Aiur.ProcessReaper do
   # ------------------------------------------------------------- callbacks
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     # Trap exits so a supervised shutdown lands in terminate/2 — the backstop
     # reap that runs on EVERY tree teardown, including SIGTERM.
     Process.flag(:trap_exit, true)
-    {:ok, %{entries: %{}, draining: false, handoff: MapSet.new()}}
+    # Per-instance so a test reaper's pidfile never collects another reaper's agents.
+    pidfile = Keyword.get_lazy(opts, :pidfile, fn -> System.get_env("AIUR_AGENT_TMPFILE") end)
+    {:ok, %{entries: %{}, draining: false, handoff: MapSet.new(), pidfile: pidfile}}
   end
 
   @impl true
@@ -206,7 +209,7 @@ defmodule Aiur.ProcessReaper do
   end
 
   def handle_call({:register, kind, ref, meta}, _from, state) do
-    record_agent_pidfile(kind, ref, meta)
+    record_agent_pidfile(state.pidfile, kind, ref, meta)
     {:reply, :ok, put_in(state.entries[ref], {kind, meta})}
   end
 
@@ -275,15 +278,10 @@ defmodule Aiur.ProcessReaper do
   # recycled pid is skipped rather than mis-killed — the same pid-reuse guarantee
   # the in-memory `cmdline_guard` gives, without the BEAM having to rewrite a file
   # on every agent teardown.
-  defp record_agent_pidfile(:agent, ref, meta) do
-    case System.get_env("AIUR_AGENT_TMPFILE") do
-      nil -> :ok
-      "" -> :ok
-      path -> append_pidfile_line(path, pidfile_line(ref, meta))
-    end
-  end
+  defp record_agent_pidfile(path, :agent, ref, meta) when is_binary(path) and path != "",
+    do: append_pidfile_line(path, pidfile_line(ref, meta))
 
-  defp record_agent_pidfile(_kind, _ref, _meta), do: :ok
+  defp record_agent_pidfile(_path, _kind, _ref, _meta), do: :ok
 
   defp pidfile_line({:os_pid, pid}, %{comm: comm}) when is_binary(comm) and comm != "",
     do: "pid #{pid} #{comm}"

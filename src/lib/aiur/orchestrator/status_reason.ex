@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.StatusReason do
           | {:transient, String.t() | nil, non_neg_integer() | nil}
           | {:paused, atom() | String.t() | nil}
           | {:paused, atom() | String.t() | nil, t()}
-          | {:backends, [{String.t(), :available | :limited}]}
+          | {:backends, [{String.t(), :available | :limited | {:held, atom()}}]}
 
   @spec for_idle(boolean(), term(), non_neg_integer(), non_neg_integer()) :: t()
   def for_idle(_prewarm_blocked?, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
@@ -99,9 +99,12 @@ defmodule Aiur.Orchestrator.StatusReason do
     end
   end
 
-  def render({:backends, backends}), do: Enum.map_join(backends, ", ", fn {backend, state} -> "#{backend} #{state}" end)
+  def render({:backends, backends}), do: Enum.map_join(backends, ", ", &render_backend/1)
 
   def render({:paused, reason, retry_reason}), do: "#{render({:paused, reason})}; #{render(retry_reason)}"
+
+  defp render_backend({backend, {:held, reason}}), do: "#{backend} held: #{String.replace(to_string(reason), "_", " ")}"
+  defp render_backend({backend, state}), do: "#{backend} #{state}"
 
   defp format_duration(milliseconds) when milliseconds < 60_000, do: "<1m"
   defp format_duration(milliseconds), do: "~#{div(milliseconds + 59_999, 60_000)}m"

@@ -18,7 +18,7 @@ defmodule Aiur.Events.CatalogCensusTest do
 
     missing =
       for file <- files,
-          topic <- topics(File.read!(file)),
+          topic <- topics(read_source!(file)),
           expanded <- Map.get(@finite_topics, topic, [topic]),
           not MapSet.member?(patterns, registered_pattern(expanded)) or Catalog.lookup(String.replace(expanded, "*", "census")).owner == "unknown" do
         "#{Path.relative_to(file, @lib_root)}: #{expanded}"
@@ -119,5 +119,12 @@ defmodule Aiur.Events.CatalogCensusTest do
         not entry.reserved,
         not Enum.any?(producer_topics, &Aiur.Events.matches?(entry.pattern, &1)),
         do: entry.pattern
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

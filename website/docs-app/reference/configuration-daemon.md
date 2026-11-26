@@ -18,7 +18,7 @@ Supported secret and workspace-root fields resolve `~` and `$VAR` values; other 
 
 Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
 
-Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`.
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`, `capacity.sources.<backend>.reserve.percent` (may only raise the reserve).
 
 Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
 
@@ -57,7 +57,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
-| `executor.relay_operator_answers` | boolean | false | Opt-in quoted operator answers via `operator-relay-answer`, including human-only Commands. Enabling and recording raise info alerts; disable to revoke. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
+| `executor.relay_operator_answers` | boolean | true | Lets an Executor record your quoted answer via `operator-relay-answer`, including human-only Commands. Recording, and enabling on reload, raise info alerts; set `false` to opt out. When off, the refusal names the line to change. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
 | `executor.allow_reversible_human_required_answers` | boolean | false | Explicitly delegates reversible `human_required` engineering Commands to the Executor. The answer remains attributed to the Executor with its rationale in history. Spend, external publication, product direction, and security basis remain human-only. Enabling raises an info alert. |
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
@@ -86,6 +86,9 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
 | `monitoring.daemon_memory_alert_fraction` | float | 0.5 | Share of host memory the daemon may use, by resident memory or `:erlang.memory(:total)`, before Aiur raises `system.daemon.memory_high` once and logs the largest processes (memory, queue length), any that do not answer, and the largest ETS tables. A `system.daemon.memory_high.resolved` alert follows when usage falls back below the line. Checked every 10 seconds. |
+| `monitoring.disk_alert_percent` | integer | 90 | Used-space percentage on the filesystem holding `workspace.root`, the run-log root or `~/.aiur` at which Aiur raises `system.disk.pressure` once, naming the filesystem, its use, free bytes and the largest workspace directories. `system.disk.pressure.resolved` follows when usage falls back below the line. Checked every minute. |
+| `monitoring.disk_stop_dispatch_free_gb` | integer | 10 | Free space in GiB below which Aiur stops starting new agents on any watched filesystem, whatever its used percentage, because a percentage alone is too loose on a small disk and too strict on a large one. Dispatch stops when either this floor or `monitoring.disk_stop_dispatch_percent` is crossed. `0` disables the floor. |
+| `monitoring.disk_stop_dispatch_percent` | integer | 97 | Used-space percentage on any watched filesystem at which Aiur stops starting new agents, so a full disk does not crash the daemon. Running agents continue. `aiur status` shows the `DISK` line and a `disk` admission hold. Dispatch also stops below `monitoring.disk_stop_dispatch_free_gb` free. Dispatch resumes once usage is 2 points below the line and free space is 2% of the filesystem above the floor, so a disk hovering on the line does not start an agent every minute. A failed, timed-out or stale free-space sample shows as `unknown` or `stale` and does not stop dispatch. Must be at least `monitoring.disk_alert_percent`. |
 
 ## workspace
 

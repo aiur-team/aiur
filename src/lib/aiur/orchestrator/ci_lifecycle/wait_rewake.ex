@@ -28,7 +28,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitRewake do
       when is_binary(issue_id) do
     rewakes = ci_wait_rewakes(state)
 
-    if Map.has_key?(rewakes, issue_id) do
+    # External CI never reports to GitHub, so a timed check wake would only flip the ticket (#8098).
+    if Map.has_key?(rewakes, issue_id) or Aiur.MergePolicy.external_ci?() do
       state
     else
       delay_ms = Config.ci_wait_rewake_minutes() * 60_000

@@ -237,6 +237,18 @@ defmodule Aiur.Orchestrator.GlobalPause do
   @spec fleet_pause_info(State.t(), keyword()) :: {:noreply, State.t()}
   def fleet_pause_info(%State{} = state, opts \\ []), do: {:noreply, refresh_fleet_pause(state, opts)}
 
+  @doc false
+  @spec gateway_pause_info(State.t(), boolean()) :: {:noreply, State.t()}
+  def gateway_pause_info(%State{gateway_paused: on?} = state, on?), do: {:noreply, state}
+
+  def gateway_pause_info(%State{} = state, on?) do
+    state = %{state | gateway_paused: on?}
+    put_effective_env(state)
+    publish_global_pause(state)
+    StatusReport.notify_dashboard(state)
+    {:noreply, if(on?, do: state, else: state |> Lifecycle.request_refresh_state() |> elem(0))}
+  end
+
   defp refresh_fleet_pause(%State{fleet_paused: before} = state, opts \\ []) do
     fleet? = match?({:paused, _, _, _}, Registers.fleet_pause(opts))
     state = %{state | fleet_paused: fleet?}

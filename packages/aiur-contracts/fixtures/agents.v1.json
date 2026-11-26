@@ -8,6 +8,7 @@
   "running": [
     {
       "adopted_from": "handoff-7",
+      "capacity_reason": "codex/default (preferred; 62% left at dispatch, reading 40s old)",
       "codex_app_server_pid": null,
       "identifier": "5698",
       "issue_id": "I_5698",
@@ -25,13 +26,12 @@
         "missing": [
           "ghost-skill"
         ],
-        "truncated": [
-          "palette"
-        ]
+        "over_budget": false
       }
     },
     {
       "adopted_from": "handoff-7",
+      "capacity_reason": null,
       "codex_app_server_pid": null,
       "identifier": "5699",
       "issue_id": "I_5699",

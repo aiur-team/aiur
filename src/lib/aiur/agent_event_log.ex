@@ -18,6 +18,7 @@ defmodule Aiur.AgentEventLog do
 
   require Logger
 
+  alias Aiur.Fs
   alias Aiur.Workspace.Reconstruction
 
   @spec write(String.t() | nil, String.t() | nil, map()) :: :ok
@@ -31,9 +32,8 @@ defmodule Aiur.AgentEventLog do
       record = json_safe(message)
       encoded_record = Jason.encode!(record)
 
-      with :ok <- File.mkdir_p(log_dir),
-           :ok <- File.write(ndjson_path, encoded_record <> "\n", [:append]),
-           :ok <- File.write(markdown_path, markdown_entry(record, encoded_record), [:append]) do
+      with :ok <- Fs.append_raw(ndjson_path, encoded_record <> "\n"),
+           :ok <- Fs.append_raw(markdown_path, markdown_entry(record, encoded_record)) do
         :ok
       else
         {:error, reason} ->

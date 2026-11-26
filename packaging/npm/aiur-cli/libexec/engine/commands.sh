@@ -81,6 +81,13 @@ cmd_pause_resume() {
   local command="$1"
   shift
 
+  if [ "${1:-}" = "--project" ]; then
+    [ "$command" != park ] || { echo "aiur: park does not accept --project" >&2; exit 64; }
+    [[ "${2:-}" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || { echo "aiur: --project expects owner/name (e.g. aiur $command --project acme/app)" >&2; exit 64; }
+    [ "$#" -eq 2 ] || { echo "aiur: --project cannot be combined with issue ids yet" >&2; exit 64; }
+    run_control_rpc "Aiur.AgentControlCLI.${command}_project(\"$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')\")"
+    return
+  fi
   [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
   local fleet_arg
   for fleet_arg in "$@"; do
@@ -355,6 +362,14 @@ cmd_cleanup_stale() {
   fi
 }
 
+# Caller evidence for set/unset. A remote call names a project instead of sending a cwd that is a path on another machine.
+set_caller_opts() {
+  local opts="caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\")"
+  [ -n "${AIUR_REMOTE_INSTANCE:-}" ] || opts="caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), $opts"
+  aiur_project_join opts
+  SET_CALLER_OPTS="$opts"
+}
+
 # `aiur set <key> <value>` — runtime config overrides without editing
 # `.aiur/config`. `max-agents` remains the session-only compatibility path.
 cmd_set() {
@@ -408,7 +423,8 @@ EOF
       fi
       local unset_key
       unset_key="$(printf '%s' "$1" | base64 | tr -d '\n')"
-      run_control_rpc "Aiur.AgentControlCLI.unset_setting(Base.decode64!(\"$unset_key\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
+      set_caller_opts
+      run_control_rpc "Aiur.AgentControlCLI.unset_setting(Base.decode64!(\"$unset_key\"), $SET_CALLER_OPTS)"
       ;;
     "")
       echo "aiur: usage: aiur set <key> <json> | --list [--json] | --unset <key>" >&2
@@ -422,7 +438,8 @@ EOF
       local encoded_key encoded_value
       encoded_key="$(printf '%s' "$key" | base64 | tr -d '\n')"
       encoded_value="$(printf '%s' "$1" | base64 | tr -d '\n')"
-      run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
+      set_caller_opts
+      run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), $SET_CALLER_OPTS)"
       ;;
   esac
 }

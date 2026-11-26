@@ -21,7 +21,8 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
                    blocking: :boolean,
                    urgency: {:enum, ~w(low normal high critical)},
                    cause:
-                     {:enum, ~w(executor_originated executor_offline executor_stalled authority_human_required executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)}
+                     {:enum,
+                      ~w(executor_originated executor_offline executor_stalled authority_human_required audience_creator executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)}
                  ],
                  owner: "commands"
                }

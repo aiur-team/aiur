@@ -121,6 +121,10 @@ Build order (`?view=build-order`) renders the published `build-order.v1` documen
 dependency graph — through the `aiur-build-order` package. A `bo-<root>` feature focuses one root;
 otherwise the view shows the whole catalog. Stale and unknown sources render the document's own banner.
 
+Build home intentionally renders two surfaces: Build order is a static review of the published plan,
+while Timeline, Gantt and List stay on the interactive board (scrolling, the Now band, dependency
+chains and time range), which the package does not provide.
+
 The Now band shows active agents between history and the plan, using the same
 card style as the other tickets. It scrolls with the board and pins to the top
 or bottom edge instead of leaving view.
@@ -133,6 +137,15 @@ Agents in failure back-off carry `agent:retrying` and are counted separately
 from running agents. Labels such as `agent:ci-red` and
 `agent:paused-usage-limit` appear on cards and in agent-state filters. Tickets
 with spent retry latches have no live agent and are left out of Now.
+
+In List view, a Now row's agent cell ends with the capacity policy's reason for
+its source, the same text `aiur agents` prints, for example
+`codex/default (preferred; 62% left at dispatch, reading 40s old)`. The
+reading is the one taken when the ticket was dispatched.
+
+When the capacity policy allows no source, each queued ticket's card shows a
+`no authorized source` cue; hover it for one clause per held source. In List
+view the same text fills the queued row's agent cell.
 
 The toolbar selects Timeline, Gantt or List and retains the view in the URL.
 

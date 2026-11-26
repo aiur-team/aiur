@@ -1,4 +1,5 @@
 # Queue commands shared by the installed CLI and aiurdev.
+declare -F aiur_project_join >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/engine/project.sh"
 queue_usage_error() { echo "aiur: queue $*" >&2; exit 64; }
 queue_string() { printf 'Base.decode64!("%s")' "$(printf '%s' "$1" | base64 | tr -d '\n')"; }
 queue_workspace_guard() {
@@ -121,6 +122,7 @@ cmd_queue() {
   if [ "$verb" = add ] || [ "$verb" = remove ]; then
     AIUR_CONTROL_RPC_TIMEOUT_SECONDS="$(todo_rpc_seconds "${#ids[@]}" 0)"
   fi
+  aiur_project_join opts
   AIUR_CONTROL_COMMAND="queue $verb" run_control_rpc "Aiur.AgentControlCLI.queue([$opts])" || status=$?
   if [ "$status" -eq 124 ]; then echo 'aiur: queue outcome unknown; run aiur queue show before retrying' >&2; fi
   return "$status"

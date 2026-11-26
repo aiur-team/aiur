@@ -37,6 +37,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.ci_readiness.not_ready", "orchestration"},
     # aiur/orchestrator/ci_readiness_gate.ex
     {"system.ci_readiness.unavailable", "orchestration"},
+    # aiur/commands/routing.ex
+    {"system.commands.executor_only_waiting", "commands"},
     # aiur/workflow_store/reload.ex
     {"system.config.base_branch.changed", "config"},
     {"system.config.executor.human_required_delegation.enabled", "config"},
@@ -51,6 +53,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded.resolved", "telemetry"},
     # aiur/memory_watchdog.ex
     {"system.daemon.memory_high", "telemetry"},
     # aiur/memory_watchdog.ex
@@ -63,6 +69,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.decision_dispatch.saturated.resolved", "commands"},
     # aiur/agent_runner/decision_lifecycle_failure_alert.ex
     {"system.decision_lifecycle.recording_failed", "agent-runner"},
+    # aiur/disk_watchdog.ex; aiur/disk_full.ex
+    {"system.disk.pressure", "kernel"},
+    # aiur/disk_watchdog.ex
+    {"system.disk.pressure.resolved", "kernel"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.capacity_starved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
@@ -141,6 +151,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive.resolved", "orchestration"},
     # aiur/ownership/projection.ex
     {"system.ownership.ambiguous", "config"},
     # aiur/landing_watch/pr_rerun.ex

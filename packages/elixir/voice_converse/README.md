@@ -21,6 +21,18 @@ Calls run under a deadline. Their parameters and
 results use the configured redactor and normal transcript recording.
 `allowed_tools` filters host tools like every other advertised tool.
 
+Assistant text broadcasts redact across provider chunk boundaries. Each text
+chunk re-redacts the turn so far and sends only new masked text, withholding a
+tail that could still grow into a match (`Bearer ` plus up to seven token
+characters, a key prefix such as `sk-`, or a URL's `user:password` before its
+`@`). The tail is released on the next text chunk, the final text event, an
+interruption, a user turn, or session finish. Added delay is at most one
+provider text chunk, and at most 64 graphemes are withheld; a longer URL
+credential is released before its `@` arrives. Re-redacting the turn costs CPU
+that grows with turn length (quadratic per turn): measured median 8 µs for the
+first 20-character chunk, 43 µs at 2,000 characters, 26 µs averaged over the
+turn (`StreamText.step/3`, 16-core host, load 3).
+
 ## Hosted agents
 
 An adapter whose descriptor family is `:hosted_agent` talks through an agent object the host

@@ -23,7 +23,7 @@ prepare_restart_handoff() {
   }
   printf '%s\n' "$output" | sed '/^__AIUR_HANDOFF__:/d; /^__AIUR_CONTROL_EXIT__:/d' >&2
   AIUR_RESTART_HANDOFF_ID="$(printf '%s\n' "$output" | sed -n 's/^__AIUR_HANDOFF__://p')"
-  if ! [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  if ! [[ "$AIUR_RESTART_HANDOFF_ID" =~ ^[A-Za-z0-9_,-]+$ ]]; then
     aiur_restart_phase="preflight_failed"
     aiur_restart_reason="handoff_preflight_missing_id"
     aiur_write_restart_diagnostic

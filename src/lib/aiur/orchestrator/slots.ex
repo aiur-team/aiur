@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Slots do
   import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
@@ -351,7 +351,7 @@ defmodule Aiur.Orchestrator.Slots do
   def available_slots(%State{} = s) when effective_paused?(s), do: 0
 
   def available_slots(%State{} = state) do
-    max(effective_concurrent_agent_limit(state) - used_slots(state), 0)
+    max(min(effective_concurrent_agent_limit(state) - used_slots(state), MachineGrant.headroom()), 0)
   end
 
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()
@@ -367,7 +367,7 @@ defmodule Aiur.Orchestrator.Slots do
 
     fleet_slot_available? =
       if is_integer(reservation_limit),
-        do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)),
+        do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0,
         else: available_slots(state) > slot_waiters(state, issue.id)
 
     fleet_slot_available? and DispatchPolicy.state_slots_available?(issue, state)

@@ -139,6 +139,10 @@ export interface FleetRunningAgent {
   review?: string;
   ci?: FleetCiStatus | null;
   waiting_reason?: string | null;
+  /**
+   * Why the capacity policy chose this ticket's source, with the reading taken at dispatch.
+   */
+  capacity_reason?: string | null;
   work_state?: string | null;
   [k: string]: unknown;
 }
@@ -190,6 +194,10 @@ export interface FleetIdleAgent {
   tracker_paused: boolean;
   queue_depth: number;
   waiting_reason: string;
+  /**
+   * Why no capacity source is authorized for this queued ticket: one clause per source.
+   */
+  capacity_reason?: string | null;
   waiting?: {
     [k: string]: unknown;
   } | null;

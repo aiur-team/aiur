@@ -23,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionTimeline do
     executor_offline: "Executor offline",
     executor_stalled: "Executor stalled",
     authority_human_required: "Human authority required",
+    audience_creator: "Addressed to the creator",
     executor_not_answerable: "Executor cannot answer",
     executor_ack_timeout: "Executor acknowledgement timed out",
     executor_answer_timeout: "Executor answer timed out",

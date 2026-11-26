@@ -42,12 +42,12 @@ never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:2
 
 ### Markers are not states
 
-**`agent:paused` is not a state label.** Five suffixes are **markers**,
+**`agent:paused` is not a state label.** Six suffixes are **markers**,
 deliberately kept out of the state machine so the orchestrator never treats
-them as dispatch states (`src/lib/aiur/github/labels.ex:31-35`):
+them as dispatch states (`src/lib/aiur/github/labels.ex`):
 
 ```text
-watch  paused  parked  queued  rate-limit-fallback
+watch  paused  parked  queued  rate-limit-fallback  premise-changed
 ```
 | Marker | Meaning |
 | --- | --- |
@@ -56,6 +56,7 @@ watch  paused  parked  queued  rate-limit-fallback
 | `agent:parked` | Operator-held: no dispatch and no comment-driven rework. |
 | `agent:queued` | Build queue membership; does not authorize or trigger dispatch. Before downgrading to a release without this marker, run `aiur queue clear --remove-markers --yes` and wait for success. It keeps `agent:todo`; budget-held writes resume on retry. Older releases can misread the marker as a conflicting state. |
 | `agent:rate-limit-fallback` | Records automatic ownership of a usage-limit fallback. |
+| `agent:premise-changed` | A decision listed on the ticket's `Premises:` line was revised, superseded or mooted. Aiur sets it on open tickets and wakes the Executor with the old and new answer; the Executor removes it after reviewing the ticket. |
 
 Markers **survive state swaps** (`GitHub.IssueState`): they overlay a state
 rather than replacing it.
@@ -80,8 +81,10 @@ When the no-op turn bound or normal turn limit stops an agent, a newly opened or
 moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
 finishes, the ticket goes to `human-review`.
 
-At the no-op bound, verified rework with no new PR head becomes `error`. Other
-no-op-bound tickets keep their state and receive an alert. A normal turn limit
+At the no-op bound, verified rework with no new PR head becomes `error`, and so
+does a ticket whose open PR fails the PR body check, such as a draft. Kept
+active, it would be redispatched into the same no-op turns. Other no-op-bound
+tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
@@ -115,6 +118,14 @@ A worker's `human-review` handback
 goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
+
+A draft PR cannot enter `ci-wait` or `human-review`. The one exception is a
+draft blocked from outside the ticket, such as a stop rule or a gate the ticket
+cannot pass.
+
+The worker passes the cause as `outside_blocker`, the ticket goes to
+`human-review` with its PR still a draft, and the reviewer gets a
+`ticket.<id>.agent.draft_handoff` alert naming the PR and the cause.
 
 The state tool reports the applied `state` and the
 `requested_state` separately. An approval redirect includes

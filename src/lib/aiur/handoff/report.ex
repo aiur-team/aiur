@@ -1,6 +1,8 @@
 defmodule Aiur.Handoff.Report do
   @moduledoc "Durable restart outcomes for operator verification."
   alias Aiur.Handoff.Record
+  alias Aiur.Project.Context
+  alias Aiur.Project.Registry
 
   @spec provider_pid(term()) :: String.t() | nil
   def provider_pid(pid) when is_integer(pid) and pid > 0, do: Integer.to_string(pid)
@@ -14,6 +16,44 @@ defmodule Aiur.Handoff.Report do
       {:ok, _record} -> :none
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc "Per-project latest reports (each read in its project's context); one report when there are no projects."
+  @spec latest_all(keyword()) :: {:ok, map()} | :none | {:error, term()}
+  def latest_all(opts \\ []) do
+    case Registry.project_ids() do
+      [] -> latest(opts)
+      projects -> projects |> project_reports(opts) |> combine()
+    end
+  end
+
+  defp project_reports(projects, opts) do
+    projects
+    |> Enum.map(fn id ->
+      Task.async(fn ->
+        Context.put(Registry.project(id))
+        latest(opts)
+      end)
+    end)
+    |> Task.await_many(10_000)
+  end
+
+  defp combine(reports) do
+    case for({:ok, r} <- reports, do: r) do
+      [] -> Enum.find(reports, :none, &match?({:error, _}, &1))
+      oks -> {:ok, merge(oks)}
+    end
+  end
+
+  defp merge(reports) do
+    %{
+      handoff_id: Enum.map_join(reports, ",", & &1.handoff_id),
+      written_at: reports |> Enum.map(& &1.written_at) |> Enum.min(),
+      completed_at: reports |> Enum.map(& &1.completed_at) |> Enum.max(),
+      gap_ms: reports |> Enum.map(& &1.gap_ms) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+      adopted: Enum.flat_map(reports, & &1.adopted),
+      fallback: Enum.flat_map(reports, & &1.fallback)
+    }
   end
 
   @spec from_record(map()) :: map()

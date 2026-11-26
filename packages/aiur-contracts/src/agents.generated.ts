@@ -21,6 +21,10 @@ export interface AgentsStatusEntry {
   codex_app_server_pid?: number | null;
   adopted_from: string | null;
   /**
+   * Why the capacity policy chose this worker's source, with the reading taken at dispatch; null without a dispatch record.
+   */
+  capacity_reason?: string | null;
+  /**
    * Skills preloaded for this worker's session; null when the preload is unknown (for example an adopted session).
    */
   skill_preload?: null | AgentsSkillPreload;
@@ -36,9 +40,9 @@ export interface AgentsSkillPreload {
     [k: string]: unknown;
   }[];
   /**
-   * Mapped skills left out of the prompt because the inline budget was spent.
+   * Whether the inlined mapped skills exceed max_bytes. Mapped skills are never truncated, so an over-budget set is still inlined whole.
    */
-  truncated: string[];
+  over_budget: boolean;
   /**
    * Mapped skills that are not installed in the workspace.
    */

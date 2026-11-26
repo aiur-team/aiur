@@ -30,6 +30,7 @@
   "facades": [
     "Aiur.Commands",
     "Aiur.Commands.Answering",
+    "Aiur.Commands.CLIAnswers",
     "Aiur.Commands.DeliveryTarget",
     "Aiur.Commands.Media",
     "Aiur.Commands.NativeCapture",

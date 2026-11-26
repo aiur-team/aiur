@@ -5,7 +5,7 @@ defmodule Aiur.Commands.Routing.FactData do
   alias Aiur.DecisionEvent.Validation
 
   @types [:routed, :escalated, :human_needed, :executor_acknowledged, :executor_claimed, :executor_claim_released]
-  @causes ~w(executor_originated executor_offline executor_stalled authority_human_required executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)a
+  @causes ~w(executor_originated executor_offline executor_stalled authority_human_required audience_creator executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)a
 
   @spec types() :: [atom()]
   def types, do: @types

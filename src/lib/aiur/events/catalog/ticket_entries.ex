@@ -38,6 +38,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.paused", "orchestration"},
     # aiur/orchestrator/issue_sync/transition_alerts.ex
     {"ticket.*.agent.paused.resolved", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.draft_handoff", "agent-runner"},
     # aiur/orchestrator/operator_messages/calls.ex
     {"ticket.*.agent.provider_delivery_failed", "orchestration"},
     # aiur/orchestrator/rate_limit_fallback_transition.ex
@@ -116,6 +118,10 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.pr.tested_head_stale", "orchestration"},
     # aiur/orchestrator/push_routing/pr_body_evidence.ex
     {"ticket.*.pr.tested_head_stale.resolved", "orchestration"},
+    # aiur/agent_runner/skill_gate.ex
+    {"ticket.*.skills.blocked", "agent-runner"},
+    # aiur/agent_runner/skill_gate.ex
+    {"ticket.*.skills.warning", "agent-runner"},
     # aiur/orchestrator/membership_lifecycle.ex
     {"ticket.*.terminal_verification_abandoned", "orchestration"},
     # aiur/orchestrator/spend_cap/runtime.ex

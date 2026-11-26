@@ -13,25 +13,20 @@ defmodule Aiur.AppServer.RelayReaperTest do
     File.mkdir_p!(root)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     previous = Application.get_env(:aiur, :process_reaper_registrations)
-    previous_pidfile = System.get_env("AIUR_AGENT_TMPFILE")
     Application.put_env(:aiur, :process_reaper_registrations, true)
     # Shutdown tests leave the daemon registry draining; own a fresh real registry.
     original = Process.whereis(ProcessReaper)
     if original, do: Process.unregister(ProcessReaper)
-    start_supervised!(ProcessReaper)
+    pidfile = Path.join(root, "relay-agents.pid")
+    File.write!(pidfile, "")
+    # Pass the pidfile to this reaper only; the global env var would collect other reapers' agents.
+    start_supervised!({ProcessReaper, pidfile: pidfile})
 
     on_exit(fn ->
       if original && Process.alive?(original), do: Process.register(original, ProcessReaper)
     end)
 
-    pidfile = Path.join(root, "relay-agents.pid")
-    File.write!(pidfile, "")
-    System.put_env("AIUR_AGENT_TMPFILE", pidfile)
-
-    on_exit(fn ->
-      Application.put_env(:aiur, :process_reaper_registrations, previous)
-      if previous_pidfile, do: System.put_env("AIUR_AGENT_TMPFILE", previous_pidfile), else: System.delete_env("AIUR_AGENT_TMPFILE")
-    end)
+    on_exit(fn -> Application.put_env(:aiur, :process_reaper_registrations, previous) end)
 
     %{pidfile: pidfile, workflow_root: root}
   end

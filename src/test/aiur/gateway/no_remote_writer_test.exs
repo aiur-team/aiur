@@ -12,7 +12,7 @@ defmodule Aiur.Gateway.NoRemoteWriterTest do
   test "only the local CLI and the human confirmation call Registry.write/2" do
     callers =
       for file <- Path.wildcard(Path.expand("../../../lib/**/*.ex", __DIR__)),
-          File.read!(file) =~ ~r/Registry\.write\(|Registry\.write\/2/,
+          read_source!(file) =~ ~r/Registry\.write\(|Registry\.write\/2/,
           do: Path.relative_to(file, Path.expand("../../..", __DIR__))
 
     assert Enum.sort(callers) -- @local_writers == []
@@ -25,5 +25,12 @@ defmodule Aiur.Gateway.NoRemoteWriterTest do
 
     assert Enum.filter(modules, &(&1 in writers)) == []
     refute Enum.any?(Allowlist.entries(), fn {{segments, _, _}, _} -> segments == [:Aiur, :Gateway, :Cli] end)
+  end
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
   end
 end

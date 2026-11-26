@@ -409,6 +409,8 @@ defmodule Aiur.CLI do
         case List.last(values) do
           n when is_integer(n) and n > 0 ->
             Application.put_env(:aiur, :max_concurrent_agents_override, n)
+            # With `projects:` set the same flag is the machine-wide ceiling.
+            Application.put_env(:aiur, :machine_capacity_override, n)
             :ok
 
           _ ->

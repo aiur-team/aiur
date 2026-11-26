@@ -19,7 +19,6 @@ defmodule Aiur.AgentSkills.Preload.Prompt do
       [
         heading(),
         mapped_section(preload),
-        truncated_section(preload),
         recommended_section(preload),
         index_section(preload),
         missing_section(preload)
@@ -36,10 +35,10 @@ defmodule Aiur.AgentSkills.Preload.Prompt do
   names each skill, its reason and its `SKILL.md` path instead of repeating it.
   """
   @spec pointer_block(Preload.t()) :: String.t()
-  def pointer_block(%Preload{mapped: [], truncated: []}), do: ""
+  def pointer_block(%Preload{mapped: []}), do: ""
 
   def pointer_block(%Preload{} = preload) do
-    entries = Enum.map_join(preload.mapped ++ preload.truncated, "\n", &"- `#{&1.name}` (#{&1.reason}) — `#{&1.path}`")
+    entries = Enum.map_join(preload.mapped, "\n", &"- `#{&1.name}` (#{&1.reason}) — `#{&1.path}`")
 
     "## Skills for this ticket (pointer)\n\n" <>
       "These skills are mapped to this ticket. If their instructions are no longer in your context, re-read each `SKILL.md` before continuing.\n\n" <>
@@ -67,16 +66,6 @@ defmodule Aiur.AgentSkills.Preload.Prompt do
   defp mapped_entry(%Skill{} = skill) do
     ["#### `", skill.name, "` — mapped by ", skill.reason, "\n\n", String.trim(skill.text || "")]
     |> IO.iodata_to_binary()
-  end
-
-  defp truncated_section(%Preload{truncated: []}), do: ""
-
-  defp truncated_section(%Preload{truncated: truncated}) do
-    entries = Enum.map_join(truncated, "\n", &"- `#{&1.name}` (#{&1.reason}) — #{Registry.index_description(&1.description)}")
-
-    "### Mapped skills over the inline budget (load on demand)\n\n" <>
-      "The `agent.skills.preload_max_bytes` budget is spent before these, so load them yourself when the work needs them.\n\n" <>
-      entries
   end
 
   defp recommended_section(%Preload{recommended: []}), do: ""

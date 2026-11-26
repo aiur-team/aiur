@@ -46,7 +46,9 @@ defmodule AiurWeb.Routes.DashboardPages do
         get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
         get("/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root)
 
-        live_session :dashboard, session: {AiurWeb.Conversation.Access, :session, []}, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess, AiurWeb.ProjectsHome.Gate] do
+        live_session :dashboard,
+          session: {AiurWeb.Conversation.Access, :session, []},
+          on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess, AiurWeb.ProjectsHome.Gate, AiurWeb.ProjectScope] do
           live("/", AiurWeb.BuildLive, :build)
           live("/projects", AiurWeb.ProjectsHomeLive, :projects)
           live("/gateways", AiurWeb.GatewayLive, :gateways)

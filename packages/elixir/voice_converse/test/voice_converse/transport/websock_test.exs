@@ -288,6 +288,10 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
           %Events.ToolCall{call_id: "propose", name: "propose_instruction", params: %{"text" => "ship it"}}
         )
 
+      # Returns only after the session has handled the emitted ToolCall and broadcast its draft.
+      {:ok, session} = SessionRegistry.lookup(name, conversation_id)
+      _ = :sys.get_state(session)
+
       assert_receive {:voice_conversation, ^conversation_id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
       draft_id
     end

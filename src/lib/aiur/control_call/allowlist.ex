@@ -11,7 +11,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @provenance [:Aiur, :ControlCLI, :ConfigExplain]
   @pr_merge [:Aiur, :PrMerge, :Record]
   @feature_options %{
-    op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :show]},
+    op: {:enum, [:create, :add, :remove, :also, :baseline, :edit, :confirm, :show]},
     slug: :non_empty_string,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
     ids: :feature_ids,
@@ -26,6 +26,9 @@ defmodule Aiur.ControlCall.Allowlist do
     epics: :epic_list,
     add_epics: :epic_list,
     epic_hues: :epic_hue_map,
+    epic_icons: :epic_icon_list,
+    in: :string,
+    unconfirmed: :boolean,
     json: :boolean
   }
   @lane_options %{
@@ -33,15 +36,25 @@ defmodule Aiur.ControlCall.Allowlist do
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    expect_epic: :non_empty_string,
     source: {:enum, [:cli, :"backfill-agent"]},
+    unconfirmed: :boolean,
     json: :boolean
   }
   @epic_options %{
-    action: {:enum, [:set, :clear, :confirm, :show, :list]},
+    action: {:enum, [:set, :clear, :confirm, :show, :list, :create, :edit, :add, :remove]},
     epic: {:regex, ~r/^[a-z0-9][a-z0-9_-]{0,63}$/},
     ids: :feature_ids,
     who: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/},
+    expect_epic: :non_empty_string,
     source: {:enum, [:cli, :"backfill-agent"]},
+    slug: :non_empty_string,
+    label: :non_empty_string,
+    icon: :non_empty_string,
+    hue: {:range, 0, 359},
+    root: :positive,
+    features: :string_list,
+    unconfirmed: :boolean,
     json: :boolean
   }
 
@@ -98,7 +111,9 @@ defmodule Aiur.ControlCall.Allowlist do
        at: :non_negative,
        rank: :non_negative,
        to: :non_negative,
-       ids: :ticket_id_strings
+       ids: :ticket_id_strings,
+       feature: :non_empty_string,
+       epic: :non_empty_string
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
@@ -130,7 +145,9 @@ defmodule Aiur.ControlCall.Allowlist do
        relayed_by: :non_empty_string,
        idempotency_key: :non_empty_string,
        auto_current: :boolean,
-       supersede: :boolean
+       supersede: :boolean,
+       caller_cwd: :string,
+       caller_agent_workspace_env: :string
      }},
     {:command_request, 1, :message, [:keyword],
      %{
@@ -145,8 +162,10 @@ defmodule Aiur.ControlCall.Allowlist do
        short_summary: :string,
        executor_id: :non_empty_string,
        idempotency_key: :non_empty_string,
+       after: :non_empty_string,
        json: :boolean
      }},
+    {:command_cancel, 1, :message, [:keyword], %{pending_id: {:regex, ~r/^pend_[0-9a-f]{8}$/}}},
     {:executor_ack, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_claim_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string, ttl_s: :integer}},
     {:executor_release_decision, 1, :executor, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
@@ -195,6 +214,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_revoke, 1, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}], %{}},
     {:executor_revoke, 2, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}, :keyword], %{now: :integer}},
     {:executor_emit, 2, :executor, [:string, :string], %{}},
+    {:notify, 4, :executor, [:string, :string, :string, :string], %{}},
     {:executor_subscribe, 1, :executor, [:string], %{}},
     {:executor_unsubscribe, 1, :executor, [:string], %{}},
     {:executor_subscriptions, 0, :read, [], %{}},
@@ -204,6 +224,8 @@ defmodule Aiur.ControlCall.Allowlist do
     {:redispatch, 2, :agents, [:string_list, {:nullable, :string}], %{}},
     {:reset_budget, 1, :config, [:string_list], %{}},
     {:pause_global, 0, :agents, [], %{}},
+    {:pause_project, 1, :agents, [:string], %{}},
+    {:resume_project, 1, :agents, [:string], %{}},
     {:pause_fleet, 0, :agents, [], %{}},
     {:pause_fleet, 1, :agents, [:keyword], %{as: {:regex, ~r/^[A-Za-z0-9._-]{1,64}$/}}},
     {:resume_fleet, 0, :agents, [], %{}},

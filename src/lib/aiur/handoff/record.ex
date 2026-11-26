@@ -10,6 +10,7 @@ defmodule Aiur.Handoff.Record do
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
+  alias Aiur.Project.Context
 
   @schema 1
   @default_timeout_ms 1_800_000
@@ -18,8 +19,16 @@ defmodule Aiur.Handoff.Record do
   @doc "The handoff file under the durable runtime-state root (injectable with :dir)."
   @spec path(keyword()) :: Path.t()
   def path(opts \\ []) do
-    root = Keyword.get_lazy(opts, :dir, fn -> Paths.runtime_state_dir() |> elem(1) end)
+    root = Keyword.get_lazy(opts, :dir, &default_root/0)
     Path.join([root, "handoff", "current.json"])
+  end
+
+  # A project's record lives in its own state root; with no project, today's runtime root.
+  defp default_root do
+    case Context.current() do
+      %Aiur.Project{state_root: root} -> root
+      nil -> Paths.runtime_state_dir() |> elem(1)
+    end
   end
 
   # The record can carry a serialized in-daemon conversation: prompts, tool

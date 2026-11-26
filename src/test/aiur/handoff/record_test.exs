@@ -31,7 +31,7 @@ defmodule Aiur.Handoff.RecordTest do
 
   test "a filesystem write failure returns an error for prepare rollback", %{opts: opts} do
     File.mkdir_p!(Record.path(opts))
-    assert {:error, %MatchError{}} = Record.write(record(), opts)
+    assert {:error, %File.Error{reason: :eisdir}} = Record.write(record(), opts)
   end
 
   test "corrupt JSON and malformed envelopes fail closed", %{opts: opts} do

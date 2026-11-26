@@ -98,6 +98,16 @@ Labels come first, then lanes, then the owning feature, then its epic, then comp
 
 Matching is case-insensitive, and complexity keys accept both `3` and `"3"`.
 
+### Global and project layers
+
+`agent.skills` is the one key a project `.aiur/config` inherits from the global `~/.aiur/config`. Put mappings every repository shares in the global file; a project file adds its own entries on top.
+
+Maps merge by key, at every level. A project `by_lane.ui` entry sits beside a global `by_lane.docs` entry, and a project entry with the same key as a global one replaces the global list (keys compare as matching does).
+
+A project entry of `[]` removes the inherited key, so `by_lane: {docs: []}` maps nothing for docs. Scalars such as `preload_max_bytes` take the project value.
+
+A missing, unparseable or invalid global `agent.skills` contributes nothing; an invalid one logs a warning that names `~/.aiur/config`. The global file is read when the project config loads or reloads, so an edit to the global file alone takes effect on the next project reload or restart.
+
 ### Per-ticket override
 
 A `skills:<name>` label adds skills to one ticket without a config edit. It names a `by_label` entry when one exists, otherwise it names one skill directly.
@@ -111,17 +121,36 @@ agent:
 
 A `Skills: a, b` line in the ticket body adds skills the same way. A `Skills only: a, b` line replaces the configured set for that ticket. A line inside a fenced code block is documentation and does not count.
 
+A `Premises: dec_0123456789abcdef, dec_fedcba9876543210` line names the Command decisions the ticket is built on. Each id is `dec_` plus 16 lowercase hex characters. Backticks are allowed; any other token is ignored with a warning in the daemon log. The same fenced-code rule applies.
+
+When one of those decisions is revised, superseded or mooted, Aiur adds `agent:premise-changed` to the open ticket and messages a running worker. The Executor gets one wake per changed decision: the new answer, the old one under `previous`, or the moot reason.
+
 ### Worker prompt and the index
 
-Mapped skills are inlined in full under `## Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
+Mapped skills are inlined in full under `### Mapped skills (load first)`, each headed by the reason that selected it. Every other installed skill appears under `### Other installed skills (load on demand)` as its name and description.
 
-`agent.skills.preload_max_bytes` caps the inlined instructions. Mapped skills past the cap are listed to load on demand and reported as truncated, never dropped.
+### Mapped skills are mandatory
+
+Mapped skills are the worker's role instructions, so they are never truncated or moved to load on demand. `agent.skills.preload_max_bytes` is a budget, not a cap: a mapped set past it is still inlined whole.
+
+Before a worker starts, Aiur checks the mapped set. A mapped name with no installed `SKILL.md`, or a mapped set over `preload_max_bytes`, raises an alert that names the ticket, each skill and the reason that mapped it, or the bytes against the budget:
+
+- By default (`agent.skills.strict: false`) the worker still starts and the alert is a warning (`ticket.<id>.skills.warning`). The prompt lists a missing skill under `### Mapped skills not installed here`.
+- With `agent.skills.strict: true` no worker starts. The alert (`ticket.<id>.skills.blocked`) needs attention, and `aiur agents` / `aiur status` show the ticket paused as a preflight failure. Install the skill or fix the mapping; the paused ticket is retried automatically and starts once the check passes.
+
+The check reads skills from a local workspace; a worker on an SSH host is not checked.
+
+```yaml
+agent:
+  skills:
+    strict: true
+```
 
 ### Recommended skills
 
 `agent.skills.recommended` takes the same five `by_*` maps for skills that fit the ticket but should not be inlined. They appear under `### Recommended skills (load on demand)` with the skill's name, the reason that matched, its `description:` and the workspace-relative path of its `SKILL.md`.
 
-Their text is never inlined, so they never count against `preload_max_bytes`. A skill that is also mapped stays in the mapped tier, and `Skills only:` replaces the recommended set as well.
+Their text is never inlined, so they never count against `preload_max_bytes`. A skill that is also mapped stays in the mapped tier, and `Skills only:` replaces the recommended set as well. A recommended skill that is not installed is listed in the prompt but never raises the mandatory-skills alert or blocks dispatch.
 
 ```yaml
 agent:
@@ -141,11 +170,9 @@ When two skills share a name, the shallower one wins. Aiur stops searching insid
 
 It descends only into real directories, never through a symlink, and lists at most 256 directories per install path.
 
-A mapped name with no installed `SKILL.md` logs a warning naming the ticket, the skill and the reason. The prompt lists it under `### Mapped skills not installed here` and the worker carries on with the rest.
-
 ### Visibility
 
-`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, truncated names and the inlined byte count.
+`aiur agents` shows each worker's mapped skills and their reasons on its status row. The ticket's dispatch record (`logs/agent.ndjson`, mirrored in `agent.md`) carries the full resolution: skills, reasons, missing names, the inlined byte count, the budget and whether the set is over it.
 
 ### Configuration is read per dispatch
 

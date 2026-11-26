@@ -33,7 +33,7 @@ defmodule Aiur.Config.Schema.Executor do
 
   @primary_key false
   embedded_schema do
-    field(:relay_operator_answers, :boolean, default: false)
+    field(:relay_operator_answers, :boolean, default: true)
     field(:allow_reversible_human_required_answers, :boolean, default: false)
     embeds_one(:sweep, ExecutorSweep, on_replace: :update, defaults_to_struct: true)
   end

@@ -31,8 +31,9 @@ defmodule Aiur.FsAtomicInstallTest do
     end
     """
 
+    disk_full = Path.expand("../../lib/aiur/disk_full.ex", __DIR__)
     source = Path.expand("../../lib/aiur/fs.ex", __DIR__)
-    {output, 0} = System.cmd("elixir", ["-r", source, "-e", code, target], env: [{"ERL_FLAGS", "+S 1:1 +A 1"}], stderr_to_stdout: true)
+    {output, 0} = System.cmd("elixir", ["-r", disk_full, "-r", source, "-e", code, target], env: [{"ERL_FLAGS", "+S 1:1 +A 1"}], stderr_to_stdout: true)
     String.trim(output)
   end
 end

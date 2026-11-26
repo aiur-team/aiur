@@ -82,7 +82,8 @@ defmodule Aiur.DecisionQuery do
   def list_scoped(params, tickets, opts) when is_map(params) and is_list(opts) do
     with {:ok, ticket_set} <- ticket_set(tickets),
          {:ok, query} <- Params.parse(params) do
-      read_page(query |> Map.put(:tickets, ticket_set) |> narrow_by_labels(opts), opts)
+      # Scoped reads serve creator inboxes, which never show Executor-only Commands.
+      read_page(query |> Map.merge(%{tickets: ticket_set, creator_inbox: true}) |> narrow_by_labels(opts), opts)
     end
   end
 

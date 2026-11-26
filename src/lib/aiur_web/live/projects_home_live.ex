@@ -14,10 +14,11 @@ defmodule AiurWeb.ProjectsHomeLive do
   @tick_ms 10_000
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     socket =
       socket
       |> DashboardShell.mount()
+      |> assign(:pick_notice, pick_notice(params))
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:projects))
       |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
@@ -57,6 +58,7 @@ defmodule AiurWeb.ProjectsHomeLive do
       <:banner><Overview.decisions_banner retained_counts={@retained_counts} navigate /></:banner>
       <section id="projects-home" class="section-card" aria-labelledby="projects-home-title">
         <h2 id="projects-home-title">Projects</h2>
+        <p :if={@pick_notice} data-project-pick role="status">{@pick_notice}</p>
         <nav data-gateway-filter aria-label="Gateways">
           <a href="/gateways">All gateways</a>
           <a :for={peer <- @peers} href={"/gateways?gateway=" <> URI.encode_www_form(peer.name)} data-gateway-filter-link={peer.name}>{peer.label}</a>
@@ -72,7 +74,7 @@ defmodule AiurWeb.ProjectsHomeLive do
                 <li :for={project <- summary.projects} data-project-row={project.repo}>
                   {project.repo} · running {count(project.running)} · ready {count(project.ready)} ·
                   <span data-signals>{signals(project)}</span>
-                  <a href="/build">Build ›</a>
+                  <a href={"/build?" <> URI.encode_query(%{project: project.repo})}>Build ›</a>
                 </li>
               </ul>
             </div>
@@ -99,6 +101,11 @@ defmodule AiurWeb.ProjectsHomeLive do
   catch
     :exit, _ -> :unavailable
   end
+
+  # `AiurWeb.ProjectScope` sends a project page here when it cannot tell which project to show.
+  defp pick_notice(%{"pick" => "required"}), do: "Several projects are running. Pick one to open its dashboard."
+  defp pick_notice(%{"pick" => "unknown", "unknown" => id}), do: "No running project is named #{id}. Pick one below."
+  defp pick_notice(_params), do: nil
 
   defp signals(project) do
     [

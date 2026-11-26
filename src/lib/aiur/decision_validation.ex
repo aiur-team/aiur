@@ -13,7 +13,7 @@ defmodule Aiur.DecisionValidation do
 
   `version` is always normalized as `1` and `content_hash` covers only
   the meaningful request content (question, options, context,
-  artifacts, authority, urgency, blocking, reversibility, kind,
+  artifacts, authority, urgency, blocking, reversibility, audience, kind,
   recommendation, consequence_of_delay, and trusted legacy-attention
   provenance when present) — never source/decision_id/version/created_at.
   Optional runtime provenance is instead protected by the typed Decision event
@@ -105,6 +105,8 @@ defmodule Aiur.DecisionValidation do
              type_field(type_policy, :reversibility, @default_reversibility),
              :reversibility
            ),
+         {:ok, audience} <- fetch_enum_with_default(payload, :audience, Decision.audiences(), nil, :audience),
+         :ok <- validate_audience(audience, authority),
          {:ok, context} <- Context.normalize(payload),
          # Trusted Executor requests need the human by origin, without implying a product/spend/security cause.
          :ok <-
@@ -137,6 +139,7 @@ defmodule Aiur.DecisionValidation do
           artifacts: artifacts
         }
         |> maybe_put_media(media)
+        |> maybe_put_audience(audience)
         |> maybe_put_legacy_attention(legacy_attention)
 
       decision = %Decision{
@@ -150,6 +153,7 @@ defmodule Aiur.DecisionValidation do
         urgency: urgency,
         blocking: blocking,
         reversibility: reversibility,
+        audience: audience,
         question: question,
         context: context,
         options: options,
@@ -178,6 +182,10 @@ defmodule Aiur.DecisionValidation do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  # A human-required answer cannot also be hidden from every human inbox.
+  defp validate_audience(:executor, :human_required), do: {:error, {:audience, :conflicts_with_human_required}}
+  defp validate_audience(_audience, _authority), do: :ok
 
   defp validate_authority_basis(:human_required, kind, context, true) do
     if is_nil(Map.get(context, :authority_basis)),
@@ -397,6 +405,10 @@ defmodule Aiur.DecisionValidation do
   # existing v2 payloads are unchanged.
   defp maybe_put_media(content, []), do: content
   defp maybe_put_media(content, media), do: Map.put(content, :media, media)
+
+  # Same additive rule as media: an omitted audience keeps the pre-audience hash.
+  defp maybe_put_audience(content, nil), do: content
+  defp maybe_put_audience(content, audience), do: Map.put(content, :audience, audience)
 
   defp hash_options(options), do: Enum.map(options, &drop_empty_option_media/1)
 

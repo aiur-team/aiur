@@ -32,7 +32,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           required(:ticket) => String.t() | nil,
           optional(:tickets) => MapSet.t(String.t()) | nil,
           optional(:labels) => [String.t()] | nil,
-          optional(:tag) => String.t() | nil
+          optional(:tag) => String.t() | nil,
+          optional(:creator_inbox) => boolean() | nil
         }
 
   @spec build_index(%{String.t() => Decision.t()}, %{optional(String.t()) => [Decision.t()]}) :: map()

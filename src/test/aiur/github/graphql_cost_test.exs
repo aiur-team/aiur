@@ -396,13 +396,13 @@ defmodule Aiur.GitHub.GraphQLCostTest do
   end
 
   defp call_site_count(path) do
-    path |> File.read!() |> then(&Regex.scan(call_site_pattern(), &1)) |> length()
+    path |> read_source!() |> then(&Regex.scan(call_site_pattern(), &1)) |> length()
   end
 
   defp call_site_pattern, do: ~r/(?:Access|Transport)\.github_graphql(?:_response)?\(/
 
   defp undeclared_call_sites(path) do
-    source = File.read!(path)
+    source = read_source!(path)
 
     call_site_pattern()
     |> Regex.scan(source, return: :index)
@@ -462,4 +462,11 @@ defmodule Aiur.GitHub.GraphQLCostTest do
 
   defp close_braces(document) when is_binary(document),
     do: document |> String.graphemes() |> Enum.count(&(&1 == "}"))
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
+  end
 end

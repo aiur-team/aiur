@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   """
 
   alias Aiur.{CodingAgent, Config, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.GitHub.Access
   alias Aiur.Orchestrator.PressureAdmission
   @reclaimable_cpu_threshold 60.0
@@ -169,30 +170,39 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   end
 
   @doc false
-  # Configured-provider-limit gate: holds new dispatch only when every
-  # dispatchable backend reports usage-limited (the fleet-wide provider signal),
-  # failing open when no limits are observed or there is nothing dispatchable.
-  # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
-  # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
-  # As a side effect, when we would hold due to all backends being limited,
-  # trigger probes for any stale limits to refresh the cached readings.
+  # Configured-provider gate: holds new dispatch when every dispatchable backend
+  # reports usage-limited (the fleet-wide provider signal), or when the capacity
+  # policy allows no candidate on any of them (#7889), so a queued ticket takes
+  # no slot. Fails open when there is nothing dispatchable. Per-issue selection
+  # (`CodingAgent.select_for_dispatch/1`) still owns the mixed case. When every
+  # backend is limited, probes for stale limits refresh the cached readings.
   @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
   def provider_gate(backends, opts \\ [])
 
   def provider_gate(backends, opts) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends, opts) do
-      nil ->
-        # All backends are limited; trigger probes for any stale limits
-        # This is a non-blocking side effect that happens in the background
+    cond do
+      ModelAvailability.first_available(backends, opts) == nil ->
+        # Non-blocking: the probes run in the background.
         ModelAvailability.probe_stale_limits(backends, opts)
         :hold
 
-      _backend ->
+      CapacityGate.allowed_routes(backends, opts) == [] ->
+        :hold
+
+      true ->
         :dispatch
     end
   end
 
   def provider_gate(_backends, _opts), do: :dispatch
+
+  @doc false
+  # The cause `provider_gate/2` held on, for the capacity-hold record: every
+  # backend usage-limited, or no source the capacity policy allows.
+  @spec provider_hold_threshold([String.t()], keyword()) :: :all_usage_limited | :no_authorized_source
+  def provider_hold_threshold(backends, opts) do
+    if ModelAvailability.first_available(backends, opts) == nil, do: :all_usage_limited, else: :no_authorized_source
+  end
 
   @doc false
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
@@ -204,11 +214,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   # admit them or dialyzer intersects the inferred 5-key hold with a closed
   # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
   @type admission_reason :: %{
-          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :cpu_pressure | :provider,
+          :signal => :memory | :disk | :file_descriptors | :github_quota | :run_queue | :load | :cpu_pressure | :provider,
           :measured => term(),
           :threshold => term(),
           optional(:reclaimable_cpu_percent) => number(),
-          optional(:reclaimable_cpu_threshold) => number()
+          optional(:reclaimable_cpu_threshold) => number(),
+          optional(:detail) => String.t()
         }
 
   @doc """
@@ -216,7 +227,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, GitHub quota, CPU pressure
+  priority order is memory, disk, file descriptors, GitHub quota, CPU pressure
   (run queue/load fallback), provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
@@ -232,12 +243,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   end
 
   defp resource_admission_gate(
-         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
+         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample} = probes,
          github_quota
        ) do
+    disk_gate = Aiur.DiskWatchdog.dispatch_gate(Map.get(probes, :disk_status))
+
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
+
+      disk_gate != :dispatch ->
+        disk_gate
 
       fd_gate(fd_sample) == :hold ->
         {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}
@@ -259,13 +275,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
 
       queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
         provider_opts = Map.get(probes, :provider_gate_opts, [])
+        threshold = provider_hold_threshold(provider_backends, provider_opts)
 
         {:hold,
          %{
            signal: :provider,
            measured: provider_backends,
            detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
-           threshold: :all_usage_limited
+           threshold: threshold,
+           # Each source's verdict, so queued rows can name why every one is held (#7892).
+           capacity: if(threshold == :no_authorized_source, do: CapacityGate.record(provider_backends, provider_opts))
          }}
 
       true ->

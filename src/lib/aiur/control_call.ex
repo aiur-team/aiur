@@ -8,6 +8,7 @@ defmodule Aiur.ControlCall do
 
   alias Aiur.ControlCall.Allowlist
   alias Aiur.ControlCall.Literal
+  alias Aiur.ControlCall.Project
 
   @call_type "aiur.control.call"
   @call_version 2
@@ -43,6 +44,9 @@ defmodule Aiur.ControlCall do
          {:ok, segments, function, raw_args} <- call_ast(ast),
          :ok <- grants_local(segments, function, opts),
          {:ok, entry} <- allowlisted(segments, function, length(raw_args)),
+         {:ok, project, hint, raw_args} <- split_project(segments, function, raw_args),
+         scoped? = {segments, function} in Project.project_scoped(),
+         :ok <- project_applies(scoped?, project),
          :ok <- Literal.validate_raw_option_keys(entry, raw_args),
          {:ok, args} <- Literal.convert(raw_args),
          :ok <- Literal.validate_arguments(entry, args),
@@ -52,7 +56,7 @@ defmodule Aiur.ControlCall do
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
       module = Module.concat(segments)
-      {:ok, %{module: module, function: function, args: args, scope: scope, category: category}}
+      {:ok, %{module: module, function: function, args: args, scope: scope, category: category, project: scoped? && {project, hint}, remote: Keyword.get(opts, :remote, false)}}
     else
       {:error, _} = error -> error
       {:unknown_atom, name} -> {:error, {:unknown_on_build, name}}
@@ -65,10 +69,10 @@ defmodule Aiur.ControlCall do
   def parse(_expression, _opts), do: {:error, :parse_error}
 
   @spec run(map(), pos_integer(), binary()) :: {:ok, binary()} | {:error, :timeout}
-  def run(%{module: module, function: function, args: args, scope: scope}, timeout_ms, actor)
+  def run(%{module: module, function: function, args: args, scope: scope} = call, timeout_ms, actor)
       when is_atom(module) and is_atom(function) and is_list(args) and is_integer(timeout_ms) and timeout_ms >= 0 and is_binary(actor) do
     :ok = validate_run_call(module, function, args, scope)
-    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> execute(module, function, args, actor) end)
+    task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> execute(module, function, args, actor, Map.get(call, :project), Map.get(call, :remote, false)) end)
     task |> Task.yield(timeout_ms) |> run_result(task, scope)
   end
 
@@ -180,16 +184,34 @@ defmodule Aiur.ControlCall do
     {:error, :timeout}
   end
 
-  defp execute(module, function, args, actor) do
+  # config explain owns its own `project:` option (it names a project, not a command target).
+  defp split_project([:Aiur, :ControlCLI, :ConfigExplain], :explain, raw_args), do: {:ok, nil, nil, raw_args}
+  defp split_project(_segments, _function, raw_args), do: Project.split_raw(raw_args)
+
+  defp project_applies(false, project) when is_binary(project), do: {:error, :project_not_applicable}
+  defp project_applies(_scoped?, _project), do: :ok
+
+  defp activate_project({project, hint}), do: Project.activate(project, hint)
+  defp activate_project(_gateway_scoped), do: :ok
+
+  defp execute(module, function, args, actor, project, remote?) do
     {:ok, io} = StringIO.open("")
     previous = Process.group_leader()
     Process.group_leader(self(), io)
     put_actor(actor)
+    # Only a parsed remote (gateway) call may omit caller_cwd; see ControlCLI.Settings.
+    Process.put(:aiur_control_remote_call, remote?)
 
     try do
-      apply(module, function, args)
-      {_input, output} = StringIO.contents(io)
-      output
+      case activate_project(project) do
+        :ok ->
+          apply(module, function, args)
+          {_input, output} = StringIO.contents(io)
+          output
+
+        {:error, message} ->
+          finish_failure(io, message, 64)
+      end
     rescue
       error -> finish_failure(io, Exception.message(error))
     catch
@@ -200,9 +222,9 @@ defmodule Aiur.ControlCall do
     end
   end
 
-  defp finish_failure(io, reason) do
+  defp finish_failure(io, reason, code \\ 1) do
     {_input, output} = StringIO.contents(io)
-    output <> @error_marker <> one_line(reason) <> "\n" <> @exit_marker <> "1\n"
+    output <> @error_marker <> one_line(reason) <> "\n" <> @exit_marker <> "#{code}\n"
   end
 
   defp failure_output(reason), do: @error_marker <> reason <> "\n" <> @exit_marker <> "1\n"

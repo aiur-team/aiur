@@ -69,15 +69,16 @@ security basis remain human-only; the setting is not permission to answer an
 operator-owned choice.
 
 When the operator has already answered a worker-originated human-only Command
-in this attended conversation, record their answer through the opt-in relay path:
+in this attended conversation, record their answer through the relay path:
 
 ```bash
 "$AIUR_CMD" command <decision-id> --option <id> --relayed \
   --quote <verbatim-operator-words>
 ```
 
-Use `--custom-response` instead of `--option` for free text. The operator must
-enable `executor.relay_operator_answers`; do not enable it on their behalf.
+Use `--custom-response` instead of `--option` for free text. Relaying is on by
+default; if the operator set `executor.relay_operator_answers: false`, do not
+re-enable it on their behalf.
 This records `operator_relayed` attribution and raises an info alert. It
 records a human's decision, never permission for the Executor to decide.
 Use `--supersede` to relay a corrected answer before delivery; the operator can
@@ -157,12 +158,12 @@ idempotent and stale events cannot overwrite a later answer.
 
 If the human has already answered a worker-originated Command in the attended
 conversation, use `command --relayed` with one choice and a verbatim
-`--quote`, stable `--relayed-by` identity and an idempotency key. The operator
-must first enable `executor.relay_operator_answers`. The distinct
+`--quote`, stable `--relayed-by` identity and an idempotency key. It is refused only
+when the operator set `executor.relay_operator_answers: false`. The distinct
 `operator_relayed` actor and info alert preserve who decided and who recorded.
 Never enable this policy yourself or substitute an operator-attributed API.
-If disabled, report that relay recording is disabled and direct the operator
-to the dashboard. Use its revision/moot flow to correct a relay, or relay a
+If disabled, relay the refusal's exact config line to the operator as a
+proposal, or direct them to the dashboard. Use its revision/moot flow to correct a relay, or relay a
 corrected answer with `--supersede` before delivery.
 
 A decided answer that no agent has received yet can still be changed. It is

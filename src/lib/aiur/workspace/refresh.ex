@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config, Signal}
-  alias Aiur.Workspace.{AttributionGuard, BootstrapImage, Context, GitMetadata, Hooks, Ownership, PendingRestack, Provisioner, Reconstruction, StaleGitLock}
+  alias Aiur.Workspace.{AttributionGuard, BootstrapImage, Context, DeletedEmptyFiles, GitMetadata, Hooks, Ownership, PendingRestack, Provisioner, Reconstruction, StaleGitLock}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -158,10 +158,25 @@ defmodule Aiur.Workspace.Refresh do
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
     with :ok <- AttributionGuard.install(workspace),
+         :ok <- remove_deleted_empty_files(workspace, worker_host),
          :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
          :ok <- repair_ready_workspace_guard(workspace, worker_host) do
       BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
+  end
+
+  # Heals workspaces copied from a poisoned warm base (#7920). Non-fatal: a stray
+  # file must not block the turn.
+  defp remove_deleted_empty_files(_workspace, worker_host) when is_binary(worker_host), do: :ok
+
+  defp remove_deleted_empty_files(workspace, nil) do
+    case DeletedEmptyFiles.remove(workspace, "origin/#{Config.base_branch()}") do
+      {:ok, []} -> :ok
+      {:ok, removed} -> Logger.info("Removed empty files the base branch deleted from #{workspace}: #{inspect(removed)}")
+      {:error, reason} -> Logger.warning("Could not remove deleted empty files from #{workspace}: #{inspect(reason)}")
+    end
+
+    :ok
   end
 
   # Local dispatch repairs and reports incomplete support after refresh. Do not

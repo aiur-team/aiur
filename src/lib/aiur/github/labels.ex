@@ -50,12 +50,14 @@ defmodule Aiur.GitHub.Labels do
   @executor_suffix "executor"
   @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
+  @premise_changed_suffix "premise-changed"
   @marker_suffixes [
     @watch_suffix,
     @paused_suffix,
     @parked_suffix,
     @queued_suffix,
-    @rate_limit_fallback_suffix
+    @rate_limit_fallback_suffix,
+    @premise_changed_suffix
   ]
 
   @type request :: %{
@@ -151,6 +153,10 @@ defmodule Aiur.GitHub.Labels do
   @doc "The marker that records ownership of an automatic usage-limit fallback."
   @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
   def rate_limit_fallback_marker_labels(prefix), do: ["#{prefix}:#{@rate_limit_fallback_suffix}"]
+
+  @doc "Suffix of the marker set on a ticket whose `Premises:` decision changed."
+  @spec premise_changed_suffix() :: String.t()
+  def premise_changed_suffix, do: @premise_changed_suffix
 
   @spec marker_labels(String.t()) :: [String.t()]
   def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")

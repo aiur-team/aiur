@@ -29,7 +29,10 @@ defmodule Aiur.TestSupportTest do
     assert {:ok, replacement} = Supervisor.start_link([], strategy: :one_for_one, name: name)
     Process.unlink(replacement)
     assert_receive {:supervisor_monitor_restored, ^replacement}, 5_000
-    assert SupervisorExit.exit_reason() == nil
+    # The guard reports at suite end, after helpers restart the app; a restart must not erase the cause.
+    assert SupervisorExit.exit_reason() == :killed
+    assert [error] = SupervisorExit.runtime_child_errors(["X: t (Aiur.Supervisor unregistered)"])
+    assert error =~ "#{inspect(name)} exits: :killed after "
   end
 
   test "receive_barrier selectively receives and exports bindings without a clock" do

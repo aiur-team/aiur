@@ -108,6 +108,7 @@ defmodule Aiur.DecisionStore.Boot do
         executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
         executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
         executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
+        premise_notifier: Keyword.get(opts, :premise_notifier, fn _change -> :ok end),
         executor_request_reconciler: Keyword.get(opts, :executor_request_reconciler, &ExecutorEvents.ensure_requested/1),
         dispatching: %{},
         retry_counts: %{},

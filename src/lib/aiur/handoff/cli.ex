@@ -2,7 +2,9 @@ defmodule Aiur.Handoff.CLI do
   @moduledoc "CLI boundary for handoff preflight, outcomes and provider identity."
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.Handoff.All
   alias Aiur.Handoff.Report
+  alias Aiur.Project.Registry
   alias Aiur.Project.Supervisors
 
   @agents_contract "aiur.agents"
@@ -15,7 +17,7 @@ defmodule Aiur.Handoff.CLI do
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
-    case Report.latest(opts) do
+    case Report.latest_all(opts) do
       {:ok, report} -> print(report)
       :none -> print(nil)
       {:error, reason} -> IO.puts("HANDOFF unavailable: #{inspect(reason)}")
@@ -25,20 +27,25 @@ defmodule Aiur.Handoff.CLI do
   @spec prepare(keyword()) :: :ok
   def prepare(opts \\ []) do
     guarded("restart --keep-agents", fn ->
-      timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
-      snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
-
-      case snapshot_fun.() do
-        :timeout ->
-          failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
-
-        :unavailable ->
-          failure("orchestrator is not running")
-
-        snapshot ->
-          prepare_snapshot(snapshot, opts)
-      end
+      # Projects mode has no bare orchestrator to snapshot; each project is prepared in its own context.
+      if Registry.project_ids() != [], do: prepare_running(opts), else: prepare_single(opts)
     end)
+  end
+
+  defp prepare_single(opts) do
+    timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
+    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
+
+    case snapshot_fun.() do
+      :timeout ->
+        failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
+
+      :unavailable ->
+        failure("orchestrator is not running")
+
+      snapshot ->
+        prepare_snapshot(snapshot, opts)
+    end
   end
 
   defp prepare_snapshot(snapshot, opts) do
@@ -82,7 +89,7 @@ defmodule Aiur.Handoff.CLI do
   end
 
   defp prepare_running(opts) do
-    prepare_handoff = Keyword.get(opts, :handoff, fn -> Aiur.AgentControlCLI.prepare_handoff() end)
+    prepare_handoff = Keyword.get(opts, :handoff, &default_prepare/0)
 
     case prepare_handoff.() do
       {:ok, result} ->
@@ -100,6 +107,26 @@ defmodule Aiur.Handoff.CLI do
       {:error, reason} ->
         failure("handoff preflight failed: #{inspect(reason)}")
     end
+  end
+
+  # Projects mode prepares every project in its own context; the marker carries all handoff ids.
+  defp default_prepare do
+    case Registry.project_ids() do
+      [] ->
+        Aiur.AgentControlCLI.prepare_handoff()
+
+      _projects ->
+        case All.prepare_all() do
+          {:ok, %{handoff_ids: []}} -> {:error, :no_project_prepared}
+          {:ok, all} -> {:ok, merge_prepared(all)}
+          {:error, _} = error -> error
+        end
+    end
+  end
+
+  defp merge_prepared(%{projects: results, handoff_ids: ids}) do
+    oks = for {_id, {:ok, r}} <- results, do: r
+    %{handoff_id: Enum.join(ids, ","), skipped: Enum.flat_map(oks, & &1.skipped), agents: Enum.flat_map(oks, & &1.agents)}
   end
 
   @spec report(keyword()) :: :ok
@@ -125,7 +152,7 @@ defmodule Aiur.Handoff.CLI do
   @spec agents(keyword()) :: :ok
   def agents(opts \\ []) do
     guarded("agents --json", fn ->
-      snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
+      snapshot = Keyword.get_lazy(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), 15_000) end)
       IO.puts(Jason.encode!(Map.merge(agents_payload(snapshot), Keyword.get_lazy(opts, :gateway, &gateway_facts/0))))
       exit_marker(0)
     end)
@@ -150,6 +177,8 @@ defmodule Aiur.Handoff.CLI do
         |> Map.put(:provider_pid, Report.provider_pid(row[:provider_pid] || row[:codex_app_server_pid]))
         # null, never an empty report, when the preload is unknown (e.g. an adopted session).
         |> Map.put(:skill_preload, row[:skill_preload])
+        # Why the capacity policy chose this source (#7892); null without a dispatch record.
+        |> Map.put(:capacity_reason, row[:capacity_reason])
       end)
 
     %{contract: @agents_contract, contract_version: @contract_version, running: rows}
@@ -178,10 +207,10 @@ defmodule Aiur.Handoff.CLI do
   end
 
   defp await_report(opts, deadline) do
-    result = Report.latest(opts)
-    expected = Keyword.get(opts, :expected_id)
+    result = Report.latest_all(opts)
+    expected = opts |> Keyword.get(:expected_id) |> then(&(&1 && String.split(&1, ",")))
 
-    if is_nil(expected) or match?({:ok, %{handoff_id: ^expected}}, result) do
+    if is_nil(expected) or (match?({:ok, %{handoff_id: id}} when is_binary(id), result) and covers?(result, expected)) do
       result
     else
       if System.monotonic_time(:millisecond) < deadline do
@@ -192,6 +221,8 @@ defmodule Aiur.Handoff.CLI do
       end
     end
   end
+
+  defp covers?({:ok, %{handoff_id: ids}}, expected), do: Enum.all?(expected, &(&1 in String.split(ids, ",")))
 
   defp failure(message) do
     IO.puts(error_marker() <> message)

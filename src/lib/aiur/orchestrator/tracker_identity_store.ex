@@ -23,7 +23,7 @@ defmodule Aiur.Orchestrator.TrackerIdentityStore do
       TrackerIdentity.joinable?(identity) and to_string(identifier) == identity.identifier
     end)
     |> Map.new(fn {identifier, identity} -> {identifier, Jason.encode!(identity)} end)
-    |> then(&JsonStore.write!(path(), &1))
+    |> then(&JsonStore.write_or_drop(path(), &1))
   end
 
   defp restore(encoded) when is_binary(encoded) do

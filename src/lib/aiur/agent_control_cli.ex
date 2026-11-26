@@ -31,6 +31,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate commands_repair(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   @spec command_request(keyword()) :: :ok
   defdelegate command_request(opts), to: Aiur.ControlCLI.EntryPoints
+  @spec command_cancel(keyword()) :: :ok
+  defdelegate command_cancel(opts), to: Aiur.ControlCLI.EntryPoints
 
   defdelegate operator_relay_answer(opts), to: Aiur.ControlCLI.EntryPoints
   @spec executor_ack(keyword()) :: :ok
@@ -66,6 +68,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate github_usage(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_emit(topic, payload_json), to: Aiur.ExecutorAttention.CLI
+  defdelegate notify(kind, text, ticket, url), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_unsubscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscriptions(), to: Aiur.ExecutorAttention.CLI
@@ -97,6 +100,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate reset_budget(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate pause_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
+  defdelegate pause_project(project_id), to: Aiur.Project.Pause, as: :cli_pause
+  defdelegate resume_project(project_id), to: Aiur.Project.Pause, as: :cli_resume
   defdelegate pause_fleet(opts \\ []), to: Aiur.ControlCLI.FleetPause, as: :pause_all
   defdelegate resume_fleet(opts \\ []), to: Aiur.ControlCLI.FleetPause, as: :resume_all
   defdelegate apply_fleet_pause_change(json), to: Aiur.ControlCLI.FleetPause, as: :apply_remote_change
