@@ -143,6 +143,10 @@ defmodule Aiur.Experiments do
     if Paths.valid_id?(id), do: ReportReads.snapshot(id, mutate({:freeze, id, window, opts})), else: {:error, :not_found}
   end
 
+  @doc "Imports a validated summary-only external baseline while preserving and pinning its source bytes."
+  @spec import_baseline(String.t(), binary(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def import_baseline(id, bytes, sha256, opts \\ []), do: mutate({:import_baseline, id, bytes, sha256, opts})
+
   @spec arms(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def arms(id, opts \\ []), do: ReportReads.arms(id, Arms.read(id, opts))
 

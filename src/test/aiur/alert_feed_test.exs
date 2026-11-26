@@ -203,6 +203,28 @@ defmodule Aiur.AlertFeedTest do
       assert ["ticket.42.agent.attention.scope", "ticket.42.agent.phase.work.end"] == ledger_topics(ledger)
     end
 
+    # open-games and open-game-maker, 2026-11-20 (#8051): compaction kept history
+    # right up to the ceiling, so once the ledger was full every alert re-read,
+    # re-decoded and fsync-rewrote all 8 MiB, often inside the orchestrator.
+    test "compaction leaves headroom so the next alerts append without rewriting", %{ledger: ledger} do
+      lines = for n <- 1..40, do: alert_line("ticket.#{n}.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("h", 60))
+      max_bytes = lines |> Enum.map(&byte_size/1) |> Enum.sum()
+      write_ledger!(ledger, Enum.join(lines))
+
+      first = alert("ticket.41.agent.progress", "2026-06-25T01:01:00Z", false, String.duplicate("h", 60))
+      assert :ok = AlertLedger.append(first, ledger_path: ledger, max_bytes: max_bytes)
+      assert File.stat!(ledger).size <= div(max_bytes * 3, 4)
+      compacted = File.stat!(ledger).inode
+
+      for n <- 42..46 do
+        record = alert("ticket.#{n}.agent.progress", "2026-06-25T01:02:00Z", false, String.duplicate("h", 60))
+        assert :ok = AlertLedger.append(record, ledger_path: ledger, max_bytes: max_bytes)
+      end
+
+      assert File.stat!(ledger).inode == compacted, "an append below the ceiling must not rewrite the ledger"
+      assert List.last(ledger_topics(ledger)) == "ticket.46.agent.progress"
+    end
+
     test "resolved attentions lose retention priority", %{ledger: ledger} do
       opened = alert_line("ticket.42.agent.attention.scope", "2026-06-25T01:00:00Z", true, String.duplicate("o", 80))
       resolved = alert_line("ticket.42.agent.attention.scope.resolved", "2026-06-25T01:01:00Z", false, "resolved")

@@ -106,6 +106,26 @@ defmodule Aiur.Fs do
   end
 
   @doc """
+  Appends `data` to `path` for a hot path, such as one write per agent event.
+
+  The file is opened `:raw`, so the write does not queue behind the node's
+  single file server, and the parent directory is created only when the
+  append finds it missing. Calling `File.mkdir_p/1` before every append cost
+  about 16 file-server round trips per event and stalled the orchestrator on a
+  loaded host (#8051).
+  """
+  @spec append_raw(Path.t(), iodata()) :: :ok | {:error, term()}
+  def append_raw(path, data) when is_binary(path) do
+    case File.write(path, data, [:append, :raw]) do
+      {:error, :enoent} ->
+        with :ok <- File.mkdir_p(Path.dirname(path)), do: File.write(path, data, [:append, :raw])
+
+      result ->
+        result
+    end
+  end
+
+  @doc """
   Quarantines a corrupt file in place by renaming it to a timestamped sibling
   (`path.corrupt-<epoch-ms>`) so its bytes are preserved for forensics while
   the live path is freed for re-initialization. A missing file is already

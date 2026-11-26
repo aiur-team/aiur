@@ -358,7 +358,8 @@ defmodule Aiur.Application.Children do
               Aiur.ControlCLI.PendingCommands
             ]
           )
-        )
+        ) ++
+        [Aiur.Orchestrator.UnresponsiveWatchdog]
     )
     |> with_projects(projects, recording?)
   end

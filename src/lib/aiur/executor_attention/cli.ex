@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorAttention.CLI do
   alias Aiur.Executor.{Claims, Roster}
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.ExecutorAttention.DeferredWait
-  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox, OperatorNotify}
   alias Aiur.ExecutorSweep.TriageBacklog
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, error_marker: 0, exit_marker: 1, guarded: 2]
@@ -25,6 +25,23 @@ defmodule Aiur.ExecutorAttention.CLI do
 
       _ ->
         IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec notify(String.t(), String.t(), String.t(), String.t()) :: :ok
+  def notify(kind, text, ticket, url) when is_binary(kind) and is_binary(text) and is_binary(ticket) and is_binary(url) do
+    case OperatorNotify.notify(kind, text, ticket: ticket, url: url) do
+      {:ok, id} ->
+        IO.puts(Jason.encode!(%{id: id, topic: "operator.notify." <> kind}))
+        exit_marker(0)
+
+      {:error, {:publish_failed, _reason}} ->
+        IO.puts(:stderr, "aiur: notification not published (the event bus did not accept it)")
+        exit_marker(1)
+
+      {:error, reason} ->
+        IO.puts(:stderr, "aiur: notify rejected (#{reason})")
         exit_marker(64)
     end
   end
