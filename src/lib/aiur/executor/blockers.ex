@@ -3,6 +3,7 @@ defmodule Aiur.Executor.Blockers do
 
   alias Aiur.{AlertFeed, Commands, Events, ExecutorBindings}
   alias Aiur.Config.Paths
+  alias Aiur.Project.Context
 
   @type item :: %{kind: :command | :ask | :fleet, id: String.t(), title: String.t(), age_ms: non_neg_integer() | nil, link: String.t()}
   @type snapshot :: %{items: [item()], sources: map(), observed_at: DateTime.t()}
@@ -21,7 +22,8 @@ defmodule Aiur.Executor.Blockers do
       fleet: fn -> fleet(Keyword.get(opts, :fleet_fun, fn -> AlertFeed.list(strict: true) end), now) end
     ]
 
-    results = Task.async_stream(sources, fn {source, read} -> safe_read(source, read) end, timeout: Keyword.get(opts, :timeout, 2_000), on_timeout: :kill_task, max_concurrency: 3)
+    project = Context.current()
+    results = Task.async_stream(sources, fn {source, read} -> safe_read(source, read, project) end, timeout: Keyword.get(opts, :timeout, 2_000), on_timeout: :kill_task, max_concurrency: 3)
 
     {items, availability} =
       sources
@@ -37,7 +39,8 @@ defmodule Aiur.Executor.Blockers do
     %{items: Enum.sort_by(items, &{-(&1.age_ms || -1), &1.kind, &1.id}), sources: availability, observed_at: now}
   end
 
-  defp safe_read(source, read) do
+  defp safe_read(source, read, project) do
+    if project, do: Context.put(project)
     read.()
   rescue
     error -> {:error, {:exception, error.__struct__}}

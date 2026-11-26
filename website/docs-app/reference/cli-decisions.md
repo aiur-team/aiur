@@ -310,6 +310,19 @@ entries beyond the 400 ms poll interval.
 If capture is busy with a large backfill or unavailable, `executor-session`
 retains the hook-derived binding and age and reports `transcript_rejection: "unknown"`.
 
+### Executor session JSON
+
+`aiur executor-session --json` includes the shared Executor snapshot and retains
+the top-level binding fields and recording diagnostics. The snapshot includes
+`attached`, `binding`, `harness_state`, `read_capability`, `background_agents`,
+`blockers`, `wakes`, `roster`, and `observed_at`.
+
+The binding and harness state report their own hook age and freshness. Failed
+or timed-out snapshot reads return `"unavailable"` for the affected field.
+Background agents return
+`{"status":"ok","agents":[…]}` or `{"status":"unsupported","reason":…}`. Blockers
+include per-source availability alongside the items read successfully.
+
 `executor-session --json` includes `transcript_format`: generation totals by record
 class (`mapped`, `ignored_known`, `unknown`) and version (`tested`, `untested`,
 `absent`), the last untested version, and an alert latch.
