@@ -16,7 +16,7 @@ defmodule Aiur.BuildQueue.Sets do
     members =
       Map.new(document.items, fn item ->
         queue = queues[item.queue_id]
-        {item.issue_id, %{set_id: item.queue_id, position: item.position || 0, start_trigger: queue.start_trigger || Settings.start_trigger(settings)}}
+        {item.issue_id, %{set_id: item.queue_id, position: item.position || 0, start_trigger: (queue && queue.start_trigger) || Settings.start_trigger(settings)}}
       end)
 
     %{sets: sets, members: members, max_age_ms: Settings.observation_max_age_ms(settings)}
