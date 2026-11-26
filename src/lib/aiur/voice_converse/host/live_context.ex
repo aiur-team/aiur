@@ -58,7 +58,7 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   defp subscribe_live(_target, _kind, _opts), do: :ok
 
   defp patterns(%Worker{identity: identity}), do: ["ticket.#{identity.identifier}.#"]
-  defp patterns(:executor), do: ["system.#", "executor.#", "ticket.*.queue.attention.#"]
+  defp patterns(:executor), do: ["system.#", "executor.#", "ticket.*.#"]
 
   defp suffix(topic, %Worker{identity: identity}), do: String.replace_prefix(topic, "ticket.#{identity.identifier}.", "")
   defp suffix(topic, :executor), do: topic
@@ -72,37 +72,36 @@ defmodule Aiur.VoiceConverse.Host.LiveContext do
   defp dispatch("agent.decision." <> action, event, %{kind: :commands} = state), do: command(action, event, state)
   defp dispatch("executor.decision." <> action, event, %{kind: :commands} = state), do: command(action, event, state)
 
-  defp dispatch("pr." <> action, _event, %{kind: :briefing} = state) when action in ["opened", "merged", "closed", "closed_unmerged"] do
-    notify(state, {:context_update, "PR #{action}", []})
+  defp dispatch("pr." <> _action, _event, %{kind: :briefing} = state) do
+    notify(state, {:briefing, briefing(state)})
+  end
+
+  defp dispatch(topic, _event, %{kind: :briefing} = state)
+       when topic in ["ci.passed", "ci.failed", "ci.wait"] do
     notify(state, {:briefing, briefing(state)})
   end
 
   defp dispatch("agent.phase." <> phase, _event, %{kind: :briefing} = state)
-       when phase in ~w(brainstorm.start brainstorm.end plan.start plan.end work.start work.end review.start review.end) do
-    notify(state, {:context_update, "Phase: #{phase}", []})
+       when phase in ~w(brainstorm.start brainstorm.end work.start work.end plan.start plan.end review.start review.end) do
     notify(state, {:briefing, briefing(state)})
   end
 
   defp dispatch(topic, event, %{target: :executor, kind: :briefing} = state) do
-    cond do
-      Regex.match?(~r/^system\.build_order\.[^.]+\.progress$/, topic) and is_integer(value(event, :percent)) ->
-        notify(state, {:context_update, "Build order progress: #{value(event, :percent)}%", []})
-
-      topic == "system.capabilities.changed" ->
-        notify_executor(state)
-
-      Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed$/, topic) and is_list(value(event, :blocked)) ->
-        notify(state, {:context_update, "Failed prerequisite blocks #{length(value(event, :blocked))} tickets", []})
-
-      Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed\.resolved$/, topic) ->
-        notify(state, {:context_update, "Failed prerequisite cleared", []})
-
-      true ->
-        :ok
-    end
+    if executor_refresh?(topic, event), do: notify(state, {:briefing, briefing(state)})
+    if topic == "system.capabilities.changed", do: notify_executor(state)
   end
 
   defp dispatch(_topic, _event, _state), do: :ok
+
+  defp executor_refresh?(topic, event) do
+    build_order_progress?(topic, event) or prerequisite_failed?(topic, event) or
+      prerequisite_resolved?(topic) or ticket_status_changed?(topic) or String.starts_with?(topic, "executor.decision.")
+  end
+
+  defp build_order_progress?(topic, event), do: Regex.match?(~r/^system\.build_order\.[^.]+\.progress$/, topic) and is_integer(value(event, :percent))
+  defp prerequisite_failed?(topic, event), do: Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed$/, topic) and is_list(value(event, :blocked))
+  defp prerequisite_resolved?(topic), do: Regex.match?(~r/^ticket\.[^.]+\.queue\.attention\.prerequisite_failed\.resolved$/, topic)
+  defp ticket_status_changed?(topic), do: Regex.match?(~r/^ticket\.[^.]+\.(agent\.progress\.status|agent\.phase\.|pr\.|ci\.|dependency\.)/, topic)
 
   defp notify_executor(state) do
     capabilities = Keyword.get(state.opts, :capabilities, Aiur.Capabilities)
