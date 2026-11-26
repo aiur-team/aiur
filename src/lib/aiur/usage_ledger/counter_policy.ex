@@ -67,11 +67,9 @@ defmodule Aiur.UsageLedger.CounterPolicy do
   end
 
   @doc false
-  @spec checkpoint_dump(state(), keyword()) :: map()
-  def checkpoint_dump(%__MODULE__{} = state, opts \\ []) do
-    limit = Keyword.get(opts, :idempotency_limit, @checkpoint_idempotency_limit)
-    idempotency = state.idempotency |> MapSet.to_list() |> Enum.sort()
-    idempotency = if is_integer(limit), do: Enum.take(idempotency, limit), else: idempotency
+  @spec checkpoint_dump(state()) :: map()
+  def checkpoint_dump(%__MODULE__{} = state) do
+    idempotency = state.idempotency |> MapSet.to_list() |> Enum.sort() |> Enum.take(@checkpoint_idempotency_limit)
     state |> dump() |> Map.put("idempotency", idempotency)
   end
 
