@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
 
   alias Aiur.AgentRunner
   alias Aiur.Orchestrator.{RetryEngine, State}
+  alias Aiur.TestCleanup
 
   test "held preflight through run schedules a reset_at retry without consuming an attempt" do
     root = Aiur.TestSupport.tmp_root!("runner-budget-hold")
@@ -18,7 +19,7 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
         if is_nil(value), do: Application.delete_env(:aiur, key), else: Application.put_env(:aiur, key, value)
       end
 
-      File.rm_rf!(root)
+      TestCleanup.rm_rf!(root)
     end)
 
     Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
