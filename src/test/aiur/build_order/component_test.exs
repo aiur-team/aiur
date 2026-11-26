@@ -136,6 +136,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Intent.Hlc,
     Aiur.Intent.Store,
     Aiur.GitHub.Listeners,
+    Aiur.OverlapReviewer,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.Commands.Routing,

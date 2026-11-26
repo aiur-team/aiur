@@ -7,6 +7,7 @@ defmodule Aiur.DecisionStore.Requests do
   alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CreatorOverlap
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionValidation
@@ -185,7 +186,11 @@ defmodule Aiur.DecisionStore.Requests do
 
   @spec evaluate_and_apply(term(), term(), term(), keyword()) :: term()
   def evaluate_and_apply(decision, requested_version, state, opts \\ []) do
-    case evaluate(decision, requested_version, state) do
+    case evaluate(decision, requested_version, state, opts) do
+      {:creator_overlap, existing, status} ->
+        link = %{command_path: CreatorOverlap.link(existing.decision_id), status: status}
+        {:reply, {:ok, %{status: :duplicate, decision: existing, creator_overlap: link}}, state}
+
       {:duplicate, existing} ->
         {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
 
@@ -216,36 +221,42 @@ defmodule Aiur.DecisionStore.Requests do
     end
   end
 
-  defp evaluate(decision, requested_version, state) do
+  defp evaluate(decision, requested_version, state, opts) do
     case Map.get(state.current, decision.decision_id) do
-      nil -> evaluate_fresh(decision, requested_version, state)
+      nil -> evaluate_fresh(decision, requested_version, state, opts)
       existing -> evaluate_against_existing(decision, requested_version, existing)
     end
   end
 
-  # A fresh Command is still deduplicated at creation (#2099): the same agent
-  # on the same ticket may file several phrasings of one question within a short
-  # window, and each would otherwise land as its own row (different `source_id`
-  # → different `decision_id`). If a live Command from the same agent on the
-  # same ticket asks substantially the same question within the window, reject
-  # the new one as a duplicate of the existing Command rather than appending it.
-  defp evaluate_fresh(decision, 1, state) do
+  defp evaluate_fresh(decision, 1, state, opts) do
+    case CreatorOverlap.find(decision, opts, state.current) do
+      {prior, status} -> {:creator_overlap, prior, status}
+      :ineligible -> evaluate_creation_duplicate(decision, state)
+      :distinct -> accept_fresh(decision, state)
+    end
+  end
+
+  defp evaluate_fresh(_decision, requested_version, _state, _opts),
+    do: {:reject, {:version_gap, requested_version, nil}}
+
+  defp evaluate_creation_duplicate(decision, state) do
     case Dedup.find_creation_duplicate(decision, state) do
       nil ->
-        decision = %{decision | version: 1}
-
-        case Dedup.find_expired_reraise_duplicate(decision, state) do
-          nil -> {:accept, decision}
-          expired -> {:supersede_expired, decision, expired}
-        end
+        accept_fresh(decision, state)
 
       existing ->
         {:duplicate, existing}
     end
   end
 
-  defp evaluate_fresh(_decision, requested_version, _state),
-    do: {:reject, {:version_gap, requested_version, nil}}
+  defp accept_fresh(decision, state) do
+    decision = %{decision | version: 1}
+
+    case Dedup.find_expired_reraise_duplicate(decision, state) do
+      nil -> {:accept, decision}
+      expired -> {:supersede_expired, decision, expired}
+    end
+  end
 
   defp evaluate_against_existing(decision, requested_version, existing) do
     case identical_expired_retry(decision, requested_version, existing) do

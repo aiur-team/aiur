@@ -81,6 +81,9 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   def pending_key(%{"topic" => "executor.voice.session_ended", "event_id" => id} = record),
     do: {record["topic_class"], "event:#{id}"}
 
+  def pending_key(%{"topic_class" => "ticket.agent.executor-sweep.finding", "finding_key" => key} = record) when is_binary(key),
+    do: {record["topic_class"], "#{record["repository"]}:#{record["ticket"]}:#{key}"}
+
   def pending_key(record), do: {record["topic_class"], record["ticket"]}
 
   @doc false

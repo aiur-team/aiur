@@ -4,7 +4,6 @@ R-declared	Aiur.AlertsCLI	MP-R1-C9-T14 moved CLI adapter retains the existing re
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T11 control-cli protocol shared with moved executor verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T11 control-cli protocol shared with moved executor verbs
 R-declared	Aiur.Init.Templates	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.LaunchStateAdoption	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Metrics	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RepoBase	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
