@@ -40,6 +40,8 @@ defmodule Aiur.Executor.BackgroundAgentsTest do
 
     dispatch("SubagentStart", %{"agent_id" => "child", "agent_type" => "worker"})
     assert_receive {:executor_hook, %{event: "SubagentStart"}}, 1000
+    assert {:ok, [running], ~U[2026-11-20 00:00:00Z]} = BackgroundAgents.snapshot()
+    assert running.state == :running
     Agent.update(timer, &DateTime.add(&1, 1, :second))
     dispatch("SubagentStop", %{"agent_id" => "child", "agent_type" => "worker", "last_assistant_message" => String.duplicate("x", 510)})
     assert_receive {:executor_hook, %{event: "SubagentStop"}}, 1000
