@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.OptimisticStartFixtureTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
-  alias Aiur.Experiments.{Catalog, Spec, Store}
+  alias Aiur.Experiments.{Arms, Catalog, Spec, Store}
 
   @repo Path.expand("../../../..", __DIR__)
   @fixtures Path.join(@repo, ".aiur/experiments")
@@ -73,12 +73,40 @@ defmodule Aiur.Experiments.OptimisticStartFixtureTest do
     assert context.filters == %{"attr" => "tags.late_linked", "op" => "eq", "value" => false}
   end
 
+  test "fixture selectors assign signed eligible observations and exclude late or unknown eligibility" do
+    context = fixture("optimistic-start-default-path")
+    data = observations(context["design"]["change"]["time"])
+    spec = fixture("optimistic-start")
+    assert Arms.assign(spec, [{"observation", data}])["arms"]["treatment"]["metrics"][@gap]["n"] == 0
+    enrolled = update_in(spec, ["design", "cohorts"], &Enum.map(&1, fn cohort -> put_in(cohort, ["where", "all", Access.at(0), "value"], ["q-" <> cohort["id"]]) end))
+    assigned = Arms.assign(enrolled, [{"observation", data}])
+    assert assigned["arms"]["control"]["metrics"][@gap]["n"] == 1
+    assert [%{"value" => -0.5}] = assigned["arms"]["treatment"]["metrics"][@gap]["observations"]
+    assert assigned["excluded"]["filtered"] == 2
+    contextual = Arms.assign(context, [{"after", data}])
+    assert contextual["arms"]["after"]["metrics"][@gap]["n"] == 2
+    assert contextual["excluded"]["filtered"] == 2
+  end
+
   defp fixture(id), do: @fixtures |> Path.join(id <> ".json") |> File.read!() |> Jason.decode!()
 
   defp assert_schema(spec) do
     schema = @repo |> Path.join("src/priv/experiments/spec.v1.schema.json") |> File.read!() |> Jason.decode!() |> ExJsonSchema.Schema.resolve()
     assert :ok = ExJsonSchema.Validator.validate(schema, Spec.to_map(spec))
   end
+
+  defp observations(at) do
+    rows = [
+      row("control", at, 1.0, %{"queue_id" => "q-control", "start_trigger" => "pr_merged", "tags" => %{"late_linked" => false}}),
+      row("treatment", at, -0.5, %{"queue_id" => "q-treatment", "start_trigger" => "pr_opened", "tags" => %{"late_linked" => false}}),
+      row("late", at, 2.0, %{"queue_id" => "q-treatment", "start_trigger" => "pr_opened", "tags" => %{"late_linked" => true}}),
+      row("unknown", at, 3.0, %{})
+    ]
+
+    %{source: :live, metrics: %{@gap => %{"coverage" => %{"state" => "captured"}, "observations" => rows}}}
+  end
+
+  defp row(id, at, value, attrs), do: %{"unit_id" => id, "at" => at, "value" => value, "attrs" => attrs}
 
   defp cli(verb, argv) do
     capture_io(fn -> assert ExperimentsCLI.run(verb: verb, argv: argv) == 0 end)
