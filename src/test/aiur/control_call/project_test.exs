@@ -111,7 +111,7 @@ defmodule Aiur.ControlCall.ProjectTest do
       name = Aiur.Project.Registry.via("t311/b", Features)
       start_supervised!({Features, name: name, state_dir: dir, general_epics: fn -> {:ok, []} end})
 
-      expression = ~s|Aiur.AgentControlCLI.feature(op: :create, slug: "demo", label: "Demo", who: "operator", project_hint: "t311/b")|
+      expression = "Aiur.AgentControlCLI.feature(#{inspect(op: :create, slug: "demo", label: "Demo", who: "operator", project_hint: "t311/b")})"
 
       assert {:ok, %{category: :tickets, scope: :write} = local_call} = ControlCall.parse(expression, remote: false)
       assert {:error, :option_not_allowed} = ControlCall.parse(expression, remote: true)
