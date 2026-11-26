@@ -14,6 +14,8 @@ defmodule Aiur.Events.Catalog.GithubSystemEntries do
     {"system.firehose.event_truncation.resolved", "github-listeners"},
     # aiur/github/quota/shell_observations.ex
     {"system.github.budget.broker_reconcile_stale", "github-access"},
+    # aiur/github/budget_broker.ex
+    {"system.github.budget_ledger_recovery", "github-access"},
     # aiur/github/broker_timeout.ex
     {"system.github.budget_broker_degraded", "github-access"},
     # aiur/github/broker_timeout.ex

@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.BudgetBrokerSource do
   @moduledoc "Embeds ordered broker fragments for build-time assembly."
 
   @root Path.expand("../../../priv", __DIR__)
-  @paths Enum.map(~w(00_schema 10_admission 20_report_and_cli), &Path.join([@root, "github_budget", &1 <> ".py"]))
+  @paths Enum.map(~w(00_schema 05_recovery 10_admission 20_report_and_cli), &Path.join([@root, "github_budget", &1 <> ".py"]))
   for path <- @paths, do: @external_resource(path)
   @source Enum.map_join(@paths, &File.read!/1)
 

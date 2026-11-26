@@ -1,5 +1,7 @@
 """Timing helpers and background WAL checkpoints for the resident broker."""
 
+import contextlib
+import fcntl
 import json
 import os
 import queue
@@ -24,11 +26,39 @@ WAL_FRAME_LIMIT = 10_000
 FALLBACK_RETRY_NS = 60_000_000_000
 
 
+@contextlib.contextmanager
+def ledger_lock(path, operation, wait_ms=0):
+    deadline = time.monotonic() + wait_ms / 1000
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        while True:
+            try:
+                fcntl.flock(fd, operation | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as error:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("budget ledger recovery lock is busy") from error
+                time.sleep(0.01)
+        yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def ledger_reader(db):
+    # Register the connection before a recovery can start draining readers.
+    with contextlib.ExitStack() as stack:
+        with ledger_lock(db + ".recovery-lock", fcntl.LOCK_SH):
+            stack.enter_context(ledger_lock(db + ".connections", fcntl.LOCK_SH))
+        yield
+
+
 class SessionConnection:
     """Keep a request batch on one SQLite connection and transaction."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, stack):
         self.conn = conn
+        self.stack = stack
         self.prepared = False
         self.batching = False
 
@@ -154,11 +184,11 @@ def start_checkpoint_worker():
             CHECKPOINT_ACTIVE.set()
             started_ns = time.monotonic_ns()
             try:
-                conn = sqlite3.connect(db, timeout=0.05, isolation_level=None)
-                try:
-                    busy, frames, checkpointed = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
-                finally:
-                    conn.close()
+                with ledger_reader(db):
+                    if os.path.isdir(db + ".recovery-pending"):
+                        raise TimeoutError("budget ledger archive pending")
+                    with contextlib.closing(sqlite3.connect(db, timeout=0.05, isolation_level=None)) as conn:
+                        busy, frames, checkpointed = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
                 result = {
                     "sqlite_checkpoint_ms": (time.monotonic_ns() - started_ns) / 1_000_000,
                     "sqlite_checkpoint_busy": busy,
@@ -168,7 +198,7 @@ def start_checkpoint_worker():
                 LAST_OBSERVED_WAL_FRAMES = frames
                 if busy == 0 and checkpointed >= frames:
                     LAST_SUCCESSFUL_CHECKPOINT_NS = time.monotonic_ns()
-            except sqlite3.Error:
+            except (sqlite3.Error, OSError):
                 result = {"sqlite_checkpoint_ms": (time.monotonic_ns() - started_ns) / 1_000_000}
             with CHECKPOINT_LOCK:
                 CHECKPOINT_RESULTS[db] = result
