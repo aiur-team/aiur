@@ -146,7 +146,9 @@ Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur u
 
 Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the same as `aiur capacity --json`: one "Energy" figure and each source's state, accounts, reserve, holds and limits, as dispatch computes them. Each figure carries `observed_at`, `age_ms` and `freshness`; show a `null` `energy.level` as unknown, never as full.
 
-With an `openrouter:` route configured, the provider row shows the key's remaining credit against the limit it was bought with, and `aiur usage openrouter` lists each route's spend per route and model beside that reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it the row reports an unknown reading rather than zero credit.
+With an `openrouter:` route configured, the provider row shows the key's remaining credit against its limit, and `aiur usage openrouter` lists each route's spend per route and model. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it, the route key's own limit stands in.
+
+The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
