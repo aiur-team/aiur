@@ -72,7 +72,7 @@ defmodule AiurWeb.ExecutorLiveTest do
     assert {:ok, _} = Session.detach(binding.binding_id, :detached)
     send(view.pid, :age_tick)
     assert has_element?(view, "#executor-footer[data-state=ended]")
-    assert has_element?(view, "#executor-footer-state", "ended")
+    assert render(element(view, "#executor-footer-state")) |> String.downcase() =~ "ended"
   end
 
   test "detached and removed bindings preserve history", %{ref: ref} do
@@ -124,6 +124,12 @@ defmodule AiurWeb.ExecutorLiveTest do
     _ = :sys.get_state(view.pid)
     _ = render_async(view, 3_000)
     assert has_element?(view, "#executor-status-header [data-state=working] time", "5 seconds ago")
+
+    assert {:ok, _} = Session.detach(binding.binding_id, :detached)
+    :ok = Phoenix.PubSub.broadcast(Aiur.PubSub, SessionIngest.topic(), {:executor_hook, %{event: "SessionEnd", observed_at: now}})
+    _ = :sys.get_state(view.pid)
+    _ = render_async(view, 3_000)
+    assert has_element?(view, "#executor-footer-state [data-state=ended]", "Ended")
   end
 
   test "unreadable transcript and unsupported capture retain history", %{ref: ref} do

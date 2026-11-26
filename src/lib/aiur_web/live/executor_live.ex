@@ -121,7 +121,7 @@ defmodule AiurWeb.ExecutorLive do
       assign(assigns,
         summary: ExecutorView.summary(assigns.executor_frame),
         compact_status?:
-          match?(%{binding: %{state: "attached"}}, status) ||
+          match?(%{binding: %{state: state}} when state in ["attached", "detached"], status) ||
             (assigns.executor_frame.state in [:live, :idle, :known_empty] && (status == :unavailable || match?(%{binding: :unavailable}, status)))
       )
 
