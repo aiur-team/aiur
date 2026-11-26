@@ -282,6 +282,7 @@ defmodule Aiur.Application.Children do
       # Intent store and sync precede the Orchestrator: its boot reads the fleet pause after a bounded pull.
       intent_children(),
       Aiur.GitHub.Listeners,
+      if(github_tracker?, do: Aiur.OverlapReviewer),
       {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.Commands.Routing,

@@ -41,6 +41,7 @@
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
     "Aiur.DecisionEvent",
+    "Aiur.DecisionPubSub",
     "Aiur.DecisionRevision",
     "Aiur.DecisionStore",
     "Aiur.DecisionStore.HumanConfirmation",

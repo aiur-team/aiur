@@ -36,6 +36,7 @@ defmodule Aiur.DecisionStore do
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
   alias Aiur.DecisionStore.Calls
+  alias Aiur.DecisionStore.CreatorOverlap
   alias Aiur.DecisionStore.FailureAttention
   alias Aiur.DecisionStore.Index
   alias Aiur.DecisionStore.Info
@@ -46,7 +47,11 @@ defmodule Aiur.DecisionStore do
   @request_timeout 60_000
   @recent_decision_limit 50
 
-  @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
+  @type accept_result :: %{
+          required(:status) => :accepted | :duplicate,
+          required(:decision) => Decision.t(),
+          optional(:creator_overlap) => %{command_path: String.t(), status: :open | :answered}
+        }
 
   @doc """
   Starts the store.
@@ -72,7 +77,7 @@ defmodule Aiur.DecisionStore do
           {:ok, accept_result()} | {:error, term()}
   def request(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_map(payload) and is_list(opts) do
-    GenServer.call(server, {:request, payload, opts}, timeout)
+    server |> GenServer.call({:request, payload, opts}, timeout) |> CreatorOverlap.report(opts)
   end
 
   @doc "Durably records a status-neutral Command fact; retries return duplicate without publishing."

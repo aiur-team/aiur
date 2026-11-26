@@ -216,7 +216,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
      ), MapSet.member?(state.claimed, id), Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
-  # Out of machine or project grant: start nothing, the next poll retries.
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
     MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end, MachineGrant.feature(issue))
   end
@@ -358,6 +357,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       rework_head_sha = capture_rework_head(issue, context.rework_head_sha, opts)
       maybe_report_rework_head(recipient, issue, rework_head_sha)
+      Aiur.OverlapReviewer.before_dispatch(issue)
 
       runner.(issue, recipient,
         attempt: context.attempt,
