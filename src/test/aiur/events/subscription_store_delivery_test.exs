@@ -11,11 +11,15 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
     original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
     Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp_dir, "runtime-state"))
+    original_enqueue_fn = :persistent_term.get({SubscriptionStore, :enqueue_fn}, nil)
+    SubscriptionStore.set_enqueue_fn(nil)
 
-    identifier = "test-issue-#{System.unique_integer([:positive])}"
+    ticket = System.unique_integer([:positive])
+    identifier = "test-issue-#{ticket}"
 
     on_exit(fn ->
       SubscriptionStore.stop(identifier)
+      SubscriptionStore.set_enqueue_fn(original_enqueue_fn)
 
       if original do
         Application.put_env(:aiur, :log_file, original)
@@ -46,7 +50,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
   describe "restart restoration" do
     test "reloads bindings into Exchange on init", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.999.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
 
       [{old_pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
       Process.flag(:trap_exit, true)
@@ -59,10 +63,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
       # handle_continue(:load) re-registers bindings asynchronously after
       # init returns, so poll briefly rather than asserting immediately.
-      assert eventually(
-               fn -> "ticket.999.#" in Exchange.bindings_for(new_pid) end,
-               1_000
-             )
+      assert eventually(fn -> ticket_topic(id) in Exchange.bindings_for(new_pid) end, 1_000)
     end
 
     test "prunes persisted unsafe manual bindings before Exchange registration", %{identifier: id} do
@@ -75,7 +76,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
         Jason.encode!(%{
           "subscribed_to" => [
             subscription("executor.#", "manual:agent"),
-            subscription("ticket.42.#", "manual:agent"),
+            subscription(ticket_topic(id), "manual:agent"),
             subscription("system.main.branch.push", "base_branch:auto")
           ],
           "last_seen_event_id" => nil,
@@ -94,7 +95,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
       topics = id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
 
-      assert topics == ["ticket.42.#", "system.main.branch.push"]
+      assert topics == [ticket_topic(id), "system.main.branch.push"]
       assert Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(topics)
 
       {:ok, persisted} = JsonStore.read(path)
@@ -105,10 +106,10 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
   describe "Exchange integration" do
     test "Exchange has a binding for every persisted subscription", %{identifier: id} do
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.55.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
 
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
-      assert "ticket.55.#" in Exchange.bindings_for(pid)
+      assert ticket_topic(id) in Exchange.bindings_for(pid)
     end
 
     test "attach/1 returns AFTER bindings are registered (no race)", %{identifier: id} do
@@ -123,7 +124,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
         Jason.encode!(%{
           "subscribed_to" => [
             %{
-              "topic" => "ticket.901.#",
+              "topic" => ticket_topic(id),
               "reason" => "test",
               "subscription_created_at_event_id" => 1
             }
@@ -137,7 +138,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
       # No Process.sleep — bindings must be ready synchronously.
-      assert "ticket.901.#" in Exchange.bindings_for(pid)
+      assert ticket_topic(id) in Exchange.bindings_for(pid)
     end
   end
 
@@ -147,10 +148,10 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
       SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 100, topic: ticket_topic(id, "branch.push")}})
       # Sync call ensures the message is processed before we snapshot.
       _ = SubscriptionStore.snapshot(id)
 
@@ -162,13 +163,13 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
 
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
       # Event 100 fails enqueue → stall forms, cursor held at 99.
       SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 100, topic: ticket_topic(id, "branch.push")}})
       _ = SubscriptionStore.snapshot(id)
 
       # Event 101 would succeed, but must NOT be delivered past the stall:
@@ -178,7 +179,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
         :ok
       end)
 
-      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 101, topic: ticket_topic(id, "branch.push")}})
       _ = SubscriptionStore.snapshot(id)
       refute_receive {:enqueued, %{id: 101}}, 100
 
@@ -195,7 +196,7 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
     test "buffered events survive repeated stall retries and are not dropped", %{identifier: id} do
       test_pid = self()
-      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+      topic = ticket_topic(id, "branch.push")
 
       {:ok, counter} = Agent.start(fn -> 0 end)
       on_exit(fn -> Agent.stop(counter) end)
@@ -212,26 +213,32 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       end)
 
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      bindings = Exchange.bindings_for(pid)
+      assert ticket_topic(id) in bindings
+      refute "ticket.42.#" in bindings
+
+      send(pid, {:event, %{id: 100, topic: topic}})
       _ = SubscriptionStore.snapshot(id)
 
       # 101 arrives while 100 is still stalled → buffered, not enqueued.
-      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 101, topic: topic}})
       _ = SubscriptionStore.snapshot(id)
       refute_receive {:enqueued, %{id: 101}}, 100
 
       # Retry 1 fails again (n=2); retry 2 succeeds → both events delivered
       # in order, and neither is lost.
       send(pid, {:retry_stalled})
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
       send(pid, {:retry_stalled})
+      _ = SubscriptionStore.snapshot(id)
       assert_receive {:enqueued, %{id: 100}}, 500
       assert_receive {:enqueued, %{id: 101}}, 500
-      _ = SubscriptionStore.snapshot(id)
-      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
+      assert %{last_seen_event_id: cursor} = SubscriptionStore.snapshot(id)
+      assert cursor == 101
     end
   end
 
@@ -252,12 +259,12 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       end)
 
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
       # First delivery: transient failure, cursor holds
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 100, topic: ticket_topic(id, "branch.push")}})
       _ = SubscriptionStore.snapshot(id)
       assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
 
@@ -274,12 +281,12 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
 
       SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
       # Initial failure (attempt 1)
-      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      send(pid, {:event, %{id: 100, topic: ticket_topic(id, "branch.push")}})
       _ = SubscriptionStore.snapshot(id)
       assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
 
@@ -303,14 +310,14 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       end)
 
       :ok = SubscriptionStore.attach(id)
-      :ok = SubscriptionStore.add_subscription(id, "ticket.555.#", "test")
+      :ok = SubscriptionStore.add_subscription(id, ticket_topic(id), "test")
       :ok = SubscriptionStore.advance_cursor(id, 1000)
 
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
       # Simulate Exchange delivering a stale event (id < cursor)
-      send(pid, {:event, %{id: 500, topic: "ticket.555.branch.push"}})
-      send(pid, {:event, %{id: 1500, topic: "ticket.555.branch.push"}})
+      send(pid, {:event, %{id: 500, topic: ticket_topic(id, "branch.push")}})
+      send(pid, {:event, %{id: 1500, topic: ticket_topic(id, "branch.push")}})
 
       assert_receive {:enqueued, %{id: 1500}}, 500
       refute_receive {:enqueued, %{id: 500}}, 100
@@ -375,6 +382,11 @@ defmodule Aiur.Events.SubscriptionStoreDeliveryTest do
       topics = Enum.map(SubscriptionStore.snapshot(id).subscribed_to, & &1["topic"])
       assert topics == ["system.trunk.branch.push"]
     end
+  end
+
+  defp ticket_topic(id, tail \\ "#") do
+    ticket = String.replace_prefix(id, "test-issue-", "")
+    "ticket.#{ticket}.#{tail}"
   end
 
   defp subscription(topic, reason) do

@@ -1,6 +1,6 @@
 defmodule Aiur.RunTelemetry.EpicMembers do
+  alias Aiur.GitHub.Access
   @moduledoc false
-  alias Aiur.GitHub.{Errors, ResourceStore, Transport}
 
   @merges """
   query FeatureMemberMerge($owner: String!, $name: String!, $number: Int!) {
@@ -34,15 +34,15 @@ defmodule Aiur.RunTelemetry.EpicMembers do
   @spec held(String.t(), integer()) :: [integer()]
   def held(repo, number) do
     [owner, name] = String.split(repo, "/")
-    for {_key, %{data: %{"present" => true, "parent_issue_number" => ^number, "sub_issue_number" => member}}} <- ResourceStore.list(:sub_issue, owner, name), do: member
+    for {_key, %{data: %{"present" => true, "parent_issue_number" => ^number, "sub_issue_number" => member}}} <- Access.list(:sub_issue, owner, name), do: member
   end
 
   @spec get(String.t(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def get(repo, suffix, opts) do
-    with {:ok, token} <- Transport.require_token(opts) do
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = Transport.base_url() <> "/repos/" <> repo <> suffix
-      if opts[:first_page?], do: first_page(request, token, url), else: Transport.fetch_json_list(request, token, url, caller: :experiments_auto)
+    with {:ok, token} <- Access.require_token(opts) do
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = Access.base_url() <> "/repos/" <> repo <> suffix
+      if opts[:first_page?], do: first_page(request, token, url), else: Access.fetch_json_list(request, token, url, caller: :experiments_auto)
     end
   end
 
@@ -50,8 +50,8 @@ defmodule Aiur.RunTelemetry.EpicMembers do
   defp first_page(request, token, url) do
     case request.(%{method: :get, url: url, token: token, caller: "experiments_auto"}) do
       {:ok, %{status: 200, body: rows}} when is_list(rows) -> {:ok, Enum.take(rows, 100)}
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -84,10 +84,10 @@ defmodule Aiur.RunTelemetry.EpicMembers do
 
   defp linked(repo, number, opts) do
     [owner, name] = String.split(repo, "/")
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, data, _response} <- Transport.github_graphql_response(request, token, @merges, %{"owner" => owner, "name" => name, "number" => number}, caller: :experiments_auto),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, data, _response} <- Access.github_graphql_response(request, token, @merges, %{"owner" => owner, "name" => name, "number" => number}, caller: :experiments_auto),
          %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => false}} <- get_in(data, ["data", "repository", "issue", "closedByPullRequestsReferences"]) do
       facts = for fact <- nodes, is_binary(fact["mergedAt"]), do: %{"number" => number, "at" => fact["mergedAt"], "sha" => get_in(fact, ["mergeCommit", "oid"])}
       {:ok, facts}

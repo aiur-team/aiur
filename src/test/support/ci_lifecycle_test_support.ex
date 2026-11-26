@@ -62,6 +62,21 @@ defmodule Aiur.CiLifecycleTestSupport do
       end
     end
 
+    def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+      case recipient() do
+        recipient when is_pid(recipient) ->
+          send(recipient, {:label_added, issue_id, label})
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> IssueState.add_label(issue_id, label, token: "test-gh-token", request_fun: request_fun)
+          end
+
+        _other ->
+          {:error, :unscoped_test_call}
+      end
+    end
+
     defp record_update(issue_id, state_name, opts) do
       case recipient() do
         recipient when is_pid(recipient) ->

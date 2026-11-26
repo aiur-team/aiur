@@ -15,9 +15,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Tracker}
+  alias Aiur.{Config, Signal, Tracker}
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Orchestrator.{CommentWake, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.OperatorMessages.Enqueue
 
@@ -75,7 +75,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
 
   # A merge that leaves another open PR, or only `Refs` the ticket, keeps its own routing.
   defp check(identifier, workspace, head_sha, opts) do
-    case LocalHold.run(fn -> CommentWake.merged_issue_target_state(identifier, opts) end, LocalHold.caller_opts(opts)) do
+    case Access.with_transient_retry(fn -> CommentWake.merged_issue_target_state(identifier, opts) end, Access.transient_retry_opts(opts)) do
       "done" -> stranded(identifier, workspace, head_sha, opts)
       target when is_binary(target) -> {:merged, target}
       {:error, _reason} -> {:merged, nil}
@@ -93,10 +93,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
   defp keep_open(identifier, opts) do
     reopen = Keyword.get(opts, :reopen_issue_fun, &Tracker.reopen_issue/1)
     write = Keyword.get(opts, :keep_open_state_fun, &TicketTransition.write_state(&1, "in-progress", writer: :stranded_work))
-    hold_opts = LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
+    hold_opts = Access.transient_retry_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
 
-    with {:reopen, :ok} <- {:reopen, LocalHold.run(fn -> reopen.(identifier) end, hold_opts)},
-         {:state_write, :ok} <- {:state_write, LocalHold.run(fn -> write.(identifier) end, hold_opts)} do
+    with {:reopen, :ok} <- {:reopen, Access.with_transient_retry(fn -> reopen.(identifier) end, hold_opts)},
+         {:state_write, :ok} <- {:state_write, Access.with_transient_retry(fn -> write.(identifier) end, hold_opts)} do
       :ok
     else
       {step, {:error, error}} -> {:error, {step, error}}
@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
   defp apply_check(state, identifier, {:error, reason}, opts) do
     Logger.warning("stranded-work check failed: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-    Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :emit_alert_fun, &Signal.alert/2).(
       "ticket.#{identifier}.agent.attention.merged_with_stranded_work",
       issue: identifier,
       message: "The PR for ##{identifier} merged, but Aiur could not check the worker's checkout for unmerged commits (#{inspect(reason)})",
@@ -175,7 +175,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
           {"#{held}; Aiur reopened the ticket but could not set it in-progress (#{inspect(error)})", "The issue is open but keeps its pre-merge label. Remedy: set the ticket in-progress.", true}
       end
 
-    Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :emit_alert_fun, &Signal.alert/2).(
       "ticket.#{identifier}.agent.attention.merged_with_stranded_work",
       issue: identifier,
       message: message,

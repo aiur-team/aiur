@@ -50,6 +50,7 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
 
     ctx = %{
       telemetry_enabled: true,
+      github_window: %{"runs" => [%{"id" => 101, "name" => "CI", "event" => "pull_request", "conclusion" => "failure"}], "required_workflows" => ["CI"], "pulls" => []},
       boot_id: "current",
       telemetry_path: Path.join(root, "missing"),
       summary_boot_ids: fn -> ["old", "inside", "future", "anchored", "current"] end,
@@ -60,6 +61,8 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedWindowTest do
     window = %{start: ~U[2026-10-09 09:00:00Z], end: ~U[2026-10-09 11:00:00Z]}
     assert {:ok, data} = TelemetrySource.load(window, ctx)
     assert data.earliest_at == ~U[2026-10-08 10:00:00Z]
+    assert data.ci_runs == [%{"id" => 101, "name" => "CI", "event" => "pull_request", "conclusion" => "failure"}]
+    assert "ci_runs" in data.facts
     assert_received {:summary_loaded, "old"}
     assert_received {:summary_loaded, "inside"}
     assert_received {:summary_loaded, "anchored"}

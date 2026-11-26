@@ -42,21 +42,28 @@ defmodule Aiur.Workspace.WipPreservation.BoundsTest do
     end
 
     @tag timeout: 60_000
-    test "a hung save command times out: the recreate keeps the workspace and holds the ticket", %{test_root: test_root} do
+    # #7543: a save that cannot complete keeps the workspace and dispatches the
+    # worker into it, instead of holding the ticket on a preflight pause.
+    test "a hung save command times out: the workspace is kept and the worker runs in it", %{test_root: test_root} do
       identifier = "WIP-HANG-#{System.unique_integer([:positive])}"
       {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier, workspace_wip: [command_timeout_ms: 500])
       File.write!(Path.join(workspace, "README.md"), "unsaved agent edit\n")
       before = snapshot(workspace)
       fake_git!(test_root, :hang)
+      subscribe!("ticket.#{identifier}.workspace.wip_preservation_skipped")
 
       started = System.monotonic_time(:millisecond)
 
-      assert {:error, {:wip_preservation_failed, ^workspace, {:command_timeout, _git, _args, 500}}} =
-               Workspace.run_before_run_hook(workspace, todo_issue(identifier))
+      assert :ok = Workspace.run_before_run_hook(workspace, todo_issue(identifier))
 
       assert System.monotonic_time(:millisecond) - started < 10_000
+      # No recreate: the hook ran once and the dirty tree is untouched.
       assert trace_count(trace_path(trace_root, todo_issue(identifier))) == 1
       assert snapshot(workspace) == before
+
+      skipped = await_topic("ticket.#{identifier}.workspace.wip_preservation_skipped")
+      assert skipped["needs_attention"] == true
+      assert skipped["message"] =~ "dispatched into"
     end
 
     @tag timeout: 60_000

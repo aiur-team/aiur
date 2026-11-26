@@ -59,7 +59,7 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
 
   test "schema exposes the default and rejects negative resume lifetime" do
     assert {:ok, settings} = Schema.parse(%{})
-    assert settings.agent.load_resume_max_age_seconds == 21_600
+    assert settings.agent.load_resume_max_age_seconds == 3_600
     assert {:ok, disabled} = Schema.parse(%{"agent" => %{"load_resume_max_age_seconds" => 0}})
     assert disabled.agent.load_resume_max_age_seconds == 0
     assert {:error, _reason} = Schema.parse(%{"agent" => %{"load_resume_max_age_seconds" => -1}})
@@ -68,6 +68,6 @@ defmodule Aiur.Orchestrator.EnvelopeStoreTest do
   test "write failure returns an error", %{path: path, now: now} do
     File.mkdir_p!(path)
     on_exit(fn -> File.rmdir(path) end)
-    assert {:error, {:write_failed, MatchError}} = EnvelopeStore.save(7, 16, now)
+    assert {:error, {:write_failed, File.Error}} = EnvelopeStore.save(7, 16, now)
   end
 end

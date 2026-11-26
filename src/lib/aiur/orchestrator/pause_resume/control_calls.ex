@@ -3,12 +3,16 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   Orchestrator call handlers for per-ticket pause, control requests, and control expiry.
   """
 
-  alias Aiur.Alerts
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.PauseResume.ControlRequest
   alias Aiur.Orchestrator.PauseResume.PauseRequest
+  alias Aiur.Orchestrator.RemoteControlMode
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   alias Aiur.TrackerIdentity
   require Logger
 
@@ -17,6 +21,19 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
     guard_control_call(state, :pause, issue_identifier, fn ->
       {reply, state} = PauseRequest.pause_agent_reply(state, issue_identifier)
       {:reply, reply, state}
+    end)
+  end
+
+  @doc false
+  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {:reply, term(), State.t()}
+  def redispatch_call(%State{} = state, identifier, backend) do
+    guard_control_call(state, :redispatch, identifier, fn ->
+      if Orchestrator.TrackerTasks.running?(state, {:redispatch, identifier}) do
+        {:reply, {:error, :redispatch_in_progress}, state}
+      else
+        {reply, next} = RemoteControlMode.redispatch_call_unchecked(state, identifier, backend)
+        {:reply, reply, next}
+      end
     end)
   end
 
@@ -58,7 +75,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   def emit_control_crash_alert(action, target, summary) do
     label = control_target_label(target)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{label}.agent.attention.control-call-crashed",
       "Operator #{action} of #{label} crashed inside the orchestrator (#{summary}). The agent registry was kept, " <>
         "but side effects the call made before it crashed (tracker labels, a started worker) were not undone; check the ticket.",
@@ -93,8 +110,8 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
   # Global pause blocks individual resumes, but operators can still pause a
   # running worker as an explicit containment action.
-  def request_control_call(%State{globally_paused: true} = state, issue_identifier, :resume, request_id)
-      when is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
+  def request_control_call(%State{} = state, issue_identifier, :resume, request_id)
+      when effective_paused?(state) and is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
     {:reply, {:error, :globally_paused}, state}
   end
 

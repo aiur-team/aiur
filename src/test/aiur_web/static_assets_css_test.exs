@@ -30,6 +30,18 @@ defmodule AiurWeb.StaticAssetsCssTest do
     assert embedded() == expected
   end
 
+  test "the embedded sheet omits the retired grid and keeps shared epic icon styles" do
+    css = embedded()
+
+    refute css =~ ".bo-grid-root"
+    refute css =~ ".bo-node"
+    assert css =~ ~r/\.bo-epic\s*\{/
+    assert css =~ ~r/\.bo-epic-ic\s*\{/
+    assert css =~ ~r/\.bo-epic-ic svg\s*\{/
+    assert css =~ ".bo-layout-edge.is-graph-chain"
+    assert css =~ ".tool-btn.icon-only"
+  end
+
   test "every partial has a unique order prefix, ends in a newline and stays within 500 lines" do
     prefixes = Enum.map(parts(), &(&1 |> Path.basename() |> String.slice(0, 3)))
     assert Enum.all?(prefixes, &(&1 =~ ~r/^\d\d-$/))

@@ -92,17 +92,60 @@ defmodule Aiur.GTestSupportPubSubNeighbourTest do
     assert is_pid(Process.whereis(Aiur.PubSub))
 
     assert_raise RuntimeError,
-                 ~r/plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/,
+                 ~r/plain ExUnit tests left shared runtime children down: .*Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/,
                  fn ->
                    OrchestratorGuard.verify_suite!()
                  end
   end
 end
 
+defmodule Aiur.IPlainCaseDecisionStoreLeakProbeTest do
+  use ExUnit.Case, async: false
+
+  @moduletag :orchestrator_guard_probe
+
+  test "leaves the durable decision store down" do
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.DecisionStore)
+  end
+end
+
+defmodule Aiur.JTestSupportDecisionStoreNeighbourTest do
+  use Aiur.TestSupport, async: false
+
+  alias Aiur.TestSupport.OrchestratorGuard
+
+  @moduletag :orchestrator_guard_probe
+
+  test "the guard reports which plain test left DecisionStore down" do
+    assert is_nil(Process.whereis(Aiur.DecisionStore))
+
+    assert_raise RuntimeError,
+                 ~r/plain ExUnit tests left shared runtime children down: .*Aiur.IPlainCaseDecisionStoreLeakProbeTest: test leaves the durable decision store down \(Aiur.DecisionStore unregistered\)/,
+                 fn -> OrchestratorGuard.verify_suite!() end
+  end
+end
+
 defmodule Aiur.HTestSupportPubSubTerminationProbeTest do
   use Aiur.TestSupport, async: false
 
+  alias Aiur.TestSupport.OrchestratorGuard
+  alias Aiur.TestSupport.RuntimeChildren
+
   @moduletag :orchestrator_guard_probe
+
+  setup_all do
+    # The PubSub supervisor is first in Aiur.Supervisor's :rest_for_one tree.
+    # Recover downstream shared children after this module has exercised the
+    # normal per-test teardown, so its leak report remains observable without
+    # contaminating later probe modules or the nested suite's final check.
+    on_exit(fn ->
+      assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+      assert :ok = RuntimeChildren.ensure_financial_data_running()
+      OrchestratorGuard.restore_codeowners_baseline!()
+    end)
+
+    :ok
+  end
 
   test "a real registry-table loss is restored and reported" do
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)

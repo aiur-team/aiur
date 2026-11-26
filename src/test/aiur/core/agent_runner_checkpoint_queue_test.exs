@@ -160,7 +160,7 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
       assert Exchange.bindings_for(orchestrator_pid) == []
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -287,15 +287,21 @@ defmodule Aiur.Core.AgentRunnerCheckpointQueueTest do
                OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-254")
 
       assert :sys.get_state(orchestrator_pid).retry_attempts == %{}
-      assert log =~ "Queued item delivery lost completion race"
-      assert log =~ "issue_id=issue-checkpoint-completion-race"
-      assert log =~ "request_id="
-      assert log =~ "reason=:response_timeout"
-      assert log =~ "decision=requeue_after_parent_turn_completed"
-      refute log =~ "Agent run failed"
+
+      matching_log =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "issue_id=issue-checkpoint-completion-race"))
+        |> Enum.join("\n")
+
+      assert matching_log =~ "Queued item delivery lost completion race"
+      assert matching_log =~ "request_id="
+      assert matching_log =~ "reason=:response_timeout"
+      assert matching_log =~ "decision=requeue_after_parent_turn_completed"
+      refute matching_log =~ "Agent run failed"
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 end

@@ -337,8 +337,7 @@ defmodule Aiur.DecisionAttentionResolutionTest do
       end
     ]
 
-    {:ok, pid} = DecisionAttention.start_link(Keyword.merge(defaults, opts))
-    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    pid = start_supervised!({DecisionAttention, Keyword.merge(defaults, opts)})
     {pid, name}
   end
 end

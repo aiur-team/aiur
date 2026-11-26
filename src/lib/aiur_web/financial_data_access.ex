@@ -24,12 +24,13 @@ defmodule AiurWeb.FinancialDataAccess do
   defmodule Context do
     @moduledoc false
 
-    @enforce_keys [:configuration_generation, :connection_generation, :proof]
-    defstruct [:configuration_generation, :connection_generation, :proof]
+    @enforce_keys [:configuration_generation, :connection_generation, :issued_at, :proof]
+    defstruct [:configuration_generation, :connection_generation, :issued_at, :proof]
 
     @type t :: %__MODULE__{
             configuration_generation: String.t(),
             connection_generation: String.t(),
+            issued_at: integer(),
             proof: String.t()
           }
   end
@@ -48,14 +49,40 @@ defmodule AiurWeb.FinancialDataAccess do
   @doc "Authenticates a dashboard request and stages opaque session evidence."
   @spec authenticate_request(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_request(conn, opts) do
+    browser? = Keyword.get(opts, :browser?, false)
+
+    case context_from_session(get_session(conn)) do
+      {:ok, _context} ->
+        put_private(conn, @conn_private_key, get_session(conn, @session_key))
+
+      :error ->
+        if browser? and not browser_basic_auth?() do
+          conn
+          |> Phoenix.Controller.redirect(to: "/auth/login")
+          |> halt()
+        else
+          authenticate_without_session(conn, opts)
+        end
+    end
+  end
+
+  defp authenticate_without_session(conn, opts) do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
-        authenticate_configured_request(conn, config)
+        authenticate_configured_request(conn, config, opts)
 
       {:error, :authentication_required} ->
-        conn
-        |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
-        |> halt()
+        if browser_html_request?(conn, opts) do
+          conn
+          |> put_resp_header("www-authenticate", ~s(Basic realm="Aiur"))
+          |> put_resp_content_type("text/html")
+          |> send_resp(401, recovery_response(conn))
+          |> halt()
+        else
+          conn
+          |> Plug.BasicAuth.request_basic_auth(realm: "Aiur")
+          |> halt()
+        end
 
       {:error, :authentication_not_configured} ->
         conn
@@ -64,7 +91,27 @@ defmodule AiurWeb.FinancialDataAccess do
     end
   end
 
-  defp authenticate_configured_request(conn, config) do
+  defp browser_html_request?(conn, opts) do
+    Keyword.get(opts, :browser?, false) and
+      Enum.any?(get_req_header(conn, "accept"), &String.contains?(&1, "text/html"))
+  end
+
+  defp recovery_response(_conn) do
+    """
+    <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard unavailable</title>
+    <style>body{font:16px system-ui,sans-serif;margin:2rem;color:#222}nav{display:flex;gap:.75rem}a,button{min-height:44px;padding:.6rem 1rem;border:1px solid #888;border-radius:999px;background:white;color:inherit;font:inherit}</style>
+    <main><h1>Dashboard unavailable</h1><p>Sign in or reload the dashboard to continue.</p><nav aria-label="Recovery"><a href="/">Home</a><button type="button" onclick="location.reload()">Reload</button></nav></main>
+    </html>
+    """
+  end
+
+  defp browser_basic_auth? do
+    AiurWeb.EndpointConfig.get(:browser_basic_auth) != false
+  rescue
+    _ -> true
+  end
+
+  defp authenticate_configured_request(conn, config, opts) do
     # Credentials present means the request must prove them, regardless of the
     # `required?` setting. `required?` only distinguishes how an *unconfigured*
     # request fails (401 challenge vs 503 refusal); it must never turn a
@@ -76,10 +123,14 @@ defmodule AiurWeb.FinancialDataAccess do
         realm: "Aiur"
       )
 
-    if authenticated.halted do
-      authenticated
+    if authenticated.halted and browser_html_request?(conn, opts) do
+      %{authenticated | resp_body: recovery_response(conn)}
     else
-      put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+      if authenticated.halted do
+        authenticated
+      else
+        put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+      end
     end
   end
 
@@ -154,4 +205,13 @@ defmodule AiurWeb.FinancialDataAccess do
   @doc false
   @spec session_key() :: String.t()
   def session_key, do: @session_key
+
+  @doc false
+  @spec new_browser_session_marker() :: {:ok, map()} | {:error, term()}
+  def new_browser_session_marker do
+    case Proof.configuration([], @version) do
+      {:ok, config} -> {:ok, Proof.new_session_marker(config, @version)}
+      error -> error
+    end
+  end
 end

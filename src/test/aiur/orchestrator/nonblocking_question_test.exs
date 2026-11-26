@@ -7,10 +7,12 @@ defmodule Aiur.Orchestrator.NonblockingQuestionTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("nonblocking-question")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "runtime"))
     :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
-    identifier = "question-#{System.unique_integer([:positive])}"
+    identifier = "question-#{System.pid()}-#{System.unique_integer([:positive])}"
     :ok = SubscriptionStore.attach(identifier)
+
     on_exit(fn -> SubscriptionStore.stop(identifier) end)
 
     issue = %Issue{id: identifier, identifier: identifier, state: "in-progress"}

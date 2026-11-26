@@ -69,6 +69,7 @@ defmodule Aiur.OrchestratorStatusCliCapacityTest do
 
     envelope_output = capture_io(fn -> AgentControlCLI.status() end)
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
+    assert envelope_output =~ "AIMD envelope=1 last_change=unknown reason=unchanged holding=waiting for first fresh pressure sample"
   end
 
   test "status shows provider freshness detail for a provider capacity hold" do

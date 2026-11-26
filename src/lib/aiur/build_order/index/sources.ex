@@ -2,10 +2,14 @@ defmodule Aiur.BuildOrder.Index.Sources do
   @moduledoc false
   alias Aiur.BuildOrder.{ProviderHealth, SourceFreshness}
 
+  alias Aiur.BuildOrder.Index.Estimates
+
   @spec build(map(), integer()) :: map()
   def build(parts, now) do
     sources = %{
       history: history(parts),
+      packs: pack_source(parts[:packs], now),
+      estimates: Estimates.source(parts[:estimates]),
       features: SourceFreshness.source(health(parts[:features])),
       queue: producer(parts[:planned]),
       agents: producer(parts[:now]),
@@ -21,6 +25,9 @@ defmodule Aiur.BuildOrder.Index.Sources do
   def health({:error, %ProviderHealth{} = health}), do: health
   def health({:error, reason}) when is_atom(reason), do: %ProviderHealth{failure: reason}
   def health(_), do: %ProviderHealth{failure: :unknown}
+
+  defp pack_source(%{source: source}, _now), do: source
+  defp pack_source(_, now), do: %{state: "unavailable", observed_at: now, reason: "planning packs could not be read"}
 
   defp history(parts) do
     health = parts[:health]
@@ -72,6 +79,7 @@ defmodule Aiur.BuildOrder.Index.Sources do
   end
 
   defp source_key(part) when part in [:history, :health, :catch_up], do: :history
+  defp source_key(:estimates), do: :estimates
   defp source_key(:features), do: :features
   defp source_key(part) when part in [:queue, :planned], do: :queue
   defp source_key(:now), do: :agents

@@ -168,6 +168,12 @@
         "tests": {
           "type": "object"
         },
+        "survival": {
+          "type": "object"
+        },
+        "sensitivity": {
+          "type": "object"
+        },
         "effects": {
           "type": "object"
         },

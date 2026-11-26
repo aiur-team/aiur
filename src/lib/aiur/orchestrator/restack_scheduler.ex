@@ -45,7 +45,7 @@ defmodule Aiur.Orchestrator.RestackScheduler do
 
   defp schedule_issue(state, %Issue{} = issue, opts) do
     if Map.has_key?(state.running, issue.id) or TrackerTasks.running?(state, {:restack, issue.id}) or
-         issue.state in ["done", "closed", "cancelled", "canceled"] do
+         issue.state in ["done", "closed", "cancelled", "canceled", "budget-exhausted"] do
       state
     else
       read_pr = Keyword.get(opts, :read_pr, &Tracker.ticket_pull_request/1)

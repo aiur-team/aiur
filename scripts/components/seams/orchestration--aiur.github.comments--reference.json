@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.Comments",
+  "kind": "reference",
+  "reason": "#7123: quarantine lift evidence reads paginated PR files and issue timelines through GitHub's comment stream client",
+  "only_paths": [
+    "src/lib/aiur/landing_watch/quarantine_fix_evidence.ex"
+  ]
+}

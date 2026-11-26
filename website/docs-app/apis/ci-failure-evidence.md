@@ -10,10 +10,14 @@ Signatures exclude proven flakes. ResourceStore caches completed evidence by SHA
 
 Failed-job recovery requires Actions read/write. It is bounded to one rerun per head and three failed handoffs per PR, without a fleet or hourly cap. A run GET returning 403/404 or a denied rerun POST raises one attention and permits normal rework.
 
+For an approved PR with auto-merge or a merge-queue entry, current-head failures route to rework only when every failed check is PR-caused. Aiur first disables auto-merge or removes the queue entry, then names the failed jobs in the handoff. Inherited or unknown failures stay held. Cancelled and infrastructure failures keep their bounded rerun path.
+
 Any other recovery stop raises its attention and routes a red head to rework. A rerun in flight, or an approved head with an unreadable landing state, holds instead. A transient GitHub error holds ten minutes, then retries once before routing; an Actions 403 or 404 routes at once. A hold recorded before the head went red does not mask a later failure.
 
 With `merge_policy.main_watch.enabled`, a red head routes only when the PR caused it: a failing check passed on the base commit in MainWatch history, or never ran there. If the base is unrecorded, a check absent from all history still routes.
 
+Executor sweep names failed checks and their cause: PR-caused, inherited, infra, or unknown. It reports red checks only from an exact-head CI observation less than five minutes old. Missing or stale reads are omitted. PR attribution needs evidence for the exact base SHA; otherwise it stays unknown.
+
 Otherwise it holds with one `base_inherited` or `base_unknown` attention, re-checked every poll. A `base_unknown` hold routes the red after one hour, because MainWatch may never record that base.
 
-The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles a separate trigger. A head can receive two reruns from distinct triggers: a failed-job rerun here and a cancelled-run rerun there.
+The [cancelled-run policy](https://github.com/aiur-team/aiur/pull/4212) handles the separate landing-watcher trigger. The CI poller also permits one journaled exact-head rerun for a cancelled required run or a classified infrastructure failure; rerun limits and the repair handoff still apply.

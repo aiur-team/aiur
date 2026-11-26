@@ -9,6 +9,7 @@ defmodule Aiur.Codex.Frames do
   @turn_start_id 3
   @rate_limits_read_id 4
   @account_read_id 5
+  @liveness_rate_limits_read_id 6
 
   @spec thread_start_id() :: 2
   def thread_start_id, do: @thread_start_id
@@ -21,6 +22,16 @@ defmodule Aiur.Codex.Frames do
 
   @spec account_read_id() :: 5
   def account_read_id, do: @account_read_id
+
+  @doc false
+  @spec liveness_rate_limits_read_id() :: 6
+  def liveness_rate_limits_read_id, do: @liveness_rate_limits_read_id
+
+  @doc false
+  @spec liveness_rate_limits_read_frame() :: map()
+  def liveness_rate_limits_read_frame do
+    %{"method" => "account/rateLimits/read", "id" => liveness_rate_limits_read_id(), "params" => nil}
+  end
 
   @spec rate_limits_read_frame() :: map()
   def rate_limits_read_frame do
@@ -85,6 +96,19 @@ defmodule Aiur.Codex.Frames do
         "title" => "#{issue.identifier}: #{issue.title}",
         "approvalPolicy" => approval_policy,
         "sandboxPolicy" => turn_sandbox_policy
+      }
+    }
+  end
+
+  @spec turn_steer_frame(map(), integer(), String.t(), String.t()) :: map()
+  def turn_steer_frame(session, request_id, text, expected_turn_id) do
+    %{
+      "method" => "turn/steer",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => session.thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "expectedTurnId" => expected_turn_id
       }
     }
   end

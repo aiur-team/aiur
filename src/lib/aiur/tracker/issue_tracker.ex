@@ -1,7 +1,9 @@
 defmodule Aiur.Tracker.IssueTracker do
   @moduledoc "Issue-tracker reads, writes and locally delivered ticket evidence."
 
-  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_label_map :: %{
+          String.t() => %{optional(:labels) => [String.t()], optional(:updated_at) => DateTime.t() | nil, optional(:label_descriptions) => %{optional(String.t()) => String.t()}}
+        }
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
 
   @type ticket_pull_request_result :: Aiur.Tracker.ticket_pull_request_result()
@@ -11,6 +13,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @optional_callbacks with_poll_cycle: 1, format_preflight_error: 1
 
   @callback ticket_pull_request(String.t()) :: ticket_pull_request_result()
+  @callback resolve_ticket_pull_request(String.t(), keyword()) :: ticket_pull_request_result()
 
   @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}
   @callback issue_closure(String.t(), pos_integer()) :: issue_closure_result()
@@ -26,6 +29,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
+  @callback foreign_state_label?([String.t()]) :: boolean()
   @callback fetch_issue_states_by_ids_conditional([String.t()], map()) ::
               {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
@@ -55,12 +59,14 @@ defmodule Aiur.Tracker.IssueTracker do
                       hydrate_blocked_by: 1,
                       with_transient_retry: 2,
                       ticket_pull_request: 1,
+                      resolve_ticket_pull_request: 2,
                       blocked_by: 1,
                       issue_closure: 2,
                       ensure_labels: 1,
                       open_issue_labels: 1,
                       refresh_open_issue_labels: 0,
                       fetch_issue_states_by_ids_conditional: 2,
+                      foreign_state_label?: 1,
                       update_issue_state: 3,
                       add_label: 2,
                       remove_label: 2,

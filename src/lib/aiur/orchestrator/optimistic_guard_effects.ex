@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
   @moduledoc "Reconciles optimistic failure policy and journals resumable park effects."
   require Logger
   alias Aiur.{BuildQueue, CodeHost, Config}
-  alias Aiur.Orchestrator.{OptimisticGuard, OptimisticGuardObservations, OptimisticLedger, PauseResume, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.{OptimisticGuard, OptimisticGuardObservations, OptimisticLedger, PauseGuard, PauseResume, State, TicketTransition, TrackerTasks}
 
   @spec reconcile(State.t(), keyword()) :: State.t()
   def reconcile(state, opts \\ []) do
@@ -139,7 +139,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
       facts["pause_complete"] == true ->
         {state, true}
 
-      state.globally_paused ->
+      PauseGuard.paused?(state) ->
         {state, false}
 
       inactive?(entry) ->

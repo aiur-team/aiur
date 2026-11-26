@@ -36,6 +36,7 @@ defmodule Aiur.Workspace.Ownership.Store do
     :node,
     :os_pid,
     :acquired_at,
+    :owner_started_at,
     :provisioning,
     :active,
     :reaping,

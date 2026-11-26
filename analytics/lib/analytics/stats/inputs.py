@@ -118,6 +118,7 @@ def normalize(snapshot, spec, annotations):
         grouped = {g: [] for g in groups}
         counts = {g: 0 for g in groups}
         censored = {g: 0 for g in groups}
+        follow_up, censoring_unknown = {g: [] for g in groups}, False
         rows = evidence.get("rows", [])
         if not isinstance(rows, list):
             raise ValueError(f"{metric_id}: rows must be an array")
@@ -129,21 +130,31 @@ def normalize(snapshot, spec, annotations):
             if unit in units:
                 raise ValueError(f"{metric_id}: duplicate unit_id {unit}")
             units.add(unit)
-            value = number(row.get("value"), f"{metric_id}.value")
-            if kind == "binary" and value not in (0, 1):
-                raise ValueError("binary observations must be zero or one")
             if not isinstance(row.get("censored", False), bool):
                 raise ValueError("censored must be boolean")
+            # A censored row without elapsed time means X1 could not supply a start time.
+            unknown = row.get("censored", False) and row.get("value") is None and kind == "duration"
+            value = None if unknown else number(row.get("value"), f"{metric_id}.value")
+            if kind == "binary" and value not in (0, 1):
+                raise ValueError("binary observations must be zero or one")
             if unit in excluded:
                 counts[group] += 1
             elif row.get("censored", False):
                 if kind != "duration":
                     raise ValueError("only duration rows can be censored")
                 censored[group] += 1
+                censoring_unknown = censoring_unknown or unknown
+                if not unknown:
+                    follow_up[group].append({"unit_id": unit, "value": value, "censored": True})
             else:
                 grouped[group].append((unit, value))
+                follow_up[group].append({"unit_id": unit, "value": value, "censored": False})
         metric.update(values={g: [v for _, v in sorted(grouped[g])] for g in groups},
                       excluded=counts, censored=censored)
+        if kind == "duration" and any(censored.values()) and not censoring_unknown:
+            metric["survival_rows"] = {g: sorted(follow_up[g], key=lambda r: r["unit_id"]) for g in groups}
+        if censoring_unknown:
+            metric["censoring_unknown"] = True
         if kind == "rate":
             if exclusions:
                 raise ValueError("aggregate rate exclusions require per-unit exposure evidence")
@@ -157,10 +168,11 @@ def normalize(snapshot, spec, annotations):
                     raise ValueError("exposure must be positive")
                 n = positive_integer(data.get("n"), "rate independent-unit n", 0)
                 metric["rates"][group] = {"events": events, "exposure": exposure, "n": n}
-        if strata_fields and kind == "rate":
+        if strata_fields and (kind == "rate" or censoring_unknown):
             metric["stratification_unavailable"] = True
-            warnings.append(f"{metric_id}: aggregate rate evidence cannot be stratified")
-        if strata_fields and kind != "rate":
+            reason = "aggregate rate evidence" if kind == "rate" else "unknown censoring evidence"
+            warnings.append(f"{metric_id}: {reason} cannot be stratified")
+        if strata_fields and kind != "rate" and not censoring_unknown:
             metric["strata_rows"] = partition(rows, strata_fields, excluded, groups)
             metric["strata_fields"] = strata_fields
         metrics.append(metric)

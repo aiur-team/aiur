@@ -74,6 +74,9 @@ defmodule Aiur.TestSupport.MuseFixture do
             result = {'session': {'sessionId': 'native-session'}, 'viewCursor': 'view-0'}
         elif method == 'turn/start':
             result = {'commandId': frame['params']['commandId'], 'status': 'accepted', 'disposition': 'started', 'startedNewTurn': True, 'turnId': 'turn-1'}
+            if mode == 'receipt_only_delayed':
+                import time
+                time.sleep(0.3)
             emit({'jsonrpc': '2.0', 'id': frame['id'], 'result': result})
             if mode == 'complete':
                 emit({'jsonrpc': '2.0', 'method': 'item/started', 'params': {'sessionId': 'native-session', 'viewCursor': 'view-1', 'item': {'itemId': 'item-1', 'kind': 'agentMessage', 'revision': 1}}})

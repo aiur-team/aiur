@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 1,
+  "first_id": "agent-backends-cc-01",
+  "last_id": "agent-backends-cc-35",
+  "findings": [
+    {
+      "id": "agent-backends-cc-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/codex/turn_events.ex:10",
+      "note": "Each metadata_from_message still calls AppServerPort.port_metadata, which invokes process-group discovery rather than retaining session metadata. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/config.ex:34",
+      "note": "Unrecognized permission_mode still selects default bypassPermissions; validate! only checks command. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/display_tailer.ex:324",
+      "note": "cap_text still uses binary_part at an arbitrary byte boundary before broadcasting transcript content; multibyte truncation remains possible. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/coding_agent.ex:151",
+      "note": "Claude workspace validation still uses expanded string prefix while Codex canonicalizes and rejects symlink escape; Claude stop_port still closes without Codex descendant teardown. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:1",
+      "note": "RemoteControl still owns transcript/trust and generic process-tree/kill helpers; Codex still calls this Claude namespace. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/codex/dynamic_tool.ex:1",
+      "note": "DynamicTool handlers remain under Codex; LinearGraphQL still defaults directly to LinearClient.graphql/3. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/notification_policy.ex:52",
+      "note": "Map classification still flattens all keys and values for limit substring matching; HookTurn passes full stop_failure event.raw. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-07"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:86",
+      "note": "Workspace trust still read-modify-writes the global JSON with Fs.atomic_write without mode or backup options; no cross-process protection shown. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "agent-backends-cc-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/telemetry.ex:15",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-10",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/telemetry/contract.ex:4",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-10"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-11",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/account_generation.ex:53",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-11"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-12",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codex/rate_limit_adapter.ex:467",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-12"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/codex/rate_limit_adapter.ex:258",
+      "note": "RateLimitAdapter still requires integer percentages and interprets reset integers as seconds; RateLimits retains its separate millisecond-sized bound. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-14",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/notification_policy.ex:69",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-14"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codex/notification_policy.ex:227",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-15"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codex/event_humanizer.ex:11",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-16"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-17",
+      "status": "changed",
+      "anchor": "src/lib/aiur/codex/coding_agent.ex:40",
+      "note": "Legacy public run/4 and Handshake.establish remain. Production AppServerPort startup now takes seven arguments; remote compatibility path remains separate. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-18",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:489",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-18"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codex/approvals.ex:10",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-19"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/claude/repl/launcher.ex:320",
+      "note": "Launcher await_ready and RcAttach still independently compute deadlines and poll tmux; the local sleep-loop duplication remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:226",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-21"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/display_tailer.ex:126",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-22"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-23",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_account_generation/context.ex:12",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/repl/hook_turn.ex:25",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-24"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-25",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/repl/prompt_submit.ex:35",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-25"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/coding_agent/route_credentials.ex:15",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-26"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/codex/session_lifecycle.ex:37",
+      "note": "Codex containment registration still collapses registration/metadata errors to nil; Claude notification meter result is discarded. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/transcript_tailer.ex:112",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-28"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "agent-backends-cc-29",
+      "status": "changed",
+      "anchor": "src/lib/aiur/claude/usage_api.ex:147",
+      "note": "429 retention still extends fresh_until, but fetch_with_metadata now preserves observed_at_ms across 429s (f4319fac4); the no-observation-metadata part is no longer true. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/codex/app_server_port.ex:275",
+      "note": "Provider maps remain separately built. SessionLifecycle accepts only integer group IDs while AppServerPort accepts parsed strings; Claude still assumes os_pid as group. Provisional action retained; static code review only.",
+      "source_ids": [
+        "agent-backends-cc-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "agent-backends-cc-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/codex/dynamic_tool/emit_event.ex:82",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "agent-backends-cc-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/remote_control.ex:698",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "agent-backends-cc-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/repl_agent.ex:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-34"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "agent-backends-cc-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/claude/hook_settings.ex:52",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "agent-backends-cc-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

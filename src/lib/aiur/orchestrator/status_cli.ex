@@ -1,10 +1,15 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.HoldPressure
+  alias Aiur.Instance.{LeaseStore, Roster}
+  alias Aiur.Instance.Roster.Presentation
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.StatusObservation
@@ -14,12 +19,15 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator.StatusCLI.AgentsTable
   alias Aiur.Orchestrator.StatusCLI.Capacity
   alias Aiur.Orchestrator.StatusCLI.Diagnostics
+  alias Aiur.Orchestrator.StatusCLI.Sections
   alias Aiur.Orchestrator.StatusCLI.StatusTable
   alias Aiur.Orchestrator.StatusCLI.Watch
 
   @status_timeout_ms 5_000
   # Leave room to render the daemon timeout before the 10-second watchdog edge (#1684).
   @agents_timeout_ms 6_000
+  # One shared bound for the daemon-read sections, so `status` stays under 3s.
+  @section_timeout_ms 1_500
 
   @spec status(keyword()) :: :ok
   def status(opts \\ []) do
@@ -71,7 +79,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   # (#1837). They read the snapshot read model instead, so a fetch in flight
   # cannot delay them.
   defp fleet_view(opts, timeout_ms, view_opts \\ []) do
-    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Orchestrator, timeout_ms, view_opts) end)
+    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms, view_opts) end)
   end
 
   # A view with no rows in it is reported as unavailable, never rendered as an
@@ -96,13 +104,14 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_status_report(statuses, snapshot, opts) do
-    Diagnostics.print_executor_listener_status()
-    ExecutorAttention.CLI.print_wake_status()
-    Commands.print_projection_status()
-    Diagnostics.print_codeowners_trust()
-    ReloadRejection.print_status()
-    Aiur.Handoff.CLI.print_latest()
-    Aiur.MergePolicyCLI.print()
+    bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
+    deadline_ms = System.monotonic_time(:millisecond) + bound_ms
+    # Start every daemon read now so they overlap the table rendering (#5817).
+    header = Sections.start(header_sections(opts))
+    footer = Sections.start(footer_sections(opts))
+    header_outcomes = Sections.await(header, deadline_ms, bound_ms)
+    IO.puts(Aiur.Instance.status_line())
+    print_instance_roster(opts)
     tracker_states = StatusTable.tracker_state_sets()
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &StatusTable.visible_status_row?(&1, tracker_states))
@@ -122,14 +131,109 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
+    print_usage_floor_holds()
+    print_github_budget_scope()
     print_polling_status(Map.get(snapshot, :polling))
-    supervision_exit_code = Diagnostics.print_supervision_health()
-    Diagnostics.print_ci_readiness()
-    Diagnostics.print_build_gate_status()
-    if Config.tracker_kind() == "github", do: HoldPressure.print_status()
-    Diagnostics.print_prewarm_status()
-    Watch.print_blocking_asks(opts)
-    exit_marker(supervision_exit_code)
+    footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
+    exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
+  end
+
+  defp print_instance_roster(opts) do
+    if LeaseStore.configured?(), do: render_instance_roster(roster(opts))
+  rescue
+    _error -> IO.puts("INSTANCES unavailable (shared lease store could not be read)")
+  end
+
+  defp roster(opts) do
+    case Keyword.fetch(opts, :instance_roster) do
+      {:ok, result} -> result
+      :error -> configured_roster()
+    end
+  end
+
+  defp configured_roster do
+    case Application.get_env(:aiur, :instance_roster_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> Roster.list()
+    end
+  end
+
+  defp render_instance_roster({:ok, %{observed_at: observed_at, age_ms: age_ms, instances: instances}}) do
+    IO.puts("INSTANCES observed_at=#{DateTime.to_iso8601(observed_at)} age_ms=#{age_ms}")
+
+    Enum.each(instances, fn row ->
+      IO.puts(
+        "  #{terminal_text(row.instance_id)} #{state_label(row.state)} #{terminal_text(row.version)} heartbeat_age_ms=#{row.age_ms} host=#{terminal_text(Map.get(row, :host_kind) || "unknown")} public_url=#{terminal_text(Map.get(row, :public_url) || "unavailable")} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{terminal_text(held_tickets(Map.get(row, :held_tickets)))} executor=#{Presentation.executor(Map.get(row, :executor_present))} projects=#{terminal_text(Presentation.projects(Map.get(row, :projects)))}"
+      )
+
+      Enum.each(Map.get(row, :agents) || [], fn agent ->
+        IO.puts("    #{terminal_text(agent["identifier"] || "unknown ticket")} #{terminal_text(agent["state"] || "unknown")} observed_age_ms=#{row.age_ms}")
+      end)
+    end)
+  end
+
+  defp render_instance_roster({:error, :repository_unavailable}), do: IO.puts("INSTANCES unavailable (repository identity could not be resolved)")
+  defp render_instance_roster({:error, _reason}), do: IO.puts("INSTANCES unavailable (shared lease store could not be read)")
+  defp render_instance_roster(_disabled), do: :ok
+  defp state_label(state), do: state |> to_string() |> String.upcase()
+  defp held_tickets(tickets) when is_list(tickets), do: Enum.join(tickets, ",")
+  defp held_tickets(_), do: "unknown"
+
+  defp terminal_text(value) when is_binary(value) do
+    Regex.replace(~r/[\x00-\x1F\x7F]/, value, fn control -> "\\x" <> Base.encode16(control) end)
+  end
+
+  defp terminal_text(value), do: value |> inspect(limit: 5, printable_limit: 120) |> terminal_text()
+
+  # Every route dispatch is currently skipping for being at or below
+  # `agent.usage_floor_percent` (#7504). Read live from the same readings
+  # dispatch consults, so a route that has since reset stops appearing here.
+  defp print_usage_floor_holds do
+    Enum.each(UsageFloorGate.held_lines(), &IO.puts("USAGE FLOOR " <> &1))
+  rescue
+    _error -> IO.puts("USAGE FLOOR unavailable (usage readings could not be read)")
+  end
+
+  defp print_github_budget_scope do
+    IO.puts(Access.fleet_budget_status_line(LeaseStore.configured?()))
+  end
+
+  defp header_sections(opts) do
+    [
+      listener: &Diagnostics.print_executor_listener_status/0,
+      wakes: &ExecutorAttention.CLI.print_wake_status/0,
+      commands: &Commands.print_projection_status/0,
+      comment_trust: &Diagnostics.print_codeowners_trust/0,
+      reload: &ReloadRejection.print_status/0,
+      handoff: &Aiur.Handoff.CLI.print_latest/0,
+      merge_policy: fn -> Aiur.MergePolicyCLI.print(Keyword.get(opts, :landing_watch_server, Aiur.LandingWatch)) end
+    ]
+  end
+
+  defp footer_sections(opts) do
+    [
+      supervision: &Diagnostics.print_supervision_health/0,
+      ci_readiness: &Diagnostics.print_ci_readiness/0,
+      build_gate: &Diagnostics.print_build_gate_status/0,
+      disk: fn -> IO.puts(Aiur.DiskWatchdog.status_line()) end,
+      hold_pressure: fn -> if Config.tracker_kind() == "github", do: HoldPressure.print_status() end,
+      prewarm: &Diagnostics.print_prewarm_status/0,
+      toolchain: &Aiur.Toolchain.print_status/0,
+      operator_asks: fn -> Watch.print_blocking_asks(opts) end
+    ]
+  end
+
+  # Supervision health owns the exit code; a section that could not be read at
+  # all is a failed read, not a healthy one, so it fails the command too.
+  defp status_exit_code(outcomes) do
+    supervision =
+      case Keyword.fetch!(outcomes, :supervision) do
+        {fresh_or_stale, code} when fresh_or_stale in [:ok, :stale] and is_integer(code) -> code
+        _unread -> 1
+      end
+
+    if Enum.any?(outcomes, &match?({_name, :unavailable}, &1)), do: max(supervision, 1), else: supervision
   end
 
   defp print_polling_status(polling) do
@@ -188,7 +292,11 @@ defmodule Aiur.Orchestrator.StatusCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           Aiur.AgentControlCLIFreshness.print(freshness, Map.get(snapshot, :global_pause))
-          AgentsTable.print_agents_table(running ++ Map.get(snapshot, :retrying, []) ++ Map.get(snapshot, :idle, []))
+          retrying = Map.get(snapshot, :retrying, [])
+          idle = Map.get(snapshot, :idle, [])
+          visible_idle = AgentsTable.visible_idle_rows(idle, Keyword.get(opts, :all, false))
+          AgentsTable.print_agents_table(running ++ retrying ++ visible_idle)
+          AgentsTable.print_idle_count(length(idle) - length(visible_idle))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->

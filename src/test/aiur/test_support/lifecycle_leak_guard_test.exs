@@ -5,7 +5,7 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
   alias Aiur.TestSupport.LifecycleLeakGuard
   alias Aiur.TestSupport.LifecycleTeardown
 
-  test "teardown fails the test that leaves a dispatched runner alive" do
+  test "teardown reports the test that leaves a dispatched runner alive" do
     previous_signal = Application.get_env(:aiur, :signal)
     Application.put_env(:aiur, :signal, lifecycle_sink: LifecycleLeakGuard)
 
@@ -26,10 +26,62 @@ defmodule Aiur.TestSupport.LifecycleLeakGuardTest do
     runner_leaks = LifecycleTeardown.capture_and_stop_test_runners(owner, runners_before)
     assert Enum.map(runner_leaks, &elem(&1, 0)) == [runner]
 
-    error = assert_raise RuntimeError, fn -> LifecycleLeakGuard.finish!(owner, nil, runner_leaks) end
-    assert error.message =~ "#{inspect(__MODULE__)} test teardown fails the test that leaves a dispatched runner alive"
-    assert error.message =~ inspect(runner)
+    report = Path.join(System.tmp_dir!(), "lifecycle-leaks-#{System.pid()}-#{System.unique_integer([:positive])}")
+    previous_report = System.get_env("AIUR_LIFECYCLE_LEAK_REPORT")
+    previous_mode = System.get_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE")
+    System.put_env("AIUR_LIFECYCLE_LEAK_REPORT", report)
+    System.put_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE", "report")
+
+    on_exit(fn ->
+      if previous_report, do: System.put_env("AIUR_LIFECYCLE_LEAK_REPORT", previous_report), else: System.delete_env("AIUR_LIFECYCLE_LEAK_REPORT")
+      if previous_mode, do: System.put_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE", previous_mode), else: System.delete_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE")
+      Aiur.TestCleanup.rm_rf!(report)
+    end)
+
+    assert :ok = LifecycleLeakGuard.finish!(owner, nil, runner_leaks)
+    output = File.read!(report)
+    assert output =~ "#{inspect(__MODULE__)} test teardown reports the test that leaves a dispatched runner alive"
+    assert output =~ inspect(runner)
     refute Process.alive?(runner)
+  end
+
+  test "failing mode raises at the leaking test teardown" do
+    owner = self()
+    report = Path.join(System.tmp_dir!(), "lifecycle-fail-#{System.pid()}-#{System.unique_integer([:positive])}")
+    previous_mode = System.get_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE")
+    System.put_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE", "fail")
+
+    {:ok, runner} =
+      Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    Process.put(":$initial_call", {Aiur.Orchestrator.Dispatcher.Launch, :"-start_runner_task/5-fun-0-", 0})
+
+    on_exit(fn ->
+      if previous_mode, do: System.put_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE", previous_mode), else: System.delete_env("AIUR_LIFECYCLE_LEAK_GUARD_MODE")
+      Aiur.TestCleanup.rm_rf!(report)
+    end)
+
+    error = assert_raise RuntimeError, fn -> LifecycleLeakGuard.finish!(owner, nil, [{runner, "#{inspect(__MODULE__)} failing mode raises at the leaking test teardown"}]) end
+    assert error.message =~ "failing mode raises at the leaking test teardown"
+    refute Process.alive?(runner)
+  end
+
+  test "runner stopped by on_exit is not reported" do
+    owner = self()
+
+    {:ok, runner} =
+      Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> Task.Supervisor.terminate_child(Aiur.TaskSupervisor, runner) end)
+    refute Enum.any?(LifecycleLeakGuard.live_owned_processes(owner), &(elem(&1, 0) == runner))
   end
 
   test "teardown restores app env and test scope when quiesce exits" do

@@ -12,6 +12,7 @@ from .rng import seed_from
 from .power_result import attach
 from .summary_text import summarize
 from .stratification import stratify, submetric
+from .survival import censored_inference
 
 ENGINE_VERSION = "1.1.0"
 
@@ -22,7 +23,10 @@ def _metric(metric, groups, annotations, settings, seed):
         flags.append("stratification_unavailable")
     if metric["kind"] == "bucketed":
         flags.append("autocorrelated_units")
-    if any(metric["censored"].values()):
+    follow_up = metric.get("survival_rows")
+    if metric.get("censoring_unknown"):
+        flags.append("censoring_unknown")
+    if any(metric["censored"].values()) and not follow_up:
         flags.append("censoring_ignored")
     analyst = [dict(f) for f in annotations.get("flags", []) if f["metric"] in ("*", metric["id"])]
     flags.extend(f["flag"] for f in analyst)
@@ -32,8 +36,9 @@ def _metric(metric, groups, annotations, settings, seed):
                         for g in groups}
     for g in groups:
         descriptives[g]["n_censored"] = metric["censored"][g]
-    sizes = [descriptives[g]["n"] for g in groups]
-    minimum_p = min_achievable_p(*sizes) if all(sizes) and metric["kind"] != "rate" else None
+    sizes = [len(follow_up[g]) if follow_up else descriptives[g]["n"] for g in groups]
+    minimum_p = (min_achievable_p(*sizes) if all(sizes) and metric["kind"] != "rate" and not follow_up
+                 else None)
     if minimum_p is not None and minimum_p > settings["alpha"]:
         flags.append("cannot_reach_significance")
     result = {"kind": metric["kind"], "groups": descriptives,
@@ -43,7 +48,19 @@ def _metric(metric, groups, annotations, settings, seed):
               "adjustment": "holm" if metric["primary"] else "bh"}
     if min(sizes) < settings["min_samples"]:
         return result
-    tests, effects, primary_effect, p = infer(metric, groups, seed, settings)
+    if follow_up:
+        resamples = settings["bootstrap_primary" if metric["primary"] else "bootstrap_exploratory"]
+        tests, effects, survival, extra, p = censored_inference(follow_up, groups, seed, resamples)
+        result["survival"] = survival
+        result["flags"] = sorted(set(result["flags"] + extra))
+        primary_effect = "median_difference"
+        if all(len(metric["values"][g]) >= 2 for g in groups):
+            # Completed-only rank test: biased toward fast tickets, kept for comparison.
+            done = infer(metric, groups, seed, settings)
+            result["sensitivity"] = {"method": "completed_only", "tests": done[0], "effects": done[1],
+                                     "primary_effect": done[2], "p_raw": done[3]}
+    else:
+        tests, effects, primary_effect, p = infer(metric, groups, seed, settings)
     for effect in effects.values():
         effect["unbounded"] = [key for key in ("estimate", "lo", "hi")
                                if effect.get(key) is not None and not isfinite(effect[key])]
@@ -78,6 +95,8 @@ def _label(result, metric, alpha):
         lower_better = metric["direction"] in ("lower_is_better", "decrease")
         improved = (estimate < null) == lower_better
         result["direction"] = "improved" if improved else "regressed"
+    if "survival" in result and "median_not_reached" in result["flags"]:
+        result["status"] = "inconclusive"
 
 
 def analyze(snapshot, spec, annotations=None):
@@ -89,6 +108,9 @@ def analyze(snapshot, spec, annotations=None):
     results = {}
     for metric in metrics:
         seed = seed_from(experiment_id, metric["id"], "pooled", inputs["snapshot_sha256"])
+        if "strata_rows" in metric:
+            # Stratified censored metrics keep their own pooled log-rank path.
+            metric.pop("survival_rows", None)
         result = _metric(metric, groups, annotations, settings, seed)
         if "strata_rows" in metric:
             stratify(result, metric, groups, annotations, settings, seed, _metric)

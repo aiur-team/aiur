@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.AuthPreflight.TestFixtures do
   @moduledoc false
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   def counting_request_fun(counter, response_fun) do
     fn request ->

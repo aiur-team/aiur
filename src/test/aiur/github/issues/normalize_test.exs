@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.Issues.NormalizeTest do
 
   alias Aiur.GitHub.Issues
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
 
   setup do

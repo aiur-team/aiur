@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.DependencyGateTest do
   end
 
   test "default dispatch preserves terminal states and fails closed for unreadable or working blockers", ctx do
-    for state <- ["Done", "Cancelled", "Duplicate", "Closed", "not_planned"] do
+    for state <- ["Done", "Cancelled", "Duplicate", "Closed", "budget-exhausted", "not_planned"] do
       candidate = dependent(ctx.blocker_id, state)
       refute DispatchPolicy.issue_held_by_dependency?(candidate, ctx.terminal)
       assert DispatchPolicy.optimistic_blockers(candidate) == []

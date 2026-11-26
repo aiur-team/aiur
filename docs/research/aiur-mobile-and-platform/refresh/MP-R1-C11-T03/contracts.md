@@ -1,0 +1,20 @@
+# Contract status comparison
+
+Compared the adopted C11-T02 research publication with the final composite pack; owner contracts are not rewritten by this refresh.
+
+| Contract | Prior status / base / date | Current status / base / date | Changed body |
+| --- | --- | --- | --- |
+| client-capability-model.md | reconciled (Phase D fix pass, 2026-10-06): RC-02, RC-04, RC-15, RC-36, RC-38, RC-40 applied; X-06, X-07, X-35 fixed; 45a290e3; 2026-10-06 | reconciled (Phase D fix pass, 2026-10-06): RC-02, RC-04, RC-15, RC-36, RC-38, RC-40 applied; X-06, X-07, X-35 fixed; 45a290e3; 2026-10-06 | False |
+| command-request-and-resolution.md | Phase D fix pass applied (2026-10-06): RC-41, security B2/M4/m8; 45a290e3; 2026-10-06 | Phase D fix pass applied (2026-10-06): RC-41, security B2/M4/m8; 45a290e3; 2026-10-06 | False |
+| conversations-transcripts-anchors.md | draft (Phase C; RC-02, RC-06, RC-07 applied); 45a290e3; 2026-10-06 | draft (Phase C; RC-02, RC-06, RC-07 applied); 45a290e3; 2026-10-06 | False |
+| events-and-replay.md | reconciled (Phase D fix pass; applies RC-02, RC-04, RC-07, RC-08, RC-09, RC-31, RC-40; X-07, X-08, X-09, security m3; implementation blocked on DESIGN-R2); 45a290e3; 2026-10-06 | reconciled (Phase D fix pass; applies RC-02, RC-04, RC-07, RC-08, RC-09, RC-31, RC-40; X-07, X-08, X-09, security m3; DESIGN-R2 approved; C5–C7 implementation pending); 761756f394e6783794c777668fc1a26a540e4059; 2026-10-06 | True |
+| harness-adapter.md | reconciled (Phase D fix pass; RC-22 Gemini/ACP row; RC-36 noted); 45a290e3; 2026-10-06 | reconciled (Phase D fix pass; RC-22 Gemini/ACP row; RC-36 noted); 45a290e3; 2026-10-06 | False |
+| identity-and-capabilities.md | reconciled (Phase D fix pass; applies RC-01, RC-02, RC-04, RC-11, RC-12, RC-36, RC-37, RC-39, RC-40; X-02, X-21, X-35); 45a290e3; 2026-10-06 | reconciled (Phase D fix pass; applies RC-01, RC-02, RC-04, RC-11, RC-12, RC-36, RC-37, RC-39, RC-40; X-02, X-21, X-35); 45a290e3; 2026-10-06 | False |
+| listener-mode.md | reconciled (Phase D fix pass; applies RC-36; X-01, X-40); 45a290e3; 2026-10-06 | reconciled (Phase D fix pass; applies RC-36; X-01, X-40); 45a290e3; 2026-10-06 | False |
+| notification-destination-and-payload.md | draft v3 — Phase C (RC-02, RC-03, RC-08..RC-10 applied; crypto framing fixed, §11); Phase D fix pass (§12); 45a290e3; 2026-10-06 | draft v3 — Phase C (RC-02, RC-03, RC-08..RC-10 applied; crypto framing fixed, §11); Phase D fix pass (§12); 45a290e3; 2026-10-06 | False |
+| pairing-and-instance-registry-reconciliation.md | not recorded; not recorded; 2026-10-06 | not recorded; not recorded; 2026-10-06 | False |
+| pairing-and-instance-registry-security.md | Phase D fix pass (2026-10-06): RC-37, RC-42, security B1, M1, M2, M3, m6; 45a290e3; 2026-10-06 | Phase D fix pass (2026-10-06): RC-37, RC-42, security B1, M1, M2, M3, m6; 45a290e3; 2026-10-06 | False |
+| pairing-and-instance-registry.md | reconciled (Phase C, 2026-10-06): RC-01, RC-02, RC-03, RC-15 applied; Phase D fix pass: RC-37, RC-42, security B1/M1/M2/M3/m6; 45a290e3; 2026-10-06 | reconciled (Phase C, 2026-10-06): RC-01, RC-02, RC-03, RC-15 applied; Phase D fix pass: RC-37, RC-42, security B1/M1/M2/M3/m6; 45a290e3; 2026-10-06 | False |
+| queue-readiness-and-build-progress.md | reconciled (Phase D fix pass, 2026-10-06; applies RC-08, RC-10, RC-11, RC-19, RC-20, RC-40; X-05, X-09, X-21); 45a290e3; 2026-10-06 | reconciled (Phase D fix pass, 2026-10-06; applies RC-08, RC-10, RC-11, RC-19, RC-20, RC-40; X-05, X-09, X-21); 45a290e3; 2026-10-06 | False |
+| voice-session-client-errors.md | Phase D fix pass (review-feasibility-failures.md M7); 45a290e3; 2026-10-06 | Phase D fix pass (review-feasibility-failures.md M7); 45a290e3; 2026-10-06 | False |
+| voice-session.md | reconciled draft — Phase B reconciliation RC-13, RC-14 and RC-16 applied (Phase C, 2026-10-06); Phase D fix pass applied (draft-3, see the note below); 45a290e3; 2026-10-06 | reconciled draft — Phase B reconciliation RC-13, RC-14 and RC-16 applied (Phase C, 2026-10-06); Phase D fix pass applied (draft-3, see the note below); 45a290e3; 2026-10-06 | False |

@@ -8,7 +8,8 @@ defmodule Aiur.Events.JournaledPublish do
   validate topic and source before calling: this does no GitHub-source rejection.
 
   Options: `:journal` and `:journal_dir` (required), `:source` (atom or string),
-  `:publish_opts` (defaults to `[source: source]`).
+  `:publish_opts` (defaults to `[source: source]`), `:append_fun` (defaults to
+  `&Aiur.Events.Journal.append/2`; intended for controlled append behavior).
   """
 
   # aiur:event-bus-boundary-member
@@ -27,9 +28,13 @@ defmodule Aiur.Events.JournaledPublish do
     with {:ok, id} <- IdGenerator.reserve_durable_id(),
          record = payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
          :ok <- Journal.prepare(dir, journal),
-         :ok <- Journal.append(journal, record) do
+         :ok <- append(journal, record, opts) do
       Publisher.publish_persisted(topic, payload, id, Keyword.get(opts, :publish_opts, source: source))
     end
+  end
+
+  defp append(journal, record, opts) do
+    opts |> Keyword.get(:append_fun, &Journal.append/2) |> then(& &1.(journal, record))
   end
 
   defp source_name(source) when is_atom(source), do: Atom.to_string(source)

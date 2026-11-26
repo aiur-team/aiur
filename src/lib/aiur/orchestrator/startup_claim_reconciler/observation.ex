@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   @moduledoc false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Slots, State}
   alias Aiur.Workspace.Ownership
 
   @grace_ms 60_000
@@ -32,17 +32,39 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   def dispatch_candidates(state, issues) do
     Enum.reject(
       issues,
-      &(DispatchPolicy.state_slug(&1.state) == "in-progress" and
-          Map.has_key?(state.orphaned_claim_since, &1.identifier))
+      &((DispatchPolicy.state_slug(&1.state) == "ci-wait" and approved_green_unarmed?(state, &1)) or
+          (DispatchPolicy.state_slug(&1.state) == "in-progress" and Map.has_key?(state.orphaned_claim_since, &1.identifier)))
     )
+  end
+
+  defp approved_green_unarmed?(state, issue) do
+    case get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)]) do
+      %{decision: :passed, review_decision: "APPROVED", head_sha: head, auto_merge_request: nil, merge_queue_entry: nil}
+      when is_binary(head) ->
+        true
+
+      _ ->
+        false
+    end
   end
 
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
       not Issue.paused?(issue) and not Issue.held?(issue) and
+      not orchestrator_entry?(state, issue.identifier) and
       not rework_waiting_for_capacity?(state, issue) and
       not tracked?(state, issue) and
       lease_free?(issue, opts)
+  end
+
+  # A paused/deactivated entry can deliberately outlive its worker process.
+  # Any current orchestrator entry is ownership evidence; only missing entries
+  # are eligible for orphan recovery.
+  defp orchestrator_entry?(state, identifier) do
+    Enum.any?(state.running, fn
+      {_issue_id, %{identifier: current}} -> to_string(current) == identifier
+      _ -> false
+    end)
   end
 
   defp rework_waiting_for_capacity?(state, issue) do

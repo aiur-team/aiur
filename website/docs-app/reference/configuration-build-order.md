@@ -6,17 +6,18 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-build-order-00 -->
 | --- | --- | --- | --- |
-| `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
-| `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
-| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
-| `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
-| `build_order.general_epics.label` | string | required | Column header text, without control characters. |
-| `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
+| `build_order.feature_order` | array | `[]` | Feature slugs in goal order for the Features list. Unlisted features follow, oldest first. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
 | `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
+| `build_order.lanes` | array | Bugs, Design, Infra, Docs (below) | Lane definitions in column order. A list replaces the defaults; `[]` disables lanes. The deprecated `build_order.general_epics` is read as this list. |
+| `build_order.lanes.hue` | integer | required | Colour hue, 0–359. |
+| `build_order.lanes.icon` | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
+| `build_order.lanes.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
+| `build_order.lanes.label` | string | required | Column header text, without control characters. |
+| `build_order.lanes.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one lane only. `epic:` matchers are refused because they mark parked tickets. |
 | `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
 | `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
 | `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
@@ -24,22 +25,30 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
 
-### General epics
+### Lanes
 
-Omitting `build_order`, omitting `general_epics`, or setting `general_epics: null` uses these defaults:
+A lane is a technical column: the frontend, backend, docs or art work a ticket belongs to. A ticket lands in a lane when one of the lane's `labels` matchers is on it, or when it carries a `lane:<key>`, `area:<key>` or `build-lane:<key>` label for that lane's `key`.
+
+No GitHub label is rewritten; an existing `area:` or `build-lane:` taxonomy keeps working as lane labels.
+
+Omitting `build_order`, omitting `lanes`, or setting `lanes: null` uses these defaults:
 
 ```yaml
 build_order:
-  general_epics:
+  lanes:
     - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
     - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
     - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
     - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 ```
 
-A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which general epic wins. `enhancement` has no default matcher; add it to an epic if your repository uses it for that work.
+A configured list replaces all four defaults and keeps its order. Matchers within an entry are normalized; sharing a matcher across entries is a config error. For a ticket carrying different matched labels, config order defines which lane wins. `enhancement` has no default matcher; add it to a lane if your repository uses it for that work.
 
-These settings define the epic catalogue for the build history home page; its resolver and rendering are delivered separately.
+These settings define the lane catalogue for the build history home page; its resolver and rendering are delivered separately.
+
+`build_order.general_epics` is the name this list had before lanes. It still loads as an alias and logs a deprecation warning naming `build_order.lanes`, so an upgraded install boots unchanged; setting both keys is a config error.
+
+History rows are visible in memory immediately. Durable history writes coalesce for up to 30 seconds; explicit flushes and orderly shutdown flush immediately. Each atomic snapshot reuses the JSON for unchanged rows, and retains the existing history file format. A process crash can lose changes since the last flush.
 
 ### Two removed keys
 
@@ -60,13 +69,13 @@ never been read.
 Selecting a root and holding it open consume zero GitHub reads.
 
 The **catalog** itself is different: it is the most expensive single query in the
-system, and since #2312 it is demand-gated on an open Build Order page. Opening
-`/build-orders` renders the stored snapshot immediately (with its age), then buys
-one refresh on mount.
+system, and since #2312 it is demand-gated on a catalog subscriber. The dashboard
+has none, so the catalog reconciles on the cadence below only while another
+subscriber exists.
 
-While any Build Order page stays open the catalog reconciles on the cadence
-below; closing the last page stops it entirely, so a headless run — the normal
-case — buys none of it.
+`aiur build-orders` reads the held catalog, and
+`Aiur.BuildOrder.GraphProjection.refresh_catalog/1` is the explicit catalog
+refresh.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -106,9 +115,9 @@ follow the *effective* interval: the one the daemon actually scheduled.
 - So an idle fleet widens the catalog's reads and the staleness window exactly
   as it widens the tracker, and a fleet that picks up work narrows both back
   together.
-- The widening matters only while a page is open: the catalog is event-sourced
-  (#2325) and demand-gated (#2312), so with no Build Order page open it neither
-  polls nor reads — it costs nothing rather than merely running slowly.
+- The widening matters only while a catalog subscriber exists: the catalog is
+  event-sourced (#2325) and demand-gated (#2312), so with no subscriber it
+  neither polls nor reads — it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts

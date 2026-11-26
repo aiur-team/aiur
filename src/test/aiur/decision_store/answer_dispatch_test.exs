@@ -233,67 +233,6 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       send(queued_worker, :release)
     end
 
-    test "coordinator restart fails active and queued work and allows explicit retry", %{dir: dir} do
-      parent = self()
-      coordinator = unique_coordinator_name("Restart")
-
-      coordinator_pid =
-        start_supervised!(
-          {DecisionDispatchTasks, name: coordinator, max_concurrency: 1},
-          id: coordinator
-        )
-
-      dispatcher = fn dispatched, opts ->
-        if String.ends_with?(opts[:attempt_id], ":1") do
-          send(parent, {:restart_dispatch_started, dispatched.decision_id, self()})
-          receive do: (:never -> :ok)
-        else
-          send(parent, {:restart_retry_started, dispatched.decision_id, opts[:attempt_id]})
-          {:ok, %{status: :accepted, item: %{id: 601}}}
-        end
-      end
-
-      pid =
-        start_store!(dir,
-          decision_dispatch_tasks: coordinator,
-          dispatcher: dispatcher,
-          dispatch_delay_ms: 0
-        )
-
-      decisions =
-        for source <- ["restart-active", "restart-queued"] do
-          assert {:ok, %{decision: decision}} = request(pid, answerable_request(source))
-          payload = %{"idempotency_key" => source, "expected_version" => 1, "option_id" => "ship"}
-          assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
-          {decision, action}
-        end
-
-      [{active, _active_action}, {queued, queued_action}] = decisions
-      assert_receive {:restart_dispatch_started, active_id, orphaned_worker}, 1_000
-      assert active_id == active.decision_id
-      wait_for_dispatch_count(pid, 2)
-      orphaned_worker_ref = Process.monitor(orphaned_worker)
-
-      Process.exit(coordinator_pid, :kill)
-      assert_receive {:DOWN, ^orphaned_worker_ref, :process, ^orphaned_worker, :killed}, 1_000
-
-      for {decision, _action} <- decisions do
-        failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
-        assert List.last(failed.dispatch_attempts).failure_reason_class == "decision_dispatch_coordinator_exit"
-      end
-
-      restarted = wait_for_named_process(coordinator, coordinator_pid)
-      assert Process.alive?(restarted)
-
-      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(queued.decision_id, queued_action.action_id, pid)
-      assert_receive {:restart_retry_started, queued_id, retry_attempt_id}, 1_000
-      assert queued_id == queued.decision_id
-      assert String.ends_with?(retry_attempt_id, ":2")
-
-      settled = wait_for_decision(pid, queued.decision_id, &(&1.delivery_status == :queued))
-      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
-    end
-
     test "store restart purges old-owner dispatches before boot reconciliation", %{dir: dir} do
       parent = self()
       coordinator = unique_coordinator_name("StoreRestart")

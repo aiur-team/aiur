@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Refresh the committed dashboard copy of the aiur-build-order build output
+# (run `npm run build` in packages/aiur-build-order first).
+# An optional absolute target directory gets the aiur-build-order/ copy instead;
+# CI syncs to a temp dir and diffs it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+target="${1:-src/priv/static}"
+dest="$target/aiur-build-order"
+source_dir="packages/aiur-build-order/dist"
+
+if [ ! -d "$source_dir" ]; then
+  echo "packages/aiur-build-order/dist is missing; run 'npm run build' in packages/aiur-build-order first" >&2
+  exit 1
+fi
+
+mkdir -p "$dest"
+# The build writes a flat dist/: the entry module, the modules it imports and the stylesheet.
+find "$dest" -maxdepth 1 -type f -delete
+cp "$source_dir"/*.js "$source_dir"/*.css "$dest"/
+echo "synced $(find "$dest" -maxdepth 1 -type f | wc -l | tr -d ' ') files into $dest"

@@ -166,6 +166,7 @@
 
 /* C:1120 */ html[data-theme="light"] .bd-vpw {
   --board-bg: var(--bg-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fg) 24%, var(--bg)) 0, color-mix(in srgb, var(--fg) 16%, var(--bg)) 140px, color-mix(in srgb, var(--fg) 14%, var(--bg)) 100%);
 }
 
 /* C:1121 */ .bd-vp, html[data-theme="light"] .bd-vp {

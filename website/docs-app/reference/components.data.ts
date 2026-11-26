@@ -4,11 +4,14 @@ import { dirname, resolve } from 'node:path'
 import { defineLoader } from 'vitepress'
 import { projectDirectory } from './components-projection.mjs'
 
+export type Goal = 'run-agents' | 'steer' | 'notify' | 'voice' | 'hardware'
+
 export interface PublicComponent {
   id: string
   name: string
   summary: string
   status: 'core' | 'optional' | 'experimental' | 'planned' | 'deprecated'
+  goal: Goal
   kind: 'in-app' | 'package' | 'repository' | 'client'
   install: { type: 'included' } | { type: 'npm'; package: string } | { type: 'setup'; docs: string }
   requires: string[]
@@ -28,6 +31,7 @@ export interface PlannedFeature {
 
 export interface DirectoryData {
   components: PublicComponent[]
+  groups: { goal: Goal; components: PublicComponent[] }[]
   planned: PlannedFeature[]
   generatedFrom: string
 }

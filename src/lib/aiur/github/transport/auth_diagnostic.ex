@@ -1,14 +1,15 @@
 defmodule Aiur.GitHub.Transport.AuthDiagnostic do
   @moduledoc false
 
-  alias Aiur.GitHub.{CredentialSelector, QueueCost}
+  alias Aiur.GitHub.CredentialSelector
+  alias Aiur.GitHub.Transport.TestScope
 
   require Logger
 
   @spec run(map(), (map() -> term())) :: term()
   def run(request, execute) do
     selector_opts = Application.get_env(:aiur, :github_credential_selector_options, [])
-    request = request |> QueueCost.tag() |> CredentialSelector.assign(selector_opts)
+    request = request |> TestScope.tag() |> CredentialSelector.assign(selector_opts)
     request |> execute.() |> annotate(request)
   end
 

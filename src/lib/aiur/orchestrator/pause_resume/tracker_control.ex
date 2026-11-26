@@ -3,7 +3,8 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   Runs operator resume and dispatch-budget reset controls as tracker steps outside the orchestrator call.
   """
 
-  alias Aiur.Alerts
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
@@ -19,6 +20,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Signal
   alias Aiur.Tracker
   require Logger
 
@@ -44,7 +46,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   end
 
   defp emit_reset_success_alert(alert_issue_id, issue_identifier) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
       "Lifetime dispatch budget reset completed for #{issue_identifier}.",
       issue: alert_issue_id,
@@ -56,7 +58,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   end
 
   defp emit_reset_failure_alert(alert_issue_id, issue_identifier, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
       "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
       issue: alert_issue_id,
@@ -130,8 +132,8 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
 
   # Global-hold-wins: while the daemon is globally paused, an individual resume
   # cannot override the single switch. Unpause the daemon to resume agents.
-  defp tracker_control_step(%State{globally_paused: true} = state, action, _identifier, _stage, _result)
-       when action in [:resume, :resume_with_receipt],
+  defp tracker_control_step(%State{} = state, action, _identifier, _stage, _result)
+       when effective_paused?(state) and action in [:resume, :resume_with_receipt],
        do: {:reply, {:error, :globally_paused}, state}
 
   defp tracker_control_step(state, action, identifier, :start, _) when action in [:resume, :resume_with_receipt] do

@@ -96,6 +96,25 @@ if [ "$push_command" = true ]; then
       exit 64
       ;;
   esac
+
+  # A push must name the tracker repository, not a fork (#7784).
+  push_expected=${AIUR_GITHUB_REPO:-}
+  case "$push_url" in
+    https://github.com/*)
+      if [ -n "$push_expected" ] && [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
+        push_slug=${push_url#https://github.com/}
+        push_slug=${push_slug%/}
+        push_slug=${push_slug%.git}
+        push_slug_lower=$(printf '%s' "$push_slug" | tr 'A-Z' 'a-z')
+        push_expected_lower=$(printf '%s' "$push_expected" | tr 'A-Z' 'a-z')
+        if [ "$push_slug_lower" != "$push_expected_lower" ]; then
+          printf 'aiur: refusing push to %s: agents push only to %s, never to a fork.\n' "$push_slug" "$push_expected" >&2
+          printf 'aiur: the agent identity needs push access to %s; report the missing access instead of pushing elsewhere.\n' "$push_expected" >&2
+          exit 64
+        fi
+      fi
+      ;;
+  esac
 fi
 # @aiur-merge-queue-push-guard@
 if [ "$worktree_remove" -eq 1 ]; then
@@ -128,9 +147,3 @@ if [ "$worktree_remove" -eq 1 ]; then
     fi
   fi
 fi
-
-GIT_TERMINAL_PROMPT=0
-GIT_CONFIG_PARAMETERS="'credential.https://github.com.helper=' 'credential.https://github.com.helper=$credential_helper' 'http.https://github.com/.extraheader='"
-export GIT_TERMINAL_PROMPT GIT_CONFIG_PARAMETERS
-
-exec "$real_git" "$@"

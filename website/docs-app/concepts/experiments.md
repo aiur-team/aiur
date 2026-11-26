@@ -372,39 +372,38 @@ The pack exposes these delivery metrics.
 | cost_quality | `tokens_per_merged_ticket` | count | Ticket-attributed input and output tokens, including cache/reasoning. |
 | cost_quality | `main_red_events` | bucketed | Default-branch CI failures per day; not captured yet. |
 | cost_quality | `reverts` | bucketed | Revert merges per day; not captured yet. |
+| ci_stability | `ci_run_failure_rate` | binary | Failed/successful pull-request and merge-group workflow runs. |
+| ci_stability | `ci_rerun_rate` | binary | CI runs with run attempt greater than one. |
+| ci_stability | `merge_group_failure_rate` | binary | Failed/successful merge-group runs. |
+| ci_stability | `pr_ci_wall_time` | duration | Decided PR CI run duration, in ms. |
+| ci_stability | `ci_queue_wait` | duration | Job created to started duration, in ms; sampled when job limits apply. |
+| ci_stability | `feature_merge_share` | bucketed | Daily share of merged PRs classified as feature work. |
+| ci_stability | `innocent_dequeues` | count | Merged PRs removed from queue and later merged with the same head. |
+| ci_stability | `flaky_failure_rate` | rate | Failed test-jobs with known flaky or base-failing evidence. |
+| ci_stability | `flake_issues_filed` | bucketed | Daily issues filed with `flake` or `main-fix` labels. |
 
-Durations, counts and spend prefer lower values; throughput and utilization
-prefer higher values. `binding_gate` has no preferred direction. Every metric
-reference begins with `delivery-speed/`.
+Durations, counts and spend prefer lower values; throughput and utilization prefer higher values. `binding_gate` has no preferred direction. Every metric reference begins with `delivery-speed/`.
 
 Ticket units are `ticket:<number>`, assigned at first dispatch, with complexity
 and dispatch-time cohort attributes. Redispatch and restarts create no second
 unit. Merge, review-round and cost metrics exclude unmerged tickets (`filtered`).
 
-`finished_at` and `censored` are observation attributes. Open PR/review durations
-are censored at window end. Missing PR-open evidence on merged tickets is
-excluded and reports partial capture, never a censored open ticket.
+Dispatch cohorts also capture `tags.work_kind` (`feature`, `test_ci`, `tooling`,
+or `other`), using issue labels first and title rules as fallback.
 
-`not_captured` means a required capture fact is absent, with no observations.
-It never means zero. Legacy data may lack source PR times, dispatch blockers/epic
-or review-thread evidence. CI wait, ready-queue depth, gate reason, main-red and
-revert facts remain uncaptured; lifecycle labels are not substitutes.
+`finished_at` and `censored` are observation attributes. Open PR/review durations are censored at window end. Missing PR-open evidence on merged tickets is excluded and reports partial capture, never a censored open ticket.
 
-Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry
-reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
+`not_captured` means a required capture fact is absent, with no observations. It never means zero. Legacy data may lack source PR times, dispatch blockers/epic or review-thread evidence. CI wait, ready-queue depth, gate reason, main-red and revert facts remain uncaptured; lifecycle labels are not substitutes.
+
+Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
 
 Experiment telemetry uses one streaming reader for JSON summaries and live NDJSON.
 Callers that supply known boot intervals can skip non-overlapping sources before
 opening.
 
-The delivery pack has no boot-range index and does not claim this
-optimization: it reads retained summaries independently and caches each small
-projection by path, size and modification time. Live data is not cached.
+The delivery pack has no boot-range index and does not claim this optimization: it reads retained summaries independently and caches each small projection by path, size and modification time. Live data is not cached.
 
-Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite
-merges. A large or incomplete boot cannot exhaust another boot's read budget.
-Truncated boot prefixes remain usable within the memory bound and report `partial`;
-complete summaries and live observations remain available.
+Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite merges. A large or incomplete boot cannot exhaust another boot's read budget. Truncated boot prefixes remain usable within the memory bound and report `partial`; complete summaries and live observations remain available.
 
 Each retained summary has its own limits: 100,000 record envelopes, 32 MiB input
 and a 4 MiB projection, plus 1 MiB tokens and 16 nesting levels. Derived actor/ticket maps are discarded after fleet samples are extracted.

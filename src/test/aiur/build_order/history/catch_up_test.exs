@@ -46,6 +46,7 @@ defmodule Aiur.BuildOrder.History.CatchUpTest do
     node = %{issue_node() | "labels" => %{"totalCount" => 31, "nodes" => []}, "blockedBy" => %{"pageInfo" => %{"hasNextPage" => true, "endCursor" => "next"}, "nodes" => []}}
     assert {:ok, event} = CatchUpQuery.node_to_event(node, repository: "acme/widgets", observed_at: @t)
     refute Map.has_key?(event.fields, :labels)
+    assert event.fields.labels_complete == false
     refute Map.has_key?(event.fields, :blocked_by)
     assert {:ok, unknown} = CatchUpQuery.node_to_event(%{node | "closedAt" => nil, "stateReason" => nil}, observed_at: @t)
     assert unknown.fields.closed_at == :unknown

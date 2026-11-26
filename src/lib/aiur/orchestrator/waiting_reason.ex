@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
       released_at: monotonic_since(release[:released_at_ms], now),
       hold_since: monotonic_since(hold[:held_since_ms], now),
       hold_cause: hold[:detail] || hold[:signal],
-      workspace_retention: retained(row.identifier),
-      workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
+      workspace_retention: if(row.waiting_reason == :workspace_retained, do: retained(row.identifier)),
+      workspace_wait: if(row.waiting_reason == :workspace_ownership_waiting, do: workspace_wait(state, row.issue_id, row.identifier))
     }
   end
 
@@ -186,7 +186,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
   defp render_dependency(_waiting), do: ""
 
-  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  # `inspect/1` reads a small printable-byte list as a charlist (`[10]` -> `~c"\n"`).
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids, charlists: :as_lists)}"
   defp render_pending_ids(_waiting), do: ""
 
   defp render_age(nil), do: "since unknown"
@@ -414,20 +415,19 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
-  # actual exemption set: only `:paused` and `:deactivated` entries are
-  # skipped by the stall-restart check there, so a `:sleeping` entry is just
-  # as eligible for a stall-triggered kill+retry as a `:working` one — this
-  # must classify it the same way, or the dashboard would keep calling it
-  # merely "paused" right up to the restart.
-  defp unresponsive?(%{
-         work_state: work_state,
-         stale_for_seconds: stale,
-         stall_timeout_seconds: timeout
-       })
+  # Mirrors `RuntimeWatchdog.restart_stalled_issue/5`'s exemption set (ci-wait
+  # tickets, `:paused`, `:deactivated`): a `:sleeping` entry is as eligible for
+  # a stall kill+retry as a `:working` one, so it must classify the same way.
+  defp unresponsive?(
+         %{
+           work_state: work_state,
+           stale_for_seconds: stale,
+           stall_timeout_seconds: timeout
+         } = attrs
+       )
        when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and
               timeout > 0,
-       do: stale >= timeout
+       do: stale >= timeout and not CiLifecycle.ci_wait_state?(Map.get(attrs, :tracker_state))
 
   defp unresponsive?(_attrs), do: false
 

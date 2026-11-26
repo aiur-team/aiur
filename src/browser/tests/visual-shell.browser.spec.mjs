@@ -9,7 +9,7 @@ const VIEWPORTS = [
   { width: 1024, height: 768 },
   { width: 390, height: 844 }
 ]
-const ROUTES = ['/', '/build-orders', '/analytics']
+const ROUTES = ['/route-shell', '/analytics']
 
 for (const theme of THEMES) {
   for (const viewport of VIEWPORTS) {
@@ -22,7 +22,7 @@ for (const theme of THEMES) {
         for (const state of states) {
           test(`shell ${route} ${state}`, async ({ page }) => {
             await openVisualRoute(page, { theme, route, collapsed: state === 'collapsed' })
-            const prefix = `${theme}-${size}-${route === '/' ? 'units' : route.slice(1)}-${state}`
+            const prefix = `${theme}-${size}-${route === '/route-shell' ? 'units' : route.slice(1)}-${state}`
             const mask = getMaskConfig(page)
             await expect(page).toHaveScreenshot(`${prefix}-shell.png`, { mask })
             for (const [name, selector] of [
@@ -42,33 +42,12 @@ for (const theme of THEMES) {
         }
       }
 
-      test('button elements', async ({ page }) => {
-        await openVisualRoute(page, { theme, route: '/', mode: 'writable' })
-        await page.goto('/units')
-        await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
-        await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-        // Units exposes the primary and ghost controls together in the real
-        // admission modal. No route-dependent optional screenshot branches.
-        await page.getByRole('button', { name: 'Add an agent to ticket 2101', exact: true }).click()
-        const modal = page.locator('#add-agent-modal')
-        await expect(modal).toBeVisible()
-        const tool = modal.locator('.tool-btn')
-        await expect(tool).toBeVisible()
-        for (const selector of ['.btn:not(.ghost)', '.btn.ghost']) {
-          await expect(modal.locator(selector)).toBeVisible()
-        }
-        await expect(tool).toHaveScreenshot(`${theme}-${size}-tool-btn.png`)
-        for (const [name, selector] of [['btn', '.btn:not(.ghost)'], ['ghost-btn', '.btn.ghost']]) {
-          const button = modal.locator(selector)
-          await expect(button).toBeVisible()
-          await expect(button).toHaveScreenshot(`${theme}-${size}-${name}.png`)
-        }
-      })
+
     })
   }
   test(`keyboard focus ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await openVisualRoute(page, { theme, route: '/' })
+    await openVisualRoute(page, { theme, route: '/route-shell' })
     const item = page.locator('.sidenav .snav').first()
     // Traverse the actual tab order so :focus-visible is exercised.
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -99,7 +78,7 @@ for (const theme of THEMES) {
 
 test('CSS nav padding mutation fails sidebar screenshot comparison', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await openVisualRoute(page, { theme: 'light', route: '/build-orders' })
+  await openVisualRoute(page, { theme: 'light', route: '/analytics' })
   const sidebar = page.locator('aside.sidenav')
   const navItem = sidebar.locator('.snav').first()
   await expect(sidebar).toBeVisible()

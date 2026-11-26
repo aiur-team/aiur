@@ -62,11 +62,35 @@ defmodule Aiur.BuildQueue.ServerTest do
     refute_received {:scheduled, ^pid, _, _}
   end
 
-  test "read model timeout returns an unavailable model without killing the caller" do
+  test "read model timeout with no prior read reports the timeout, not an unavailable store" do
     pid = start_supervised!({SlowRead, self()})
-    assert %{status: :store_unavailable} = Aiur.BuildQueue.show(pid)
+    assert %{status: :read_timeout, queues: []} = Aiur.BuildQueue.show(pid)
     assert_received :read_started
     send(pid, :release)
+  end
+
+  test "a timed-out read keeps the last served queues, stale and aged (#5818)" do
+    fixture()
+    snapshot(["1", "2", "3"])
+    pid = server()
+    boot(pid)
+    good = Aiur.BuildQueue.show(pid)
+    assert [%{queue_id: "q"}] = good.queues
+    assert good.sources["tracker_observation"].freshness == :current
+
+    :ok = :sys.suspend(pid)
+    before = System.system_time(:millisecond)
+    carried = Aiur.BuildQueue.show(pid)
+    :ok = :sys.resume(pid)
+
+    assert carried.status == :running
+    assert carried.queues == good.queues
+    assert carried.snapshot.captured_at == good.snapshot.captured_at
+    assert carried.snapshot.carried_age_ms >= before - DateTime.to_unix(good.snapshot.captured_at, :millisecond)
+    tracker = carried.sources["tracker_observation"]
+    assert tracker.freshness == :stale
+    assert tracker.reasons == [:read_timeout]
+    assert tracker.age_ms >= before - DateTime.to_unix(tracker.observed_at, :millisecond)
   end
 
   test "disabled server remains inert" do

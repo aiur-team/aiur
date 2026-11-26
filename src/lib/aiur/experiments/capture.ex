@@ -3,7 +3,7 @@ defmodule Aiur.Experiments.Capture do
   use GenServer
   require Logger
 
-  alias Aiur.{Events, Events.Exchange}
+  alias Aiur.Events
   alias Aiur.Experiments.Capture.{Fields, Retention}
   alias Aiur.Experiments.{Catalog, Paths}
 
@@ -21,7 +21,7 @@ defmodule Aiur.Experiments.Capture do
     state = %{
       context: Keyword.get(opts, :context, %{}),
       root: Keyword.get(opts, :root, Path.join(Paths.root(), "capture")),
-      exchange: Keyword.get(opts, :exchange, Exchange),
+      exchange: Keyword.get(opts, :exchange, Events.exchange_server()),
       interval: Keyword.get(opts, :refresh_interval, 60_000),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       append: Keyword.get(opts, :append, &Aiur.Journal.append/2),

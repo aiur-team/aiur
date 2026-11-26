@@ -1,10 +1,10 @@
 defmodule Aiur.OpenAICompat.Tools do
   @moduledoc false
 
-  alias Aiur.OpenAICompat.{BoundedGlob, CommandRunner, ToolSpec, WorkspacePath}
+  alias Aiur.OpenAICompat.{BoundedGlob, CommandRunner, ImageView, ToolSpec, WorkspacePath}
 
-  @spec specs(:chat_completions | :responses) :: [map()]
-  defdelegate specs(transport), to: ToolSpec
+  @spec specs(:chat_completions | :responses, map()) :: [map()]
+  defdelegate specs(transport, config \\ %{}), to: ToolSpec
 
   @type validation_error :: ToolSpec.validation_error()
 
@@ -53,6 +53,15 @@ defmodule Aiur.OpenAICompat.Tools do
       {:error, reason} -> failure(format_reason(reason))
     end
   end
+
+  def execute("view_image", %{"path" => path}, %{image_input: true} = context, _opts) do
+    case ImageView.load(context.workspace, path) do
+      {:ok, image} -> Map.put(success("attached #{path} (#{image.bytes} bytes)"), "image", image)
+      {:error, reason} -> failure(reason)
+    end
+  end
+
+  def execute("view_image", _arguments, _context, _opts), do: failure("view_image unavailable: model has no image input")
 
   def execute("exec_command", %{"command" => command}, context, opts),
     do: CommandRunner.run(context.workspace, command, opts)

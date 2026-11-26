@@ -1,0 +1,54 @@
+{
+  "contract": "aiur.build_order",
+  "contract_version": 1,
+  "build_order_id": "aiur-team/aiur:broken",
+  "title": "A document whose graph does not resolve",
+  "repository": "aiur-team/aiur",
+  "root": {
+    "id": "7490",
+    "title": "Decompose Build Orders into a standalone package",
+    "number": 7490,
+    "url": null,
+    "epic": "build-order-package",
+    "plan_version": 1,
+    "researched_at_commit": null
+  },
+  "generated_at": "2026-11-04T20:15:00Z",
+  "sources": {
+    "pack": { "status": "known", "observed_at": null, "reason": null },
+    "tracker": { "status": "known", "observed_at": null, "reason": null },
+    "progress": { "status": "known", "observed_at": null, "reason": null }
+  },
+  "epics": [],
+  "features": [],
+  "lanes": [{ "key": "backend", "title": "Backend", "label": "build-lane:backend", "icon": null, "hue": null, "order": 0, "progress": { "status": "known", "total": 1, "done": 0, "open": 1, "failed": 0, "percent": 0, "by_status": null, "observed_at": null, "reason": null } }],
+  "tickets": [
+    {
+      "id": "BO-001",
+      "number": 7490,
+      "title": "Inventory Build Orders",
+      "url": null,
+      "kind": "executable",
+      "provenance": "planned",
+      "epic": null,
+      "feature": null,
+      "lane": "backend",
+      "phase": 1,
+      "wave": 1,
+      "complexity": 3,
+      "points": 3,
+      "estimate_hours": 4,
+      "status": "open",
+      "progress_percent": 0,
+      "started_at": null,
+      "ended_at": null
+    }
+  ],
+  "edges": [
+    { "from": "BO-001", "to": "BO-404", "kind": "depends_on", "state": "blocking", "source": "pack" }
+  ],
+  "gates": [],
+  "waves": [{ "index": 1, "tickets": ["BO-001"], "starts_at": null, "ends_at": null }],
+  "critical_path": { "status": "known", "tickets": ["BO-001"], "hours": 4, "reason": null },
+  "progress": { "status": "known", "total": 1, "done": 0, "open": 1, "failed": 0, "percent": 0, "by_status": null, "observed_at": null, "reason": null }
+}

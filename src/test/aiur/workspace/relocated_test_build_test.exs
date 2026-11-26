@@ -1,5 +1,6 @@
 defmodule Aiur.Workspace.RelocatedTestBuildTest do
   use ExUnit.Case, async: true
+  alias Aiur.TestSupport.IsolatedBuildGateEnv
 
   @tag :tmp_dir
   test "copied test build recompiles changed sources while retaining unchanged beams", %{tmp_dir: root} do
@@ -18,7 +19,9 @@ defmodule Aiur.Workspace.RelocatedTestBuildTest do
     File.write!(Path.join(base, "lib/changed.ex"), "defmodule WarmFixture.Changed do\n def value, do: 1\nend\n")
     File.write!(Path.join(base, "lib/unchanged.ex"), "defmodule WarmFixture.Unchanged do\n def value, do: 42\nend\n")
     env = [{"MIX_ENV", "test"}]
-    {output, status} = System.cmd("mix", ["compile"], cd: base, env: env, stderr_to_stdout: true)
+    gate_env = IsolatedBuildGateEnv.prepare(root)
+    assert IsolatedBuildGateEnv.isolated?(gate_env, root)
+    {output, status} = System.cmd("mix", ["compile"], cd: base, env: env ++ gate_env, stderr_to_stdout: true)
     assert status == 0, output
     beam = "_build/test/lib/warm_fixture/ebin/Elixir.WarmFixture.Unchanged.beam"
     unchanged = File.read!(Path.join(base, beam))
@@ -28,7 +31,7 @@ defmodule Aiur.Workspace.RelocatedTestBuildTest do
     {output, status} =
       System.cmd("mix", ["run", "--no-start", "-e", "IO.inspect({WarmFixture.Changed.value(), WarmFixture.Unchanged.value()})"],
         cd: workspace,
-        env: env,
+        env: env ++ gate_env,
         stderr_to_stdout: true
       )
 

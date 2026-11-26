@@ -53,6 +53,8 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    server.allowed_hosts
+    server.gateway_hello
     build_queue.observation_max_age_seconds
     build_order.ticket_detail_freshness_ms
     build_order.graph_catalog_refresh_ms

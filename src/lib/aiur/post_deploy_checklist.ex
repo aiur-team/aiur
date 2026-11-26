@@ -6,7 +6,6 @@ defmodule Aiur.PostDeployChecklist do
 
   alias Aiur.{Config, JsonStore}
   alias Aiur.Events
-  alias Aiur.Events.Exchange
 
   @filename "post_deploy_checks.json"
 
@@ -29,7 +28,7 @@ defmodule Aiur.PostDeployChecklist do
   @impl true
   def init(opts) do
     path = Keyword.get(opts, :path) || state_path()
-    exchange = Keyword.get(opts, :exchange, Exchange)
+    exchange = Keyword.get(opts, :exchange, Events.exchange_server())
 
     if Keyword.get(opts, :subscribe?, true), do: :ok = Events.subscribe("ticket.*.pr.merged", exchange)
 

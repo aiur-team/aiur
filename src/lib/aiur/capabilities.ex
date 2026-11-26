@@ -37,7 +37,9 @@ defmodule Aiur.Capabilities do
       executor: section(report[:executor], ~w(state consumer_id harness session_ref)a),
       capabilities:
         Map.new(report.capabilities, fn {id, entry} ->
-          {id, Map.take(entry, ~w(state reason depends_on version observed_at route mode v retention)a)}
+          fields = ~w(state reason depends_on version observed_at route mode v retention)a
+          fields = if id == "voice.conversation", do: fields ++ ~w(preferred_provider preference_state provider_reason)a, else: fields
+          {id, Map.take(entry, fields)}
         end)
     })
     |> Aiur.JSONSafe.normalize()

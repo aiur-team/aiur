@@ -12,7 +12,7 @@ defmodule Aiur.DecisionEnrichment do
   @supervisor_actor %{kind: :supervisor, id: "supervising-agent"}
   @allowed_fields ~w(artifacts consequence_of_delay context options recommendation)
   @forbidden_fields ~w(
-    actor authority blocking content_hash created_at decision_id kind question
+    actor audience authority blocking content_hash created_at decision_id kind question
     provenance reversibility schema_version source source_created_at source_id ticket urgency version
   )
   @context_fields ~w(long_context_markdown short_summary)
@@ -209,6 +209,7 @@ defmodule Aiur.DecisionEnrichment do
   defp validation_opts(current, now, opts) do
     [
       ticket: current.ticket,
+      requester: current.requester,
       source: current.source,
       now: now,
       legacy_attention: current.legacy_attention,

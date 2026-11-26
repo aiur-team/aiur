@@ -8,13 +8,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
   differing hunks in its reason.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @max_reason_hunks 10
   @max_hunk_lines 12
@@ -27,6 +27,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
     carries = Map.get(state.ci_lifecycle, :approval_carries, %{})
 
     cond do
+      Aiur.Instance.skip?(issue.identifier, issue.labels, :approval_carry_alert) ->
+        state
+
       Map.get(carries, target) == pair ->
         state
 
@@ -60,7 +63,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
 
   # Not an `agent.attention.*` topic: those bind to the Executor as attentions regardless of `needs_attention`.
   defp emit(issue, result, :carried) do
-    Alerts.emit_system("ticket.#{issue.identifier}.pr.approval_carried",
+    Signal.alert("ticket.#{issue.identifier}.pr.approval_carried",
       issue: issue.identifier,
       message: "Approval carried to the new PR head for #{issue.identifier}.",
       reason: "The push after approval left the contribution diff unchanged and the PR body Tested head names the new head.",
@@ -72,7 +75,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
   end
 
   defp emit(issue, result, {:changed, %{reason: reason, hunks: hunks}}) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.stale_approved_pr_head",
+    Signal.alert("ticket.#{issue.identifier}.agent.attention.stale_approved_pr_head",
       issue: issue.identifier,
       message: "The PR head for #{issue.identifier} changed after its last green CI head.",
       reason: "#{changed_reason(reason)} Keep the ticket out of rework until fresh CI and review establish the status of the new head." <> render_hunks(hunks),

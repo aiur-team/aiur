@@ -9,7 +9,7 @@ aiur_build_gate_run_pid() {
   local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
   local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
   local queue_dir queue_file deadline slot slot_path owner_candidate owner_pid owner_pgid result pacing_result token
-  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
+  local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary
 
   if [[ ! $slots =~ ^[0-9]+$ ]] ||
     [[ ! $stagger_seconds =~ ^[0-9]+$ ]] ||
@@ -20,6 +20,8 @@ aiur_build_gate_run_pid() {
     return 125
   fi
 
+  command_summary=$(aiur_build_gate_command_summary "$phase" "$@") || return 125
+
   queue_dir="$gate_dir/queue"
   if ! mkdir -p "$queue_dir" 2>/dev/null; then
     aiur_build_gate_fail "directory_unavailable" "$gate_dir"
@@ -27,8 +29,8 @@ aiur_build_gate_run_pid() {
   fi
 
   queue_file="$queue_dir/$$"
-  if ! printf 'pid=%s\ncommand=%s\nstarted_at=%s\n' \
-    "$$" "$*" "$(aiur_build_gate_started_at)" >"$queue_file"; then
+  if ! printf 'pid=%s\ncommand=%s\ncommand_hash=%s\nstarted_at=%s\n' \
+    "$$" "$command_summary" "${command_summary##*sha256=}" "$(aiur_build_gate_started_at)" >"$queue_file"; then
     aiur_build_gate_fail "queue_record_failed" "$queue_file"
     return 125
   fi
@@ -114,8 +116,8 @@ aiur_build_gate_run_pid() {
 
       token="$owner_pid.$slot.$RANDOM.$SECONDS"
 
-      if ! printf 'pid=%s\npgid=%s\nversion=2\ntoken=%s\ncommand=%s\nstarted_at=%s\n' \
-        "$owner_pid" "$owner_pgid" "$token" "$*" "$(aiur_build_gate_started_at)" >"$owner_candidate"; then
+      if ! printf 'pid=%s\npgid=%s\nversion=2\ntoken=%s\ncommand=%s\ncommand_hash=%s\nstarted_at=%s\n' \
+        "$owner_pid" "$owner_pgid" "$token" "$command_summary" "${command_summary##*sha256=}" "$(aiur_build_gate_started_at)" >"$owner_candidate"; then
         rm -f "$owner_candidate"
         rm -f "$queue_file"
         aiur_build_gate_fail "owner_write_failed" "$owner_candidate"

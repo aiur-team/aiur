@@ -31,11 +31,11 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedTest do
 
   defp ticket(rows, number), do: Enum.find(rows, &(&1.unit_id == "ticket:#{number}"))
 
-  test "default catalog exposes exactly 17 delivery metrics, with kinds and four groups, and disabling removes them" do
+  test "default catalog exposes delivery metrics with kinds and groups, and disabling removes them" do
     ctx = %{repo_path: @fixtures, pack_dirs: []}
     metrics = Catalog.load(ctx).metrics
-    assert map_size(metrics) == 17
-    assert MapSet.new(metrics, fn {_ref, metric} -> metric.group end) == MapSet.new(~w(flow review throughput cost_quality))
+    assert map_size(metrics) == 26
+    assert MapSet.new(metrics, fn {_ref, metric} -> metric.group end) == MapSet.new(~w(flow review throughput cost_quality ci_stability))
     assert metrics["delivery-speed/start_to_merge"].kind == "duration"
     assert metrics["delivery-speed/review_rounds"].kind == "count"
     assert metrics["delivery-speed/merged_per_hour"].kind == "bucketed"
@@ -48,6 +48,9 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedTest do
     for metric <- DeliverySpeed.metrics() do
       assert listed["delivery-speed/" <> metric.id]["kind"] == metric.kind
       assert listed["delivery-speed/" <> metric.id]["group"] == metric.group
+      assert listed["delivery-speed/" <> metric.id]["unit"] == metric.unit
+      assert listed["delivery-speed/" <> metric.id]["unit_of_analysis"] == metric.unit_of_analysis
+      assert listed["delivery-speed/" <> metric.id]["default_direction"] == metric.default_direction
     end
   end
 
@@ -130,6 +133,73 @@ defmodule Aiur.Experiments.Packs.DeliverySpeedTest do
     assert Evaluator.observations([ref], @window, ctx)[ref] == %{coverage: %{state: :unavailable, reason: :telemetry_disabled}, observations: []}
     ctx = %{context() | telemetry_path: Path.join(@fixtures, "missing.ndjson"), prior_loader: fn _ -> {[], false} end}
     assert result("start_to_merge", ctx) == %{coverage: %{state: :unavailable, reason: :telemetry_missing}, observations: []}
+  end
+
+  test "missing workflow-run rows are unavailable while job metrics remain usable" do
+    ctx =
+      Map.merge(context(), %{
+        github_window: %{
+          "required_workflows" => [],
+          "runs" => [],
+          "jobs" => [%{"id" => 1, "name" => "test", "created_at" => "2026-10-09T10:00:00Z", "started_at" => "2026-10-09T10:02:00Z"}],
+          "pulls" => [],
+          "incidents" => []
+        },
+        landing_watch_state_fun: fn _opts -> {:ok, %{}} end
+      })
+
+    assert result("ci_run_failure_rate", ctx) == %{coverage: %{state: :unavailable, reason: :github_unavailable}, observations: []}
+    job_wait = result("ci_queue_wait", ctx)
+    assert job_wait.coverage.state in [:captured, :partial]
+    assert [%{value: 120_000}] = job_wait.observations
+  end
+
+  test "missing landing-watch journal makes flaky failure rate unavailable" do
+    ctx =
+      Map.merge(context(), %{
+        github_window: %{
+          "required_workflows" => ["CI"],
+          "runs" => [%{"id" => 1, "name" => "CI", "event" => "merge_group", "conclusion" => "failure", "updated_at" => "2026-10-09T12:00:00Z"}],
+          "jobs" => [],
+          "pulls" => [],
+          "incidents" => []
+        },
+        landing_watch_state_fun: fn _opts -> {:error, :journal_unavailable} end
+      })
+
+    assert result("flaky_failure_rate", ctx) == %{
+             coverage: %{state: :unavailable, reason: :landing_watch_journal_unavailable},
+             observations: []
+           }
+  end
+
+  test "sampled GitHub job details make flaky failure coverage partial" do
+    ctx =
+      Map.merge(context(), %{
+        github_window: %{
+          "required_workflows" => ["CI"],
+          "runs" => [%{"id" => 1, "name" => "CI", "event" => "merge_group", "conclusion" => "failure", "updated_at" => "2026-10-09T12:00:00Z"}],
+          "jobs" => [
+            %{
+              "id" => 1,
+              "run_id" => 1,
+              "name" => "test",
+              "conclusion" => "failure",
+              "created_at" => "2026-10-09T10:00:00Z",
+              "started_at" => "2026-10-09T10:01:00Z",
+              "completed_at" => "2026-10-09T12:00:00Z"
+            }
+          ],
+          "jobs_partial" => true,
+          "pulls" => [],
+          "incidents" => []
+        },
+        landing_watch_state_fun: fn _opts -> {:ok, %{"failure_observations" => []}} end
+      })
+
+    coverage = result("flaky_failure_rate", ctx).coverage
+    assert coverage.state == :partial
+    assert coverage.reason == :github_source_incomplete
   end
 
   test "corrupt retained summaries and pruned history produce partial coverage" do

@@ -23,7 +23,7 @@ defmodule Aiur.OrchestratorStatusCliVisibilityTest do
       with_repo_base_phase(:building)
 
       output = capture_io(fn -> AgentControlCLI.status() end)
-      assert output =~ "PREWARM prewarm: warming phase=building"
+      assert output =~ ~r"PREWARM prewarm: warming phase=building for \d+s"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 

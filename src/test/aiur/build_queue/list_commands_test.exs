@@ -140,7 +140,7 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   test "paced markers survive restart and are retried without repeating successful marks" do
     pid = server(3)
     assert :ok = Aiur.BuildQueue.add(["9"], "paseo")
-    assert {:error, {:marker_write_failed, [{:mark, "2", {:error, :paced}}]}} = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
+    assert {:ok, {:marker_deferred, ["2"]}} = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
     assert ListCommands.pending(document()) == [{:mark, "2"}]
     assert :ok = stop_supervised(Server)
     refute Process.alive?(pid)

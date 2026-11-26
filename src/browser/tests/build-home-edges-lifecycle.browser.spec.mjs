@@ -37,7 +37,6 @@ for (const dataset of ['live', 'dense']) test(`windowed edge count follows visib
 
 test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
-  // Static edge pixels must not inherit a live snap's queued scroll animation.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.clock.install({ time: 1791408000000 })
   await page.clock.pauseAt(1791408000000)
@@ -48,15 +47,14 @@ test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'gruvbox')
   await page.evaluate(() => document.fonts.ready)
   await page.clock.runFor(1000)
-  // Exercise the real scroll handler before pinning: an existing guard's unlock
-  // remains pending. Without reduced motion its queued frames recycle edge 19.
+  // Exercise the real scroll handler before pinning (#7446: it no longer snaps the live band).
   await page.evaluate(() => {
     const { ctx } = st, vp = ctx.vp, top = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     vp.scrollTop = top; vp.dispatchEvent(new Event('scroll'))
     vp.scrollTop -= 90; vp.dispatchEvent(new Event('scroll'))
   })
-  expect(await page.evaluate(() => st.ctx.snapping)).toBe(true)
-  // Edge-only captures isolate deliberate scroll positions from live snapping.
+  expect(await page.evaluate(() => st.ctx.snapping)).toBe(false)
+  // Edge-only captures defer live passes so deliberate scroll positions stay put.
   await page.evaluate(() => { st.ctx.snapping = true })
   const edges = await page.evaluate(() => {
     const { ctx, fx } = st, result = {}
@@ -80,6 +78,8 @@ test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({
     if (name === 'unknown') await page.clock.runFor(600)
     expect(await page.locator('#bd-vp').evaluate(vp => vp.scrollTop)).toBe(positioned)
     await expect(page.locator(`.bd-card[data-id="${id}"]`)).toBeVisible()
+    // Column transitions can still hide an endpoint after its card enters the window.
+    for (const edgeId of ids) await expect(page.locator(`#bd-edges .bd-eh[data-e="${edgeId}"]`)).toHaveCount(1)
     // Capture only this case's rendered lines and arrows in their own bounds;
     // scrolling the tall original SVG would recycle the windowed endpoints.
     const captured = await page.evaluate(ids => {
@@ -194,4 +194,22 @@ test('B3 an unloaded blocker has no edge until earlier history is loaded', async
     return { before, loaded: !!ctx.D.byId[parent.id], parentRendered: [...ctx.R.values()].some(el => el.dataset.id === parent.id), after: read() }
   }, full.default)
   expect(result).toEqual({ before: 0, loaded: true, parentRendered: true, after: 1 })
+})
+
+test('queued edge animation stops when navigation removes the board', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message))
+  await open(page)
+  await page.evaluate(() => {
+    const frame = st.ctx.life.frame.bind(st.ctx.life)
+    window.pendingEdgeFrames = []
+    st.ctx.life.frame = (key, callback) => key === 'edges' ? pendingEdgeFrames.push(callback) : frame(key, callback)
+    st.fx.drawEdgesSoon(1000)
+  })
+  await expect.poll(() => page.evaluate(() => pendingEdgeFrames.length)).toBeGreaterThan(0)
+  await navigate(page, '/build?view=list')
+  await expect(page.locator('.bd-list')).toHaveCount(1)
+  await expect.poll(() => page.evaluate(() => st.ctx.content)).toBeNull()
+  // Release the queued native frame after the real view change, when the board is gone.
+  await page.evaluate(() => pendingEdgeFrames.splice(0).forEach(callback => callback()))
+  expect(errors).toEqual([])
 })

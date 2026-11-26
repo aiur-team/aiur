@@ -280,6 +280,21 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     refute model.summary.resolved?
   end
 
+  test "keeps a crashed read cause neutral in the presented status" do
+    health = ProviderHealth.new(:unknown, :unavailable, false, failure: :unknown)
+
+    model =
+      BuildOrderPresenter.present(
+        %Snapshot{scope: {:selected, identity(100)}, repository: @repository, generation: :unknown, data: nil, health: health},
+        status_snapshot(),
+        activity_snapshot()
+      )
+
+    assert model.status == :unknown
+    assert diagnostic_codes(model) == [:unknown]
+    assert model.planning_health.failure == :unknown
+  end
+
   test "reports a fetched-but-degraded selected root as unavailable rather than structurally invalid" do
     degraded = %{SelectedRoot.new(root(identity(100)), [], ProviderHealth.new(:unknown, :unavailable, false)) | diagnostics: [Diagnostic.new(:call_budget_exhausted)]}
 

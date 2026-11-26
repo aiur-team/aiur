@@ -82,7 +82,8 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp planning(%Snapshot{data: nil, health: health}) do
     health = provider_health(health)
-    {:error, health, unavailable_status(health), [Diagnostic.new(:provider_unavailable)]}
+    {status, diagnostic} = unavailable_result(health)
+    {:error, health, status, [Diagnostic.new(diagnostic)]}
   end
 
   defp planning(_snapshot) do
@@ -166,6 +167,9 @@ defmodule AiurWeb.BuildOrderPresenter do
   defp unavailable_status(%ProviderHealth{state: :stale}), do: :provider_stale
   defp unavailable_status(%ProviderHealth{state: :structurally_invalid}), do: :structurally_invalid
   defp unavailable_status(_health), do: :provider_unavailable
+
+  defp unavailable_result(%ProviderHealth{failure: :unknown}), do: {:unknown, :unknown}
+  defp unavailable_result(health), do: {unavailable_status(health), :provider_unavailable}
 
   defp edge_health(%{status: :structurally_invalid, generation: generation, health: health}) do
     ProviderHealth.new(generation, :structurally_invalid, false,

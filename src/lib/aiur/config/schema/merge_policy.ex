@@ -60,7 +60,8 @@ defmodule Aiur.Config.Schema.MergePolicy do
   @primary_key false
   embedded_schema do
     # @config-reference config-merge-policy-00 merge_policy.ci
-    # @config-detail merge_policy.ci | string | `wait` | `wait` (the only mode) requires full CI before merge. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail merge_policy.ci | string | `wait` | `wait` requires full CI before merge; `external` means an outside gate decides merge readiness, so GitHub check results never move ticket state or wake agents. |
     field(:ci, :string, default: "wait")
     # @config-reference config-merge-policy-00 merge_policy.local_tests
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
@@ -70,7 +71,7 @@ defmodule Aiur.Config.Schema.MergePolicy do
     # @config-detail merge_policy.full_ci_labels | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
     field(:full_ci_labels, {:array, :string}, default: ["main-fix"])
     # @config-reference config-merge-policy-00 merge_policy.full_ci_paths
-    # @config-detail merge_policy.full_ci_paths | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI regardless of `ci`; matches deleted paths too. |
+    # @config-detail merge_policy.full_ci_paths | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI on approved PRs and the merge queue; matches deleted paths too. |
     field(:full_ci_paths, {:array, :string}, default: [])
     # @config-reference config-merge-policy-00 merge_policy.premerge_checks
     # @config-detail merge_policy.premerge_checks | array | `[]` | Commands to run on the merge result before merging. |
@@ -85,7 +86,7 @@ defmodule Aiur.Config.Schema.MergePolicy do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:ci, :local_tests, :full_ci_labels, :full_ci_paths, :premerge_checks, :attribution_scan], empty_values: [])
-    |> validate_inclusion(:ci, ["wait"], message: "must be one of: wait")
+    |> validate_inclusion(:ci, ["wait", "external"], message: "must be one of: wait, external")
     |> validate_inclusion(:local_tests, ["all", "partial", "none"], message: "must be one of: all, partial, none")
     |> validate_change(:full_ci_labels, &validate_string_list/2)
     |> validate_change(:full_ci_paths, &validate_string_list/2)

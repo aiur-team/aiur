@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
   use Aiur.TestSupport
   alias Aiur.GitHub.{Issues, OpenIssueListing, OpenIssueSnapshot}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -29,6 +29,23 @@ defmodule Aiur.GitHub.OpenIssueListingTest do
   end
 
   describe "complete open listing publication" do
+    test "feature descriptions survive the label snapshot without adding empty maps" do
+      OpenIssueSnapshot.reset()
+      on_exit(fn -> OpenIssueSnapshot.reset() end)
+      listed_from = DateTime.utc_now()
+
+      issue = %Aiur.Issue{
+        id: "7",
+        labels: ["feature:mp-e2"],
+        label_descriptions: %{"feature:mp-e2" => "MP-E2 Commands"},
+        updated_at: listed_from
+      }
+
+      assert :ok = OpenIssueListing.record("owner", "repo", [issue], listed_from)
+      assert {:ok, %{"7" => %{labels: ["feature:mp-e2"], label_descriptions: descriptions}}, _} = OpenIssueSnapshot.fetch_labels("owner", "repo", 60_000)
+      assert descriptions == %{"feature:mp-e2" => "MP-E2 Commands"}
+    end
+
     test "complete paginated polls record all labels with no extra requests" do
       OpenIssueListing.subscribe("owner/repo")
       OpenIssueSnapshot.reset()

@@ -1,11 +1,11 @@
 defmodule Aiur.AgentCompaction.CodexClientTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentCompaction.CodexClient
   alias Aiur.AppServer.Rpc, as: AppServerRpc
+  alias Aiur.Codex.Compaction
 
   test "builds the verified app-server request shape" do
-    assert {:ok, frame} = CodexClient.build_request("thread-123", 12)
+    assert {:ok, frame} = Compaction.build_request("thread-123", 12)
     assert frame["method"] == "thread/compact/start"
     assert frame["params"] == %{"threadId" => "thread-123"}
     assert frame["id"] == 12
@@ -13,17 +13,17 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
   end
 
   test "rejects an absent thread id before sending anything" do
-    assert {:error, :invalid_thread_id} = CodexClient.build_request("")
-    assert {:error, :invalid_thread_id} = CodexClient.build_request(nil)
+    assert {:error, :invalid_thread_id} = Compaction.build_request("")
+    assert {:error, :invalid_thread_id} = Compaction.build_request(nil)
   end
 
   test "rejects an invalid port and thread identity" do
-    assert {:error, {:invalid_thread_or_port, "thread-1"}} = CodexClient.request_compact(self(), "thread-1")
-    assert {:error, :invalid_thread_id} = CodexClient.request_compact(port(), "")
+    assert {:error, {:invalid_thread_or_port, "thread-1"}} = Compaction.request_compact(self(), "thread-1")
+    assert {:error, :invalid_thread_id} = Compaction.request_compact(port(), "")
   end
 
   test "the app-server RPC parser returns the completed compacted thread" do
-    {:ok, frame} = CodexClient.build_request("thr_original")
+    {:ok, frame} = Compaction.build_request("thr_original")
     payload = response(frame["id"], %{})
 
     assert {:ok, %{}} =
@@ -31,22 +31,22 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
   end
 
   test "the app-server RPC parser preserves server errors and the client reports timeout" do
-    {:ok, frame} = CodexClient.build_request("thr_original")
+    {:ok, frame} = Compaction.build_request("thr_original")
     payload = Jason.encode!(%{"id" => frame["id"], "error" => %{"code" => -32_000, "message" => "compaction rejected"}})
 
     assert {:error, {:response_error, %{"message" => "compaction rejected"}}} =
              AppServerRpc.handle_response(port(), frame["id"], payload, 10, "Codex")
 
-    assert {:error, :response_timeout} = CodexClient.request_compact(port(), "thr_original", timeout_ms: 10)
+    assert {:error, :response_timeout} = Compaction.request_compact(port(), "thr_original", timeout_ms: 10)
   end
 
   test "waits for the correlated thread/compacted completion event" do
-    {:ok, frame} = CodexClient.build_request("thr_original")
+    {:ok, frame} = Compaction.build_request("thr_original")
     assert {:ok, _} = AppServerRpc.handle_response(port(), frame["id"], Jason.encode!(%{"id" => frame["id"], "result" => %{}}), 10, "Codex")
 
     # The real client cannot report completed based on a successful empty RPC
     # response. Without the matching notification its request must fail.
-    assert {:error, :response_timeout} = CodexClient.request_compact(port(), "thr_original", timeout_ms: 10)
+    assert {:error, :response_timeout} = Compaction.request_compact(port(), "thr_original", timeout_ms: 10)
   end
 
   test "uses the live JSON-RPC wire and accepts completion before the response" do
@@ -58,7 +58,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:ok, %{thread_id: "thr_original", turn_id: "turn_compact"}} =
-             CodexClient.request_compact(port, "thr_original", timeout_ms: 5_000, on_status: fn status, _thread_id, _detail -> send(self(), {:status, status}) end)
+             Compaction.request_compact(port, "thr_original", timeout_ms: 5_000, on_status: fn status, _thread_id, _detail -> send(self(), {:status, status}) end)
 
     assert_received {:status, :pending}
     assert_received {:status, :completed}
@@ -73,7 +73,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:ok, %{thread_id: "thr_original", turn_id: "turn_compact"}} =
-             CodexClient.request_compact(port, "thr_original", timeout_ms: 5_000)
+             Compaction.request_compact(port, "thr_original", timeout_ms: 5_000)
   end
 
   test "reports server failure and a missing completion notification" do
@@ -85,7 +85,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:error, {:response_error, %{"message" => "compaction rejected"}}} =
-             CodexClient.request_compact(failure_port, "thr_original", timeout_ms: 5_000)
+             Compaction.request_compact(failure_port, "thr_original", timeout_ms: 5_000)
 
     {timeout_port, timeout_dir} = server_port("no-completion")
 
@@ -95,7 +95,7 @@ defmodule Aiur.AgentCompaction.CodexClientTest do
     end)
 
     assert {:error, :compaction_completion_timeout} =
-             CodexClient.request_compact(timeout_port, "thr_original", timeout_ms: 1_000)
+             Compaction.request_compact(timeout_port, "thr_original", timeout_ms: 1_000)
   end
 
   defp port do

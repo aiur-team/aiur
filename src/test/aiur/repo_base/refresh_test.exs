@@ -32,6 +32,25 @@ defmodule Aiur.RepoBase.RefreshTest do
              "base_build re-ran even though main did not advance"
     end
 
+    test "removes only empty files main deleted from the base (#7920)", %{origin: origin, base: base} do
+      File.write!(Path.join(origin, "gone.ex"), "defmodule Gone, do: nil\n")
+      git!(["-C", origin, "add", "."])
+      git!(["-C", origin, "commit", "--quiet", "-m", "add gone"])
+      git!(["-C", origin, "rm", "--quiet", "gone.ex"])
+      git!(["-C", origin, "commit", "--quiet", "-m", "delete gone"])
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, nil)
+
+      # Main has not advanced, so a poisoned base must still heal on the next poll.
+      File.write!(Path.join(base, "gone.ex"), "")
+      File.write!(Path.join(base, "build_output"), "")
+      File.write!(Path.join(base, "migrated"), "keep")
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, nil)
+      refute File.exists?(Path.join(base, "gone.ex")), "empty file main deleted survived the base refresh"
+      assert File.read!(Path.join(base, "build_output")) == ""
+      assert File.read!(Path.join(base, "migrated")) == "keep"
+    end
+
     test "rebuilds when main advances", %{origin: origin, base: base} do
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "touch built_ran")
       File.rm!(Path.join(base, "built_ran"))

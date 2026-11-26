@@ -302,10 +302,19 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitFallbackTest do
       issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
 
       next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+      runner_pid = get_in(next.running, [identifier, :pid])
+
+      on_exit(fn ->
+        if is_pid(runner_pid) and Process.alive?(runner_pid) do
+          Process.exit(runner_pid, :kill)
+          :ok = Aiur.TestSupport.await_process_down(runner_pid)
+        end
+      end)
 
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      assert is_pid(runner_pid)
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 

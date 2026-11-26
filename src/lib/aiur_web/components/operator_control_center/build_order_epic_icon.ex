@@ -10,42 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   use Phoenix.Component
 
-  # Epic (build lane) -> Heroicons v2 outline icon name. "adhoc" is the runtime
-  # Ad Hoc overlay lane, tracked separately from the planning lanes.
-  @lane_icons %{
-    "plan-graph" => "share",
-    "runtime" => "bolt",
-    "dashboard-ui" => "rectangle-group",
-    "accounting" => "banknotes",
-    "platform" => "server-stack",
-    "adhoc" => "sparkles",
-    # Additional lanes used by planning packs (e.g. the CropTracker demo).
-    "core" => "cube",
-    "web" => "window",
-    "data" => "circle-stack",
-    "api" => "cloud",
-    "billing" => "credit-card"
-  }
-
-  @generic_icon "squares-2x2"
-  @explicit_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
-
-  # Vendored by the `:heroicons` dep (source only); present at compile time.
-  @outline_dir "deps/heroicons/optimized/24/outline"
-
-  @svgs (for name <- Map.values(@lane_icons) ++ @explicit_icons ++ [@generic_icon], into: %{} do
-           path = Path.join(@outline_dir, "#{name}.svg")
-           @external_resource path
-
-           svg =
-             path
-             |> File.read!()
-             |> String.replace(~r/\s+data-slot="icon"/, "")
-             |> String.trim()
-
-           {name, svg}
-         end)
-
   # Distinct accent colours per epic, used in the column headings and the epic
   # breakdown list (NOT on the ticket cards, which keep a neutral icon).
   @lane_colors %{
@@ -72,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   def build_order_epic_icon(assigns) do
     assigns =
       assigns
-      |> assign(:svg, svg_for(assigns.lane))
+      |> assign(:svg, svg(assigns.lane))
       |> assign(:label, label(assigns.lane))
       |> assign(:style, assigns.colored && "color: #{color(assigns.lane)}")
 
@@ -96,10 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   @spec planning_lanes() :: [String.t()]
   def planning_lanes, do: ["plan-graph", "runtime", "dashboard-ui", "accounting", "platform"]
 
-  defp svg_for(lane) when is_binary(lane) do
-    name = Map.get(@lane_icons, lane, lane)
-    Map.get(@svgs, name, Map.fetch!(@svgs, @generic_icon))
-  end
-
-  defp svg_for(_lane), do: Map.fetch!(@svgs, @generic_icon)
+  @doc "Trusted inlined SVG, shared with the Stream Deck renderer."
+  @spec svg(term()) :: String.t()
+  defdelegate svg(lane), to: AiurWeb.EpicIcon
 end

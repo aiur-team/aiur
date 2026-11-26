@@ -61,17 +61,21 @@ defmodule Aiur.LandingWatch.MergeGroupJobLogUnavailableTest do
     on_exit(fn -> File.rm(journal) end)
     log_body = Keyword.get(overrides, :log_body, "")
 
-    request = fn %{method: :get, url: url} ->
-      cond do
-        String.contains?(url, "/actions/jobs/") ->
-          {:ok, %{status: 200, body: log_body}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}, %{"ref" => "refs/heads/gh-readonly-queue/main/pr-18-b"}]}}
 
-        String.contains?(url, "status=completed") ->
-          {:ok, %{status: 200, body: %{"workflow_runs" => [group_run(501, "pr-17-a"), group_run(502, "pr-18-b")]}}}
+      %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "/actions/jobs/") ->
+            {:ok, %{status: 200, body: log_body}}
 
-        true ->
-          {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
-      end
+          String.contains?(url, "status=completed") ->
+            {:ok, %{status: 200, body: %{"workflow_runs" => [group_run(501, "pr-17-a"), group_run(502, "pr-18-b")]}}}
+
+          true ->
+            {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
+        end
     end
 
     [

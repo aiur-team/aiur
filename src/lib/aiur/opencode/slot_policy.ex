@@ -38,7 +38,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   use GenServer
   require Logger
 
-  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
   alias Aiur.Boot
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
@@ -180,7 +180,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} max_slots=#{max_slots} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(pubsub, Slot.slots_topic())
-    :ok = Phoenix.PubSub.subscribe(pubsub, AgentEvents.poll_state_topic())
+    :ok = AgentPubSub.subscribe_poll_state(pubsub)
 
     send(self(), :start_all_slots)
 

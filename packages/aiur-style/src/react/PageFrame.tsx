@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 export interface PageFrameModel {
   title: string;
@@ -13,7 +13,8 @@ export type PageFrameProps = {
   | { model: PageFrameModel; title?: never; description?: never; labelledBy?: never });
 
 export function PageFrame({ title, icon, description, banner, children, model, labelledBy }: PageFrameProps) {
-  const id = model?.labelledBy ?? labelledBy ?? 'page-title';
+  const generatedId = useId();
+  const id = model?.labelledBy ?? labelledBy ?? generatedId;
   const summary = model?.description ?? description;
   return <section className="aiur-page" aria-labelledby={id}>
     <header className="aiur-page__header">

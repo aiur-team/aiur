@@ -236,6 +236,26 @@ defmodule AiurWeb.ExperimentsLiveTest do
     assert has_element?(view, "#exp-report-stale time[datetime='#{results_at}'][title='#{results_at}']")
   end
 
+  test "unknown report time warns that results may be newer" do
+    populated()
+    results_at = report_time(-86_400)
+    report(%{markdown: "Earlier report", author: "Analyst", written_at: "invalid", results_at: results_at})
+    {:ok, view, _html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report-stale", "Results may be newer than this report")
+    assert has_element?(view, "#exp-report-stale", "report time unknown")
+    assert has_element?(view, "#exp-report-stale time[datetime='#{results_at}']")
+  end
+
+  test "report table cell payload is rendered as text" do
+    populated()
+    payload = "<img src=x onerror=alert(1)>"
+    report(%{markdown: "| Value |\n| --- |\n| #{payload} |", author: "Analyst", written_at: report_time(-86_400), results_at: nil})
+    {:ok, view, html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report table")
+    assert has_element?(view, "#exp-report table td", payload)
+    refute html =~ "<img src=\"x\" onerror"
+  end
+
   test "unavailable report content and unknown metadata are explicit" do
     populated()
     report(%{markdown: String.duplicate("x", 128_001), author: nil, written_at: "invalid", results_at: nil})

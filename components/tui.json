@@ -22,6 +22,7 @@
     "config",
     "event-bus",
     "harness-adapters",
+    "listener-modes",
     "orchestration",
     "projections",
     "signal"
@@ -70,5 +71,6 @@
     "LINES",
     "TMUX_PANE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

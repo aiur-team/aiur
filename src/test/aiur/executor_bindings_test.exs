@@ -32,6 +32,11 @@ defmodule Aiur.ExecutorBindingsTest do
     assert ExecutorBindings.allowlisted?("ticket.42.agent.handoff.human_review")
   end
 
+  test "a mandatory-skill gate block wakes the Executor as an attention, but a warning does not" do
+    assert ExecutorBindings.attention_topic?("ticket.7866.skills.blocked")
+    refute ExecutorBindings.attention_topic?("ticket.7866.skills.warning")
+  end
+
   test "queue attention defaults deliver firing and resolved events to the Executor" do
     for {reason, topic} <- [
           {"attention:auto", "ticket.12.queue.attention.prerequisite_failed"},

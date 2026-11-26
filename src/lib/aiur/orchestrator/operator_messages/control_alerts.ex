@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
   Public API stays on `Aiur.Orchestrator.OperatorMessages`.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Signal
 
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
   def maybe_emit_agent_control_alert(previous_status, status, running_entry) do
@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
         _previous_pause_reason
       )
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.ci.wait",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -38,7 +38,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
         _previous_pause_reason
       )
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -54,7 +54,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
     pause_reason = Map.get(running_entry, :paused_reason)
     reason = StatusReason.render(StatusReason.for_pause(pause_reason))
 
-    Alerts.emit_system(pause_attention_topic(running_entry, pause_reason),
+    Signal.alert(pause_attention_topic(running_entry, pause_reason),
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -66,7 +66,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
 
   def maybe_emit_agent_control_alert(:paused, :working, running_entry, previous_pause_reason)
       when is_map(running_entry) do
-    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
+    Signal.alert("ticket.#{Map.get(running_entry, :identifier)}.agent.unpaused",
       issue: Map.get(running_entry, :identifier),
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
@@ -78,7 +78,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
     if is_nil(previous_pause_reason) do
       :ok
     else
-      Alerts.emit_system("#{pause_attention_topic(running_entry, previous_pause_reason)}.resolved",
+      Signal.alert("#{pause_attention_topic(running_entry, previous_pause_reason)}.resolved",
         issue: Map.get(running_entry, :identifier),
         workspace: Map.get(running_entry, :workspace_path),
         worker_host: Map.get(running_entry, :worker_host),

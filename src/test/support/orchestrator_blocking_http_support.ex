@@ -49,6 +49,12 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
     [tracker_kind: "github", repo: "owner/repo", token: "test-gh-token", review_issue_fetcher: review_issue_fetcher]
   end
 
+  # A poll's start signal is a message the poll itself sends, so a missing one
+  # is a hang and a late one is scheduling: under a loaded CI batch the spawn,
+  # setup worker and request worker can take longer than 5 s to run. Only the
+  # ExUnit test timeout should undercut the wait for that signal.
+  def poll_start_timeout_ms, do: 30_000
+
   def start_blocked_comment_poll(orchestrator) do
     test_pid = self()
 
@@ -71,7 +77,7 @@ defmodule Aiur.OrchestratorBlockingHttpSupport do
       |> CommentPolling.start_async(opts)
     end)
 
-    assert_receive {:owned_comment_request_started, target, request}, 5_000
+    assert_receive {:owned_comment_request_started, target, request}, poll_start_timeout_ms()
     poll = await_comment_poll().pid
     {poll, target, request}
   end

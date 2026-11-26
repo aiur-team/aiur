@@ -3,9 +3,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   Candidate fetch, per-issue dispatch validation and the blocked-by dependency gate.
   """
 
+  # Cohesion: This module owns the candidate-to-dispatch validation path because it has both
+  # the current candidate snapshot and dispatch state; cache fallback must use that same issue
+  # and dependency gate rather than creating a second, inconsistent dispatch decision.
+
   require Logger
 
-  alias Aiur.Alerts
+  import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
+
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -14,11 +19,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.QueueSetSlots
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # Refreshes the open-blocking-Command ticket set in State from the local store.
@@ -39,7 +46,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   @spec fetch_candidate_issues(State.t(), keyword()) :: {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
   def fetch_candidate_issues(state, opts \\ [])
 
-  def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}
+  def fetch_candidate_issues(%State{} = state, _opts) when effective_paused?(state), do: {:paused, state}
 
   def fetch_candidate_issues(%State{} = state, opts) when is_list(opts) do
     # Dispatch labels are mutable authority. Keep this cache separate from the
@@ -54,7 +61,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   @doc false
   @spec apply_candidate_result(State.t(), {:ok, [Issue.t()], map()} | {:error, term()}) ::
           {:paused, State.t()} | {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()}
-  def apply_candidate_result(%State{globally_paused: true} = state, _result), do: {:paused, state}
+  def apply_candidate_result(%State{} = state, _result) when effective_paused?(state), do: {:paused, state}
 
   def apply_candidate_result(state, result) do
     case result do
@@ -120,6 +127,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   def maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
     do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
 
+  # A ci-wait, human-review or error ticket rides the candidate list only as
+  # label-repair evidence and is never authorized, so `:unauthorized` there
+  # names the wrong cause: it waits on its state, not on authorization.
+  def maybe_emit_dispatch_decline(%State{} = state, %Issue{state: issue_state} = issue, :unauthorized)
+      when not is_binary(issue_state) or issue_state in ["ci-wait", "human-review", "error"],
+      do: clear_dispatch_decline(state, issue)
+
   def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
       when reason in [
              :state_capacity,
@@ -146,7 +160,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   @doc false
   @spec hold_cached_dependencies(State.t(), [Issue.t()], term(), term()) :: State.t()
-  def hold_cached_dependencies(%State{globally_paused: true} = state, _held, _active, _terminal), do: state
+  def hold_cached_dependencies(%State{} = state, _held, _active, _terminal) when effective_paused?(state), do: state
 
   def hold_cached_dependencies(state, held, active, terminal) do
     Enum.reduce(held, state, fn issue, state ->
@@ -186,16 +200,46 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
-      {:ok, refreshed} -> {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
-      other -> other
+      {:ok, refreshed} ->
+        {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
+
+      {:error, reason} = error ->
+        if broker_timeout?(reason), do: validate_from_cached_dependencies(issue, error), else: error
+
+      other ->
+        other
     end
   end
+
+  # The candidate list was just confirmed by the tracker poll. If the local
+  # budget broker times out on the redundant per-issue refresh, a fresh
+  # cache-only dependency read is still enough to keep a known-ready candidate
+  # moving. Missing or stale cache remains fail-closed; do not turn an
+  # arbitrary tracker error into permission to dispatch.
+  defp validate_from_cached_dependencies(issue, timeout_error) do
+    case Tracker.cached_blocked_by(%{issue | blocked_by: []}) do
+      {:ok, %Issue{} = cached} ->
+        if DispatchPolicy.candidate_issue?(cached, DispatchPolicy.active_state_set(), DispatchPolicy.terminal_state_set()) do
+          Logger.info("Using fresh cached dependency evidence after GitHub budget broker timeout: #{State.issue_context(issue)}")
+          {:validated, cached, HoldDecline.observe({:ok, cached})}
+        else
+          {:skip, cached}
+        end
+
+      {:error, _cache_miss_or_stale} ->
+        timeout_error
+    end
+  end
+
+  defp broker_timeout?(:github_budget_broker_timeout), do: true
+  defp broker_timeout?({:github, kind, %{reason: :github_budget_broker_timeout}}) when kind in [:timeout, :local_hold], do: true
+  defp broker_timeout?(_reason), do: false
 
   defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
     next =
       cond do
         dispatch_input(current, issue.id) != expected -> current
-        current.globally_paused -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        PauseGuard.paused?(current) -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
         true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
       end
 
@@ -353,8 +397,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
       emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
+      # #7797: names the blockers the gate saw so a dispatch with an open blocker can be traced.
+      blockers = Enum.map(hydrated.blocked_by, &{Map.get(&1, :id), Map.get(&1, :state)})
+      Logger.info("Dependency gate passed #{State.issue_context(hydrated)} blockers=#{inspect(blockers)}")
+
       if OptimisticSlots.available?(hydrated, state, terminal_states) do
-        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+        Launch.do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, Keyword.put(opts, :dependency_checked, true))
       else
         maybe_emit_dispatch_decline(state, hydrated, :optimistic_share)
       end
@@ -402,7 +450,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     else
       state = maybe_resolve_dispatch_decline(state, issue)
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         dispatch_decline_topic(issue, attention?),
         "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
         issue: issue.identifier,
@@ -424,7 +472,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
       reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :rework_claim_failed, :dependency_hydration_failed] ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",
           issue: issue.identifier,

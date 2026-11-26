@@ -9,6 +9,12 @@ defmodule Aiur.MainWatch.FixerTest do
   @signature String.duplicate("b", 64)
 
   setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent"
+    )
+
     store = start_supervised!({Agent, fn -> %{issues: [], comments: [], receipts: %{}, alerts: []} end})
 
     opts = [
@@ -116,6 +122,56 @@ defmodule Aiur.MainWatch.FixerTest do
     assert length(Agent.get(store, & &1.issues)) == 1
     refute Enum.any?(Agent.get(store, & &1.alerts), fn {topic, _} -> topic == "system.main.fixer.failed" end)
     assert map_size(Agent.get(store, & &1.receipts)) == 1
+  end
+
+  test "broker timeout retries once immediately and logs the retry", %{store: store, opts: opts} do
+    parent = self()
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :open_attempts)
+
+    open = fn _, _ ->
+      case Agent.get_and_update(attempts, &{&1 + 1, &1 + 1}) do
+        1 -> {:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}}
+        _ -> {:ok, []}
+      end
+    end
+
+    opts =
+      opts
+      |> Keyword.put(:fixer_open, open)
+      |> Keyword.put(:local_hold_sleep_fun, fn wait_ms -> send(parent, {:retry_wait, wait_ms}) end)
+
+    log = capture_log(fn -> assert :ok = Fixer.reconcile([observation()], @watch, opts) end)
+
+    assert_received {:retry_wait, 1_000}
+    assert log =~ "fixer retrying after GitHub broker timeout"
+    assert Agent.get(attempts, & &1) == 2
+    assert length(Agent.get(store, & &1.issues)) == 1
+    assert Agent.get(store, & &1.alerts) == []
+  end
+
+  test "broker timeout alerts after the single retry is exhausted", %{store: store, opts: opts} do
+    parent = self()
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :open_attempts)
+    timeout = {:github, :local_hold, %{reason: :github_budget_broker_timeout}}
+
+    open = fn _, _ ->
+      Agent.update(attempts, &(&1 + 1))
+      {:error, timeout}
+    end
+
+    opts =
+      opts
+      |> Keyword.put(:fixer_open, open)
+      |> Keyword.put(:local_hold_sleep_fun, fn wait_ms -> send(parent, {:retry_wait, wait_ms}) end)
+
+    log = capture_log(fn -> assert {:error, ^timeout} = Fixer.reconcile([observation()], @watch, opts) end)
+
+    assert_received {:retry_wait, 1_000}
+    assert log =~ "fixer retrying after GitHub broker timeout"
+    assert Agent.get(attempts, & &1) == 2
+    assert Agent.get(store, & &1.issues) == []
+    assert [{"system.main.fixer.failed", %{reason: reason}}] = Agent.get(store, & &1.alerts)
+    assert reason =~ "github_budget_broker_timeout"
   end
 
   test "recovery comments without closing and missing PR raises attention", %{store: store, opts: opts} do

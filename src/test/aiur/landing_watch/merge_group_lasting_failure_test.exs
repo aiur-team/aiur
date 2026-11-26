@@ -5,6 +5,24 @@ defmodule Aiur.LandingWatch.MergeGroupLastingFailureTest do
 
   @forbidden {:github, :http, %{status: 403}}
 
+  test "a completed run for a deleted group is ignored for queue health" do
+    options = options(fn _, _ -> flunk("dead group failure log was read") end)
+    request = options[:request_fun]
+
+    opts =
+      Keyword.put(options, :request_fun, fn call ->
+        if String.contains?(call.url, "matching-refs") do
+          {:ok, %{status: 200, body: []}}
+        else
+          request.(call)
+        end
+      end)
+
+    assert :ok = MergeGroups.cancel_stale([], opts)
+    refute_received {:log_read, _}
+    refute_received {:rework, _}
+  end
+
   test "a run that keeps failing does not hold back later runs in the same poll" do
     options = options(fn %{"id" => 5010}, _ -> {:error, @forbidden} end)
 
@@ -86,10 +104,14 @@ defmodule Aiur.LandingWatch.MergeGroupLastingFailureTest do
     journal = Path.join(System.tmp_dir!(), "landing-watch-lasting-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(journal) end)
 
-    request = fn %{method: :get, url: url} ->
-      if String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed"),
-        do: {:ok, %{status: 200, body: %{"workflow_runs" => [group_run(501, "pr-17-a"), group_run(502, "pr-18-b")]}}},
-        else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}, %{"ref" => "refs/heads/gh-readonly-queue/main/pr-18-b"}]}}
+
+      %{method: :get, url: url} ->
+        if String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed"),
+          do: {:ok, %{status: 200, body: %{"workflow_runs" => [group_run(501, "pr-17-a"), group_run(502, "pr-18-b")]}}},
+          else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
     end
 
     [

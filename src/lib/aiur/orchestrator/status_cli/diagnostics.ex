@@ -16,10 +16,13 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   def print_global_pause_banner(opts, timeout_ms) do
     result =
       Keyword.get_lazy(opts, :global_pause_status, fn ->
-        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+        Orchestrator.global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms)
       end)
 
     case result do
+      {:ok, %{pause_scope: :fleet}} ->
+        IO.puts("paused (fleet) — no agents will be provisioned (run `aiur resume --all-gateways` to lift)")
+
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance =
           [format_pause_source(source), format_pause_time(paused_at)]
@@ -29,6 +32,8 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         suffix = if provenance == "", do: "", else: " (#{provenance})"
 
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+        if match?({:ok, %{pause_scope: :both}}, result), do: IO.puts("paused (fleet) — also held by the fleet pause")
+        :ok
 
       {:ok, _} ->
         :ok
@@ -133,33 +138,28 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         holders = Map.get(status, :holders, [])
         retain_seconds = Map.get(status, :retain_seconds)
 
-        # A slot whose command process group is gone is not doing work: render
-        # it apart from genuinely-busy slots so `BUILD GATE n/n active` never
-        # reads as a confident wrong number (#2349).
-        leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
-
-        retain_suffix =
-          if is_integer(retain_seconds) do
-            ", retain_seconds=#{retain_seconds}"
-          else
-            ""
-          end
-
-        line =
-          if leaked > 0 do
-            "BUILD GATE #{active - leaked}/#{capacity} active, #{leaked} held without a command, " <>
-              "#{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
-          else
-            "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
-          end
-
-        IO.puts(line)
-        print_build_gate_holders(holders)
-        print_build_gate_timeouts(Map.get(status, :timeouts, []))
+        print_active_build_gate(capacity, active, queued, holders, retain_seconds, status)
 
       _ ->
         :ok
     end
+  end
+
+  defp print_active_build_gate(capacity, active, queued, holders, retain_seconds, status) do
+    leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
+    retain_suffix = if is_integer(retain_seconds), do: ", retain_seconds=#{retain_seconds}", else: ""
+
+    line =
+      if leaked > 0 do
+        "BUILD GATE #{active - leaked}/#{capacity} active, #{leaked} held without a command, " <>
+          "#{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
+      else
+        "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
+      end
+
+    IO.puts(line)
+    print_build_gate_holders(holders)
+    print_build_gate_timeouts(Map.get(status, :timeouts, []))
   end
 
   # Name every lease currently held or queued so an operator can tell a
@@ -172,8 +172,8 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
 
   defp print_build_gate_holder(%{kind: :slot} = holder) do
     identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
-    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: if(Map.get(holder, :command_alive?) == nil, do: " (command liveness unknown)", else: "")
-    print_build_gate_line("HOLDER", identifiers, holder, "held", annotation)
+
+    print_build_gate_line("HOLDER", identifiers, holder, "held", holder_liveness_annotation(holder))
   end
 
   defp print_build_gate_holder(%{kind: :queue} = holder) do
@@ -181,6 +181,15 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   end
 
   defp print_build_gate_holder(_holder), do: :ok
+
+  defp holder_liveness_annotation(%{lease_alive?: true, command_alive?: false}),
+    do: " (command gone; lease locked)"
+
+  defp holder_liveness_annotation(%{lease_alive?: true}), do: " (lease locked)"
+  defp holder_liveness_annotation(%{lease_alive?: false}), do: " (lease unlocked)"
+  defp holder_liveness_annotation(%{command_alive?: false}), do: " (command gone)"
+  defp holder_liveness_annotation(%{command_alive?: nil}), do: " (command liveness unknown)"
+  defp holder_liveness_annotation(_holder), do: ""
 
   # A `slot-N.hold-timeout` marker means the detached holder released the lease
   # at the absolute max-hold cap (#2349). Surface it so `aiur status` shows a
@@ -201,8 +210,10 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   defp print_build_gate_line(kind, identifiers, holder, duration_label, annotation) do
     with pid when is_integer(pid) <- Map.get(holder, :pid),
          command when is_binary(command) <- Map.get(holder, :command) do
+      phase = if is_binary(Map.get(holder, :phase)), do: " phase=#{Map.get(holder, :phase)}", else: ""
+
       IO.puts(
-        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
+        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")}#{phase} command=#{inspect(command)} " <>
           "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}#{annotation}"
       )
     else
@@ -266,7 +277,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
     if Config.prewarm_enabled?() do
       case prewarm_status_safe() do
         {phase, _base} when phase in @prewarm_warming_phases ->
-          IO.puts("PREWARM prewarm: warming phase=#{phase} — dispatch held while the base build completes")
+          IO.puts("PREWARM prewarm: warming phase=#{phase}#{prewarm_phase_age()} — dispatch held while the base build completes")
 
         {{:error, reason}, _base} ->
           IO.puts("PREWARM prewarm: unavailable reason=#{inspect(reason)} — dispatching via cold clone")
@@ -275,6 +286,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
           :ok
       end
     end
+  end
+
+  # A long phase is the stall signal (#8100); an unreadable age prints nothing.
+  defp prewarm_phase_age do
+    case div(RepoBase.phase_age_ms(), 1000) do
+      seconds when seconds < 60 -> " for #{seconds}s"
+      seconds -> " for #{div(seconds, 60)}m"
+    end
+  rescue
+    _ -> ""
+  catch
+    :exit, _ -> ""
   end
 
   defp prewarm_status_safe do

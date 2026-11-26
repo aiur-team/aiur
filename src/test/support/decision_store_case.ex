@@ -90,17 +90,24 @@ defmodule Aiur.DecisionStoreCase do
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    %{dir: dir}
+    %{dir: dir, original_decision_state_dir: original_override}
   end
 
   def start_store!(dir, opts \\ []) do
-    Application.put_env(:aiur, :decision_state_dir, dir)
-
-    start_opts =
-      Keyword.merge([name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end], opts)
-
-    {:ok, pid} = DecisionStore.start_link(start_opts)
+    {:ok, pid} = DecisionStore.start_link(store_opts(dir, opts))
     pid
+  end
+
+  # Use instead of start_store! plus an on_exit `alive?`-then-`stop`: a linked store dies
+  # with the test process's :shutdown, so that stop races it and fails with `(EXIT) shutdown` (#7024).
+  # ExUnit stops supervised children before on_exit callbacks run.
+  def start_supervised_store!(dir, opts \\ []) do
+    ExUnit.Callbacks.start_supervised!(Supervisor.child_spec({DecisionStore, store_opts(dir, opts)}, id: make_ref(), restart: :temporary))
+  end
+
+  defp store_opts(dir, opts) do
+    Application.put_env(:aiur, :decision_state_dir, dir)
+    Keyword.merge([name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end], opts)
   end
 
   def request(pid, payload, opts \\ []) do

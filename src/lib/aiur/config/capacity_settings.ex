@@ -1,7 +1,9 @@
 defmodule Aiur.Config.CapacitySettings do
   @moduledoc false
 
-  alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.{Config.Schema.AgentValidation, SystemCgroup}
+
+  @default_agent_memory_estimate_mb 4_096
 
   @spec max_concurrent_agents_for_state(term()) :: pos_integer()
   def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
@@ -29,36 +31,64 @@ defmodule Aiur.Config.CapacitySettings do
   @doc """
   Ceiling for new fleet admissions, derived from measured host capacity when the
   workflow omits `max_concurrent_agents`. Explicit config always wins; see
-  `default_max_concurrent_agents/1` for the calibration.
+  `default_max_concurrent_agents/2` for the CPU and container-memory rules.
   """
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
     case Aiur.Config.settings!().agent.max_concurrent_agents do
       n when is_integer(n) and n > 0 -> n
-      _other -> default_max_concurrent_agents()
+      _other -> default_max_concurrent_agents(default_capacity_schedulers(), SystemCgroup.memory_max_bytes())
     end
   end
 
   @doc """
-  Default fleet admission ceiling calibrated from measured host capacity rather
-  than a hard-coded global agent count.
+  Default fleet admission ceiling uses the CPU calibration and, under cgroup v2,
+  the memory limit divided by the named per-agent working estimate. Explicit
+  config always takes precedence.
 
   The 2026-07-31 capacity run found a 16-core host saturates near ~19-20
-  concurrent agents (load ~14 of 16), so the calibration is
-  `schedulers + schedulers / 4` (16 → 20), floored at 2. This is a ceiling the
-  load envelope adaptively backs off from under pressure, not a guaranteed
-  concurrency target.
+  concurrent agents (load ~14 of 16), so the CPU rule is
+  `schedulers + schedulers / 4` (16 → 20), floored at 2. In cgroup v2, the
+  final cap is the minimum of that CPU rule and `memory.max` divided by the
+  4 GiB per-agent working estimate. The load envelope backs off from this
+  ceiling under pressure; it is not a guaranteed concurrency target.
   """
   @spec default_max_concurrent_agents() :: pos_integer()
-  @spec default_max_concurrent_agents(pos_integer()) :: pos_integer()
-  def default_max_concurrent_agents(schedulers \\ System.schedulers_online())
+  def default_max_concurrent_agents, do: default_max_concurrent_agents(default_capacity_schedulers(), SystemCgroup.memory_max_bytes())
 
+  @spec default_max_concurrent_agents(integer()) :: pos_integer()
   def default_max_concurrent_agents(schedulers)
       when is_integer(schedulers) and schedulers > 0 do
-    max(schedulers + div(schedulers, 4), 2)
+    cpu_concurrency_limit(schedulers)
   end
 
   def default_max_concurrent_agents(_schedulers), do: 2
+
+  @spec default_max_concurrent_agents(integer(), integer() | :unavailable) :: pos_integer()
+  def default_max_concurrent_agents(schedulers, memory_max_bytes) do
+    cpu_limit = cpu_concurrency_limit(schedulers)
+
+    case memory_max_bytes do
+      maximum when is_integer(maximum) and maximum > 0 -> min(cpu_limit, max(1, div(maximum, @default_agent_memory_estimate_mb * 1_048_576)))
+      _ -> cpu_limit
+    end
+  end
+
+  @doc "Named working estimate in MiB for one concurrent agent, used by the cgroup default cap."
+  @spec default_agent_memory_estimate_mb() :: pos_integer()
+  def default_agent_memory_estimate_mb, do: @default_agent_memory_estimate_mb
+
+  defp cpu_concurrency_limit(schedulers) when is_integer(schedulers) and schedulers > 0,
+    do: max(schedulers + div(schedulers, 4), 2)
+
+  defp cpu_concurrency_limit(_schedulers), do: 2
+
+  defp default_capacity_schedulers do
+    case SystemCgroup.cpu_quota() do
+      quota when is_number(quota) -> max(1, floor(quota))
+      :unavailable -> System.schedulers_online()
+    end
+  end
 
   @doc """
   Per-scheduler runnable-process ceiling for the instantaneous run-queue
@@ -93,6 +123,10 @@ defmodule Aiur.Config.CapacitySettings do
   def min_free_memory_mb do
     Aiur.Config.settings!().agent.min_free_memory_mb
   end
+
+  @doc "Cgroup v2 memory usage fraction above which new dispatch is held."
+  @spec cgroup_memory_threshold() :: float() | nil
+  def cgroup_memory_threshold, do: Aiur.Config.settings!().agent.cgroup_memory_threshold
 
   @doc """
   Absolute wall-clock cap (seconds) on how long any one build-gate slot may be

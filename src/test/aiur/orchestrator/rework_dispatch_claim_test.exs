@@ -3,7 +3,8 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Tracker, Workflow}
-  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, StartupClaimReconciler, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, RetryEngine, StartupClaimReconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.Dispatcher.Launch
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -94,6 +95,54 @@ defmodule Aiur.Orchestrator.ReworkDispatchClaimTest do
     refute_received {:memory_tracker_state_update, ^issue_id, _}
     refute_received {:ticket_transition, [:aiur, :ticket_transition], _, _}
     refute_received {:runner_issue, _}
+  end
+
+  test "completed-runner replacement keeps a rework claim while its tracker write is pending" do
+    issue = issue("completed-rework-replacement", "rework")
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+    parent = self()
+    claimed_state = %{dispatch_state() | claimed: MapSet.new([issue.id])}
+
+    pending =
+      TrackerTasks.start(
+        claimed_state,
+        {:rework_claim, issue.id},
+        fn ->
+          send(parent, {:claim_write_started, self()})
+          receive do: (:finish_claim_write -> :ok)
+        end,
+        fn current, result ->
+          if result == :ok do
+            Dispatcher.do_dispatch_issue(current, issue, nil, nil, runner: fn dispatched, _recipient, _opts -> send(parent, {:replacement_runner, dispatched}) end)
+          else
+            current
+          end
+        end
+      )
+
+    assert_receive {:claim_write_started, claim_pid}, 1_000
+
+    {recovered, decision} =
+      Launch.recover_orphaned_claim(
+        pending,
+        issue,
+        DispatchPolicy.active_state_set(),
+        DispatchPolicy.terminal_state_set()
+      )
+
+    assert decision == {:skip, :claimed_without_runtime}
+    assert recovered == pending
+    assert MapSet.member?(recovered.claimed, issue.id)
+
+    send(claim_pid, :finish_claim_write)
+    [{claim_ref, _job}] = Map.to_list(recovered.tracker_tasks)
+    assert {:handled, started} = TrackerTasks.result(recovered, claim_ref, :ok)
+
+    assert_receive {:replacement_runner, %Issue{state: "rework"}}, 1_000
+    assert Map.has_key?(started.running, issue.id)
+    assert MapSet.member?(started.claimed, issue.id)
+    refute TrackerTasks.running?(started, {:rework_claim, issue.id})
+    refute_received {:replacement_runner, _}
   end
 
   test "captures the rework head only after claiming and preserves it on retry" do
@@ -363,7 +412,7 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_cached_token = :persistent_term.get(token_key, :unset)
     :persistent_term.erase(token_key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")
@@ -390,27 +439,33 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
   # change, so the mutation check below counts only the dispatch tests above.
   test "regression guard: promoting rework preserves the independent agent:paused marker" do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["agent:rework", "agent:paused"] end)
 
     request_fun = fn request ->
       send(parent, {:request, request})
 
       case request.method do
         :get ->
+          current_labels = Agent.get(labels, & &1)
+
           {:ok,
            %{
              status: 200,
              body: %{
                "state" => "open",
-               "labels" => [%{"name" => "agent:rework"}, %{"name" => "agent:paused"}]
+               "labels" => Enum.map(current_labels, &%{"name" => &1})
              }
            }}
 
         :post ->
           assert request.body == %{"labels" => ["agent:in-progress"]}
+          Agent.update(labels, &Enum.uniq(request.body["labels"] ++ &1))
           {:ok, %{status: 200}}
 
         :delete ->
           refute String.ends_with?(request.url, "/agent:paused")
+          label = request.url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(labels, &List.delete(&1, label))
           {:ok, %{status: 200}}
       end
     end
@@ -424,5 +479,6 @@ defmodule Aiur.Orchestrator.ReworkDispatchPausedLabelTest do
     assert_received {:request, %{method: :post}}
     assert_received {:request, %{method: :delete, url: url}}
     assert String.ends_with?(url, "/agent:rework")
+    assert_received {:request, %{method: :get}}
   end
 end

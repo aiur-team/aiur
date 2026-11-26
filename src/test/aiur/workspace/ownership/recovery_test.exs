@@ -4,8 +4,133 @@ defmodule Aiur.Workspace.Ownership.RecoveryTest do
   import ExUnit.CaptureIO
 
   alias Aiur.AgentControlCLI
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.{AuditLog, Guardian, HoldStatus, Store}
+
+  @tag :real_proc
+  test "dead local lock pid proves exit for audited operator recovery" do
+    ticket = "ownership-dead-pid-#{System.unique_integer([:positive])}"
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-dead-pid-audit"), "#{ticket}.ndjson")
+
+    audit_fun = fn record ->
+      case Agent.get_and_update(calls, fn n -> {n, n + 1} end) do
+        0 -> {:error, :temporary_failure}
+        _ -> AuditLog.write(record, path: audit_path)
+      end
+    end
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(calls)
+      File.rm(audit_path)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun)
+    assert :ok = Ownership.expect_provider(lease, :local)
+    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: DateTime.add(DateTime.utc_now(), -1, :day) |> DateTime.to_iso8601()}
+    assert :ok = Ownership.track_host_lock(lease, %{path: "/unused/#{ticket}.lock", workspace: "/unused/#{ticket}", holder: holder})
+    assert {:ok, receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:ok, _held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert %{proof: :owner_pid_dead} = HoldStatus.for_ticket(ticket)
+
+    output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, lease.generation) end)
+    assert output =~ "proof=owner_pid_dead"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+    assert [line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, record} = Jason.decode(line)
+    assert record["proof"] == "owner_pid_dead"
+  end
+
+  @tag :real_proc
+  test "dead local lock pid auto-releases with audit and telemetry" do
+    ticket = "ownership-dead-pid-auto-#{System.unique_integer([:positive])}"
+    {:ok, telemetry} = Agent.start_link(fn -> [] end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-dead-pid-auto-audit"), "#{ticket}.ndjson")
+    telemetry_fun = fn ownership, boundary, outcome -> Agent.update(telemetry, &[{ownership, boundary, outcome} | &1]) end
+    audit_fun = &AuditLog.write(&1, path: audit_path)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(telemetry)
+      File.rm(audit_path)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun, telemetry_fun: telemetry_fun)
+    assert :ok = Ownership.expect_provider(lease, :local)
+    holder = %{node: to_string(Node.self()), os_pid: 2_000_000_000, ticket: ticket, owner_id: "old-host-lock", acquired_at: DateTime.add(DateTime.utc_now(), -1, :day) |> DateTime.to_iso8601()}
+    host_lock = %{path: "/unused/#{ticket}.lock", workspace: "/unused/#{ticket}", holder: holder}
+    assert :owner_pid_dead = HostLock.dead_owner_proof(holder, to_string(Node.self()), host_lock)
+    assert :ok = Ownership.track_host_lock(lease, host_lock)
+    assert {:ok, receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:ok, _restored} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, audit_fun: audit_fun, telemetry_fun: telemetry_fun)
+    assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+
+    assert Enum.any?(Agent.get(telemetry, & &1), fn
+             {%{generation: generation}, :point, :automatic_release_after_provider_exit_proof} -> generation == lease.generation
+             _ -> false
+           end)
+
+    assert [line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, record} = Jason.decode(line)
+    assert record["action"] == "workspace_hold_auto_release"
+    assert record["proof"] == "owner_pid_dead"
+  end
+
+  @tag :real_proc
+  test "a replacement live lock keeps the hold and reports the owner check that failed" do
+    ticket = "ownership-relocked-#{System.unique_integer([:positive])}"
+    workspace = Path.join(Aiur.TestSupport.tmp_root!("workspace-relocked"), ticket)
+
+    on_exit(fn ->
+      case Ownership.current(ticket) do
+        {:ok, %{guardian: guardian}} when is_pid(guardian) -> Process.exit(guardian, :kill)
+        _ -> :ok
+      end
+
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry)
+    assert lease.owner_id == "workspace:#{lease.generation}"
+    assert :ok = Ownership.expect_provider(lease, :local)
+    assert {:ok, live_lock} = HostLock.acquire(workspace, ticket)
+
+    stale_holder = %{
+      node: to_string(Node.self()),
+      os_pid: 2_000_000_000,
+      ticket: ticket,
+      owner_id: "previous-lock-owner",
+      acquired_at: DateTime.add(DateTime.utc_now(), -1, :day) |> DateTime.to_iso8601()
+    }
+
+    assert stale_holder.owner_id != lease.owner_id
+    assert :ok = Ownership.track_host_lock(lease, %{live_lock | holder: stale_holder})
+    assert {:ok, receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:ok, held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, audit_fun: fn _ -> :ok end)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    assert %{proof: :same_boot, check_failed: :owner_not_stale} = HoldStatus.for_ticket(ticket)
+    output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, lease.generation) end)
+    assert output =~ "check_failed=owner_not_stale"
+    assert output =~ "the lock file names a different owner"
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    Process.exit(held.guardian, :kill)
+    assert :ok = HostLock.release(live_lock)
+  end
 
   test "a local unknown provider auto-releases after a verified reboot when audit persists" do
     ticket = "ownership-reboot-proof-#{System.unique_integer([:positive])}"

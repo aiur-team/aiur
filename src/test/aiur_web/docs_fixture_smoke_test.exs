@@ -7,7 +7,7 @@ defmodule AiurWeb.DocsFixtureSmokeTest do
   @moduletag timeout: 180_000
   @fixture "test/manual/executor_control_center_docs_fixture.exs"
 
-  test "the docs fixture boots and renders the dashboard root" do
+  test "the docs fixture serves Build at home and its alias without the retired Units board" do
     port = free_port()
     tmp = Path.join(System.tmp_dir!(), "aiur-docs-fixture-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
@@ -29,19 +29,19 @@ defmodule AiurWeb.DocsFixtureSmokeTest do
     {:os_pid, os_pid} = Port.info(fixture, :os_pid)
     on_exit(fn -> System.cmd("kill", ["-KILL", "#{os_pid}"], stderr_to_stdout: true) end)
 
-    body = await_root(fixture, "http://127.0.0.1:#{port}/", System.monotonic_time(:millisecond) + 150_000, "")
-
-    assert body =~ "Aiur"
-    assert body =~ "example-org"
+    for path <- ["/", "/build"] do
+      body = await_page(fixture, "http://127.0.0.1:#{port}#{path}", System.monotonic_time(:millisecond) + 150_000, "")
+      assert body =~ ~s(id="build-root")
+    end
   end
 
-  defp await_root(fixture, url, deadline, output) do
+  defp await_page(fixture, url, deadline, output) do
     receive do
       {^fixture, {:data, chunk}} ->
-        await_root(fixture, url, deadline, output <> chunk)
+        await_page(fixture, url, deadline, output <> chunk)
 
       {^fixture, {:exit_status, status}} ->
-        flunk("docs fixture exited with #{status} before serving /:\n#{String.slice(output, -4_000, 4_000)}")
+        flunk("docs fixture exited with #{status} before serving #{url}:\n#{String.slice(output, -4_000, 4_000)}")
     after
       500 ->
         case Req.get(url, auth: {:basic, "example:example"}, retry: false, receive_timeout: 10_000) do
@@ -50,8 +50,8 @@ defmodule AiurWeb.DocsFixtureSmokeTest do
 
           _not_ready ->
             if System.monotonic_time(:millisecond) > deadline,
-              do: flunk("docs fixture never served /:\n#{String.slice(output, -4_000, 4_000)}"),
-              else: await_root(fixture, url, deadline, output)
+              do: flunk("docs fixture never served #{url}:\n#{String.slice(output, -4_000, 4_000)}"),
+              else: await_page(fixture, url, deadline, output)
         end
     end
   end

@@ -15,7 +15,7 @@ defmodule Aiur.TmuxAgentSocketTest do
     end)
 
     assert {:ok, daemon_pane} = Tmux.new_hidden_window(daemon, "daemon", "sleep 120")
-    assert {:ok, agent_pane} = Tmux.new_hidden_window_with_env(agent, "aiur-repl-test", "sleep 120", [{"REPL_SOCKET_TEST", "yes"}])
+    assert {:ok, agent_pane} = timed_tmux(server, fn -> Tmux.new_hidden_window_with_env(agent, "aiur-repl-test", "sleep 120", [{"REPL_SOCKET_TEST", "yes"}]) end)
     assert daemon_pane == agent_pane
     assert {:ok, daemon_pid} = Tmux.pane_pid(daemon, daemon_pane)
     assert {:ok, agent_pid} = Tmux.pane_pid(agent, agent_pane)
@@ -57,6 +57,52 @@ defmodule Aiur.TmuxAgentSocketTest do
     assert {_, 0} = System.cmd("tmux", ["-L", wrapper, "send-keys", "-t", "driver", "C-q"])
     assert eventually(fn -> System.cmd("tmux", ["-L", socket, "list-clients"]) == {"", 0} end)
     assert {:ok, _pid} = Tmux.pane_pid(agent, pane)
+  end
+
+  # #7282 diagnostic: an isolated trace session times every tmux exec the Tmux server runs
+  # during `fun`, and prints them when the call fails or takes over 5 s.
+  defp timed_tmux(server, fun) do
+    session = :trace.session_create(:tmux_agent_socket_diag, self(), [])
+    :trace.function(session, {System, :cmd, 3}, [{:_, [], [{:return_trace}]}], [:global])
+    :trace.process(session, server, true, [:call, :monotonic_timestamp])
+    started = System.monotonic_time()
+    result = fun.()
+    elapsed = System.convert_time_unit(System.monotonic_time() - started, :native, :millisecond)
+    :trace.session_destroy(session)
+    execs = drain_tmux_trace([])
+    if not match?({:ok, _}, result) or elapsed > 5_000, do: IO.puts(tmux_report(result, elapsed, execs))
+    result
+  end
+
+  defp drain_tmux_trace(acc) do
+    receive do
+      {:trace_ts, _pid, :call, {System, :cmd, [_bin, args, _opts]}, ts} -> drain_tmux_trace([{:call, args, ts} | acc])
+      {:trace_ts, _pid, :return_from, {System, :cmd, 3}, {_out, status}, ts} -> drain_tmux_trace([{:return, status, ts} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp tmux_report(result, elapsed, execs) do
+    {nproc, _} = System.cmd("nproc", [])
+    loadavg = File.read!("/proc/loadavg")
+    ms = &System.convert_time_unit(&1, :native, :millisecond)
+
+    lines =
+      execs
+      |> Enum.chunk_while(
+        nil,
+        fn
+          {:call, args, t0}, nil -> {:cont, {args, t0}}
+          {:return, status, t1}, {args, t0} -> {:cont, "#{ms.(t1 - t0)} ms exit=#{status} tmux #{Enum.join(args, " ")}", nil}
+        end,
+        fn
+          nil -> {:cont, nil}
+          {args, _t0} -> {:cont, "still running exit=none tmux #{Enum.join(args, " ")}", nil}
+        end
+      )
+
+    Enum.join(["tmux-diag #7282: #{inspect(result)} after #{elapsed} ms; nproc=#{String.trim(nproc)} loadavg=#{String.trim(loadavg)}" | Enum.map(lines, &("tmux-diag   " <> &1))], "\n")
   end
 
   defp eventually(check, remaining \\ 100)

@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   map. It makes no request and writes no state.
   """
 
-  alias Aiur.Events.GithubCIPoller.RequiredVerdict
+  alias Aiur.Events.GithubCIPoller.{CancelledRun, RequiredVerdict}
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
@@ -42,7 +42,9 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
         true -> {:pending, :ci_not_observed}
       end
 
-    evaluation(classification, failed_checks)
+    classification
+    |> evaluation(failed_checks)
+    |> Map.put(:check_runs, check_runs)
   end
 
   # A failure that started before the PR's last reopen describes a run the
@@ -67,7 +69,10 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
       check_runs
       |> blocking_check_runs()
       |> latest_check_runs_per_workflow_and_name()
-      |> Enum.filter(&(Map.get(&1, "status") == "completed" and Map.get(&1, "conclusion") in @failed_conclusions))
+      |> Enum.filter(
+        &(Map.get(&1, "status") == "completed" and
+            Map.get(&1, "conclusion") in @failed_conclusions)
+      )
       |> Enum.map(&failure_evidence_timestamp/1)
 
     status_times =
@@ -80,16 +85,35 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   end
 
   defp failure_evidence_timestamp(evidence) do
-    timestamp_seconds(Map.get(evidence, "started_at") || Map.get(evidence, "created_at") || get_in(evidence, ["check_suite", "created_at"]))
+    timestamp_seconds(
+      Map.get(evidence, "started_at") || Map.get(evidence, "created_at") ||
+        get_in(evidence, ["check_suite", "created_at"])
+    )
   end
 
   # Callers reach this only after reading the head sha, so its absence is a bug.
   @doc false
   @spec enforce_required_checks(map(), [map()], map(), map(), keyword()) :: map()
-  def enforce_required_checks(result, check_runs, commit_status, %{"head" => %{"sha" => head_sha}} = pr, opts) do
+  def enforce_required_checks(
+        result,
+        check_runs,
+        commit_status,
+        %{"head" => %{"sha" => head_sha}} = pr,
+        opts
+      ) do
     runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
 
-    result |> RequiredVerdict.settle(runs, head_sha, opts) |> enforce_queue_state(pr) |> enforce_passed(runs, commit_status, pr, opts)
+    settled = RequiredVerdict.settle(result, runs, head_sha, opts)
+
+    cancelled_run? = CancelledRun.cancelled?(%{"event" => "pull_request"}, runs)
+
+    if cancelled_run? do
+      settled
+    else
+      settled
+      |> enforce_queue_state(pr)
+      |> enforce_passed(runs, commit_status, pr, opts)
+    end
   end
 
   # A skipped draft job satisfies GitHub's check state but never proves the full suite ran.
@@ -114,7 +138,11 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
         end
 
       {false, false, {:error, reason}} ->
-        Map.merge(result, %{decision: :pending, pending_reason: :required_checks_unavailable, error: reason})
+        Map.merge(result, %{
+          decision: :pending,
+          pending_reason: :required_checks_unavailable,
+          error: reason
+        })
     end
   end
 
@@ -122,7 +150,11 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
 
   defp enforce_queue_state(result, pr) do
     if unmergeable_queue_entry?(merge_queue_observation(pr)) do
-      Map.merge(result, %{decision: :failed, pending_reason: :merge_queue_failed, failures: [%{name: "merge queue", kind: "merge_queue", result: "UNMERGEABLE"}]})
+      Map.merge(result, %{
+        decision: :failed,
+        pending_reason: :merge_queue_failed,
+        failures: [%{name: "merge queue", kind: "merge_queue", result: "UNMERGEABLE"}]
+      })
     else
       result
     end
@@ -164,9 +196,8 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   # failure is not a failure of the head — the current run is the verdict — so
   # the gate considers only the latest run per (workflow, name) (#2337 cause 4).
   #
-  # The workflow scope is `check_suite.id`: GitHub re-runs of the same workflow
-  # reuse the suite id, while different workflows (ci, website, streamdeck,
-  # netlify…) each own a distinct suite. Keying on name alone would collapse a
+  # Workflow identity comes from GitHub's workflow id when present; check suite
+  # identity is the fallback for non-Actions runs. Keying on name alone would collapse a
   # same-named job across workflows — ci.yml's `build` and
   # streamdeck-package.yml's `build` land on one head sha, and a failing
   # required `build` could be dropped by a later-starting green one from the
@@ -196,7 +227,9 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   # Keeps the newer run for a key when both a superseded and the current run of
   # the same workflow reported on the head sha.
   defp put_latest_check_run(latest, key, run, current) do
-    updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
+    updated =
+      if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
+
     Map.put(latest, key, updated)
   end
 
@@ -206,9 +239,15 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   # check-runs read. Absent either, the run's own id scopes it so same-named
   # suite-less runs are never collapsed together.
   defp check_run_workflow(check_run) do
-    case Map.get(check_run, "check_suite_id") || get_in(check_run, ["check_suite", "id"]) do
-      id when not is_nil(id) -> {:suite, id}
-      _other -> {:run, Map.get(check_run, "id")}
+    case Map.get(check_run, "workflow_id") do
+      id when not is_nil(id) ->
+        {:workflow, id}
+
+      _ ->
+        case Map.get(check_run, "check_suite_id") || get_in(check_run, ["check_suite", "id"]) do
+          id when not is_nil(id) -> {:suite, id}
+          _ -> {:run, Map.get(check_run, "id")}
+        end
     end
   end
 
@@ -220,7 +259,9 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
 
   @doc "True for check names that CI marks with the `(non-blocking)` suffix."
   @spec non_blocking_name?(term()) :: boolean()
-  def non_blocking_name?(name) when is_binary(name), do: name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+  def non_blocking_name?(name) when is_binary(name),
+    do: name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+
   def non_blocking_name?(_name), do: false
 
   defp blocking_check_runs(check_runs) do
@@ -238,7 +279,8 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   end
 
   @doc false
-  @spec enforce_base_repair_invalidation(map(), term(), String.t(), [map()], map(), keyword()) :: map()
+  @spec enforce_base_repair_invalidation(map(), term(), String.t(), [map()], map(), keyword()) ::
+          map()
   def enforce_base_repair_invalidation(result, target, head_sha, check_runs, commit_status, opts) do
     invalidations = Keyword.get(opts, :base_repair_invalidations, %{})
 
@@ -273,7 +315,8 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   end
 
   defp apply_base_repair_invalidation(result, check_runs, commit_status, repaired_at) do
-    if result.decision in [:passed, :failed] and post_repair_ci?(check_runs, commit_status, repaired_at) do
+    if result.decision in [:passed, :failed] and
+         post_repair_ci?(check_runs, commit_status, repaired_at) do
       Map.put(result, :base_repair_revalidated, true)
     else
       result
@@ -355,10 +398,15 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     output = Map.get(check, "output", %{})
 
     %{
+      id: Map.get(check, "id"),
       name: Map.get(check, "name") || Map.get(check, "context") || "unnamed check",
       kind: kind,
       result: result,
-      url: Map.get(check, "details_url") || Map.get(check, "html_url") || Map.get(check, "target_url"),
+      started_at: Map.get(check, "started_at"),
+      completed_at: Map.get(check, "completed_at"),
+      url:
+        Map.get(check, "details_url") || Map.get(check, "html_url") ||
+          Map.get(check, "target_url"),
       excerpt: Map.get(output, "summary") || Map.get(output, "text") || Map.get(check, "description")
     }
   end
@@ -373,10 +421,13 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   end
 
   defp incomplete_commit_statuses?(statuses) do
-    Enum.any?(statuses, fn status -> Map.get(status, "state") not in ["success" | @failed_statuses] end)
+    Enum.any?(statuses, fn status ->
+      Map.get(status, "state") not in ["success" | @failed_statuses]
+    end)
   end
 
-  defp incomplete_combined_status?(%{"state" => state, "statuses" => [_ | _]}) when is_binary(state) do
+  defp incomplete_combined_status?(%{"state" => state, "statuses" => [_ | _]})
+       when is_binary(state) do
     state not in ["success" | @failed_statuses]
   end
 
@@ -386,5 +437,6 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
        when is_binary(state) and state != "",
        do: check_runs != [] or statuses != [] or state in ["success" | @failed_statuses]
 
-  defp observed_ci_signal?(check_runs, statuses, _commit_status), do: check_runs != [] or statuses != []
+  defp observed_ci_signal?(check_runs, statuses, _commit_status),
+    do: check_runs != [] or statuses != []
 end

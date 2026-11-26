@@ -64,6 +64,27 @@
   min-width: 0;
 }
 
+/* The list is a plain card in every tab, on the card surface: no dotted grid and no inner shadow. */
+#build-root.list-view .bd-vp { background: var(--surface) !important; box-shadow: none; }
+.lr.fp-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) 80px 96px; }
+.lr.ln-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 96px 170px; }
+.lr.fp-row { cursor: default; }
+.lr.fp-go:hover, .lr.ep-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.lr.fp-go { cursor: pointer; }
+.lr.fp-go:focus-visible, .lr.ep-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fp-name, .ep-name b { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .86rem; font-weight: 550; color: var(--fg); }
+.ep-name { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.fp-count, .fp-left, .ep-left, .ep-count { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; font: .72rem "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); }
+.fp-left, .ep-left { color: var(--fg); }
+.fp-all .fp-name { font-weight: 700; }
+.lr-cap { padding: .7rem 1rem; color: var(--muted); font: .68rem/1.6 "JetBrains Mono", monospace; }
+.bd-ep-empty { max-width: 650px; margin: 3rem auto; padding: 1.5rem; text-align: center; color: var(--muted); }
+.bd-ep-empty a { display: inline-block; margin: .8rem; color: var(--accent); }
+@container (max-width: 640px) {
+  .lr.fp-grid, .lr.ln-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) 56px; }
+  .fp-left, .ep-count { display: none; }
+}
+
 /* C:742 */ .lr {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr) 150px 170px 120px 150px 64px;
@@ -94,8 +115,17 @@
   font: 700 .6rem "JetBrains Mono", monospace;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
 }
+
+/* #7758: the Live group never scrolls out of view. */ .lr-live {
+  position: sticky;
+  top: 36px;
+  bottom: 0;
+  z-index: 2;
+  background: var(--board-bg, var(--surface-2));
+}
+/* --faint misses 4.5:1 on the now-opaque Live background. */ .lr-live .lh em { color: var(--muted); }
 
 /* C:746 */ .lh {
   display: flex;
@@ -177,9 +207,13 @@
   width: 7px;
   height: 7px;
   flex: none;
-  transform: rotate(45deg);
-  border-radius: 1px;
-  background: oklch(.66 .14 var(--ft));
+  color: oklch(.66 .14 var(--ft));
+}
+.lr-f svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  transform: translate(-3px, -3px);
 }
 
 /* C:757 */ .c-ep, .lr-mu {
@@ -444,4 +478,3 @@
     grid-template-columns: 1fr !important;
   }
 }
-

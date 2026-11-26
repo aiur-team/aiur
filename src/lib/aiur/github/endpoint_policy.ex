@@ -36,6 +36,12 @@ defmodule Aiur.GitHub.EndpointPolicy do
     {"labels", "core", true},
     {"comments", "core", true},
     {"reviews", "core", true},
+    {"repository", "core", true},
+    {"user", "core", true},
+    {"users", "core", true},
+    {"orgs", "core", true},
+    {"app", "core", true},
+    {"installation", "core", true},
     {"rest", "core", true}
   ]
 
@@ -57,12 +63,28 @@ defmodule Aiur.GitHub.EndpointPolicy do
       # search rate limit became a fleet-wide `core` hold that denied dispatch
       # authorization (#2409).
       "/search/" <> _path -> "search"
-      "/repos/" <> path -> path |> String.split("/", trim: true) |> Enum.at(2, "rest")
+      "/repos/" <> path -> repository_family(path)
+      "/" <> path -> global_route_family(path)
       _path -> "rest"
     end
   end
 
   def endpoint_family(_url), do: "rest"
+
+  defp repository_family(path) do
+    case String.split(path, "/", trim: true) do
+      [_owner, _repo] -> "repository"
+      [_owner, _repo, family | _rest] -> family
+      _invalid -> "rest"
+    end
+  end
+
+  defp global_route_family(path) do
+    case String.split(path, "/", trim: true) do
+      [family | _rest] -> family
+      _empty -> "rest"
+    end
+  end
 
   @doc "The GitHub quota pool a request URL consumes (`core`, `graphql`, `search`, or `none`)."
   @spec resource(String.t()) :: String.t()

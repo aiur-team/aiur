@@ -4,7 +4,7 @@ import AxeBuilder from '@axe-core/playwright'
 const NOW = 1791408000000
 test.use({ timezoneId: 'America/Los_Angeles' })
 test.beforeEach(async ({ page }) => {
-  await page.route('**/offline-harness', route => route.fulfill({ contentType: 'text/html', body: '<main id="build-root"><div id="bd-offline"></div></main>' }))
+  await page.route('**/offline-harness', route => route.fulfill({ contentType: 'text/html', body: '<main id="build-root"><div id="bd-offline"></div><div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>' }))
   await page.goto('/offline-harness')
   await page.clock.install({ time: NOW - 1000 })
   await page.clock.pauseAt(NOW)

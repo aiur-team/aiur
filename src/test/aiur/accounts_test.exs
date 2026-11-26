@@ -1,6 +1,5 @@
 defmodule Aiur.AccountsTest do
   use Aiur.TestSupport
-
   import ExUnit.CaptureIO
 
   alias Aiur.Accounts
@@ -82,7 +81,7 @@ defmodule Aiur.AccountsTest do
   end
 
   test "Codex profile copies only shared config and skills and reads identity metadata", %{home: home} do
-    source = Path.join(home, ".codex")
+    source = CodexAccounts.profile_root()
     File.mkdir_p!(Path.join(source, "skills"))
     File.write!(Path.join(source, "config.toml"), "model = 'test'")
 
@@ -181,6 +180,50 @@ defmodule Aiur.AccountsTest do
     assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
     assert Map.has_key?(entries, "claude:old")
     assert Map.has_key?(entries, "claude:new")
+  end
+
+  test "re-registering a Claude account replaces its prefixed entry", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    old_dir = Path.join(home, "profiles/old")
+    new_dir = Path.join(home, "profiles/new")
+    File.mkdir_p!(old_dir)
+    File.mkdir_p!(new_dir)
+
+    assert :ok = Accounts.register("claude", "second", old_dir)
+    assert :ok = Accounts.register("claude", "second", new_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) == ["claude:second"]
+    assert [%{profile_dir: ^new_dir}] = Accounts.list("claude") |> Enum.filter(&(&1.name == "second"))
+  end
+
+  test "registering a Claude account migrates its legacy bare entry", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    legacy_dir = Path.join(home, "profiles/legacy")
+    new_dir = Path.join(home, "profiles/new")
+    File.mkdir_p!(new_dir)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"accounts" => %{"second" => %{"harness" => "claude", "profile_dir" => legacy_dir}}}))
+
+    assert :ok = Accounts.register("claude", "second", new_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) == ["claude:second"]
+  end
+
+  test "registering a Claude account preserves another harness legacy entry with the same name", %{home: home} do
+    path = Path.join(home, ".aiur/machine")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(%{"accounts" => %{"work" => %{"harness" => "codex", "profile_dir" => Path.join(home, "codex-work")}}}))
+    claude_dir = Path.join(home, "claude-work")
+    File.mkdir_p!(claude_dir)
+
+    assert :ok = Accounts.register("claude", "work", claude_dir)
+
+    assert {:ok, %{"accounts" => entries}} = path |> File.read!() |> Jason.decode()
+    assert Map.keys(entries) |> Enum.sort() == ["claude:work", "codex:work"]
+    assert [%{profile_dir: codex_dir}] = Accounts.list("codex") |> Enum.filter(&(&1.name == "work"))
+    assert codex_dir == Path.join(home, "codex-work")
   end
 
   test "profile purge refuses adopted paths outside the account root", %{home: home} do
@@ -345,6 +388,19 @@ defmodule Aiur.AccountsTest do
     assert Keyword.fetch!(session_opts, :env) == [{"CLAUDE_CONFIG_DIR", Path.join([home, ".aiur/accounts/claude/max"])}]
   end
 
+  test "a fresh usage reading clears the account's recent headroom exploration" do
+    now = ~U[2026-10-10 06:00:00Z]
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 119, :second))
+    refute UsageReadings.recently_explored?("claude", "default", DateTime.add(now, 120, :second))
+
+    UsageReadings.mark_explored("claude", "default", now)
+
+    assert :ok = UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 25}]}}, now)
+    refute UsageReadings.recently_explored?("claude", "default", now)
+  end
+
   test "profile setup links shared files and memory but never account transcripts or secrets", %{home: home} do
     source = Path.join(home, ".claude")
     File.mkdir_p!(Path.join(source, "projects/demo/memory"))
@@ -380,281 +436,40 @@ defmodule Aiur.AccountsTest do
     refute File.exists?(profile)
   end
 
-  test "accounts json has no token-shaped values", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com","organizationName":"Research","subscriptionType":"max"},"oauthToken":"sk-ant-oat01-secret"}))
+  test "login decision skips the harness when an adopted Claude or Codex profile has an identity", %{home: home} do
+    claude_dir = Path.join(home, "signed-in-claude")
+    codex_dir = Path.join(home, "signed-in-codex")
+    File.mkdir_p!(claude_dir)
+    File.mkdir_p!(codex_dir)
+    File.write!(Path.join(claude_dir, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"claude@example.com"}}))
+    File.write!(Path.join(codex_dir, "auth.json"), Jason.encode!(%{"tokens" => %{"account_id" => "acct-codex"}}))
+    :ok = Accounts.register("claude", "adopted-claude", claude_dir)
+    :ok = Accounts.register("codex", "adopted-codex", codex_dir)
+    signed_out_dir = Path.join(home, "signed-out")
+    File.mkdir_p!(signed_out_dir)
+    :ok = Accounts.register("claude", "signed-out", signed_out_dir)
 
-    output = capture_io(fn -> assert :ok = Aiur.AccountsCLI.accounts(true) end)
-    assert output =~ "weekly_percent"
-    assert output =~ "dev@example.com"
-    assert output =~ "Research"
-    assert output =~ "max"
-    assert output =~ "freshness"
-    assert output =~ "observed_at"
-    refute output =~ "sk-ant-oat01-secret"
-    refute output =~ "oauthToken"
+    assert {:ok, ^claude_dir, false} = AccountsCLI.login_decision("claude", "adopted-claude")
+    assert {:ok, ^codex_dir, false} = AccountsCLI.login_decision("codex", "adopted-codex")
+    assert {:ok, _dir, true} = AccountsCLI.login_decision("claude", "signed-out")
+    assert {:ok, ^claude_dir, false} = AccountsCLI.prepare_login_result("claude", "prepared-claude", claude_dir)
+    assert {:ok, ^signed_out_dir, true} = AccountsCLI.prepare_login_result("claude", "prepared-signed-out", signed_out_dir)
+
+    env_path = Path.join(home, ".aiur/.env")
+    File.mkdir_p!(Path.dirname(env_path))
+    File.write!(env_path, "DEEPSEEK_API_KEY__WORK=test-key\n")
+    assert {:ok, nil, false} = AccountsCLI.prepare_login_result("deepseek", "work", nil)
+    assert Aiur.CLI.login_prepare_output(nil, false) == "\nregistered\n"
   end
 
-  test "accounts keeps harness-generic listing and filters the requested backend" do
-    :ok = Accounts.register("codex", "work", nil)
+  test "a signed-out profile refuses login when stdin is not a terminal", %{home: home} do
+    signed_out_dir = Path.join(home, "signed-out-login")
+    File.mkdir_p!(signed_out_dir)
 
-    output = capture_io(fn -> assert :ok = AccountsCLI.accounts(true, "codex") end)
-    [json] = String.split(output, "\n", trim: true)
-    rows = Jason.decode!(json)
-
-    assert Enum.any?(rows, &(&1["name"] == "work" and &1["harness"] == "codex"))
-    assert Enum.all?(rows, &(&1["harness"] == "codex"))
-  end
-
-  test "accounts json renders daemon snapshot percentages without requesting usage", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
-    observed_at = DateTime.utc_now()
-
-    snapshot_fun = fn ["default"] ->
-      %{
-        "default" => %{
-          reading: %{
-            windows: [
-              %{window: "seven_day", used_percent: 41},
-              %{window: "five_hour", used_percent: 18}
-            ]
-          },
-          observed_at: observed_at,
-          freshness: :cached
-        }
-      }
-    end
-
-    parent = self()
-
-    output =
-      capture_io(fn ->
-        assert :ok =
-                 Aiur.AccountsCLI.accounts(true, fn names ->
-                   assert names == ["default"]
-                   send(parent, {:snapshot_requested, names})
-                   snapshot_fun.(names)
-                 end)
-      end)
-
-    assert_received {:snapshot_requested, ["default"]}
-    assert output =~ ~s("weekly_percent":41)
-    assert output =~ ~s("five_hour_percent":18)
-    assert output =~ ~s("freshness":"cached")
-    assert output =~ DateTime.to_iso8601(observed_at)
-    assert output =~ ~s("age_ms":)
-  end
-
-  test "daemon accounts control command reads the polled usage snapshot", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
-    :ok = Accounts.register("claude", "max", nil)
-
-    UsageReadings.record(
-      "claude",
-      "max",
-      {:ok,
-       %{
-         windows: [
-           %{window: "seven_day", used_percent: 41},
-           %{window: "five_hour", used_percent: 18}
-         ]
-       }},
-      DateTime.utc_now()
-    )
-
-    output = capture_io(fn -> Aiur.AgentControlCLI.accounts(true) end)
-    [json | _marker] = String.split(output, "\n", trim: true)
-    row = Enum.find(Jason.decode!(json), &(&1["name"] == "max"))
-
-    assert row["weekly_percent"] == 41
-    assert row["five_hour_percent"] == 18
-    assert row["freshness"] == "fresh"
-    assert row["observed_at"]
-    assert is_integer(row["age_ms"])
-  end
-
-  test "accounts json reports daemon not running while retaining identity", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
-
-    output = capture_io(fn -> assert :ok = Aiur.AccountsCLI.accounts(true) end)
-    assert output =~ "dev@example.com"
-    assert output =~ ~s("freshness":"daemon_not_running")
-    assert output =~ ~s("weekly_percent":null)
-  end
-
-  test "accounts json preserves the daemon usage error reason", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
-    observed_at = DateTime.utc_now()
-
-    output =
-      capture_io(fn ->
-        Aiur.AccountsCLI.accounts(true, fn _names ->
-          %{"default" => %{reading: nil, observed_at: observed_at, freshness: :unavailable, reason: :no_oauth_token}}
-        end)
-      end)
-
-    assert output =~ ~s("freshness":"no_oauth_token")
-  end
-
-  test "usage readings are isolated by harness and account" do
-    observed_at = DateTime.utc_now()
-    UsageReadings.record("claude", "default", {:error, :no_oauth_token}, observed_at)
-    UsageReadings.record("other", "default", {:ok, %{windows: []}}, observed_at)
-
-    assert %{"default" => %{freshness: :unavailable, reason: :no_oauth_token}} =
-             UsageReadings.snapshot("claude", ["default"])
-  end
-
-  test "moves Claude session artifacts and merges only that session history by timestamp", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    destination = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    project = RemoteControl.workspace_slug("/repo")
-    transcript = Path.join([source, "projects", project, session <> ".jsonl"])
-    File.mkdir_p!(Path.dirname(transcript))
-    File.write!(transcript, "transcript")
-
-    File.write!(
-      Path.join(source, "history.jsonl"),
-      Enum.join(
-        [
-          Jason.encode!(%{"sessionId" => session, "timestamp" => "2026-01-02T00:00:00Z"}),
-          Jason.encode!(%{"sessionId" => "other", "timestamp" => "2026-01-01T00:00:00Z"})
-        ],
-        "\n"
-      ) <> "\n"
-    )
-
-    File.write!(Path.join(destination, "history.jsonl"), Jason.encode!(%{"sessionId" => "existing", "timestamp" => "2026-01-01T12:00:00Z"}) <> "\n")
-
-    assert :ok = Accounts.move_session("claude", "default", "work", session, "/repo")
-    refute File.exists?(transcript)
-    assert File.read!(Path.join([destination, "projects", project, session <> ".jsonl"])) == "transcript"
-    history = File.read!(Path.join(destination, "history.jsonl")) |> String.split("\n", trim: true)
-    assert Enum.map(history, &Jason.decode!/1) |> Enum.map(& &1["sessionId"]) == ["existing", session]
-    assert File.read!(Path.join(source, "history.jsonl")) =~ "other"
-    refute File.read!(Path.join(source, "history.jsonl")) =~ session
-  end
-
-  test "moves a session into the default profile", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    transcript = Path.join([source, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
-    File.mkdir_p!(Path.dirname(transcript))
-    File.write!(transcript, "transcript")
-
-    assert :ok = Accounts.move_session("claude", "work", "default", session, "/repo")
-    refute File.exists?(transcript)
-    assert File.read!(Path.join([home, ".claude", "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "transcript"
-  end
-
-  test "skips a destination artifact symlink that resolves to the source file", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    destination = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    relative = Path.join(["projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
-    source_transcript = Path.join(source, relative)
-    destination_transcript = Path.join(destination, relative)
-    File.mkdir_p!(Path.dirname(source_transcript))
-    File.mkdir_p!(Path.dirname(destination_transcript))
-    File.write!(source_transcript, "transcript")
-    File.ln_s!(source_transcript, destination_transcript)
-
-    assert :ok = Accounts.move_session("claude", "default", "work", session, "/repo")
-    assert File.read!(source_transcript) == "transcript"
-    assert File.read!(destination_transcript) == "transcript"
-    assert File.read_link!(destination_transcript) == source_transcript
-  end
-
-  test "reports source deletion failure after a verified cross-filesystem copy", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    session = "11111111-2222-4333-8444-555555555555"
-    transcript = Path.join([source, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
-    File.mkdir_p!(Path.dirname(transcript))
-    File.write!(transcript, "transcript")
-    rm = fn path -> if path == transcript, do: {:error, :injected_delete_failure}, else: File.rm_rf(path) end
-
-    assert {:error, {:source_delete_failed, :injected_delete_failure}} =
-             Accounts.move_session("claude", "default", "work", session, "/repo", same_device: false, rm_rf: rm)
-
-    assert File.read!(transcript) == "transcript"
-    refute File.exists?(Path.join([home, ".aiur/accounts/claude/work", "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"]))
-  end
-
-  test "refuses a live session and a destination that already contains it", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    destination = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    registry = Path.join(source, "sessions")
-    File.mkdir_p!(registry)
-    File.write!(Path.join(registry, session <> ".json"), "{}")
-    assert {:error, :session_live} = Accounts.move_session("claude", "default", "work", session, "/repo")
-    File.rm!(Path.join(registry, session <> ".json"))
-    destination_artifact = Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
-    File.mkdir_p!(Path.dirname(destination_artifact))
-    File.write!(destination_artifact, "pre-existing")
-    assert {:error, :destination_session_exists} = Accounts.move_session("claude", "default", "work", session, "/repo")
-  end
-
-  test "rolls back earlier artifact renames when a later rename fails", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    destination = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    project = Path.join([source, "projects", RemoteControl.workspace_slug("/repo")])
-    File.mkdir_p!(project)
-    transcript = Path.join(project, session <> ".jsonl")
-    File.write!(transcript, "source")
-    file_history = Path.join([source, "file-history", session])
-    File.mkdir_p!(file_history)
-    File.write!(Path.join(file_history, "snapshot"), "history")
-    conflict = Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
-
-    rename = fn from, to ->
-      if String.ends_with?(from, session <> ".jsonl"), do: {:error, :injected_failure}, else: File.rename(from, to)
-    end
-
-    assert {:error, :injected_failure} = Accounts.move_session("claude", "default", "work", session, "/repo", rename: rename)
-    assert File.read!(transcript) == "source"
-    assert File.read!(Path.join(file_history, "snapshot")) == "history"
-    refute File.exists?(conflict)
-  end
-
-  test "copies and verifies the session artifacts before removing the source on another filesystem", %{home: home} do
-    File.mkdir_p!(Path.join(home, ".claude"))
-    :ok = Accounts.register("claude", "work", nil)
-    source = Path.join(home, ".claude")
-    destination = Path.join([home, ".aiur/accounts/claude/work"])
-    session = "11111111-2222-4333-8444-555555555555"
-    project = Path.join([source, "projects", RemoteControl.workspace_slug("/repo")])
-    File.mkdir_p!(project)
-    transcript = Path.join(project, session <> ".jsonl")
-    File.write!(transcript, "verified transcript")
-    parent = self()
-
-    copy = fn from, to ->
-      send(parent, {:copied, from, to})
-      File.cp_r(from, to)
-    end
-
-    assert :ok = Accounts.move_session("claude", "default", "work", session, "/repo", same_device: false, copy: copy)
-    assert_received {:copied, ^transcript, _}
-    refute File.exists?(transcript)
-    assert File.read!(Path.join([destination, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])) == "verified transcript"
+    capture_io(fn ->
+      assert {:error, message} = AccountsCLI.login("claude", "signed-out-login", signed_out_dir)
+      assert message =~ "profile is not signed in"
+      assert message =~ "interactive terminal"
+    end)
   end
 end

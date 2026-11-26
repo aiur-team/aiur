@@ -7,7 +7,7 @@ defmodule Aiur.CI.FailureDigest do
   Completed evidence is cached by SHA and check-run identity; open flake issues have a
   60-second classification window. This module does not rerun CI or change ticket state.
   """
-  alias Aiur.GitHub.{FailureEvidence, PullRequests, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, FailureEvidence, PullRequests}
 
   defstruct checks: [], tests: [], signature: nil, truncated: false, flake_only: false, test_only: false
   @type t :: %__MODULE__{checks: [map()], tests: [map()] | :unknown, signature: String.t(), truncated: boolean(), flake_only: boolean(), test_only: boolean()}
@@ -22,7 +22,7 @@ defmodule Aiur.CI.FailureDigest do
 
   @spec build_from_ci(String.t(), map(), keyword()) :: {:ok, t()} | {:error, term()}
   def build_from_ci(sha, ci, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo() do
+    with {:ok, {owner, repo}} <- Access.parse_repo() do
       ci = watched_ci(ci, opts)
       runs = ci.check_runs |> Enum.filter(&(&1["status"] == "completed" and &1["conclusion"] in @failed)) |> Enum.sort_by(& &1["id"])
       key = evidence_key(owner, repo, sha, ci)
@@ -41,11 +41,11 @@ defmodule Aiur.CI.FailureDigest do
 
   defp evidence_key(owner, repo, sha, ci) do
     identities = ci.check_runs |> Enum.map(&Map.take(&1, ~w(id status conclusion))) |> Enum.sort()
-    ResourceStore.key(:ci_failure_digest, owner, repo, sha <> ":" <> hash(identities))
+    Access.key(:ci_failure_digest, owner, repo, sha <> ":" <> hash(identities))
   end
 
   defp evidence(key, runs, sha, opts) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: data}} -> data
       :miss -> fetch_evidence(key, runs, sha, opts)
     end
@@ -55,7 +55,7 @@ defmodule Aiur.CI.FailureDigest do
     annotations = Enum.map(runs, &read_annotations(&1, opts))
     known = FailureEvidence.known_flakes(sha, opts)
     data = %{"annotations" => annotations, "known" => if(match?({:ok, _}, known), do: elem(known, 1), else: nil)}
-    if Enum.all?(annotations, &is_list/1) and match?({:ok, _}, known), do: ResourceStore.put_resource(key, data, source: :fetch)
+    if Enum.all?(annotations, &is_list/1) and match?({:ok, _}, known), do: Access.put_resource(key, data, source: :fetch)
     data
   end
 

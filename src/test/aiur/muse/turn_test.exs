@@ -45,6 +45,15 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
+  test "a native steer wake without a claim callback does not interrupt", %{tmp_dir: dir} do
+    task = run_fixture(dir, "pause")
+    receive_barrier({:turn_ready, owner})
+    send(owner, {:agent_queue_updated, "MUSE-1", 3, :steer})
+    send(owner, {:pause_agent, 79, 6})
+    assert {:paused, %{control: %{request_id: 79, generation: 6}}} = Task.await(task, :infinity)
+  end
+
+  @tag :tmp_dir
   test "native approval waits for an explicit Executor choice and confirmed resolution", %{tmp_dir: dir} do
     task = run_fixture(dir, "approval")
     receive_barrier({:event, %{payload: %{"method" => "approval/request"}}})
@@ -97,8 +106,12 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
+  @tag timeout: 75_000
   test "an accepted receipt without a terminal times out", %{tmp_dir: dir} do
-    assert {:error, :native_turn_timeout} = Task.await(run_fixture(dir, "receipt_only", 150), :infinity)
+    task = run_fixture(dir, "receipt_only_delayed", 150)
+
+    assert_receive {:event, %{event: :session_started, turn_id: "turn-1"}}, 65_000
+    assert {:error, :native_turn_timeout} = Task.await(task, 5_000)
   end
 
   @tag :tmp_dir

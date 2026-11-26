@@ -33,7 +33,9 @@ defmodule Aiur.DecisionCommandType do
     "sequencing" => %{authority: :supervisor_allowed, reversibility: :reversible},
     # Pre-OCC attention projections are informational visibility signals that were
     # always human-scoped; keep them fail-closed through the legacy import path.
-    "legacy_attention" => %{authority: :human_required, reversibility: :irreversible}
+    "legacy_attention" => %{authority: :human_required, reversibility: :irreversible},
+    # A peer gateway's write grant: only a signed-in human confirms it (Aiur.Gateway.GrantConfirmation); revoking undoes it.
+    "gateway_grant" => %{authority: :human_required, reversibility: :reversible}
   }
 
   @doc """

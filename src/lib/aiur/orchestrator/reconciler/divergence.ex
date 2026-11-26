@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.Reconciler.Divergence do
   @moduledoc false
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.State
 
   # A label-override pause is authoritative only while the tracker still carries
@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.Reconciler.Divergence do
     if Map.get(entry, :label_divergence_reported) == reason or active_attention?(state, topic) do
       put_in(state.running[issue.id], Map.put(entry, :label_divergence_reported, reason))
     else
-      Alerts.emit_custom(topic, reason,
+      Signal.agent_alert(topic, reason,
         issue: identifier,
         workspace: Map.get(entry, :workspace_path),
         worker_host: Map.get(entry, :worker_host),
@@ -153,7 +153,7 @@ defmodule Aiur.Orchestrator.Reconciler.Divergence do
     metadata = entry || %{}
     previous_reason = Map.get(metadata, :label_divergence_reported, "the prior divergence")
 
-    case Alerts.emit_custom(
+    case Signal.agent_alert(
            "#{topic}.resolved",
            "Tracker/local state reconciliation recovered for ticket #{identifier}.",
            issue: identifier,

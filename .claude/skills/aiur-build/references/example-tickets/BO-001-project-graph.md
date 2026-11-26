@@ -1,4 +1,4 @@
-# BO-001 — Project the planning graph
+# Project the planning graph
 
 **Kind:** executable
 

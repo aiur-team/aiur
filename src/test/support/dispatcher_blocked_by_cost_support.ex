@@ -13,7 +13,7 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
   alias Aiur.Orchestrator.{Dispatcher, Lifecycle, State}
   alias Aiur.Workflow
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @blocker 53
   @repository_url "https://api.github.com/repos/owner/repo"
   @max_age_ms :timer.minutes(15)

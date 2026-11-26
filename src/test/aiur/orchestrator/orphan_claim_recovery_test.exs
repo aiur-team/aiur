@@ -26,7 +26,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     assert_received {:comment, "3622", body}
     assert body =~ "no live worker or workspace lease"
     assert body =~ "grace period"
-    assert_received {:alert, "ticket.3622.agent.attention.startup_orphan_claim_released", alert}
+    assert_received {:alert, "ticket.3622.agent.attention.orphan_claim_released", alert}
     assert alert[:central] and alert[:durable]
     refute alert[:needs_attention]
     assert Observation.dispatch_candidates(released, [todo]) == [todo]
@@ -41,6 +41,18 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
     {_, [%Issue{state: "todo"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts, :now_ms, 60_000))
     assert_received {:write, "3622", "todo", "in-progress"}
+  end
+
+  test "another instance's claim is never released as an orphan (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file!(path)
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [3622]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts(), :now_ms, 0))
+    {_, [%Issue{state: "in-progress"}]} = StartupClaimReconciler.reconcile(waiting, [issue()], Keyword.put(opts(), :now_ms, 60_000))
+    refute_received {:write, _, _, _}
+    refute_received {:comment, _, _}
   end
 
   test "periodic polls recover an orphan discovered after startup completed" do

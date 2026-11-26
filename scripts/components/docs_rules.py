@@ -80,9 +80,9 @@ def config_sections(root, entries):
     if not any(e.get('config') for e in entries):
         return []
     reference = root / 'website/docs-app/reference'
-    # These are the three owning references enforced by check-config-docs.py.
+    # These are the owning references enforced by check-config-docs.py.
     sections = set()
-    for name in ('configuration.md', 'configuration-agent.md', 'configuration-build-order.md'):
+    for name in ('configuration.md', 'configuration-agent.md', 'configuration-build-order.md', 'configuration-voice.md'):
         path = reference / name
         if path.exists():
             sections.update(text for level, text in headings(path.read_text()) if level == 2)

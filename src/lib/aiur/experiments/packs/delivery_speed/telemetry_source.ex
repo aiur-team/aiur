@@ -2,8 +2,10 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
   @moduledoc "The pack's only reader of live telemetry, retained boots and usage accounting."
   alias Aiur.Claude.Telemetry.UsageAdapter.Relationship
   alias Aiur.Experiments.Packs.DeliverySpeed.Tokens
+  alias Aiur.Experiments.Paths
   alias Aiur.Experiments.Sources.Common
   alias Aiur.Experiments.{TelemetryHistory, TelemetryReader}
+  alias Aiur.LandingWatch.Journal
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Dataset
   alias Aiur.RunTelemetry.Dataset.Source
@@ -14,7 +16,7 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
   @attributes %{
     "run_context" => ~w(aiur_vsn config_hash capture_tags),
     "lifecycle" =>
-      ~w(event boundary ticket attempt_id complexity backend model effort feature epic tags blockers start_mode source source_timestamp author_trusted review_thread_id event_key source_id operation_id segment_continuation)
+      ~w(event boundary ticket attempt_id complexity backend model effort feature epic work_kind tags blockers start_mode source source_timestamp author_trusted review_thread_id event_key source_id operation_id segment_continuation)
   }
 
   @spec load(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -59,17 +61,164 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
     by_ticket = records |> Enum.filter(&(&1.kind == "lifecycle")) |> Enum.group_by(& &1.attributes["ticket"])
     tickets = Map.new(tickets, fn {id, ticket} -> {id, ticket_record(ticket, Map.get(by_ticket, id, []), contexts)} end)
     capacity = (prior.samples ++ live.samples) |> Enum.uniq_by(& &1.record_id) |> capacity(window)
+    github = if Map.get(ctx, :include_github, github_needed?(ctx)), do: github_window(window, ctx), else: nil
+    required_workflows = Map.get(github || %{}, "required_workflows", Map.get(ctx, :required_workflows, configured_workflows()))
+    run_rows = Map.get(github || %{}, "ci_runs", Map.get(github || %{}, "runs"))
+    ci_runs = if is_list(run_rows) and required_workflows != [], do: Enum.filter(run_rows, &(&1["name"] in required_workflows)), else: nil
+    flake_state = flake_state(ctx)
 
     {:ok,
-     %{
-       tickets: tickets,
-       capacity: capacity,
-       facts: facts(records, capacity),
-       earliest_at: records |> Enum.map(& &1.timestamp) |> Enum.min(DateTime, fn -> nil end),
-       partial?: unreadable? or prior.state != :complete or live.state != :complete,
-       accounting: if(Map.get(ctx, :include_accounting, false), do: accounting(tickets, window, ctx), else: {:error, :accounting_absent})
-     }}
+     Map.merge(
+       %{
+         tickets: tickets,
+         capacity: capacity,
+         earliest_at: earliest_at(records),
+         partial?: unreadable? or prior.state != :complete or live.state != :complete,
+         accounting: accounting_option(tickets, window, ctx)
+       },
+       github_data(github, ci_runs, flake_state, records, capacity, window)
+     )}
   end
+
+  defp earliest_at(records), do: records |> Enum.map(& &1.timestamp) |> Enum.min(DateTime, fn -> nil end)
+
+  defp github_data(github, ci_runs, flake_state, records, capacity, window) do
+    github = github || %{}
+    journal_captured? = is_map(flake_state)
+    journal = if journal_captured?, do: flake_state, else: %{}
+
+    %{
+      ci_runs: ci_runs,
+      ci_runs_status: if(is_list(ci_runs), do: :captured, else: :unavailable),
+      github_pulls: Map.get(github, "pulls"),
+      flake_issues: Map.get(github, "flake_issues", Map.get(github, "incidents")),
+      ci_jobs: Map.get(github, "jobs"),
+      flake_evidence: if(journal_captured?, do: failure_evidence(journal), else: nil),
+      source_partials: source_partials(github, journal, window, journal_captured?),
+      facts: github_facts(facts(records, capacity), github, ci_runs, journal_captured?)
+    }
+  end
+
+  defp github_facts(facts, github, ci_runs, journal_captured?) do
+    facts
+    |> maybe_fact(is_list(ci_runs), "ci_runs")
+    |> maybe_fact(is_list(Map.get(github, "jobs")), "ci_jobs")
+    |> maybe_fact(Map.get(github, "pulls", []) != [], "work_kind")
+    |> maybe_fact(is_list(Map.get(github, "pulls")), "pulls")
+    |> maybe_fact(Map.has_key?(github, "flake_issues") or Map.has_key?(github, "incidents"), "flake_issues")
+    |> maybe_fact(journal_captured?, "flake_evidence")
+  end
+
+  defp source_partials(github, journal, window, journal_captured?) do
+    partials = Enum.filter(~w(runs ci_runs jobs pulls incidents flake_issues), &Map.get(github, &1 <> "_partial", false))
+
+    if journal_captured? and Enum.any?(failure_evidence(journal), &(evidence_in_window?(&1, window) and (not Map.has_key?(&1, "job_failure_set_complete") or not Map.has_key?(&1, "touched")))),
+      do: ["flake_evidence" | partials],
+      else: partials
+  end
+
+  defp evidence_in_window?(row, window) do
+    case row["at_ms"] do
+      at when is_integer(at) -> at >= DateTime.to_unix(window.start, :millisecond) and at < DateTime.to_unix(window.end, :millisecond)
+      _ -> true
+    end
+  end
+
+  defp failure_evidence(journal) do
+    (Map.get(journal, "failure_metric_evidence", []) ++ Map.get(journal, "failure_observations", []))
+    |> Enum.uniq_by(&{&1["identity"], &1["pr"], &1["run_url"], &1["job"]})
+    |> Enum.map(fn row -> Map.put(row, "quarantined", Map.has_key?(Map.get(journal, "flakes", %{}), "quarantine-pr :: " <> to_string(row["identity"]))) end)
+  end
+
+  defp github_needed?(ctx) do
+    case Map.get(ctx, :metric_ids) do
+      ids when is_list(ids) ->
+        Enum.any?(
+          ids,
+          &(&1 in ~w(ci_run_failure_rate ci_rerun_rate merge_group_failure_rate pr_ci_wall_time ci_queue_wait feature_merge_share innocent_dequeues flaky_failure_rate flake_issues_filed main_red_events))
+        )
+
+      _ ->
+        true
+    end
+  end
+
+  defp accounting_option(tickets, window, ctx) do
+    if Map.get(ctx, :include_accounting, false), do: accounting(tickets, window, ctx), else: {:error, :accounting_absent}
+  end
+
+  defp configured_workflows do
+    case Aiur.Config.settings() do
+      {:ok, %{merge_policy: %{main_watch: %{workflows: workflows}}}} when is_list(workflows) -> workflows
+      _ -> []
+    end
+  rescue
+    _error -> []
+  end
+
+  defp flake_state(ctx) do
+    case Map.get(ctx, :landing_watch_state_fun, &Journal.state/1).(Map.get(ctx, :landing_watch_options, [])) do
+      {:ok, state} -> state
+      _error -> nil
+    end
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp github_window(window, ctx) do
+    case Map.fetch(ctx, :github_window) do
+      {:ok, %{} = data} ->
+        data
+
+      {:ok, _invalid} ->
+        nil
+
+      :error ->
+        range = %{start: DateTime.to_iso8601(window.start), end: DateTime.to_iso8601(window.end)}
+        sources = request_sources(ctx)
+        {data, _missing} = Map.get(ctx, :github_window_sources, &RunTelemetry.window_event_sources/4).(Map.get(ctx, :repo, Paths.repo()), sources, range, Map.get(ctx, :github_options, []))
+        if data == %{}, do: nil, else: data
+    end
+  rescue
+    _error -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp request_sources(ctx) do
+    ids =
+      Map.get(
+        ctx,
+        :metric_ids,
+        ~w(ci_run_failure_rate ci_rerun_rate merge_group_failure_rate pr_ci_wall_time ci_queue_wait feature_merge_share innocent_dequeues flaky_failure_rate flake_issues_filed main_red_events)
+      )
+
+    ci? = Enum.any?(ids, &(&1 in ~w(ci_run_failure_rate ci_rerun_rate merge_group_failure_rate pr_ci_wall_time ci_queue_wait flaky_failure_rate)))
+    jobs? = Enum.any?(ids, &(&1 in ["ci_queue_wait", "flaky_failure_rate"]))
+    pulls? = Enum.any?(ids, &(&1 in ["feature_merge_share", "innocent_dequeues"]))
+    incidents? = "flake_issues_filed" in ids
+
+    include =
+      []
+      |> maybe_include(pulls?, "pulls")
+      |> maybe_include(ci?, "ci_runs")
+      |> maybe_include(jobs?, "jobs")
+      |> maybe_include("main_red_events" in ids, "runs")
+      |> maybe_include(incidents?, "flake_issues")
+
+    %{
+      "base_branch" => Aiur.Config.base_branch(),
+      "required_workflows" => configured_workflows(),
+      "incident_labels" => [],
+      "flake_issue_labels" => if(incidents?, do: ["flake", Aiur.Config.base_branch() <> "-fix"], else: []),
+      "include_sources" => include
+    }
+  end
+
+  defp maybe_include(sources, true, source), do: [source | sources]
+  defp maybe_include(sources, false, _source), do: sources
 
   defp prior_projection(boot, _window, ctx) do
     case Map.fetch(ctx, :prior_loader) do
@@ -111,7 +260,7 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
       "complexity" => dispatch.complexity,
       "aiur_version" => context["aiur_vsn"],
       "config_hash" => context["config_hash"],
-      "tags" => context["capture_tags"] || %{},
+      "tags" => Map.merge(context["capture_tags"] || %{}, if(is_binary(dispatch.work_kind), do: %{"work_kind" => dispatch.work_kind}, else: %{})),
       "feature_tags" => if(dispatch.feature, do: [dispatch.feature])
     })
   end

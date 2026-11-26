@@ -10,9 +10,13 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
+  alias Aiur.Commands.{Media, Overrides}
+  alias Aiur.Commands.Projection, as: CommandProjection
+  alias Aiur.Commands.Routing.Facts
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionProjection.Reducers
+  alias Aiur.JSONSafe
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -208,15 +212,18 @@ defmodule Aiur.DecisionProjection do
         acknowledgement: existing.acknowledgement,
         resolution: existing.resolution,
         acknowledgements: existing.acknowledgements,
-        resolutions: existing.resolutions
+        resolutions: existing.resolutions,
+        overrides: existing.overrides
     }
+    |> then(&Facts.inherit(existing, &1))
   end
 
   defp apply_enrichment(projection, %DecisionEvent{data: data} = event) do
     with {:ok, current} <- fetch_current(projection, event.decision_id),
          :ok <- require_enrichment_version(current, event),
          :ok <- require_enrichment_base(current, data.decision) do
-      apply_request(projection, data.decision, event)
+      candidate = CommandProjection.inherit_attributes(current, data.decision)
+      apply_request(projection, candidate, event)
     end
   end
 
@@ -240,6 +247,7 @@ defmodule Aiur.DecisionProjection do
       :urgency,
       :blocking,
       :reversibility,
+      :audience,
       :question,
       :created_at,
       :source_created_at,
@@ -257,6 +265,8 @@ defmodule Aiur.DecisionProjection do
   defp apply_lifecycle(projection, %DecisionEvent{} = event) do
     with {:ok, current} <- fetch_current(projection, event.decision_id),
          {:ok, updated} <- Reducers.transition(current, event) do
+      updated = Overrides.observe(updated, event)
+
       {:ok,
        %{
          projection
@@ -292,7 +302,7 @@ defmodule Aiur.DecisionProjection do
       "reversibility" => Atom.to_string(decision.reversibility),
       "question" => decision.question,
       "context" => stringify_keys(decision.context),
-      "options" => Enum.map(decision.options, &stringify_keys/1),
+      "options" => Media.options_to_json_safe(decision.options),
       "recommendation" => decision.recommendation && stringify_keys(decision.recommendation),
       "consequence_of_delay" => decision.consequence_of_delay,
       "artifacts" => Enum.map(decision.artifacts, &stringify_artifact/1),
@@ -301,6 +311,8 @@ defmodule Aiur.DecisionProjection do
       "content_hash" => decision.content_hash,
       "decision_status" => Atom.to_string(decision.decision_status),
       "delivery_status" => Atom.to_string(decision.delivery_status),
+      "pending_for_session" => decision.pending_for_session?,
+      "ticket_comment_status" => decision.ticket_comment_status && Atom.to_string(decision.ticket_comment_status),
       "answer" => decision.answer && DecisionAnswer.to_json_safe(decision.answer),
       "active_action_id" => decision.active_action_id,
       "revision_sequence" => decision.revision_sequence,
@@ -314,6 +326,10 @@ defmodule Aiur.DecisionProjection do
       "acknowledgements" => stringify_action_map(decision.acknowledgements, &fact_to_json_safe/1),
       "resolutions" => stringify_action_map(decision.resolutions, &fact_to_json_safe/1)
     }
+    |> then(fn raw -> if decision.overrides == [], do: raw, else: Map.put(raw, "overrides", Overrides.public(decision)) end)
+    |> Map.merge(JSONSafe.normalize(Facts.public(decision)))
+    |> Media.put_snapshot_media(decision.media)
+    |> then(fn raw -> if decision.audience, do: Map.put(raw, "audience", Atom.to_string(decision.audience)), else: raw end)
     |> maybe_put_legacy_attention(decision.legacy_attention)
     |> maybe_put_provenance(decision.provenance)
   end
@@ -331,9 +347,11 @@ defmodule Aiur.DecisionProjection do
       "urgency",
       "blocking",
       "reversibility",
+      "audience",
       "question",
       "context",
       "options",
+      "media",
       "recommendation",
       "consequence_of_delay",
       "artifacts"

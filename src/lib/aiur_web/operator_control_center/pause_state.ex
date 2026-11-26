@@ -28,10 +28,10 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   @spec toggle(Socket.t()) :: Socket.t()
   def toggle(socket) do
-    if EndpointConfig.get(:dashboard_writable) == true and is_boolean(socket.assigns.globally_paused) do
-      do_toggle(socket)
-    else
-      socket
+    cond do
+      EndpointConfig.get(:dashboard_writable) != true -> assign(socket, :writable, false)
+      is_boolean(socket.assigns.globally_paused) -> do_toggle(socket)
+      true -> assign(socket, :global_pause_error, "Global pause state is unknown; refresh and retry.")
     end
   end
 
@@ -81,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   defp pause_state, do: pause_state(orchestrator())
 
-  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator
+  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator.server()
 
   defp loading_pause_state(orchestrator, startup_elapsed_ms) do
     case GlobalPause.global_pause_status(orchestrator, 1_000) do

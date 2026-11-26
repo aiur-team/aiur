@@ -185,7 +185,7 @@ test('span ensures days via server days parameter; no board anchor is safe', asy
 
 for (const kind of ['card', 'band']) test(`live move keeps ${kind} anchor and suppresses sliding`, async ({ page }) => {
   const before = await page.evaluate(async kind => {
-    // A floating band now settles; preserve the anchor at its pinned edge.
+    // Anchor with the band docked under the header; it no longer snaps there (#7446).
     if (kind === 'band') ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     else ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop - 40
     ren.update();
@@ -230,7 +230,7 @@ test('filtered days continue paging and use server DST boundary exactly', async 
   await page.request.get('/build-control/earlier?from=' + (from - 23 * 3600000))
   expect(await page.evaluate(async () => { await hist.loadEarlier(); return S.histFrom })).toBe(from - 23 * 3600000)
   await page.request.get('/build-control/earlier')
-  await page.evaluate(() => { S.f.epic = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
+  await page.evaluate(() => { S.f.lane = ['absent-epic']; ren.relayout(); ctx.vp.scrollTop = 0; ren.update() })
   await expect.poll(() => page.evaluate(() => hist.H.more)).toBe(false)
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
 })
@@ -306,7 +306,9 @@ test('span URL pages before settling and paging state survives server patches', 
 })
 
 test('replaced cards release noanim after two frames', async ({ page }) => {
-  await expect.poll(() => page.evaluate(() => ctx.snapping || ctx.content.classList.contains('scrolling'))).toBe(false)
+  // Live replacement also defers while history paging is in flight.
+  await expect.poll(() => page.evaluate(() => hist.H.state === 'loading' ||
+    ctx.snapping || ctx.content.classList.contains('scrolling'))).toBe(false)
   // Stub the browser primitive, not ctx.life.frame, so the real keyed scheduler stays under test.
   await page.evaluate(() => {
     const q = new Map(); let id = 0
@@ -314,7 +316,7 @@ test('replaced cards release noanim after two frames', async ({ page }) => {
     window.cancelAnimationFrame = i => { q.delete(i) }
     window.__step = () => { const batch = [...q.values()]; q.clear(); batch.forEach(fn => fn(performance.now())) }
   })
-  expect(await page.evaluate(() => {
+  const result = await page.evaluate(() => {
     const [uid, el] = [...ctx.R][0], row = ctx.D.byId[el.dataset.id]
     for (let i = 0; i < 2; i++) {
       hook.receive({ v: 1, kind: 'diff', epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
@@ -322,8 +324,10 @@ test('replaced cards release noanim after two frames', async ({ page }) => {
       ren.flushLive()
     }
     window.replacedCard = ctx.R.get(uid)
-    return replacedCard !== el && replacedCard.classList.contains('noanim')
-  })).toBe(true)
+    return { replaced: replacedCard !== el, noanim: replacedCard.classList.contains('noanim'),
+      paging: hist.H.state, snapping: ctx.snapping, scrolling: ctx.content.classList.contains('scrolling') }
+  })
+  expect(result, JSON.stringify(result)).toMatchObject({ replaced: true, noanim: true })
   await page.evaluate(() => __step())
   expect(await page.evaluate(() => replacedCard.classList.contains('noanim'))).toBe(true)
   await page.evaluate(() => __step())

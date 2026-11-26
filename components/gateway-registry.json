@@ -1,0 +1,41 @@
+{
+  "id": "gateway-registry",
+  "name": "Gateway registry",
+  "layer": 2,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/gateway/grants.ex",
+    "src/lib/aiur/gateway/registry.ex"
+  ],
+  "facades": [
+    "Aiur.Gateway.Grants",
+    "Aiur.Gateway.Registry"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "config",
+    "identity",
+    "kernel"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Parses and checks the per-peer grants in the gateway registry file.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/cli-gateways.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
+}

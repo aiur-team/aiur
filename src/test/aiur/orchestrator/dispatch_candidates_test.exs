@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.DispatchCandidatesTest do
   use Aiur.TestSupport
 
+  alias Aiur.BuildQueue.{Hints, Model, Sets}
   alias Aiur.GitHub.{BoundedBlockedBy, OpenIssueSnapshot, ResourceStore}
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchCandidates, Dispatcher, DispatchPolicy, State, TrackerTasks}
@@ -73,6 +74,40 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
     assert order([ready, held]) == [held, ready]
   end
 
+  test "future regression guard: ready p1 without a queue hint precedes p3 and unprioritized tickets" do
+    p1 = candidate(701, 1)
+    p3 = candidate(702, 3)
+    unprioritized = candidate(703, nil)
+
+    assert Enum.map(DispatchCandidates.order([p3, unprioritized, p1], DispatchPolicy.terminal_state_set()), & &1.id) ==
+             [p1.id, p3.id, unprioritized.id]
+  end
+
+  test "ready features precede higher-priority maintenance while main-fix remains first" do
+    configure_ordering()
+    fixer = %{candidate(711, 4) | labels: ["main-fix"]}
+    feature = %{candidate(712, 2) | labels: ["feature:dispatch"]}
+    bug = %{candidate(713, 1) | labels: ["bug"]}
+    flake = %{candidate(714, 3) | labels: ["flake"]}
+    tooling = %{candidate(715, nil) | title: "Update tooling"}
+
+    assert order([flake, tooling, bug, feature, fixer]) == [fixer, feature, bug, flake, tooling]
+    assert order([tooling, flake, bug]) == [bug, flake, tooling]
+  end
+
+  test "queue membership precedes work kind, which precedes queue rank and position" do
+    configure_ordering()
+    fixer = %{candidate(721, 4) | labels: ["main-fix"]}
+    maintenance = %{candidate(722, 1) | labels: ["bug"]}
+    first_feature = %{candidate(723, 2) | labels: ["feature:dispatch"]}
+    later_feature = %{candidate(724, 2) | labels: ["build-order"]}
+    unqueued_feature = %{candidate(725, 1) | labels: ["build-lane:dispatch"]}
+    publish_queue_sets([[maintenance, first_feature], [later_feature]])
+
+    assert order([unqueued_feature, maintenance, later_feature, first_feature, fixer]) ==
+             [fixer, first_feature, later_feature, maintenance, unqueued_feature]
+  end
+
   test "a blocker closed in the current store stops lowering its dependent's priority" do
     held = candidate(1, 1)
     ready = candidate(2, 2)
@@ -94,6 +129,27 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
   end
 
   defp candidate(number, priority), do: %Issue{id: to_string(3_691_000 + number), identifier: "repo##{3_691_000 + number}", title: "ticket #{number}", state: "todo", priority: priority}
+
+  defp configure_ordering do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\nmerge_policy:\n  main_watch:\n    on_red: dispatch_fixer\nbuild_queue:\n  set_order: ranked\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+  end
+
+  defp publish_queue_sets(groups) do
+    now = DateTime.utc_now()
+
+    queues =
+      for {_group, rank} <- Enum.with_index(groups), do: %Model.Queue{id: "dispatch-#{rank}", name: "set #{rank}", rank: rank, kind: :list, root: nil, held: false, generation: 0, created_at: now}
+
+    items =
+      for {group, rank} <- Enum.with_index(groups),
+          {issue, position} <- Enum.with_index(group),
+          do: %Model.Item{issue_id: issue.id, queue_id: "dispatch-#{rank}", position: position, hold: nil, override: nil, promoted_at: now, added_at: now}
+
+    projections = for item <- items, do: %{issue_id: item.issue_id, state: :promoted}
+    Hints.publish_sets(Sets.snapshot(%{queues: queues, items: items}, projections, Config.settings!(), nil))
+  end
 
   defp apply_result(state) do
     [ref] = Map.keys(state.tracker_tasks)

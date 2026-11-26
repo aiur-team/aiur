@@ -1,10 +1,11 @@
 defmodule Aiur.BuildOrder.Epic do
   @moduledoc """
-  Resolves home-page general and feature epics, distinct from Build Order
-  `build-lane:` lanes and their `epic_count`. Lane labels only match when
-  explicitly listed in `build_order.general_epics`.
+  Resolves home-page lane and feature columns, distinct from Build Order
+  `build-lane:` lanes and their `epic_count`. A configured lane
+  (`build_order.lanes`) matches by its label matchers or by a `lane:`, `area:`
+  or `build-lane:` label carrying its key, the same rule `Aiur.Lane` applies.
 
-  Context contains `general` (ordered, normalized GeneralEpic maps or structs)
+  Context contains `general` (ordered, normalized lane maps or structs)
   and `features` (feature slug to ordered epic keys, or `:unknown`). Ticket
   facts contain `labels`, optional `labels_complete` (default true),
   `owning_feature` and `override` records (default `:none`). Missing labels
@@ -25,6 +26,7 @@ defmodule Aiur.BuildOrder.Epic do
     acc = %{ignored: [], gaps: []}
 
     with {:next, acc} <- feature(owner, features, override, acc),
+         {:next, acc} <- unconfirmed_label(ticket, override, general, acc),
          {:next, acc} <- override(override, general, acc),
          {:next, acc} <- labels(ticket, general, acc) do
       fallback(acc)
@@ -55,6 +57,15 @@ defmodule Aiur.BuildOrder.Epic do
     {:done, resolution(key, "feature", acc)}
   end
 
+  defp unconfirmed_label(ticket, %{confirmed: false}, general, acc) do
+    case labels(ticket, general, acc) do
+      {:done, result} -> {:done, %{result | ignored: result.ignored ++ [:override_unconfirmed_below_label]}}
+      {:next, acc} -> {:next, acc}
+    end
+  end
+
+  defp unconfirmed_label(_ticket, _override, _general, acc), do: {:next, acc}
+
   defp override(:unknown, _general, acc), do: {:next, gap(acc, :override)}
   defp override(:none, _general, acc), do: {:next, acc}
 
@@ -72,18 +83,21 @@ defmodule Aiur.BuildOrder.Epic do
   end
 
   defp match_labels(labels, ticket, general, acc) do
-    match =
-      Enum.find_value(general, fn epic ->
-        case Enum.find(epic.labels, &MapSet.member?(labels, &1)) do
-          nil -> nil
-          label -> {epic.key, label}
-        end
-      end)
-
-    case match do
+    case label_match(labels, general) do
       {key, label} -> {:done, resolution(key, "label:" <> label, acc)}
       nil -> {:next, if(Map.get(ticket, :labels_complete, true) == true, do: acc, else: gap(acc, :labels))}
     end
+  end
+
+  # Config order decides, and a lane label (`lane:`, `area:`, `build-lane:`) counts
+  # as a match for the lane with that key, the same rule `Aiur.Lane` applies.
+  defp label_match(labels, general) do
+    Enum.find_value(general, fn epic ->
+      case Aiur.Lane.label_match(epic, MapSet.to_list(labels)) do
+        nil -> nil
+        label -> {epic.key, label}
+      end
+    end)
   end
 
   defp normalize(labels) do

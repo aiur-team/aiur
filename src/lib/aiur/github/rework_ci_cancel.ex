@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.ReworkCICancel do
   """
 
   require Logger
-  alias Aiur.GitHub.{CIRecovery, Client}
+  alias Aiur.GitHub.{CIRecovery, CIRecoveryStore, Client}
 
   @workflows ["ci", "pr body"]
   @active ["queued", "in_progress", "waiting", "requested", "pending"]
@@ -34,14 +34,14 @@ defmodule Aiur.GitHub.ReworkCICancel do
     open_pr = Keyword.get(opts, :open_pr_fun, &Client.fetch_open_pull_request_for_branch/1)
 
     case open_pr.(issue_id) do
-      {:ok, %{"head" => %{"sha" => sha}}} when is_binary(sha) -> cancel_head(sha, opts)
+      {:ok, %{"number" => number, "head" => %{"sha" => sha}}} when is_integer(number) and is_binary(sha) -> cancel_head(number, sha, issue_id, opts)
       {:ok, nil} -> {:ok, []}
       {:error, _} = error -> error
       _ -> {:error, :invalid_pull_request}
     end
   end
 
-  defp cancel_head(sha, opts) do
+  defp cancel_head(number, sha, issue_id, opts) do
     opts = Keyword.put_new(opts, :caller, "rework_ci_cancel")
 
     case CIRecovery.read("/actions/runs?head_sha=#{sha}&event=pull_request&per_page=100", opts) do
@@ -52,13 +52,30 @@ defmodule Aiur.GitHub.ReworkCICancel do
           for %{"id" => id, "name" => name, "status" => status, "head_sha" => ^sha} <- runs,
               name in @workflows and status in @active,
               # A run that finished between the listing and the cancel answers 409; it no longer holds a runner.
-              cancel.(id, opts) == :ok,
+              cancel_and_record(id, number, sha, issue_id, cancel, opts) == :ok,
               do: id
 
         {:ok, ids}
 
       {:ok, _} ->
         {:error, :invalid_actions_runs_response}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp cancel_and_record(id, number, sha, issue_id, cancel, opts) do
+    case CIRecoveryStore.record_cancelled_run(issue_id, number, sha, id, opts) do
+      :ok ->
+        case cancel.(id, opts) do
+          :ok ->
+            :ok
+
+          {:error, _} = error ->
+            CIRecoveryStore.forget_cancelled_run(issue_id, number, id, opts)
+            error
+        end
 
       {:error, _} = error ->
         error

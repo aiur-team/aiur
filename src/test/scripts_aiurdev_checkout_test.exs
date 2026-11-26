@@ -314,6 +314,27 @@ defmodule ScriptsAiurdevCheckoutTest do
       assert out =~ "ENGINE_ARGS: github-usage --json"
     end
 
+    test "history export from another checkout reads the daemon instead of being refused" do
+      # `history export` reads the daemon's local History store and builds
+      # nothing; left off the read-only list, the fallthrough would treat it
+      # as a run and refuse it from any checkout but the shim's own.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["history", "export", "--unsorted"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: history export --unsorted"
+    end
+
     test "a dev flag before a control command does not make it look like a run" do
       # The shim consumes --debug before dispatch, so the command the engine
       # sees is `status` -- classifying on the raw first argument would refuse a
@@ -354,7 +375,7 @@ defmodule ScriptsAiurdevCheckoutTest do
             {"TMUX", nil}
           ],
           script: link,
-          cd: System.tmp_dir!()
+          cd: Path.join(isolated_tmp_root(), "no-checkout")
         )
 
       assert out =~ "ENGINE_ARGS: --bg"
@@ -390,13 +411,11 @@ defmodule ScriptsAiurdevCheckoutTest do
       mise = fake_mise()
       # A repo-shaped directory missing src/mix.exs is not an aiur checkout, and
       # refusing there would block a legitimate run for nothing.
-      partial = Aiur.TestSupport.tmp_root!("aiurdev-partial")
+      partial = Path.join(isolated_tmp_root(), "aiurdev-partial")
       File.mkdir_p!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec"]))
       File.mkdir_p!(Path.join(partial, "scripts"))
       File.write!(Path.join([partial, "scripts", "aiurdev"]), "")
       File.write!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"]), "")
-      on_exit(fn -> Aiur.TestCleanup.rm_rf!(partial) end)
-
       seed_ready_release(checkout_a)
 
       {out, 0} =

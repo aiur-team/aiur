@@ -35,7 +35,7 @@ defmodule Aiur.ExecutorSweepTest do
                interval_ms: 60_000,
                sweep_fun: fn ->
                  age = Agent.get_and_update(counter, fn value -> {value, value + 1} end)
-                 [%{kind: "unreviewed_human_review_pr", pull_request: 4447, age_ms: age}]
+                 [%{kind: "unreviewed_pr", pull_request: 4447, age_ms: age}]
                end,
                publish_fun: fn value -> send(parent, {:finding, value}) end
              )
@@ -56,7 +56,7 @@ defmodule Aiur.ExecutorSweepTest do
                name: nil,
                seen_path: seen_path(),
                interval_ms: 60_000,
-               sweep_fun: fn -> [%{kind: "unreviewed_human_review_pr", issue_number: 42, pull_request: 77, head_sha: Agent.get(head, & &1)}] end,
+               sweep_fun: fn -> [%{kind: "unreviewed_pr", issue_number: 42, pull_request: 77, head_sha: Agent.get(head, & &1)}] end,
                publish_fun: fn value -> send(parent, {:finding, value}) end
              )
 
@@ -143,7 +143,7 @@ defmodule Aiur.ExecutorSweepTest do
 
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     assert {:ok, inbox} = Aiur.ExecutorWakeInbox.start_link(inbox_opts)
-    finding = %{kind: "unreviewed_human_review_pr", priority: 1, issue_number: 4429, pull_request: 4447, age_ms: 900_000, message: "PR #4447 has waited 15m.", action: "Review it."}
+    finding = %{kind: "unreviewed_pr", priority: 1, issue_number: 4429, pull_request: 4447, age_ms: 900_000, message: "PR #4447 has waited 15m.", action: "Review it."}
 
     assert {:ok, sweep} =
              ExecutorSweep.start_link(

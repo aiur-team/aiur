@@ -35,32 +35,45 @@ defmodule Aiur.EnvInventoryTest do
   # inventory.
   @non_env_attribute_values ["APPROVED", "USD"]
 
-  test "both reference forms are inventoried (guards against a broken matcher)" do
+  # Read lib/ once per module. `File.read!/1` queues every read on the VM-wide
+  # file server, which other async source-scanning tests saturate in CI;
+  # `:prim_file` reads in the calling process instead.
+  setup_all do
+    sources =
+      for path <- Path.wildcard(@lib_glob) do
+        {:ok, source} = :prim_file.read_file(path)
+        source
+      end
+
+    %{sources: sources}
+  end
+
+  test "both reference forms are inventoried (guards against a broken matcher)", %{sources: sources} do
     # If the matcher stops seeing reads, these lower bounds catch it: the app
     # reads far more than 40 variables literally and the ticket names 9 that
     # only appear in attribute form.
-    assert MapSet.size(literal_refs()) >= 40
-    assert MapSet.size(attribute_refs()) >= 9
+    assert MapSet.size(literal_refs(sources)) >= 40
+    assert MapSet.size(attribute_refs(sources)) >= 9
   end
 
-  test "every env var read literally is declared in the schema" do
-    missing = MapSet.difference(literal_refs(), declared_names())
+  test "every env var read literally is declared in the schema", %{sources: sources} do
+    missing = MapSet.difference(literal_refs(sources), declared_names())
 
     assert MapSet.size(missing) == 0,
            "env vars read via System.get_env(\"NAME\") but absent from " <>
              "Aiur.Env.Schema: #{inspect(MapSet.to_list(missing) |> Enum.sort())}"
   end
 
-  test "every env var read through a module attribute is declared in the schema" do
-    missing = MapSet.difference(attribute_refs(), declared_names())
+  test "every env var read through a module attribute is declared in the schema", %{sources: sources} do
+    missing = MapSet.difference(attribute_refs(sources), declared_names())
 
     assert MapSet.size(missing) == 0,
            "env vars bound to module attributes but absent from Aiur.Env.Schema: " <>
              "#{inspect(MapSet.to_list(missing) |> Enum.sort())}"
   end
 
-  test "every env var the app reads (both forms) is declared" do
-    refs = MapSet.union(literal_refs(), attribute_refs())
+  test "every env var the app reads (both forms) is declared", %{sources: sources} do
+    refs = MapSet.union(literal_refs(sources), attribute_refs(sources))
     missing = MapSet.difference(refs, declared_names())
 
     assert MapSet.size(missing) == 0,
@@ -70,21 +83,19 @@ defmodule Aiur.EnvInventoryTest do
 
   defp declared_names, do: MapSet.new(Schema.names())
 
-  defp lib_files, do: Path.wildcard(@lib_glob)
-
-  defp literal_refs do
-    lib_files()
-    |> Enum.flat_map(fn path -> Regex.scan(@literal_re, File.read!(path)) end)
+  defp literal_refs(sources) do
+    sources
+    |> Enum.flat_map(&Regex.scan(@literal_re, &1))
     |> Enum.map(fn [_full, name] -> name end)
     |> MapSet.new()
   end
 
-  defp attribute_refs do
+  defp attribute_refs(sources) do
     non_env = MapSet.new(@non_env_attribute_values)
 
-    lib_files()
-    |> Enum.flat_map(fn path ->
-      Regex.scan(@attr_re, File.read!(path))
+    sources
+    |> Enum.flat_map(fn source ->
+      Regex.scan(@attr_re, source)
       |> Enum.map(fn [_full, _attr, value] -> value end)
       |> Enum.reject(&MapSet.member?(non_env, &1))
     end)

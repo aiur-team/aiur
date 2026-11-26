@@ -193,6 +193,101 @@ defmodule Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest do
       assert executor.("emit_event", %{"name" => "attention.resolved", "message" => "Approved", "payload" => %{"slug" => "operator-decision"}})["success"] == true
     end
 
+    test "ticket dependency pauses persist the edge and queue the ticket before publishing" do
+      identifier = "100"
+      test_pid = self()
+      issue = %{id: "100", number: 100, identifier: identifier}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          dependency_declarer: fn current, blocker ->
+            send(test_pid, {:dependency_declared, current, blocker})
+            {:ok, :already_present}
+          end,
+          blocker_subscriber: fn blockee, blocker ->
+            send(test_pid, {:blocker_subscribed, blockee, blocker})
+            :ok
+          end,
+          dependency_state_writer: fn issue_id, state_name ->
+            send(test_pid, {:ticket_queued, issue_id, state_name})
+            :ok
+          end
+        )
+
+      topic = "ticket.#{identifier}.agent.pause.request"
+      :ok = Exchange.subscribe(topic)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "pause.request",
+          "message" => "Waiting for its change",
+          "payload" => %{"reason" => "dependency", "blocker_identifier" => "200"}
+        })
+
+      assert response["success"], inspect(response)
+      assert_receive {:dependency_declared, "100", "200"}, 2_000
+      assert_receive {:blocker_subscribed, "100", "200"}, 2_000
+      assert_receive {:ticket_queued, "100", "todo"}, 2_000
+      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
+      assert_receive {:event, %{"message" => message, topic: ^topic}}, 2_000
+      assert message =~ "Waiting for prerequisite ticket #200"
+    end
+
+    test "cycle rejection prevents a dependency pause event" do
+      identifier = "TE-dependency-cycle-#{System.unique_integer([:positive])}"
+      issue = %{id: "100", number: 100, identifier: identifier}
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          dependency_declarer: fn _current, _blocker -> {:error, :cycle_detected} end,
+          blocker_subscriber: fn _blockee, _blocker -> :ok end,
+          dependency_state_writer: fn _issue_id, _state_name -> :ok end
+        )
+
+      topic = "ticket.#{identifier}.agent.pause.request"
+      :ok = Exchange.subscribe(topic)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "pause.request",
+          "message" => "Waiting for its change",
+          "payload" => %{"reason" => "dependency", "blocker_identifier" => "200"}
+        })
+
+      assert response["success"] == false
+      refute_receive {:event, %{topic: ^topic}}, 100
+    end
+
+    test "non-ticket dependency pauses publish the persisted decision id" do
+      identifier = "TE-external-dependency-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(issue, nil, nil, %{},
+          attention_opener: fn _issue, _workspace, _worker_host, slug, question, _opts ->
+            send(test_pid, {:decision_opened, slug, question})
+            {:ok, %{status: :accepted, decision: %{decision_id: "dec_external_1", version: 1}}}
+          end
+        )
+
+      topic = "ticket.#{identifier}.agent.pause.request"
+      :ok = Exchange.subscribe(topic)
+
+      response =
+        executor.("emit_event", %{
+          "name" => "pause.request",
+          "message" => "Waiting on external approval",
+          "payload" => %{"reason" => "dependency", "blocker_identifier" => "vendor approval"}
+        })
+
+      assert response["success"] == true
+      assert_receive {:decision_opened, "operator-decision", question}, 2_000
+      assert question =~ "vendor approval"
+      assert :drained = Aiur.CoordinationTasks.run({:ticket, identifier}, fn -> :drained end)
+      assert_receive {:event, %{"decision_id" => "dec_external_1", topic: ^topic}}, 2_000
+    end
+
     test "legacy attention persistence precedes generic event publication and returns Decision correlation" do
       identifier = "TE-attention-order-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}

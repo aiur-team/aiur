@@ -1,7 +1,7 @@
 # Resolve xref callers through the same compiled Mix project as local selection.
 _paths = System.argv() |> hd() |> File.read!() |> String.split("\n", trim: true)
 
-root = File.cwd!()
+root = Mix.Project.project_file() |> Path.dirname() |> Path.expand("..")
 base = System.get_env("AIUR_BASE_SHA") || "origin/main"
 
 case Mix.Tasks.Aiur.AffectedTests.selection(root, base, true) do

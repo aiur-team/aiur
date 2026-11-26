@@ -1,0 +1,21 @@
+{
+  "state": "pending",
+  "decision_id": "dec_rich",
+  "question": "Ship the build?",
+  "ticket": { "identifier": "42", "title": "Game", "url": "https://example.test/42" },
+  "blocking": true,
+  "options": [
+    { "id": "approve", "label": "Approve", "description": "Ship it", "media": [{ "kind": "image", "mime_type": "image/png", "caption": "Preview", "alt_text": "p", "locator": { "kind": "url", "value": "https://example.test/p.png" } }] },
+    { "id": "hold", "label": "Hold" }
+  ],
+  "recommendation": { "option_id": "approve", "label": "Approve" },
+  "free_response": { "allowed": true, "required": false },
+  "answer": { "action_id": "act_1", "selected_option_id": "approve" },
+  "conflict": { "winner": { "actor": "kev" } },
+  "media": [
+    { "kind": "url", "value": "https://example.test/x" },
+    { "kind": "animated_image", "mime_type": "image/gif", "caption": "Anim", "locator": { "kind": "url", "value": "https://example.test/a.gif" } },
+    { "kind": "video", "mime_type": "video/mp4", "locator": { "kind": "attachment", "attachment_id": "a1" } }
+  ],
+  "actions": { "answer": true, "revise": false, "enrich": false }
+}

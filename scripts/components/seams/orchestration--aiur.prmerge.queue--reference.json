@@ -6,7 +6,8 @@
     "src/lib/aiur/landing_watch.ex",
     "src/lib/aiur/landing_watch/merge_group_requeue.ex",
     "src/lib/aiur/landing_watch/merge_groups.ex",
-    "src/lib/aiur/landing_watch/merge_queue_watchdog.ex"
+    "src/lib/aiur/landing_watch/merge_queue_watchdog.ex",
+    "src/lib/aiur/landing_watch/merge_queue_watchdog_recovery.ex"
   ],
-  "reason": "#4457: enqueue eligible reviewed heads through the shared GitHub queue mutation"
+  "reason": "#4457: enqueue eligible reviewed heads through the shared GitHub queue mutation; #5594: re-add a recycled stuck queue head at the back"
 }

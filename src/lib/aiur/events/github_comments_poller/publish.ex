@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
 
   alias Aiur.Events
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, Sanitizer}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
 
   @doc false
   @spec publish_issue_comment(term(), map(), term()) :: term()
@@ -23,7 +23,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       actor,
       issue_number: target,
       dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id")),
-      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource: Access.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
       resource_version: resource_version(comment)
     )
   end
@@ -39,7 +39,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       actor,
       issue_number: target,
       dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id")),
-      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource: Access.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
       resource_version: resource_version(comment)
     )
   end
@@ -57,6 +57,7 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
+      identity: trusted_identity(target),
       dedup_key: dedup_key,
       resource: resource,
       resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation)
@@ -75,10 +76,17 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
       %{issue_number: target, comment: review, pull_request: review_context},
       actor,
       issue_number: target,
+      identity: trusted_identity(target),
       dedup_key: dedup_key,
-      resource: ResourceStore.key_for_repo(:pr_review, repo, review_id),
+      resource: Access.key_for_repo(:pr_review, repo, review_id),
       resource_version: resource_version(review)
     )
+  end
+
+  defp trusted_identity(target) do
+    Aiur.Orchestrator.tracker_identity(target)
+  catch
+    :exit, _ -> nil
   end
 
   # The resource is the *thread* when the comment carries a thread id, matching
@@ -89,11 +97,11 @@ defmodule Aiur.Events.GithubCommentsPoller.Publish do
   # resource is the comment and matches the delivery's per-comment fallback.
   defp pr_review_comment_resource(repo, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do
-    ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)
+    Access.key_for_repo(:pr_review_thread, repo, thread_id)
   end
 
   defp pr_review_comment_resource(repo, comment) when is_map(comment) do
-    ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
+    Access.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
   end
 
   # Pairs with the resource key to say *which version* of that resource was

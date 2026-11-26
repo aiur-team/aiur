@@ -64,6 +64,21 @@ defmodule Aiur.TestSupport.RunnerTasksTest do
     refute File.exists?(node)
   end
 
+  # #5581: a :rest_for_one restart shut Aiur.TaskSupervisor down between the
+  # name lookup and the children call, so the shared teardown raised and leaked
+  # its state into the next test. Use a private supervisor so this race does
+  # not unregister the app-wide task supervisor while other tests are running.
+  test "a task supervisor that exits while asked has no runner tasks left" do
+    stand_in = start_supervised!({Task.Supervisor, name: nil})
+
+    :ok = :sys.suspend(stand_in)
+    capture = Task.async(fn -> RunnerTasks.capture(stand_in) end)
+    Aiur.DispatcherTestSupport.wait_until(fn -> Process.info(stand_in, :message_queue_len) == {:message_queue_len, 1} end)
+    Process.exit(stand_in, :kill)
+
+    assert Task.await(capture) == MapSet.new()
+  end
+
   defp write_on_request do
     receive do
       {:write, caller} ->

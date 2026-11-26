@@ -12,6 +12,38 @@ defmodule Aiur.GitHub.Quota.WindowsAndAlertsTest do
     assert catch_exit(Quota.snapshot!(:aiur_github_quota_not_running))
   end
 
+  test "meter alerts once when its last quota sample is older than ten minutes and rearms on a new sample" do
+    parent = self()
+    clock = start_supervised!({Agent, fn -> @now end})
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        freshness_check_interval_ms: 10,
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    assert eventually(fn -> Quota.snapshot(quota).state == :observed end)
+    Agent.update(clock, &DateTime.add(&1, 601, :second))
+    send(quota, :check_sample_freshness)
+    assert_receive {:alert, "system.github.quota.sample_stale", opts}, 1000
+    assert opts[:needs_attention]
+    assert opts[:reason] =~ "2026-08-09T21:00:00Z"
+    refute_receive {:alert, "system.github.quota.sample_stale", _}, 50
+
+    send(quota, {:quota_sampled, DateTime.add(@now, 601, :second)})
+    assert_receive {:alert, "system.github.quota.sample_stale.resolved", clear_opts}, 1000
+    refute clear_opts[:needs_attention]
+    Agent.update(clock, &DateTime.add(&1, 1_202, :second))
+    send(quota, :check_sample_freshness)
+    assert_receive {:alert, "system.github.quota.sample_stale", next_opts}, 1000
+    assert next_opts[:reason] =~ "2026-08-09T21:10:01Z"
+  end
+
   test "projects rate-limit headers into exact core and GraphQL windows" do
     quota = start_quota()
 

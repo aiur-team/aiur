@@ -70,6 +70,19 @@ defmodule Aiur.Experiments.ArmsTest do
     assert result["excluded"] == %{"straddle" => 0, "ambiguous" => 1, "filtered" => 2}
   end
 
+  test "work-kind filter assigns only feature tickets to the experiment" do
+    ab = Path.join(__DIR__, "fixtures/valid_ab.json") |> File.read!() |> Jason.decode!() |> Map.fetch!("spec")
+    ab = put_in(ab, ["filters"], %{"attr" => "tags.work_kind", "op" => "eq", "value" => "feature"})
+    at = DateTime.utc_now() |> DateTime.to_iso8601()
+    feature = row("feature", at, nil, %{"tags" => %{"team" => "one", "work_kind" => "feature"}})
+    tooling = row("tooling", at, nil, %{"tags" => %{"team" => "one", "work_kind" => "tooling"}})
+
+    result = Arms.assign(ab, [{"observation", window([feature, tooling])}])
+
+    assert result["arms"]["test"]["metrics"][@ref]["observations"] == [feature]
+    assert result["excluded"]["filtered"] == 1
+  end
+
   test "after window start excludes washout observations and boundary finish belongs before" do
     before = row("boundary", "2026-10-09T10:00:00Z", "2026-10-09T12:00:00Z")
     washout = row("washout", "2026-10-09T12:10:00Z", nil)

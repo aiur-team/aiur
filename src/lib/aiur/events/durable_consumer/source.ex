@@ -9,7 +9,11 @@ defmodule Aiur.Events.DurableConsumer.Source do
 
   # aiur:event-bus-boundary-member
 
-  @doc "Live path: send `consumer` `{:durable_record, record}` for each new record."
+  @doc """
+  Live path: send `consumer` `{:durable_record, record}` for each new record,
+  or `:catch_up` to invalidate its view when the source can reset or become unavailable.
+  Subscribe and replay run in the consumer process; adapters may retain per-consumer state.
+  """
   @callback subscribe(source_opts :: term(), consumer :: pid()) :: :ok
 
   @doc "Up to `limit` records with position greater than `after_cursor`, in order."

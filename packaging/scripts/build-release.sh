@@ -29,7 +29,7 @@ else
   exit 1
 fi
 
-MIX_ENV="$mix_env" "${mix[@]}" deps.get >&2
+MIX_ENV="$mix_env" bash ../scripts/retry-mix-deps-get.sh "${mix[@]}" deps.get >&2
 MIX_ENV="$mix_env" "${mix[@]}" release aiur --overwrite >&2
 
 release_dir="$elixir_dir/_build/$mix_env/rel/aiur"

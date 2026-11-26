@@ -17,7 +17,9 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :format_preflight_error, 1), do: tracker.format_preflight_error(reason), else: inspect(reason)
   end
 
-  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_label_map :: %{
+          String.t() => %{optional(:labels) => [String.t()], optional(:updated_at) => DateTime.t() | nil, optional(:label_descriptions) => %{optional(String.t()) => String.t()}}
+        }
   @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
   @type ticket_pull_request_result ::
           {:ok,
@@ -29,6 +31,7 @@ defmodule Aiur.Tracker do
                optional(:version) => String.t() | nil,
                optional(:head_ref) => String.t() | nil,
                optional(:head_sha) => String.t() | nil,
+               optional(:head_updated_at) => String.t() | nil,
                optional(:base_ref) => String.t() | nil,
                optional(:merge_commit_sha) => String.t() | nil
              }}
@@ -61,6 +64,16 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 2), do: tracker.issue_closure(issue_id, max_age_ms), else: {:error, :unsupported}
   end
 
+  @doc "Like `issue_closure/2`, attributing the read to `caller` where the tracker meters reads."
+  @spec issue_closure(String.t(), pos_integer(), String.t()) :: issue_closure_result()
+  def issue_closure(issue_id, max_age_ms, caller) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 3),
+      do: tracker.issue_closure(issue_id, max_age_ms, caller),
+      else: issue_closure(issue_id, max_age_ms)
+  end
+
   @doc "Reads open-issue labels already observed by the tracker, without a remote request."
   @spec open_issue_labels(pos_integer()) :: open_issue_labels_result()
   def open_issue_labels(max_age_ms) do
@@ -85,6 +98,13 @@ defmodule Aiur.Tracker do
   def ticket_pull_request(issue_id) do
     tracker = adapter()
     if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1), do: tracker.ticket_pull_request(issue_id), else: {:ok, nil}
+  end
+
+  @doc "Resolves a closed ticket's merged PR remotely; callers must keep this off dispatch paths."
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: ticket_pull_request_result()
+  def resolve_ticket_pull_request(issue_id, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :resolve_ticket_pull_request, 2), do: tracker.resolve_ticket_pull_request(issue_id, opts), else: {:error, :unsupported}
   end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
@@ -136,6 +156,16 @@ defmodule Aiur.Tracker do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
     adapter().fetch_issue_states_by_ids(issue_ids) |> TestTicketScope.filter_result()
+  end
+
+  @doc "Returns whether labels contain a state owned by another tracker lane."
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :foreign_state_label?, 1),
+      do: tracker_adapter.foreign_state_label?(labels),
+      else: false
   end
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::

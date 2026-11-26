@@ -133,7 +133,10 @@ defmodule Aiur.Workspace.Ownership.RetentionOrderTest do
       match?({:ok, %{phase: :reaping, retained_cause: "recovery_audit_failed"}}, Ownership.current(ticket))
     end)
 
-    assert {:ok, %{"retained_cause" => "recovery_audit_failed"}} = Store.get(ticket)
+    assert_eventually(fn ->
+      match?({:ok, %{"retained_cause" => "recovery_audit_failed"}}, Store.get(ticket))
+    end)
+
     Process.exit(restored.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end

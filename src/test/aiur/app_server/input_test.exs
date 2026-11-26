@@ -65,7 +65,7 @@ defmodule Aiur.AppServer.InputTest do
     end
   end
 
-  test "app server sends a generic non-interactive answer for freeform tool input prompts" do
+  test "capture opt-out sends a generic non-interactive answer for freeform tool input prompts" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-user-input-required")
 
     try do
@@ -111,6 +111,9 @@ defmodule Aiur.AppServer.InputTest do
         command: "#{codex_binary} app-server",
         codex_approval_policy: "never"
       )
+
+      File.write!(Workflow.workflow_file_path(), "\ndecisions: {native_capture: {codex: false}}\n", [:append])
+      assert :ok = WorkflowStore.force_reload()
 
       issue = %Issue{
         id: "issue-tool-user-input-required",

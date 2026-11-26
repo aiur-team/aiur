@@ -29,7 +29,7 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
   end
 
   defp settings(keys \\ ["bugs", "infra", "docs", "unsorted"]),
-    do: {:ok, %{build_order: %{general_epics: Enum.map(keys, &%{key: &1, label: String.capitalize(&1)})}}}
+    do: {:ok, %{build_order: %{lanes: Enum.map(keys, &%{key: &1, label: String.capitalize(&1)})}}}
 
   defp start(ctx, extra \\ []), do: start_supervised!({Store, Keyword.merge(ctx.opts, extra)})
 

@@ -12,17 +12,18 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.ReworkGate
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @head String.duplicate("a", 40)
   @shared [%{"filename" => "shared.ex"}]
   @queued %{"id" => "MQE_1"}
   @approved_queued %{
-    "headRefOid" => "tested-head",
+    "headRefOid" => @head,
     "baseRefName" => "main",
     "mergeable" => "MERGEABLE",
     "reviewDecision" => "APPROVED",
     "mergeQueueEntry" => @queued,
     "autoMergeRequest" => nil,
-    "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "tested-head"}}]}
+    "reviews" => %{"nodes" => [%{"commit" => %{"oid" => @head}}]}
   }
 
   setup do
@@ -137,7 +138,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   test "future regression: malformed or mismatched pinned mergeability fails closed" do
     expected = %{
-      "headRefOid" => "tested-head",
+      "headRefOid" => @head,
       "baseRefName" => "main",
       "mergeable" => "MERGEABLE",
       "reviewDecision" => "REVIEW_REQUIRED",
@@ -197,7 +198,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   test "a mergeable head with an older approval is sent back for review" do
     detail = %{
-      "headRefOid" => "tested-head",
+      "headRefOid" => @head,
       "baseRefName" => "main",
       "mergeable" => "MERGEABLE",
       "reviewDecision" => "APPROVED",
@@ -226,7 +227,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     assert error["detail"] == %{
              "pr_number" => 77,
              "base_branch" => "main",
-             "head_sha" => "tested-head"
+             "head_sha" => @head
            }
 
     assert error["message"] =~ "conflicts with"
@@ -383,6 +384,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   # `pull_request` overrides the approved-at-head, queued default.
   defp request_fun(pull_request, upstream_files) do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["agent:rework"] end)
     detail = Map.merge(@approved_queued, pull_request)
 
     threads = %{
@@ -394,8 +396,8 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
     # First match wins, on the URL or the GraphQL query name.
     routes = [
-      {"/compare/main...tested-head", %{"status" => "diverged", "base_commit" => %{"sha" => "observed-base"}, "files" => @shared}},
-      {"/compare/tested-head...observed-base", %{"status" => "diverged", "files" => upstream_files}},
+      {"/compare/main...#{@head}", %{"status" => "diverged", "base_commit" => %{"sha" => "observed-base"}, "files" => @shared}},
+      {"/compare/#{@head}...observed-base", %{"status" => "diverged", "files" => upstream_files}},
       {"AiurHumanReviewMergeability", %{"data" => %{"repository" => %{"pullRequest" => detail}}}},
       {"AiurViewerLogin", %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}},
       {"AiurUnaddressedReviewThreads", %{"data" => %{"repository" => %{"pullRequest" => threads}}}},
@@ -403,9 +405,10 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
        [
          %{
            "number" => 77,
+           "body" => local_tests_body(),
            "head" => %{
              "ref" => "aiur/42",
-             "sha" => "tested-head",
+             "sha" => @head,
              "repo" => %{"full_name" => "owner/repo"}
            }
          }
@@ -418,11 +421,57 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
       body = Map.get(req, :body) || %{}
       text = req.url <> " " <> to_string(body["query"])
 
-      if req.method == :post and is_list(body["labels"]),
-        do: send(parent, {:label_written, body["labels"]})
+      notify_label_write(req, parent)
 
-      {_route, response} = Enum.find(routes, fn {route, _response} -> text =~ route end)
-      {:ok, %{status: 200, body: response}}
+      case state_label_response(req, labels) do
+        :unhandled ->
+          route_response(routes, text)
+
+        response ->
+          response
+      end
     end
+  end
+
+  defp notify_label_write(%{method: :post, body: %{"labels" => labels}}, parent) when is_list(labels),
+    do: send(parent, {:label_written, labels})
+
+  defp notify_label_write(_request, _parent), do: :ok
+
+  defp state_label_response(%{method: :get, url: url}, labels) do
+    if String.ends_with?(url, "/issues/42") do
+      current_labels = Agent.get(labels, & &1)
+      issue = %{"state" => "open", "labels" => Enum.map(current_labels, &%{"name" => &1})}
+      {:ok, %{status: 200, body: issue}}
+    else
+      :unhandled
+    end
+  end
+
+  defp state_label_response(%{method: :post, body: %{"labels" => new_labels}}, labels) when is_list(new_labels) do
+    Agent.update(labels, &Enum.uniq(new_labels ++ &1))
+    {:ok, %{status: 200}}
+  end
+
+  defp state_label_response(%{method: :delete, url: url}, labels) do
+    if String.contains?(url, "/issues/42/labels/") do
+      label = url |> String.split("/") |> List.last() |> URI.decode()
+      Agent.update(labels, &List.delete(&1, label))
+      remaining = Agent.get(labels, &Enum.map(&1, fn item -> %{"name" => item} end))
+      {:ok, %{status: 200, body: remaining}}
+    else
+      :unhandled
+    end
+  end
+
+  defp state_label_response(_request, _labels), do: :unhandled
+
+  defp route_response(routes, text) do
+    {_route, response} = Enum.find(routes, fn {route, _response} -> text =~ route end)
+    {:ok, %{status: 200, body: response}}
+  end
+
+  defp local_tests_body do
+    "## Local tests\n\nPolicy: partial\nTested head: #{@head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
   end
 end

@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.Protocol do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2]
-  alias AiurWeb.Build.{DataSource, Payload, Read}
+  alias AiurWeb.Build.{DataSource, NavCount, Payload, Read, SnapshotRows}
   require Logger
 
   @resync_interval_ms 2_000
@@ -15,8 +15,10 @@ defmodule AiurWeb.Build.Protocol do
       end
 
     assign(socket,
+      build_nav_count: NavCount.unknown(),
       build_epoch: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false),
       build_generation: 0,
+      build_dropped_row_ids: MapSet.new(),
       build_resynced: false,
       build_read_at: nil,
       build_time_zone: zone,
@@ -30,6 +32,7 @@ defmodule AiurWeb.Build.Protocol do
   @spec store(Phoenix.LiveView.Socket.t(), map(), keyword() | nil) :: Phoenix.LiveView.Socket.t()
   def store(socket, data, opts \\ nil) do
     data = data |> Payload.scrub() |> access(opts || Read.source_opts(socket))
+    socket = NavCount.put(socket, NavCount.from_snapshot(data))
     assign(socket, build_snapshot: data, build_history: data["history"], build_index_generation: data["index_generation"], build_usage_last: data["usage"])
   end
 
@@ -86,12 +89,15 @@ defmodule AiurWeb.Build.Protocol do
   defp snapshot_reply({:ok, data}, socket, _opts) do
     opts = Read.source_opts(socket)
     data = data |> Payload.scrub() |> access(opts)
-    message = Payload.snapshot(data, socket.assigns.build_epoch, socket.assigns.build_generation)
+    {message, dropped} = data |> Payload.snapshot(socket.assigns.build_epoch, socket.assigns.build_generation) |> SnapshotRows.retain_valid()
+    Enum.each(dropped, &warn_dropped_row/1)
+    data = Map.put(data, "sections", message["sections"])
+    dropped_ids = dropped |> Enum.map(&elem(&1, 2)) |> Enum.reject(&is_nil/1) |> MapSet.new()
 
     case validate(message) do
       :ok ->
         warn_size(message)
-        {:reply, message, socket |> store(data, opts) |> assign(build_resynced: true)}
+        {:reply, message, socket |> store(data, opts) |> assign(build_resynced: true, build_dropped_row_ids: dropped_ids)}
 
       :error ->
         {:reply, Payload.error(:invalid_data), socket}
@@ -108,18 +114,34 @@ defmodule AiurWeb.Build.Protocol do
   defp page_reply({:error, reason}, socket), do: {:reply, Payload.error(error_reason(reason)), socket}
 
   defp push_change(socket, changes, opts) do
+    recovering_dropped_row? =
+      Enum.any?(changes["upsert"], fn row ->
+        is_map(row) and MapSet.member?(socket.assigns.build_dropped_row_ids, row["id"])
+      end)
+
+    if recovering_dropped_row? do
+      restart(socket)
+    else
+      push_valid_change(socket, changes, opts)
+    end
+  end
+
+  defp push_valid_change(socket, changes, opts) do
+    {changes, dropped_ids} = SnapshotRows.scrub_changes(changes, socket.assigns.build_dropped_row_ids)
     changes = if opts[:financial] == :locked, do: update_in(changes["set"], &Map.delete(&1, "usage")), else: changes
     generation = socket.assigns.build_generation + 1
     message = Payload.diff(changes, socket.assigns.build_epoch, generation, socket.assigns.build_history)
 
     if validate(message) == :ok do
       socket
+      |> NavCount.put(NavCount.apply(socket.assigns.build_nav_count, changes))
       |> assign(
         build_generation: generation,
         build_history: Map.get(message["set"], "history", socket.assigns.build_history),
         build_usage_last: Map.get(message["set"], "usage", socket.assigns.build_usage_last),
         build_index_generation: Map.get(changes, "index_generation", socket.assigns.build_index_generation)
       )
+      |> assign(build_dropped_row_ids: dropped_ids)
       |> Phoenix.LiveView.push_event("build-diff", message)
     else
       restart(socket)
@@ -129,7 +151,7 @@ defmodule AiurWeb.Build.Protocol do
   defp restart(socket) do
     generation = socket.assigns.build_generation + 2
     message = Payload.diff(%{now: System.system_time(:millisecond), upsert: [], remove: [], set: %{}}, socket.assigns.build_epoch, generation, socket.assigns.build_history)
-    socket |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
+    socket |> NavCount.put(NavCount.unknown()) |> assign(build_generation: generation, build_index_generation: nil) |> Phoenix.LiveView.push_event("build-diff", message)
   end
 
   defp access(data, opts) do
@@ -146,6 +168,10 @@ defmodule AiurWeb.Build.Protocol do
         Logger.warning("build payload invalid paths=#{inspect(paths)}")
         :error
     end
+  end
+
+  defp warn_dropped_row({section, index, id, paths}) do
+    Logger.warning("build snapshot row dropped path=sections.#{section}.#{index} id=#{inspect(id)} invalid_paths=#{inspect(paths)}")
   end
 
   defp warn_size(message) do

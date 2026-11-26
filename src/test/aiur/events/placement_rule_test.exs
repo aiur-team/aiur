@@ -88,7 +88,7 @@ defmodule Aiur.Events.PlacementRuleTest do
   defp source_files do
     files = Path.wildcard(Path.join(@lib_root, "**/*.ex"))
     assert files != [], "Placement census found no lib/**/*.ex files"
-    Map.new(files, fn path -> {Path.relative_to(path, @lib_root), path |> File.read!() |> strip_docs()} end)
+    Map.new(files, fn path -> {Path.relative_to(path, @lib_root), path |> read_source!() |> strip_docs()} end)
   end
 
   defp strip_docs(source) do
@@ -112,4 +112,11 @@ defmodule Aiur.Events.PlacementRuleTest do
   end
 
   defp line_at(source, offset), do: source |> binary_part(0, offset) |> String.split("\n") |> length()
+
+  # `File.read!/1` queues on the VM-wide file server, which async source scans
+  # saturate in CI; `:prim_file` reads in the calling process instead.
+  defp read_source!(path) do
+    {:ok, source} = :prim_file.read_file(path)
+    source
+  end
 end

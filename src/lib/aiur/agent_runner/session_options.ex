@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
   alias Aiur.AgentRunner.SessionResume
   alias Aiur.CodingAgent
   alias Aiur.CodingAgent.HeadroomDispatch
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Tracker
@@ -34,7 +35,8 @@ defmodule Aiur.AgentRunner.SessionOptions do
     # Rejoin the prior agent thread across an aiur restart instead of cold-
     # starting a fresh conversation that re-discovers the work (issue #378).
     # Only a resumable, local backend with a persisted handle qualifies; any miss degrades silently to a clean start.
-    resume_thread_id = Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
+    resume_thread_id =
+      if Keyword.get(opts, :fresh_session, false), do: nil, else: Keyword.get(opts, :resume_thread_id) || SessionResume.load_resume_thread_id(session_backend, worker_host, issue.identifier)
 
     session_opts =
       [
@@ -48,6 +50,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
       ]
       |> maybe_put_rc_name(rc?, issue)
       |> maybe_put_account(session_backend, config_for_accounts(opts), HeadroomDispatch.account_opts(issue, session_backend, opts))
+      |> maybe_put_deployment_auth(session_backend, opts)
       |> HeadroomDispatch.put_selection_reason(issue)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
@@ -56,12 +59,89 @@ defmodule Aiur.AgentRunner.SessionOptions do
 
   defp config_for_accounts(opts), do: Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
 
+  defp maybe_put_deployment_auth(session_opts, backend, opts) when backend in ["claude", "claude-repl", "codex"] do
+    deployment = Keyword.get_lazy(opts, :deployment_settings, &Config.settings!/0)
+
+    kind =
+      case deployment do
+        %{instance: %{deployment_kind: value}} -> value
+        _ -> "operator"
+      end
+
+    inherited = Keyword.get_lazy(opts, :credential_env, &System.get_env/0)
+    backend_name = if backend == "claude-repl", do: "claude", else: backend
+    hosted? = match?(%{instance: %{mode: "hosted"}}, deployment)
+    env = deployment_auth_env(backend_name, kind, inherited, hosted?, backend)
+
+    if env == [], do: session_opts, else: replace_hosted_provider_auth(session_opts, env)
+  end
+
+  defp maybe_put_deployment_auth(session_opts, _backend, _opts), do: session_opts
+
+  defp replace_hosted_provider_auth(session_opts, env) do
+    replacement_names = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+    replacement_names = if Enum.any?(env, fn {name, _value} -> name == "CODEX_HOME" end), do: ["CODEX_HOME" | replacement_names], else: replacement_names
+
+    Keyword.update(session_opts, :env, env, fn existing ->
+      Enum.reject(existing, fn {name, _value} -> name in replacement_names end) ++ env
+    end)
+  end
+
+  @doc false
+  @spec deployment_auth_env(String.t(), String.t(), map()) :: [{String.t(), String.t()}]
+  def deployment_auth_env(backend, kind, env), do: deployment_auth_env(backend, kind, env, true, backend)
+
+  @doc false
+  @spec deployment_auth_env(String.t(), String.t(), map(), boolean()) :: [{String.t(), String.t()}]
+  def deployment_auth_env(backend, kind, env, hosted?) when is_boolean(hosted?),
+    do: deployment_auth_env(backend, kind, env, hosted?, backend)
+
+  @doc false
+  defp deployment_auth_env("claude", "operator", env, true, _transport) when is_map(env) do
+    cond do
+      present_env?(env, "CLAUDE_CODE_OAUTH_TOKEN") -> [{"CLAUDE_CODE_OAUTH_TOKEN", env["CLAUDE_CODE_OAUTH_TOKEN"]}]
+      present_env?(env, "ANTHROPIC_API_KEY") -> [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}]
+      true -> []
+    end
+  end
+
+  defp deployment_auth_env("claude", "consumer", env, true, _transport) when is_map(env) do
+    if present_env?(env, "ANTHROPIC_API_KEY"), do: [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}], else: []
+  end
+
+  defp deployment_auth_env("codex", "consumer", env, true, _transport) when is_map(env) do
+    []
+    |> maybe_add_env("CODEX_HOME", env)
+    |> maybe_add_env("OPENAI_API_KEY", env)
+  end
+
+  defp deployment_auth_env("codex", _kind, env, true, _transport) when is_map(env) do
+    if present_env?(env, "OPENAI_API_KEY"), do: [{"OPENAI_API_KEY", env["OPENAI_API_KEY"]}], else: []
+  end
+
+  defp deployment_auth_env(_backend, _kind, _env, false, _transport), do: []
+  defp deployment_auth_env(_backend, _kind, _env, _hosted?, _transport), do: []
+
+  defp present_env?(env, name), do: is_binary(env[name]) and String.trim(env[name]) != ""
+
+  defp maybe_add_env(values, name, env) do
+    if present_env?(env, name), do: values ++ [{name, env[name]}], else: values
+  end
+
   defp maybe_put_account(session_opts, backend, config, opts) do
     account_backend = if backend == "claude-repl", do: "claude", else: backend
 
+    # A pin from before a config reload that removed its account is dropped,
+    # so the ticket's next session reselects among the accounts still
+    # configured. A session already running keeps its account (#7449).
     case Keyword.get(opts, :account_name) do
       name when is_binary(name) and account_backend in ["claude", "codex"] ->
-        Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        if name in configured_account_names(config, account_backend) do
+          Keyword.merge(session_opts, account_name: name, env: Accounts.profile_env(account_backend, name))
+        else
+          Logger.warning("account no longer configured; reselecting backend=#{account_backend} account=#{name}")
+          maybe_put_account(session_opts, backend, config, Keyword.delete(opts, :account_name))
+        end
 
       _ ->
         case Accounts.capability(account_backend) do
@@ -85,9 +165,10 @@ defmodule Aiur.AgentRunner.SessionOptions do
     end
   end
 
+  defp configured_account_names(config, backend), do: Map.get(Map.get(config, :accounts) || %{}, backend, [])
+
   defp configured_account_candidates(config, backend, opts) do
-    names = Map.get(config, :accounts) || %{}
-    names = Map.get(names, backend, [])
+    names = configured_account_names(config, backend)
     list_accounts = Keyword.get(opts, :account_list_fun, &Accounts.list/1)
     registered = MapSet.new(list_accounts.(backend), & &1.name)
     Enum.filter(names, &MapSet.member?(registered, &1))
@@ -126,10 +207,23 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp choose_account(session_opts, backend, candidates, config, usages, reset_at) do
     mode = config.account_selection || "balance"
 
+    # A turn handoff re-chooses an account on the backend dispatch already
+    # selected. An account at or below `agent.usage_floor_percent` is skipped
+    # here exactly as it is at claim time (#7504) — balance would otherwise
+    # prefer the most-used account, which is the one the floor just held. When
+    # every account on the backend is floored there is no other route to take
+    # from here, so the least-used one still serves the turn rather than
+    # stranding the ticket.
+    case UsageFloorGate.allowed_accounts(backend, candidates, usages) do
+      [] -> select_account(session_opts, backend, candidates, mode, usages, reset_at)
+      allowed -> select_account(session_opts, backend, allowed, mode, usages, reset_at)
+    end
+  end
+
+  defp select_account(session_opts, backend, candidates, mode, usages, reset_at) do
     case Accounts.select(backend, candidates, mode, usages) do
       {:ok, name} ->
-        session_opts
-        |> put_selected_account(backend, name, usages)
+        put_selected_account(session_opts, backend, name, usages)
 
       {:error, reason} ->
         put_account_selection_error(session_opts, backend, reason, reset_at)

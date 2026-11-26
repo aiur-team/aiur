@@ -1,7 +1,6 @@
 defmodule Aiur.LandingWatch.WorkflowTimeouts do
+  alias Aiur.GitHub.Access
   @moduledoc false
-
-  alias Aiur.GitHub.Transport
 
   @spec for_jobs(map(), [map()], keyword()) :: %{optional(String.t()) => pos_integer()}
   def for_jobs(run, jobs, opts) do
@@ -20,8 +19,8 @@ defmodule Aiur.LandingWatch.WorkflowTimeouts do
   @doc "Reads the job definitions of the workflow file at `path` on `ref`."
   @spec definitions(term(), term(), keyword()) :: {:ok, map()} | {:error, term()}
   def definitions(path, ref, opts) when is_binary(path) and is_binary(ref) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, body} <- fetch_workflow(owner, repo, path, ref, token, opts),
          %{"content" => encoded} when is_binary(encoded) <- body,
          {:ok, source} <- decode_content(encoded),
@@ -43,10 +42,10 @@ defmodule Aiur.LandingWatch.WorkflowTimeouts do
   defp definition_name(_definition), do: nil
 
   defp fetch_workflow(owner, repo, path, sha, token, opts) do
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     url_path = path |> String.split("/") |> Enum.map_join("/", &URI.encode/1)
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/contents/#{url_path}?" <> URI.encode_query(%{"ref" => sha})
-    Transport.fetch_json_map(request, token, url, caller: "landing_watch_workflow_timeout")
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/contents/#{url_path}?" <> URI.encode_query(%{"ref" => sha})
+    Access.fetch_json_map(request, token, url, caller: "landing_watch_workflow_timeout")
   end
 
   defp decode_content(encoded) do

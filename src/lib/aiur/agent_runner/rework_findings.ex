@@ -2,31 +2,59 @@ defmodule Aiur.AgentRunner.ReworkFindings do
   @moduledoc """
   The review findings a rework turn must answer (#4654).
 
-  Findings come from the numbered `file:line` items in the latest blocking
-  review body, the shape Executor reviews use. Each finding keeps the number the
-  reviewer gave it, so the worker answers `1`, `2`, ... exactly as the review
-  reads. An item without `file:line` is not a finding, so a review without any
-  never blocks a handback.
+  Findings come from the numbered items in the latest blocking review body, the
+  shape Executor reviews use. Each finding keeps the number the reviewer gave it,
+  so the worker answers `1`, `2`, ... exactly as the review reads. An item that
+  names no `file:line` (a body or test ask) is still a finding (#5746); numbered
+  lines inside code fences are not.
   """
 
-  alias Aiur.Orchestrator.ReworkGate
+  alias Aiur.{Orchestrator.ReworkGate, Tracker}
 
-  @type finding :: %{id: String.t(), file: String.t(), line: String.t(), ask: String.t()}
+  @type finding :: %{id: String.t(), file: String.t() | nil, line: String.t() | nil, ask: String.t()}
 
   @item ~r/^\s*(\d+)[.)]\s+(.+)$/
   @location ~r/([A-Za-z0-9_.\/-]+\.[A-Za-z0-9]+):~?(\d+)/
+  @non_blocking_comment ~r/\b(?:no (?:blockers|blocking (?:findings|issues))|all blockers (?:addressed|resolved))\b/i
+  @blocking_comment ~r/^(?:\s*\#{1,6})?\s*(?:blocking(?: findings| issues)?|blockers?|must fix|changes required)\s*:/im
+  @pre_merge_request ~r/\b(?:update|rebase|merge|fix)\b[^\n.!?]*\bbefore merge\b/i
 
-  @doc "Parses the numbered `file:line` items of a review body."
+  @doc "Parses the numbered items of a review body, with the first `file:line` each names."
   @spec parse(term()) :: [finding()]
   def parse(body) when is_binary(body) do
-    for line <- String.split(body, "\n"),
-        [_, id, text] <- [Regex.run(@item, line)],
-        [_, file, line_no] <- [Regex.run(@location, text)] do
-      %{id: id, file: file, line: line_no, ask: ask(text)}
-    end
+    {findings, _in_fence?} =
+      body
+      |> String.split("\n")
+      |> Enum.flat_map_reduce(false, fn line, in_fence? ->
+        cond do
+          String.starts_with?(String.trim_leading(line), "```") -> {[], not in_fence?}
+          in_fence? -> {[], true}
+          true -> {item(line), false}
+        end
+      end)
+
+    findings
   end
 
   def parse(_body), do: []
+
+  defp item(line) do
+    case Regex.run(@item, line) do
+      [_, id, text] ->
+        {file, line_no} = text_location(text)
+        [%{id: id, file: file, line: line_no, ask: ask(text)}]
+
+      nil ->
+        []
+    end
+  end
+
+  defp text_location(text) do
+    case Regex.run(@location, text) do
+      [_, file, line_no] -> {file, line_no}
+      _ -> {nil, nil}
+    end
+  end
 
   @doc "Returns the PR number and head, the latest blocking review's commit and time, and that review's parsed findings."
   @spec fetch(String.t(), keyword()) ::
@@ -87,6 +115,80 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     end
   end
 
+  @doc "Returns the newest trusted PR conversation comment newer than the formal review."
+  @spec latest_feedback_comment(term(), String.t() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def latest_feedback_comment(number, review_at, opts \\ []) do
+    fetch_comments = Keyword.get(opts, :pr_issue_comments_fetcher, &default_pr_issue_comments/1)
+
+    case fetch_comments.(number) do
+      {:ok, comments} when is_list(comments) ->
+        latest =
+          comments
+          |> Enum.filter(&trusted_comment?(&1, review_at))
+          |> Enum.max_by(&comment_timestamp/1, fn -> nil end)
+
+        {:ok, latest}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _invalid_response ->
+        {:error, :invalid_comment_response}
+    end
+  end
+
+  @doc "Checks whether a first-parent, non-merge commit was made after a blocking PR comment."
+  @spec commit_after_comment?(Path.t() | nil, String.t() | nil, String.t() | nil) :: boolean()
+  def commit_after_comment?(workspace, head, commented_at) do
+    with true <- is_binary(workspace) and File.dir?(workspace) and is_binary(head) and is_binary(commented_at),
+         {:ok, commented, _offset} <- DateTime.from_iso8601(commented_at),
+         {output, 0} <- System.cmd("git", ["-C", workspace, "log", "--first-parent", "--no-merges", "--format=%cI", "-1", head], stderr_to_stdout: true),
+         [committed_at | _] <- String.split(output, "\n", trim: true),
+         {:ok, committed, _offset} <- DateTime.from_iso8601(committed_at) do
+      DateTime.after?(committed, commented)
+    else
+      _unavailable -> false
+    end
+  end
+
+  defp trusted_comment?(comment, review_at) when is_map(comment) do
+    timestamp = comment_timestamp(comment)
+
+    Map.get(comment, :authoritative) == true and is_binary(timestamp) and newer_than_review?(timestamp, review_at)
+  end
+
+  defp trusted_comment?(_comment, _review_at), do: false
+
+  @doc "Whether a trusted PR conversation comment asks for a change."
+  @spec change_request_comment?(term()) :: boolean()
+  def change_request_comment?(body) do
+    blocking_comment?(body) or
+      (is_binary(body) and String.match?(body, ~r/\b(?:failing|failed) tests?\b|\btests? (?:are )?(?:failing|failed)\b/i))
+  end
+
+  defp blocking_comment?(body) when is_binary(body) do
+    body = String.trim(body)
+    not String.match?(body, @non_blocking_comment) and (String.match?(body, @blocking_comment) or String.match?(body, @pre_merge_request))
+  end
+
+  defp blocking_comment?(_body), do: false
+
+  defp newer_than_review?(_timestamp, nil), do: true
+
+  defp newer_than_review?(timestamp, review_at) do
+    with {:ok, comment, _offset} <- DateTime.from_iso8601(timestamp),
+         {:ok, review, _offset} <- DateTime.from_iso8601(review_at) do
+      DateTime.after?(comment, review)
+    else
+      _invalid_timestamp -> false
+    end
+  end
+
+  defp comment_timestamp(comment),
+    do: Map.get(comment, "updated_at") || Map.get(comment, :updated_at) || Map.get(comment, "created_at") || Map.get(comment, :created_at)
+
+  defp default_pr_issue_comments(number), do: Tracker.fetch_classified_issue_comments(number)
+
   defp default_body_edit(number), do: if(ReworkGate.available?(), do: Aiur.CodeHost.pull_request_body_edited_at(number), else: {:ok, nil})
 
   defp default_reviews(number) when is_integer(number) do
@@ -103,8 +205,8 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     """
 
     Review findings checklist (#4654): answer every item when you call `aiur_set_ticket_state` to hand back, in its `review_findings` argument.
-    Mark each `fixed` with the commit that changes the named file, or `disputed` with concrete evidence. The handback is refused while any item is unanswered, a `fixed` commit is not on the branch since the review, or its file was not changed since the review.
-    #{Enum.map_join(findings, "\n", &"- #{&1.id}. `#{&1.file}:#{&1.line}` — #{&1.ask}")}
+    Mark each `fixed` with the commit that changes the named file, or `disputed` with concrete evidence. An item that names no file (a PR body or test ask) is `fixed` by a commit since the review or a PR body edit after it. The handback is refused while any item is unanswered, a `fixed` commit is not on the branch since the review, or its file was not changed since the review.
+    #{Enum.map_join(findings, "\n", &"- #{&1.id}. #{location(&1)}#{&1.ask}")}
     """
   end
 
@@ -123,32 +225,37 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     by_id = Map.new(answers, &{to_string(field(&1, "id")), &1})
 
     reasons =
-      Enum.flat_map(findings, &finding_reasons(&1, Map.get(by_id, &1.id), commits, files)) ++
+      Enum.flat_map(findings, &finding_reasons(&1, Map.get(by_id, &1.id), commits, files, body_edited?)) ++
         if(body_edited?, do: [], else: no_commit_reason(findings, by_id, commits))
 
     if reasons == [], do: :allow, else: {:blocked, reasons}
   end
 
-  defp finding_reasons(finding, nil, _commits, _files), do: ["finding #{label(finding)} is unchecked: #{finding.ask}"]
+  defp finding_reasons(finding, nil, _commits, _files, _body_edited?), do: ["finding #{label(finding)} is unchecked: #{finding.ask}"]
 
-  defp finding_reasons(finding, answer, commits, files) do
+  defp finding_reasons(finding, answer, commits, files, body_edited?) do
     case field(answer, "status") do
       "disputed" -> if blank?(field(answer, "evidence")), do: ["finding #{label(finding)} is disputed without evidence"], else: []
-      "fixed" -> fixed_reasons(finding, field(answer, "commit"), commits, files)
+      "fixed" -> fixed_reasons(finding, field(answer, "commit"), commits, files, body_edited?)
       _other -> ["finding #{label(finding)} must be marked fixed or disputed"]
     end
   end
 
-  defp fixed_reasons(_finding, _commit, :unknown, _files), do: []
+  defp fixed_reasons(_finding, _commit, :unknown, _files, _body_edited?), do: []
 
-  defp fixed_reasons(finding, commit, commits, files) do
+  # A finding that names no file can be a PR body ask, so a body edit after the review fixes it.
+  defp fixed_reasons(%{file: nil}, commit, _commits, _files, true) when commit in [nil, ""], do: []
+
+  defp fixed_reasons(finding, commit, commits, files, _body_edited?) do
     commit_reason =
       if is_binary(commit) and String.length(commit) >= 7 and Enum.any?(commits, &String.starts_with?(&1, commit)),
         do: [],
         else: ["finding #{label(finding)} is marked fixed by #{inspect(commit)}, which is not a commit since the review"]
 
     file_reason =
-      if files == :unknown or Enum.any?(files, &same_file?(&1, finding.file)), do: [], else: ["finding #{label(finding)} is marked fixed but #{finding.file} was not changed since the review"]
+      if files == :unknown or is_nil(finding.file) or Enum.any?(files, &same_file?(&1, finding.file)),
+        do: [],
+        else: ["finding #{label(finding)} is marked fixed but #{finding.file} was not changed since the review"]
 
     commit_reason ++ file_reason
   end
@@ -169,8 +276,15 @@ defmodule Aiur.AgentRunner.ReworkFindings do
     rows =
       Enum.map_join(findings, "\n", fn finding ->
         answer = Map.get(by_id, finding.id, %{})
-        detail = if field(answer, "status") == "fixed", do: "commit `#{field(answer, "commit")}`", else: field(answer, "evidence")
-        "- [x] #{finding.id}. `#{finding.file}:#{finding.line}` — #{finding.ask}\n  **#{field(answer, "status")}**: #{detail}"
+
+        detail =
+          cond do
+            field(answer, "status") != "fixed" -> field(answer, "evidence")
+            blank?(field(answer, "commit")) -> "PR body edited after the review"
+            true -> "commit `#{field(answer, "commit")}`"
+          end
+
+        "- [x] #{finding.id}. #{location(finding)}#{finding.ask}\n  **#{field(answer, "status")}**: #{detail}"
       end)
 
     "## Rework checklist\n\nThe worker's answers to the latest review's findings, verified before this handback.\n\n" <> rows <> "\n"
@@ -179,7 +293,11 @@ defmodule Aiur.AgentRunner.ReworkFindings do
   # Reviews name a file by basename or without `src/`; the branch lists repo-relative paths.
   defp same_file?(changed, file), do: changed == file or String.ends_with?(changed, "/" <> file)
 
+  defp label(%{file: nil} = finding), do: finding.id
   defp label(finding), do: "#{finding.id} (#{finding.file}:#{finding.line})"
+
+  defp location(%{file: nil}), do: ""
+  defp location(finding), do: "`#{finding.file}:#{finding.line}` — "
 
   defp ask(text) do
     text = String.trim(text)

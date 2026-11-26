@@ -107,6 +107,22 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
     refute log =~ "reverting to todo"
   end
 
+  test "stale PR body evidence on a human-review transition reverts to rework" do
+    setup_verifier(fn _issue_id ->
+      {:error, {:stale_pr_body_evidence, %{pr_number: 42, head_sha: String.duplicate("b", 40), tested_head: String.duplicate("a", 40), reason: "Local tests Tested head does not match PR head"}}}
+    end)
+
+    issue = human_review_issue()
+
+    log =
+      capture_log(fn ->
+        HumanReview.maybe_deactivate_human_review_issue(%State{}, issue, rework_opts: [open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => String.duplicate("b", 40)}}} end])
+      end)
+
+    assert log =~ "reverting to rework"
+    refute log =~ "verification deferred"
+  end
+
   # #2422: the human-review revert is the second rework writer, so it carries
   # the same rework-attempt bound. A head that keeps failing the human-review
   # gate without moving is stuck, not newly rejected: the revert must stop and

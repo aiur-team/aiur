@@ -1,5 +1,7 @@
+import { activeFeature, layoutExt } from './features.js';
 import { ganttExt } from './gantt.js';
 import { cardDetail } from './cards.js';
+import { layoutKey, setLastKey } from './filters.js';
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { syncStates } from './states.js';
 import { $ } from './dom.js';
@@ -9,13 +11,18 @@ import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeM
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
+import { syncRoving } from './a11y.js';
 export { takeAnchor, restoreAnchor } from './render-anchor.js';
 export { headHTML } from './render-heads.js';
+import { timed } from './perf.js';
+export const relayout = timed('relayout', relayoutImpl);
+export const update = timed('update', updateImpl);
 
 let pendingLive;
 onReset(() => { pendingLive = { changed: new Set(), removed: new Set(), dirty: false }; });
 
 export function viewport() {
+    if (S.view === 'build-order') return buildOrderViewport();
     ctx.vp.innerHTML =
       '<div class="bd-content" id="bd-content">' +
         '<div class="bd-lanes" id="bd-lanes"><span class="bd-lane-g">' + (S.view === "gantt" ? "Time" : "Order") + "</span></div>" +
@@ -29,24 +36,35 @@ export function viewport() {
     ctx.content = $("#bd-content", ctx.root); ctx.lanesEl = $("#bd-lanes", ctx.root); ctx.guidesEl = $("#bd-guides", ctx.root); ctx.svg = $("#bd-edges", ctx.root); ctx.bandEl = $("#bd-now", ctx.root);
     ["hist", "plan", "nq"].forEach((s) => { const el = $("#bd-sec-" + s, ctx.root); ctx.secs[s] = { el, layer: $(".bd-layer", el), head: $(".bd-sech", el) }; });
     ctx.R.clear(); ctx.RL.clear(); ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []; ctx.colMap = {};
-    ctx.life.on(ctx.content, "mouseover", e => fx.onHover(e));
-    ctx.life.on(ctx.content, "mouseleave", () => { if (!ctx.lockId) ctx.life.later("hover", 200, () => { if (!ctx.lockId) fx.setHover(null); }); });
+    ctx.life.on(ctx.content, "pointerover", e => fx.onHover(e));
+    ctx.life.on(ctx.content, "mouseleave", () => fx.onLeave());
     ctx.lockId = null;
     ctx.lt = document.createElement("div"); ctx.lt.className = "bd-lt";
     ctx.lt.innerHTML = '<button type="button" data-lt="lock" title="Lock this dependency tree">' + I.lock + '</button><button type="button" data-lt="fit" title="Zoom out to fit this tree">' + I.fit + '</button><button type="button" data-lt="tree" title="View the whole tree">' + I.eye + "</button>";
+    ctx.lt.querySelector('[data-lt="lock"]').setAttribute('aria-pressed', 'false');
     ctx.content.appendChild(ctx.lt);
     ctx.life.on(ctx.content, "click", (e) => {
       const eh = e.target.closest(".bd-eh");
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
       const b = e.target.closest("[data-lt]");
-      if (b) { e.stopPropagation(); if (b.dataset.lt === "lock") { if (ctx.lockId) fx.unlock(); else if (ctx.hoverId) { ctx.lockId = ctx.hoverId; ctx.lt.classList.add("locked"); } } else if (ctx.lockId) { if (b.dataset.lt === "fit") fx.fitTree(ctx.lockId); else fx.openTree(ctx.lockId); } return; }
-      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
+      if (b) { e.stopPropagation(); fx.toggleLock(b); return; }
+      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid], { origin: sd }); return; }
       if (fx.onBandClick?.(e)) return;
       const c = e.target.closest(".bd-card");
       if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
       if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
     });
   }
+
+// The Build order view is rendered by the aiur-build-order package, not by this
+// board: no geometry, no cards and no edges survive a switch to it.
+export function buildOrderViewport() {
+  ctx.content = null; ctx.lanesEl = null; ctx.guidesEl = null; ctx.svg = null; ctx.bandEl = null;
+  ctx.L = null; ctx.lt = null; ctx.lockId = null;
+  ctx.R.clear(); ctx.RL.clear(); ctx.laneEls.clear(); ctx.guideEls.clear();
+  ctx.cols = []; ctx.colMap = {}; ctx.bandMap = {};
+  if (!ctx.vp.querySelector('#bd-bo')) ctx.vp.innerHTML = '<div class="bd-bo" id="bd-bo" style="padding:16px"></div>';
+}
 
 function noanim(el) {
   el.classList.add('noanim');
@@ -58,8 +76,10 @@ function restoreFocus(id) {
   const card = [...ctx.R.values()].find(el => el.dataset.id === id) || ctx.L?.band.items.find(it => it.t.id === id)?.el;
   (card || ctx.vp).focus({ preventScroll: true });
 }
-export function relayout({ live = false } = {}) {
+function relayoutImpl({ live = false } = {}) {
+  if (S.view === 'build-order') return fx.mountBuildOrder();
   if (S.loading) return fx.renderLoading();
+  setLastKey(layoutKey(S));
   syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
@@ -70,17 +90,15 @@ export function relayout({ live = false } = {}) {
   Object.assign(S, measureFlow(ctx.D, dims));
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
-  const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt });
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
-  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt }); }
+  if (!S.flow && !activeFeature() && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
-  const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
   ctx.vp.style.setProperty('--dot', dotSize(S.span));
   for (const [uid, el] of ctx.R) {
     const id = el.dataset.id;
-    if (!live || detailChanged || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
+    if (!live || pendingLive.changed.has(id) || pendingLive.removed.has(id)) { el.remove(); ctx.R.delete(uid); }
     else noanim(el);
   }
   for (const [uid, el] of ctx.RL) {
@@ -103,10 +121,11 @@ export function relayout({ live = false } = {}) {
       });
     }
   }
-  if (S.span > 1 && histDays(ctx.D.hist).length < S.span && H.more) ensureDays(S.span);
+  if (!ctx.fitHistory && S.span > 1 && histDays(ctx.D.hist).length < S.span && H.more) ensureDays(S.span);
 }
 export const colFor = it => it.sec === 'now' ? ctx.bandMap[it.key] : ctx.colMap[it.key];
 export function place(el, it) {
+  if (!el) return;
   const c = colFor(it);
   el.style.top = it.y + 'px'; el.style.height = it.h + 'px';
   if (!c) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; if (!el.style.left) el.style.left = '0px'; return; }
@@ -118,14 +137,15 @@ export function place(el, it) {
 }
 function renderSection(s, keep, keepL, focused) {
   const sec = ctx.secs[s], lay = ctx.L.secs[s], st = ctx.vp.scrollTop;
+  let created = false;
   const A = st - sec.el.offsetTop - 700, B = st - sec.el.offsetTop + ctx.vp.clientHeight + 700;
   const overlaps = (y, h = 0) => y + h >= A && y <= B;
   for (const it of lay.items) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
-    if (el && !el.classList.contains(cardDetail(it))) { el.remove(); el = null; }
-    if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
+    if (el && !el.classList.contains(cardDetail(it)) && it.t.id !== focused) { el.remove(); el = null; }
+    if (!el) { created = true; el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     el._it = it; place(el, it);
   }
   lay.marks.forEach((m, i) => {
@@ -145,22 +165,26 @@ function renderSection(s, keep, keepL, focused) {
     const [el, ln] = makeLabel(lb); sec.layer.appendChild(el); ctx.RL.set(uid, el);
     if (ln) { sec.layer.appendChild(ln); ctx.RL.set(uid + 'd', ln); }
   });
+  return created;
 }
-export function update(force) {
-  if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
+function updateImpl(force) {
+  if (!ctx.L || !ctx.content || S.loading || S.view === 'list' || S.view === 'build-order') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;
   ctx.a11y.focusId = focused;
-  for (const s of ['hist', 'plan', 'nq']) renderSection(s, keep, keepL, focused);
-  ctx.R.forEach((el, uid) => { if (!keep.has(uid)) { el.remove(); ctx.R.delete(uid); } });
+  let changed = !!force;
+  for (const s of ['hist', 'plan', 'nq']) changed = renderSection(s, keep, keepL, focused) || changed;
+  ctx.R.forEach((el, uid) => { if (!keep.has(uid)) { changed = true; el.remove(); ctx.R.delete(uid); } });
   ctx.RL.forEach((el, uid) => {
     if (!keepL.has(uid.endsWith('d') ? uid.slice(0, -1) : uid)) { el.remove(); ctx.RL.delete(uid); }
   });
   fx.syncNowBtn?.();
+  syncRoving();
+  if (changed && (ctx.hoverId || ctx.treeId)) fx.reapply();
   fx.drawEdges(false);
   if (ctx.vp.scrollTop >= 260) H.retryArmed = true;
-  if (S.ready && H.state !== 'loading' && ctx.vp.scrollTop < 260 && H.more && H.retryArmed) loadEarlier();
+  if (!ctx.fitHistory && S.ready && H.state !== 'loading' && ctx.vp.scrollTop < 260 && H.more && H.retryArmed) loadEarlier();
   if (!focusId()) ctx.a11y.focusId = null;
 }
 function deferred() {

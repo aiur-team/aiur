@@ -199,6 +199,34 @@ defmodule Aiur.Orchestrator.DurationCapReleaseTest do
     refute Map.has_key?(released.running, entry.issue.id)
   end
 
+  test "a duration-capped run with a stale PR body is released to rework, not review" do
+    head = String.duplicate("c", 40)
+    stale = String.duplicate("a", 40)
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{stale}\nBase: main @ #{String.duplicate("d", 40)}\nSelection: focused\n- `mix test` -> ok\n"
+    entry = parked_entry() |> Map.put(:workspace_path, "/workspace") |> Map.put(:duration_cap_progress_baseline, "before")
+    state = %State{running: %{entry.issue.id => entry}}
+
+    opts = [
+      workspace_probe: fn _, _ -> {:ok, "after"} end,
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 42, "body" => body, "head" => %{"sha" => head}}} end,
+      pr_fetcher: fn 42 -> {:ok, %{"number" => 42, "draft" => false, "mergeable" => true, "head" => %{"sha" => head}}} end,
+      unresolved_threads_fetcher: fn _ -> {:ok, []} end,
+      reviews_fetcher: fn _ -> {:ok, []} end,
+      pull_request_approval_fetcher: fn _ -> {:error, :not_approved} end,
+      commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end,
+      update_issue_state_fun: fn identifier, target, expected ->
+        send(self(), {:write, identifier, target, expected})
+        :ok
+      end,
+      create_comment_fun: fn _, _ -> :ok end,
+      emit_alert_fun: fn _, _ -> :ok end
+    ]
+
+    DurationCapRelease.maybe_release(state, entry, :paused, opts)
+
+    assert_received {:write, "4849", "rework", "in-progress"}
+  end
+
   test "the persisted retry counter exhausts across successive duration-capped runs" do
     entry = parked_entry() |> Map.put(:workspace_path, "/workspace") |> Map.put(:duration_cap_progress_baseline, "before")
 

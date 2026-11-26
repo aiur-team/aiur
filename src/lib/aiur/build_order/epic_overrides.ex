@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.EpicOverrides do
   @moduledoc "Durable local epic overrides. Unavailable reads never imply an empty registry."
   use GenServer
-  alias Aiur.BuildOrder.EpicOverrides.{Batch, Journal}
+  alias Aiur.BuildOrder.EpicOverrides.{Batch, Confirmation, Journal}
   alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.Config.Paths
   @topic "build-order-epic-overrides:changed"
@@ -15,6 +15,11 @@ defmodule Aiur.BuildOrder.EpicOverrides do
   def set(epic, ids, provenance, opts \\ []), do: write("set", epic, ids, provenance, opts)
   @spec clear(list(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def clear(ids, provenance, opts \\ []), do: write("clear", nil, ids, provenance, opts)
+
+  @spec confirm(list(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def confirm(ids, provenance, opts \\ []) do
+    write({:confirm, Keyword.get(opts, :expect_epic)}, nil, ids, provenance, opts)
+  end
 
   defp write(op, epic, ids, provenance, opts) do
     GenServer.call(
@@ -193,6 +198,16 @@ defmodule Aiur.BuildOrder.EpicOverrides do
   def handle_call({:write, _op, _epic, _ids, _p, _now}, _from, %{health: %{state: state}} = s)
       when state != :healthy,
       do: {:reply, {:error, :epic_overrides_unavailable}, s}
+
+  def handle_call({:write, {:confirm, expect}, nil, ids, p, now}, _from, state) do
+    with {:ok, ids} <- Confirmation.prepare(state, ids, p, expect),
+         {:ok, at} <- now(now) do
+      {next, results, changed} = Confirmation.apply(state, ids, p, at)
+      persist(state, next, results, changed)
+    else
+      error -> {:reply, error, state}
+    end
+  end
 
   def handle_call({:write, op, epic, ids, p, now}, _from, state) do
     with true <- op == "clear" or is_binary(epic),

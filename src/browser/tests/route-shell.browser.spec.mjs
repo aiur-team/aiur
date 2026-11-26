@@ -4,6 +4,13 @@ import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
+async function dashboardOrigin(page) {
+  const fixtureOrigin = new URL(page.url()).origin
+  const response = await page.request.get(`${fixtureOrigin}/health?dashboard_origin=1`)
+  expect(response.status()).toBe(200)
+  return response.text()
+}
+
 test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   const notFound = []
   const consoleErrors = []
@@ -20,7 +27,7 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/', '/units', '/commands', '/build-orders', '/analytics', '/experiments']) {
+  for (const path of ['/', '/build', '/route-shell', '/commands', '/build-orders', '/analytics', '/experiments']) {
     await page.goto(path)
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   }
@@ -28,6 +35,139 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   expect(notFound).toEqual([])
   expect(consoleErrors).toEqual([])
   expect(pageErrors).toEqual([])
+})
+
+test('standalone shell recovery controls remain available after a LiveView disconnect', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.matchMedia.bind(window)
+    window.matchMedia = query => {
+      if (query === '(display-mode: standalone)') {
+        return {
+          matches: true,
+          media: query,
+          onchange: null,
+          addListener() {},
+          removeListener() {},
+          addEventListener() {},
+          removeEventListener() {},
+          dispatchEvent() { return false }
+        }
+      }
+      return original(query)
+    }
+  })
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  const origin = await dashboardOrigin(page)
+  await page.goto(`${origin}/`)
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await page.context().setHTTPCredentials(null)
+  await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
+  const reloadRequests = []
+  page.on('request', request => {
+    if (request.url() === `${origin}/`) reloadRequests.push(request)
+  })
+  const reload = page.locator('[data-recovery-reload]')
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
+  await reload.click()
+  await expect.poll(() => reloadRequests.length).toBe(1)
+  await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
+})
+
+test('healthy dashboard pages keep recovery controls hidden in a normal browser', async ({ page }) => {
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  const origin = await dashboardOrigin(page)
+  await page.goto(`${origin}/commands`)
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await page.context().setHTTPCredentials(null)
+  const recovery = page.locator('[data-dashboard-recovery]')
+  await expect(recovery).toBeHidden()
+
+  const reloadRequests = []
+  page.on('request', request => {
+    if (request.url() === `${origin}/commands`) reloadRequests.push(request)
+  })
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(recovery).toBeVisible()
+  await recovery.locator('[data-recovery-reload]').click()
+  await expect.poll(() => reloadRequests.length).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+
+  await page.evaluate(() => window.liveSocket.disconnect())
+  await expect(recovery).toBeVisible()
+  await recovery.getByRole('link', { name: 'Home' }).click()
+  await expect(page).toHaveURL(`${origin}/`)
+  await expect(page.locator('#route-title')).toHaveText('Build')
+})
+
+test('an unauthenticated dashboard load shows working recovery controls', async ({ page }) => {
+  await openFixture(page)
+  const origin = await dashboardOrigin(page)
+  const requests = []
+  page.on('request', request => {
+    if (request.url() === `${origin}/commands`) requests.push(request)
+  })
+  const response = await page.goto(`${origin}/commands`)
+  expect(response?.status()).toBe(401)
+  await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/')
+  const reload = page.getByRole('button', { name: 'Reload' })
+  await expect(reload).toBeVisible()
+  await reload.click()
+  await expect.poll(() => requests.length).toBe(2)
+  expect(await page.locator('main').innerText()).toContain('Dashboard unavailable')
+})
+
+test('standalone session cookie survives launches and LiveView navigation across main pages', async ({ page, context }) => {
+  await context.addInitScript(() => {
+    const original = window.matchMedia.bind(window)
+    window.matchMedia = query => query === '(display-mode: standalone)'
+      ? {
+          matches: true,
+          media: query,
+          onchange: null,
+          addListener() {},
+          removeListener() {},
+          addEventListener() {},
+          removeEventListener() {},
+          dispatchEvent() { return false }
+        }
+      : original(query)
+  })
+  await openFixture(page)
+  const origin = await dashboardOrigin(page)
+  await context.setHTTPCredentials(dashboardCredentials)
+  await page.goto(`${origin}/`)
+  await expect(page.getByRole('heading', { name: 'Build' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  const sessionCookie = (await context.cookies()).find(cookie => cookie.name === '_aiur_key')
+  expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: 'Lax' })
+  await context.setHTTPCredentials(null)
+
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin)
+  const authFailures = []
+  page.on('response', response => {
+    if (new URL(response.url()).origin === origin && response.status() === 401) authFailures.push(response.url())
+  })
+  await expect(page.locator('[data-dashboard-recovery]')).toBeVisible()
+  for (const [label, path] of [['Commands', '/commands'], ['Analytics', '/analytics'], ['Experiments', '/experiments']]) {
+    await page.getByRole('link', { name: label, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/?$' : `${path}$`}`))
+    await expect(page.locator('#route-title')).toHaveText(label)
+    await expect(page.locator('body')).not.toBeEmpty()
+    await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+    expect(authFailures, `authentication failed while navigating to ${label}`).toEqual([])
+    const navigation = await page.evaluate(() => ({ timeOrigin: performance.timeOrigin, connected: window.liveSocket?.isConnected() }))
+    expect(navigation.timeOrigin, `navigation to ${label} at ${path} reloaded the page at ${page.url()} (connected=${navigation.connected})`).toBe(timeOrigin)
+  }
+  expect(authFailures).toEqual([])
+
+  const relaunched = await context.newPage()
+  await relaunched.goto(`${origin}/commands`)
+  await expect(relaunched.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
+  await expect(relaunched.locator('[data-dashboard-recovery]')).toBeVisible()
 })
 
 test('legacy Commands URLs redirect permanently to the canonical route', async ({ page }) => {
@@ -42,32 +182,30 @@ test('legacy Commands URLs redirect permanently to the canonical route', async (
   await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
 })
 
-test('Build Order navigation returns to the production Units route', async ({ page }) => {
+test('legacy Units URL redirects permanently to Build', async ({ page }) => {
   await openFixture(page)
-  await page.goto('/')
   await page.context().setHTTPCredentials(dashboardCredentials)
-
-  await page.getByRole('link', { name: 'Build Order' }).click()
-  await expect(page).toHaveURL(/\/build-orders$/)
-  await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
-
-  await page.getByRole('link', { name: 'Units' }).click()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.locator('#route-title')).toHaveText('Units')
-  await expect(page.locator('.units-card')).toBeVisible()
-  await expect(page.locator('#route-shell-action')).toHaveCount(0)
+  const response = await page.goto('/units?sort=command-history:command:asc')
+  let request = response.request()
+  while (request.redirectedFrom()) request = request.redirectedFrom()
+  const redirect = await request.response()
+  expect(redirect.status()).toBe(301)
+  expect(redirect.headers().location).toBe('/?sort=command-history:command:asc')
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/)
+  await expect(page.locator('#build-root')).toBeVisible()
+  await expect(page.locator('.units-card, #units-table')).toHaveCount(0)
 })
 
 test('navigation keeps its labels reachable after collapse and expansion', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openFixture(page)
-  await page.goto('/')
+  await page.goto('/route-shell')
   const drag = page.locator('#ax-drag')
   await expect(page.locator('.sidenav-nav')).toBeVisible()
   await drag.click()
   await expect(drag).toHaveAttribute('data-nav-collapsed', 'true')
   expect(await page.locator('.snav-label').first().evaluate(node => getComputedStyle(node).clipPath)).toBe('inset(50%)')
-  await expect(page.getByRole('link', { name: 'Units', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Build', exact: true })).toBeVisible()
   await expect(drag).toBeInViewport()
   await expect(page.locator('.sidenav-nav')).toBeVisible()
   await drag.click()
@@ -79,7 +217,7 @@ test('active navigation follows the design corners on desktop and phone', async 
   await openFixture(page)
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 })
-    await page.goto('/')
+    await page.goto('/route-shell')
     const active = page.locator('.aiur-shell__item[aria-current="page"]')
     const accentSoft = await active.evaluate(item => {
       const probe = document.createElement('span')
@@ -119,15 +257,15 @@ for (const { width, isMobile } of routeShellViewports) {
 
     try {
       await openFixture(page)
-      await page.goto('/?analytics=unavailable')
+      await page.goto('/route-shell?analytics=unavailable')
       await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
       await expect(page.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics')
 
-      await page.goto('/')
+      await page.goto('/route-shell')
 
-      await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Build' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).not.toHaveAttribute('aria-current')
-      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('href', '/build-orders')
+      await expect(page.getByRole('link', { name: 'Build Order' })).toHaveCount(0)
       await expect(page.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics')
       await assertNoDocumentOverflow(page)
 
@@ -143,8 +281,8 @@ for (const { width, isMobile } of routeShellViewports) {
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
 
       await page.goBack()
-      await expect(page).toHaveURL(/\/$/)
-      await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
+      await expect(page).toHaveURL(/\/route-shell$/)
+      await expect(page.getByRole('heading', { name: 'Build' })).toBeVisible()
 
       await page.goForward()
       await expect(page).toHaveURL(/\/commands$/)
@@ -224,20 +362,24 @@ test('a stored light theme never paints a dark frame and the toggle persists und
   })
 
   await page.goto('/palette-probe') // the production root layout
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
   const themes = await page.evaluate(() => window.__themes)
+  expect(themes[0]).toBe('light')
   expect(themes).toContain('light')
   expect(themes).not.toContain('dark')
+  await page.evaluate(() => document.fonts.ready)
   expect(await page.evaluate(() => document.fonts.check('16px "Space Grotesk"'))).toBe(true)
   // The pre-paint work comes from the aiur-style script, not an inline copy, and the toggle imports its module.
   expect(await page.locator('script[src="/aiur-style/init/theme-init.js"]').count()).toBe(1)
   expect(await page.evaluate(() => [...document.scripts].some((s) => !s.src && s.textContent.includes('aiur-theme')))).toBe(false)
-  expect(await page.evaluate(() => performance.getEntriesByType('resource').some((r) => r.name.endsWith('/aiur-style/js/theme.js')))).toBe(true)
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((r) => r.name.endsWith('/aiur-style/js/theme.js')))).toBe(true)
 
-  await page.locator('#theme-toggle').evaluate((button) => button.click())
+  await page.locator('#ax-cog').click()
+  await page.locator('#theme-toggle').click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  expect(await page.evaluate(() => window.localStorage.getItem('aiur-theme'))).toBe('dark')
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem('aiur-theme'))).toBe('dark')
 })
 
 test('production navigation restores and persists through the shared storage helper', async ({ page }) => {

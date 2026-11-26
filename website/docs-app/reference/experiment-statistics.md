@@ -60,7 +60,19 @@ Degenerate jackknives fall back to percentile intervals; Monte Carlo standard er
 
 Undefined or unbounded numbers serialize as null, never a plausible finite default. Each effect lists its unbounded fields separately. A one-sided unbounded interval can still establish direction when its finite endpoint excludes the null.
 
-Censored durations are temporarily excluded with `censoring_ignored` and per-group censored counts. Censoring-aware inference is available when strata are declared.
+### Censored durations
+
+A duration row with `censored: true` is a unit still open at snapshot time; its `value` is the elapsed time so far. Dropping such rows keeps only the fast tickets of the younger window and flatters a new feature, so they are treated as right-censored instead.
+
+When any row is censored the primary analysis changes:
+
+- **Test and location.** The log-rank test gives `p_raw`; each group's median is the Kaplan-Meier median (first time survival reaches 0.5) with a Brookmeyer-Crowley interval from the log-log Greenwood variance, under `survival`. The completed-only rank test moves to `sensitivity`.
+- **Equal follow-up.** Both groups are cut at the shorter group's longest follow-up; later rows are censored at that horizon (`survival.follow_up_horizon`, in the metric’s unit; flag `follow_up_truncated`).
+- **Median difference.** Its 95% interval is the percentile interval of bootstrap Kaplan-Meier medians. If more than 10% of resamples reach no median, the interval is withheld.
+- **Flags.** `censoring_heavy` means more than 20% of either group's rows are censored after truncation. `median_not_reached` means a group's curve never reaches 0.5, or the interval was withheld; the status is then at most `inconclusive` and the summary reports how much is still open.
+- **Unknown start times.** A censored row with no `value` means the start time was unavailable. The metric falls back to completed-only inference and carries `censoring_unknown`. Declared stratification is also unavailable in this fallback (`stratification_unavailable`).
+
+Metrics with no censored rows are analyzed exactly as before. Stratified metrics keep the pooled stratified log-rank described below, and `censoring_ignored` marks only the pooled placeholder there.
 
 ## Prospective power and accrual
 

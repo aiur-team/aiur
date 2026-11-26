@@ -4,7 +4,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
   alias Aiur.Codex.SessionRecovery
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec entry() :: Aiur.CodingAgent.Backend.capabilities()
   def entry do
@@ -22,10 +22,14 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       default_command: "codex app-server",
       model_catalog: &ModelCatalog.extract_codex/1,
       # app-server stdio; OperatorDelivery serializes turns; Frames exposes dynamic tools.
-      delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :in_band_hold, native_question_gate: :codex},
+      hosted_execution: %{permission_boundary: :codex_sandbox, network_boundary: :codex_sandbox, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification, :tool_result],
       control_application_confirmation: :confirmed,
+      # A daemon restart hands this app-server's live provider process to the
+      # successor daemon over its relay port. See `Aiur.CodingAgent.handoff_kind/1`.
+      handoff: :relay,
       remote_control: false,
       # The codex app-server can rejoin a prior thread across an aiur restart
       # via `thread/resume` against its on-disk rollout, so a respawned
@@ -73,7 +77,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       },
       usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
       meter_probe: &ProviderMeterProbe.probe_session/3,
-      run_telemetry: &Lifecycle.decode_codex_operation/1,
+      run_telemetry: &Signal.decode_codex_operation/1,
       account_generation: %{
         backends: [:app_server],
         trusted_sources: [:codex_app_server],

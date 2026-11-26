@@ -67,7 +67,7 @@ test('window and filter markers distinguish loaded data from empty data', async 
     H.more = true; const windowed = mark('hist', P.sources.history).label
     H.more = false; H.total = 2; const counted = mark('hist', P.sources.history).label
     return [windowed, counted, mark('hist', P.sources.history, [{ id: 'h' }], []).label, mark('plan', P.sources.queue, [{ id: 'p' }], []).label]
-  })).toEqual(['No history in the loaded days', 'No history in the loaded days', 'No history in the selected epics', 'No planned tickets in the selected epics'])
+  })).toEqual(['No history in the loaded days', 'No history in the loaded days', 'No history in the selected lanes', 'No planned tickets in the selected lanes'])
 })
 test('stale empty markers and retained rows expose read ages in headers', async ({ page }) => {
   const result = await page.evaluate(NOW => {

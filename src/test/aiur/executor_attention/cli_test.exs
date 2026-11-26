@@ -31,6 +31,53 @@ defmodule Aiur.ExecutorAttention.CLITest do
     assert ExecutorWakeInbox.pending() == []
   end
 
+  test "executor-wait can defer acknowledgement and redeliver the same batch" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "5966", "ticket.5966.pr.opened", "ticket.pr.opened"))
+
+    first = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500, json: true, defer_ack: true, as: "deferred") end)
+    assert first =~ ~s("ack":"deferred")
+    assert first =~ ~s("max_wake_id":1)
+    assert ExecutorWakeInbox.cursor() == 0
+
+    second = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500, json: true, defer_ack: true, as: "deferred") end)
+    assert second =~ ~s("wake_id":1)
+    assert second =~ "__AIUR_CONTROL_EXIT__:0"
+    assert ExecutorWakeInbox.cursor() == 0
+  end
+
+  test "executor-wait acknowledges through the requested id before waiting" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "first", "ticket.1.pr.opened", "ticket.pr.opened"))
+    :ok = ExecutorWakeInbox.enqueue(wake_record(2, "second", "ticket.2.pr.opened", "ticket.pr.opened"))
+    send(Process.whereis(ExecutorWakeInbox), :flush)
+    _ = :sys.get_state(ExecutorWakeInbox)
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500, json: true, ack_through: 1, defer_ack: true, as: "ack-through") end)
+
+    assert output =~ ~s("wake_id":2)
+    assert output =~ ~s("max_wake_id":2)
+    assert ExecutorWakeInbox.cursor() == 1
+  end
+
+  test "executor-wait reports a superseded deferred wait without consuming" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    first = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, defer_ack: true, as: "replaceable") end) end)
+    await_executor_wait(first.pid)
+
+    second = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, defer_ack: true, as: "replaceable") end) end)
+    await_executor_wait(second.pid)
+
+    assert Task.await(first) =~ ~s("status":"superseded")
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "5966", "ticket.5966.pr.opened", "ticket.pr.opened"))
+    second_output = Task.await(second)
+
+    assert second_output =~ ~s("ack":"deferred")
+    assert second_output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert ExecutorWakeInbox.cursor() == 0
+  end
+
   test "executor-wait renders initial sync only on backfilled wakes" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
@@ -190,7 +237,7 @@ defmodule Aiur.ExecutorAttention.CLITest do
   end
 
   defp await_executor_wait(pid) do
-    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {{waiter, _tag}, _} -> waiter == pid end),
+    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {_key, waiter} -> elem(waiter.from, 0) == pid end),
       do: :ok,
       else: await_executor_wait(pid)
   end

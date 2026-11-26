@@ -48,6 +48,90 @@ defmodule Aiur.AgentRunner.ReworkHandoffTest do
     assert :continued = ReworkHandoff.after_turn(issue, %{orchestrator: orchestrator, opts: opts}, fn -> :continued end)
   end
 
+  test "automatic rework handoff refuses a PR body whose Tested head is stale" do
+    issue = %Aiur.Issue{identifier: "stale-evidence", state: "rework"}
+    {:ok, orchestrator} = FakeOrchestrator.start_link()
+    head = String.duplicate("b", 40)
+    stale = String.duplicate("a", 40)
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{stale}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused\n- `mix test` -> passed\n"
+
+    result =
+      ReworkHandoff.after_turn(
+        issue,
+        %{
+          orchestrator: orchestrator,
+          workspace: nil,
+          opts: [
+            rework_head_sha: "old-head",
+            open_pr_fetcher: fn _ -> {:ok, %{"number" => 18, "body" => body, "head" => %{"sha" => head}}} end,
+            reviews_fetcher: fn _ -> {:ok, []} end,
+            commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+          ]
+        },
+        fn -> :continued end
+      )
+
+    assert {:error, {:rework_handoff_evidence_refused, :stale_pr_body_evidence, message}} = result
+    assert message =~ "Tested head #{stale} does not match PR head #{head}"
+  end
+
+  test "automatic handoff refuses a newer trusted blocking PR comment without a later commit" do
+    issue = %Aiur.Issue{identifier: "comment-rework", state: "rework"}
+    {:ok, orchestrator} = FakeOrchestrator.start_link()
+    head = String.duplicate("b", 40)
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused\n- `mix test` -> passed\n"
+    comment = %{"body" => "Blocking: fix the failing tests before merge", "updated_at" => "2999-01-01T00:00:00Z", "created_at" => "2999-01-01T00:00:00Z", authoritative: true}
+
+    result =
+      ReworkHandoff.after_turn(
+        issue,
+        %{
+          orchestrator: orchestrator,
+          workspace: nil,
+          opts: [
+            rework_head_sha: "old-head",
+            open_pr_fetcher: fn _ -> {:ok, %{"number" => 19, "body" => body, "head" => %{"sha" => head}}} end,
+            reviews_fetcher: fn _ -> {:ok, []} end,
+            pr_issue_comments_fetcher: fn 19 -> {:ok, [comment]} end,
+            commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+          ]
+        },
+        fn -> :continued end
+      )
+
+    assert {:error, {:rework_handoff_evidence_refused, :rework_findings_unaddressed, message}} = result
+    assert message =~ "no new non-merge commit has been pushed after it"
+    assert message =~ "Blocking: fix the failing tests before merge"
+  end
+
+  test "automatic handoff checks a trusted blocking PR comment that has only created_at" do
+    issue = %Aiur.Issue{identifier: "comment-created-at", state: "rework"}
+    {:ok, orchestrator} = FakeOrchestrator.start_link()
+    head = String.duplicate("d", 40)
+    body = "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused\n- " <> "`mix test`" <> " -> passed\n"
+    comment = %{"body" => "Blocking: fix the failing tests before merge", "created_at" => "2999-01-01T00:00:00Z", authoritative: true}
+
+    result =
+      ReworkHandoff.after_turn(
+        issue,
+        %{
+          orchestrator: orchestrator,
+          workspace: nil,
+          opts: [
+            rework_head_sha: "old-head",
+            open_pr_fetcher: fn _ -> {:ok, %{"number" => 20, "body" => body, "head" => %{"sha" => head}}} end,
+            reviews_fetcher: fn _ -> {:ok, []} end,
+            pr_issue_comments_fetcher: fn 20 -> {:ok, [comment]} end,
+            commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+          ]
+        },
+        fn -> :continued end
+      )
+
+    assert {:error, {:rework_handoff_evidence_refused, :rework_findings_unaddressed, message}} = result
+    assert message =~ "no new non-merge commit has been pushed after it"
+  end
+
   test "rework continues to consume queued operator input before handing off" do
     issue = %Aiur.Issue{identifier: "rework-queued", state: "rework"}
     {:ok, orchestrator} = FakeOrchestrator.start_link(1)

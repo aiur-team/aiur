@@ -54,7 +54,6 @@ defmodule Aiur.Events.SubscriptionStore do
   alias Aiur.Events.SubscriptionStore.{Persistence, Processing}
 
   @registry Aiur.Events.SubscriptionStoreRegistry
-  @supervisor Aiur.Events.SubscriptionStoreSupervisor
 
   @type subscription :: %{
           required(String.t()) => String.t() | non_neg_integer()
@@ -87,7 +86,7 @@ defmodule Aiur.Events.SubscriptionStore do
   """
   @spec attach(String.t()) :: :ok
   def attach(identifier) when is_binary(identifier) do
-    case DynamicSupervisor.start_child(@supervisor, {__MODULE__, identifier: identifier}) do
+    case DynamicSupervisor.start_child(Aiur.Events.subscription_store_supervisor(), {__MODULE__, identifier: identifier}) do
       {:ok, _pid} ->
         :ok
 

@@ -72,9 +72,9 @@ defmodule Aiur.AgentControlCLIBuildGateStatusTest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 held without a command, 1 queued"
-    assert output =~ "(command gone)"
-    assert output =~ "BUILD GATE HOLDER slot=2 pid=2 command=\"mix test\" held="
-    assert output =~ "(command liveness unknown)"
+    assert output =~ "(command gone; lease locked)"
+    assert output =~ "BUILD GATE HOLDER slot=2 pid=2 phase=test command=\"mix test\" held="
+    assert output =~ "(lease locked)"
     assert output =~ "BUILD GATE TIMEOUT slot=1 command=\"mix test\" held=1h0m reason=retained"
 
     File.touch!(release_path)

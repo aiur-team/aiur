@@ -3,9 +3,10 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   import Ecto.Changeset, only: [add_error: 3, get_field: 2, validate_change: 3]
 
-  alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.Models
+  alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.CommandSandbox
+  alias Aiur.Config.SkillsMapping
 
   @doc false
   @spec prepare_attrs(map()) :: map()
@@ -92,7 +93,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   string per level, the list's first route, so every reader of the routing
   table and every policy other than `headroom` behaves as before.
   `routing_candidates` keeps every level's full route list for the headroom
-  selector (`Aiur.CodingAgent.HeadroomDispatch`).
+  dispatch selector.
   """
   @spec split_routing_candidates(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   def split_routing_candidates(changeset) do
@@ -129,12 +130,12 @@ defmodule Aiur.Config.Schema.AgentValidation do
       This turns what used to be a runtime `:missing_model` into a config error.
 
   An unrecognized *model* is deliberately **not** an error: aiur's model list
-  lags the provider by design (see `Aiur.CodingAgent.known_model?/2`).
+  lags the provider by design (the backend model catalog is advisory).
   """
   @spec validate_agent_priority(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_agent_priority(changeset, field) do
     validate_change(changeset, field, fn ^field, routes ->
-      known = Aiur.CodingAgent.known_backends()
+      known = BackendCatalog.known_backends()
 
       if routes == Enum.uniq(routes) do
         routes |> Enum.find_value(&priority_route_error(field, known, &1)) |> List.wrap()
@@ -151,7 +152,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
       not is_binary(route) or backend not in known ->
         {field, "contains an unknown backend #{inspect(route)}; known backends: #{inspect(known)} (optionally backend:model)"}
 
-      RoutingValue.routing_remote_flag?(route) and not CodingAgent.remote_control?(backend) ->
+      RoutingValue.routing_remote_flag?(route) and not BackendCatalog.remote_control?(backend) ->
         {field, "+remote routing requires a remote-capable backend, got #{inspect(route)}"}
 
       not valid_routing_effort?(route) ->
@@ -166,7 +167,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
     model = RoutingValue.routing_model(route)
 
     cond do
-      is_nil(model) and CodingAgent.model_required?(backend) ->
+      is_nil(model) and BackendCatalog.model_required?(backend) ->
         {field, "backend #{inspect(backend)} serves a model catalog and needs an explicit model: #{backend}:<model>"}
 
       is_binary(model) and String.starts_with?(model, "~") ->
@@ -178,7 +179,18 @@ defmodule Aiur.Config.Schema.AgentValidation do
         {field, "model alias #{inspect(model)} in #{inspect(route)} matches more than one vendor; name the full slug instead"}
 
       true ->
-        nil
+        model_set_error(field, route, model)
+    end
+  end
+
+  # A model set hands model choice to an aggregator (`openrouter:{a, b}`). A
+  # brace-shaped segment that does not parse is a typo, not a model name, so it
+  # is a config error rather than a request the provider rejects at dispatch.
+  defp model_set_error(field, route, model) do
+    if RoutingValue.model_set?(model) and RoutingValue.model_set(model) == :error do
+      {field,
+       "model set #{inspect(model)} in #{inspect(route)} must list at least one model, written " <>
+         "as {vendor/model, vendor/model}"}
     end
   end
 
@@ -187,8 +199,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   # two differently-priced upstreams, so reject it at config load rather than
   # picking one silently at dispatch.
   defp ambiguous_alias?(backend, model) do
-    is_binary(model) and CodingAgent.model_aliases(backend) != [] and
-      Models.ambiguous_alias?(CodingAgent.models(backend), model)
+    BackendCatalog.ambiguous_model_alias?(backend, model)
   end
 
   @doc false
@@ -196,7 +207,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   def validate_agent_routing(changeset, field) do
     known =
       (Enum.map(get_field(changeset, :priority) || [], &RoutingValue.routing_backend/1) ++
-         Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
+         BackendCatalog.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
       |> Enum.uniq()
 
     validate_change(changeset, field, fn ^field, routing ->
@@ -226,21 +237,28 @@ defmodule Aiur.Config.Schema.AgentValidation do
         ]
 
       RoutingValue.routing_remote_flag?(value) and
-          not Aiur.CodingAgent.remote_control?(RoutingValue.routing_backend(value)) ->
+          not BackendCatalog.remote_control?(RoutingValue.routing_backend(value)) ->
         [{field, "+remote routing requires a remote-capable backend, got #{inspect(value)}"}]
 
       not valid_routing_effort?(value) ->
         invalid_routing_effort_error(field, value)
 
       true ->
-        []
+        model_set_errors(field, value)
+    end
+  end
+
+  defp model_set_errors(field, route) do
+    case model_set_error(field, route, RoutingValue.routing_model(route)) do
+      nil -> []
+      error -> [error]
     end
   end
 
   defp invalid_routing_effort_error(field, value) do
     backend = routing_effort_backend(value)
 
-    case Aiur.CodingAgent.efforts(backend) do
+    case BackendCatalog.efforts(backend) do
       # Claude takes no effort segment today (#3961). Say so plainly instead of
       # printing an empty list of valid efforts.
       [] ->
@@ -276,7 +294,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   defp valid_routing_effort?(value) do
     case RoutingValue.routing_effort(value) do
       nil -> true
-      effort -> effort in Aiur.CodingAgent.efforts(routing_effort_backend(value))
+      effort -> effort in BackendCatalog.efforts(routing_effort_backend(value))
     end
   end
 
@@ -363,7 +381,9 @@ defmodule Aiur.Config.Schema.AgentValidation do
     configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
 
     Enum.reduce(configs, changeset, fn {backend, config}, acc ->
-      case get_in(Aiur.CodingAgent.backends(), [backend, :config_validator]) do
+      acc = apply_backend_validation(acc, backend, CommandSandbox.validate_backend(config))
+
+      case BackendCatalog.config_validator(backend) do
         validator when is_function(validator, 1) ->
           apply_backend_validation(acc, backend, validator.(config))
 
@@ -395,7 +415,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
       |> Enum.map(&RoutingValue.routing_backend/1)
       |> Enum.reject(&is_nil/1)
 
-    base = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+    base = BackendCatalog.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
     Enum.uniq(priority ++ base)
   end
 
@@ -411,7 +431,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
   defp reject_disabled_backend(changeset, _field, backend, _dispatchable) when backend in [nil, ""], do: changeset
 
   defp reject_disabled_backend(changeset, field, backend, dispatchable) do
-    if backend in Aiur.CodingAgent.known_backends() and backend not in dispatchable do
+    if backend in BackendCatalog.known_backends() and backend not in dispatchable do
       Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; set agent.backend_configs.#{backend}.enabled: true to opt in")
     else
       changeset
@@ -425,8 +445,8 @@ defmodule Aiur.Config.Schema.AgentValidation do
   def validate_rate_limit_fallback(changeset) do
     backend = Ecto.Changeset.get_field(changeset, :rate_limit_fallback)
     primary = Ecto.Changeset.get_field(changeset, :rate_limit_primary)
-    known = Aiur.CodingAgent.known_backends()
-    fallback_targets = Aiur.CodingAgent.rate_limit_fallback_targets()
+    known = BackendCatalog.known_backends()
+    fallback_targets = BackendCatalog.rate_limit_fallback_targets()
 
     cond do
       backend in [nil, ""] ->
@@ -444,5 +464,24 @@ defmodule Aiur.Config.Schema.AgentValidation do
       true ->
         changeset
     end
+  end
+
+  # The `agent.skills` reference-table rows live in `Aiur.Config.SkillsMapping`
+  # because this module and `Aiur.Config.Schema.Agent` are both at the file-size
+  # limit; `scripts/generate-reference-tables.py` scans every module under
+  # `src/lib/aiur/config/`, so the rows are collected from that file.
+  @doc false
+  @spec normalize_skills(nil | map()) :: map()
+  def normalize_skills(skills), do: SkillsMapping.normalize(skills)
+
+  @doc false
+  @spec validate_skills(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_skills(changeset, field) do
+    validate_change(changeset, field, fn ^field, skills ->
+      case SkillsMapping.validate(skills) do
+        :ok -> []
+        {:error, message} -> [{field, message}]
+      end
+    end)
   end
 end

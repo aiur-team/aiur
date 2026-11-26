@@ -161,7 +161,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     assert Executor.evaluate(@context, inputs())["executor.wakes"] == @available
     caps = Executor.evaluate(@context, inputs(lookup_fun: fn _ -> nil end))
     assert caps["executor.wakes"] == %{state: :unavailable, reason: :not_running}
-    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed}
+    assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
   end
 
   for state <- ~w(active idle stalled expired unknown) do

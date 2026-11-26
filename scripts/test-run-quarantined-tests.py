@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from datetime import date
 
 
 SCRIPT = Path(__file__).with_name("run-quarantined-tests.py")
@@ -22,6 +23,9 @@ FIXTURE = '''defmodule Aiur.FixtureTest do
 
   test "outside" do
   end
+
+  test "unique exact name" do
+  end
 end
 
 defmodule Aiur.OtherFixtureTest do
@@ -34,13 +38,17 @@ end
 
 
 class QuarantinedTestSelectionTest(unittest.TestCase):
-    def test_every_list_entry_resolves_to_a_focused_test_location(self):
-        selected = RUNNER.selectors()
+    def test_synthetic_entries_resolve_exact_described_and_module_wide_tests(self):
+        selected = self.select(
+            ("Aiur.FixtureTest", "unique exact name"),
+            ("Aiur.FixtureTest", "outer inside"),
+            ("Aiur.OtherFixtureTest", "*"),
+        )
 
-        self.assertGreaterEqual(len(selected), len(RUNNER.entries()))
-        self.assertTrue(any(item.startswith("test/aiur/experiments_cli_test.exs:") for item in selected))
-        self.assertTrue(any(item.startswith("test/aiur/decision_store/enrichment_test.exs:") for item in selected))
-        self.assertGreaterEqual(sum(item.startswith("test/aiur/core/agent_runner_checkpoint_queue_test.exs:") for item in selected), 2)
+        self.assertEqual(
+            selected,
+            ["test/fixture_test.exs:12", "test/fixture_test.exs:19", "test/fixture_test.exs:5"],
+        )
 
     def test_selector_locations_are_unique(self):
         selected = RUNNER.selectors()
@@ -52,7 +60,18 @@ class QuarantinedTestSelectionTest(unittest.TestCase):
             tests = Path(root) / "test"
             tests.mkdir()
             (tests / "fixture_test.exs").write_text(FIXTURE)
-            return RUNNER.selectors(tests, [(module, name, "#1") for module, name in listed])
+            quarantine = Path(root) / "quarantine.txt"
+            quarantine.write_text("".join(f"{module}\t{name}\t#1\t2026-12-31\n" for module, name in listed))
+            return RUNNER.selectors(tests, RUNNER.entries(quarantine, today=date(2026, 12, 20)))
+
+    def test_new_expiry_beyond_14_days_is_rejected_but_exact_baseline_row_is_grandfathered(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "quarantine.txt"
+            row = ("Aiur.FixtureTest", "unique exact name", "#1", "2027-01-10")
+            path.write_text("\t".join(row) + "\n")
+            with self.assertRaisesRegex(ValueError, "exceeds 14 days"):
+                RUNNER.entries(path, today=date(2026, 12, 20))
+            self.assertEqual(RUNNER.entries(path, grandfathered={row}, today=date(2026, 12, 20)), [row])
 
     def test_describe_entry_uses_the_full_exunit_name(self):
         self.assertEqual(self.select(("Aiur.FixtureTest", "outer inside")), ["test/fixture_test.exs:5"])
@@ -73,7 +92,7 @@ class QuarantinedTestSelectionTest(unittest.TestCase):
             self.select(("Aiur.FixtureTest", "outside"))
 
     def test_module_wildcard_selects_every_test(self):
-        self.assertEqual(self.select(("Aiur.FixtureTest", "*")), ["test/fixture_test.exs:5", "test/fixture_test.exs:9"])
+        self.assertEqual(self.select(("Aiur.FixtureTest", "*")), ["test/fixture_test.exs:12", "test/fixture_test.exs:5", "test/fixture_test.exs:9"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 defmodule Aiur.MainWatch.Fixer do
   @moduledoc "Files and reconciles fixer tickets from the base-CI background task."
-  alias Aiur.GitHub.{Config, MainFixer, ResourceStore, StatePolicy}
+  alias Aiur.GitHub.{Access, Config, MainFixer, StatePolicy}
   alias Aiur.MainWatch.{FixerGitHub, FixerWatchdog, State}
   require Logger
 
@@ -13,12 +13,9 @@ defmodule Aiur.MainWatch.Fixer do
     with {:ok, issues} <- call(opts, :fixer_open, [watch.fixer_label, opts], &FixerGitHub.open/2),
          issues = Enum.filter(issues, &(not is_nil(MainFixer.marker(&1["body"])))),
          :ok <- act(observation, observations, issues, watch, opts) do
-      FixerWatchdog.check(issues, opts)
+      FixerWatchdog.check(own(issues), opts)
     else
-      {:error, reason} = error ->
-        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
-        alert(topic, %{reason: inspect(reason)}, opts)
-        error
+      {:error, _reason} = error -> retry_or_alert(error, observations, watch, opts)
     end
   end
 
@@ -32,7 +29,7 @@ defmodule Aiur.MainWatch.Fixer do
   defp act(observation, observations, issues, watch, opts) do
     case classification(observation) do
       :green ->
-        recover(issues, observation.sha, opts)
+        recover(own(issues), observation.sha, opts)
 
       :red ->
         flake? = observation.digest.flake_only and observation.digest.tests != :unknown and not observation.digest.truncated
@@ -73,9 +70,12 @@ defmodule Aiur.MainWatch.Fixer do
         once("create:#{signature}:#{observation.sha}", opts, fn -> create(observation, body, watch, opts) end)
 
       issue ->
-        comment_run(issue, observation, body, opts)
+        # A foreign fixer still matches, so this instance neither comments on it nor files a duplicate.
+        if Aiur.Instance.skip?(issue, issue["labels"], :main_watch_fixer), do: :ok, else: comment_run(issue, observation, body, opts)
     end
   end
+
+  defp own(issues), do: Enum.reject(issues, &Aiur.Instance.skip?(&1, &1["labels"], :main_watch_fixer))
 
   defp comment_run(issue, observation, body, opts) do
     id = to_string(issue["number"])
@@ -99,6 +99,28 @@ defmodule Aiur.MainWatch.Fixer do
 
   defp shared_budget_hold?({:aiur, :locally_held, %{reason: :shared_budget}}), do: true
   defp shared_budget_hold?(_reason), do: false
+
+  defp retry_or_alert({:error, reason} = error, observations, watch, opts) do
+    case {broker_timeout?(reason), Keyword.get(opts, :fixer_broker_timeout_retried?, false)} do
+      {true, false} ->
+        Logger.warning("fixer retrying after GitHub broker timeout")
+        Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(Access.backoff_base_ms())
+        reconcile(observations, watch, Keyword.put(opts, :fixer_broker_timeout_retried?, true))
+
+      _ ->
+        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
+        alert(topic, %{reason: inspect(reason)}, opts)
+        error
+    end
+  end
+
+  defp broker_timeout?({:github, kind, %{reason: :github_budget_broker_timeout}}) when kind in [:local_hold, :timeout], do: true
+
+  defp broker_timeout?(%{classification: kind, detail: %{reason: :github_budget_broker_timeout}})
+       when kind in [:local_hold, :timeout],
+       do: true
+
+  defp broker_timeout?(_reason), do: false
 
   defp refresh(opts) do
     case Keyword.get(opts, :fixer_refresh, &Aiur.Orchestrator.request_refresh/0).() do
@@ -162,9 +184,9 @@ defmodule Aiur.MainWatch.Fixer do
 
   @spec once(String.t(), keyword(), (-> :ok | {:error, term()})) :: :ok | {:error, term()}
   def once(identity, opts, action) do
-    key = ResourceStore.key_for_repo(:main_watch, Config.repo(), "fixer:" <> identity)
-    read = Keyword.get(opts, :fixer_read, &ResourceStore.fetch/1)
-    write = Keyword.get(opts, :fixer_write, fn key -> with :ok <- ResourceStore.put_resource(key, %{"done" => true}, source: :mutation), do: ResourceStore.flush() end)
+    key = Access.key_for_repo(:main_watch, Config.repo(), "fixer:" <> identity)
+    read = Keyword.get(opts, :fixer_read, &Access.fetch_resource/1)
+    write = Keyword.get(opts, :fixer_write, fn key -> with :ok <- Access.put_resource(key, %{"done" => true}, source: :mutation), do: Access.flush() end)
 
     case read.(key) do
       {:ok, %{data: %{"done" => true}}} -> :ok
@@ -175,7 +197,7 @@ defmodule Aiur.MainWatch.Fixer do
   @spec alert(String.t(), map(), keyword()) :: :ok
   def alert(topic, payload, opts) do
     Keyword.get(opts, :fixer_alert, fn topic, payload ->
-      Aiur.Alerts.emit_system(topic, message: "Base CI fixer: #{inspect(payload)}", durable: true, needs_attention: true, exchange_payload: payload)
+      Aiur.Signal.alert(topic, message: "Base CI fixer: #{inspect(payload)}", durable: true, needs_attention: true, exchange_payload: payload)
     end).(
       topic,
       payload

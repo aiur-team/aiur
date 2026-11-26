@@ -15,6 +15,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   require Logger
 
+  alias Aiur.AgentRunner.DependencyHold
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.AgentRunner.QueueTurn
   alias Aiur.AgentRunner.TurnLoop
@@ -226,13 +227,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
   end
 
   @doc false
-  @spec claim_after_queue_update(GenServer.server(), String.t(), boolean()) ::
+  @spec claim_after_queue_update(GenServer.server(), String.t(), boolean() | :steer) ::
           {:ok, map()} | :empty | :ignored
   def claim_after_queue_update(orchestrator, issue_identifier, true) do
     claim_next_wake_queue_item(orchestrator, issue_identifier)
   end
 
-  def claim_after_queue_update(_orchestrator, _issue_identifier, false), do: :ignored
+  def claim_after_queue_update(_orchestrator, _issue_identifier, wake) when wake in [false, :steer], do: :ignored
 
   @doc false
   @spec claim_next_operator_item(GenServer.server(), String.t()) :: {:ok, map()} | :empty
@@ -253,7 +254,12 @@ defmodule Aiur.AgentRunner.QueueDrain do
          deliver_now?,
          opts
        ) do
-    case claim_after_queue_update(orchestrator, issue.identifier, deliver_now?) do
+    claim = fn -> claim_after_queue_update(orchestrator, issue.identifier, deliver_now?) end
+
+    case if(deliver_now? == true, do: claim_unless_held(issue, opts, claim), else: claim.()) do
+      :held ->
+        :ok
+
       {:ok, item} ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id}")
 
@@ -289,7 +295,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
          codex_update_recipient,
          opts
        ) do
-    case claim_next_wake_queue_item(orchestrator, issue.identifier) do
+    case claim_unless_held(issue, opts, fn -> claim_next_wake_queue_item(orchestrator, issue.identifier) end) do
       {:ok, item} ->
         run_operator_turn(
           app_session,
@@ -301,7 +307,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           opts
         )
 
-      :empty ->
+      _empty_or_held ->
         :ok
     end
   end
@@ -314,7 +320,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
          codex_update_recipient,
          opts
        ) do
-    case claim_next_queue_item(orchestrator, issue.identifier) do
+    case claim_unless_held(issue, opts, fn -> claim_next_queue_item(orchestrator, issue.identifier) end) do
       {:ok, item} ->
         Logger.info("Delivering queued item to #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} category=#{item.category}")
 
@@ -328,9 +334,15 @@ defmodule Aiur.AgentRunner.QueueDrain do
           opts
         )
 
-      :empty ->
+      _empty_or_held ->
         :ok
     end
+  end
+
+  # A ticket waiting on an open blocker leaves its input queued and ends this
+  # run instead of starting a turn (`DependencyHold`).
+  defp claim_unless_held(issue, opts, claim) do
+    if DependencyHold.held?(issue, opts), do: :held, else: claim.()
   end
 
   defp claim_next_queue_item(orchestrator, issue_identifier) when is_binary(issue_identifier) do

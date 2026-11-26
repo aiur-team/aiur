@@ -106,6 +106,7 @@ defmodule Aiur.Orchestrator.RetryEngine.DelaysAndStateTest do
             retry_poll_failures: 0,
             worker_host: nil,
             workspace_path: nil,
+            stalled_alert_outstanding: true,
             tracker_identity: tracker_identity("repo#1")
           }
         }
@@ -118,10 +119,12 @@ defmodule Aiur.Orchestrator.RetryEngine.DelaysAndStateTest do
       assert metadata.error == "boom"
       assert metadata.last_failure_at == last_failure_at
       assert metadata.tracker_identity == tracker_identity("repo#1")
+      assert metadata.stalled_alert_outstanding
       refute Map.has_key?(next_state.retry_attempts, "issue-1")
 
       requeued = RetryEngine.schedule_issue_retry(next_state, "issue-1", 3, metadata)
       assert requeued.retry_attempts["issue-1"].last_failure_at == last_failure_at
+      assert requeued.retry_attempts["issue-1"].stalled_alert_outstanding
       Process.cancel_timer(requeued.retry_attempts["issue-1"].timer_ref)
     end
 

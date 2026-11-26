@@ -1,13 +1,12 @@
 defmodule Aiur.GitHub.DispatchAuthorization.TimelineFetch do
+  alias Aiur.GitHub.Access
   @moduledoc false
-
-  alias Aiur.GitHub.LocalHold
 
   @spec run((-> term()), keyword()) :: term()
   def run(fetch_fun, opts) when is_function(fetch_fun, 0) do
-    LocalHold.run(
+    Access.with_transient_retry(
       fn -> fetch_fun.() |> unwrap_timeline_fetch_failure() end,
-      LocalHold.caller_opts(opts)
+      Access.transient_retry_opts(opts)
     )
     |> restore_timeline_fetch_failure()
   end

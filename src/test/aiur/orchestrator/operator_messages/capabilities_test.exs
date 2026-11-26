@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              immediate_delivery: false,
              pending_control: nil,
              queue_depth: 0,
+             listener: %{unread_count: 0, oldest_unread_at: nil},
              safe_checkpoints: [],
              status: :working,
              unit_control: :unsupported
@@ -41,13 +42,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              immediate_delivery: false,
              pending_control: nil,
              queue_depth: 2,
+             listener: %{unread_count: 0, oldest_unread_at: nil},
              safe_checkpoints: [:notification, :tool_result],
              status: :sleeping,
              unit_control: :request_only
            }
   end
 
-  test "immediate delivery replaces checkpoint and interrupt policies" do
+  test "immediate delivery keeps checkpoint for listener sync and replaces interrupt policies" do
     state =
       state_with_running_entry("42", %{
         can_interrupt: true,
@@ -58,10 +60,23 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
       })
 
     assert %{
-             accepted_delivery_policies: [:immediate],
+             accepted_delivery_policies: [:immediate, :checkpoint],
              can_interrupt: true,
              immediate_delivery: true,
              unit_control: :confirmed
+           } = Capabilities.issue_control_capabilities(state, "42")
+  end
+
+  test "a corrupt control value projects as missing metadata instead of raising" do
+    state = state_with_running_entry("42", "corrupt")
+
+    assert %{
+             accepts_operator_messages: true,
+             can_interrupt: false,
+             immediate_delivery: false,
+             safe_checkpoints: [],
+             status: :working,
+             unit_control: :request_only
            } = Capabilities.issue_control_capabilities(state, "42")
   end
 

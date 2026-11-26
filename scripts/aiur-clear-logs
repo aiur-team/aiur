@@ -3,7 +3,7 @@
 set -euo pipefail
 logs_parent="${1:?logs parent required}"
 instance_key="${2:-}"
-if [[ ! "$instance_key" =~ ^[a-f0-9]{10}$ ]]; then
+if [[ ! "$instance_key" =~ ^(gw-)?[a-f0-9]{10}$ ]]; then
   echo 'aiurdev: refusing log cleanup without a valid instance key' >&2
   exit 64
 fi

@@ -2,8 +2,12 @@ defmodule Aiur.Events.FacadeTest do
   use Aiur.TestSupport
 
   alias Aiur.Events
+  alias Aiur.Events.SubscriptionStore
 
   test "facade delegates to the bus with identical results" do
+    assert Events.exchange_server() == Aiur.Events.Exchange
+    assert Events.publisher_available?()
+
     ticket = Integer.to_string(System.unique_integer([:positive]))
     topic = "ticket.#{ticket}.facade.published"
     pattern = "ticket.#{ticket}.facade.*"
@@ -33,5 +37,18 @@ defmodule Aiur.Events.FacadeTest do
 
     assert :ok = Events.unsubscribe(pattern)
     refute pattern in Events.bindings_for(self())
+  end
+
+  test "facade reports whether a subscription store matches a topic" do
+    identifier = "facade-#{System.unique_integer([:positive])}"
+    pattern = "ticket.#{identifier}.#"
+    topic = "ticket.#{identifier}.agent.progress"
+
+    :ok = SubscriptionStore.attach(identifier)
+    on_exit(fn -> SubscriptionStore.stop(identifier) end)
+    :ok = SubscriptionStore.add_subscription(identifier, pattern, "manual:agent")
+
+    assert Events.any_subscriber_matches?(topic)
+    refute Events.any_subscriber_matches?("executor.command.requested")
   end
 end

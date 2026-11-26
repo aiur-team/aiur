@@ -49,7 +49,7 @@ defmodule Aiur.OpenTicketSource do
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Issues, RequestOrigin, ResourceStore, Transport, ViewStateSweep}
+  alias Aiur.GitHub.{Access, Config, Issues, ViewStateSweep}
   alias Aiur.Issue
   alias Aiur.OpenTicketSource.{Fetch, Snapshot}
   alias Aiur.Webhooks.ModeRegistry
@@ -81,6 +81,21 @@ defmodule Aiur.OpenTicketSource do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @doc "Labels of open ticket `number`; `nil` when the ticket or current snapshot is unavailable."
+  @spec ticket_labels(integer(), GenServer.server()) :: [String.t()] | nil
+  def ticket_labels(number, server \\ __MODULE__) do
+    case snapshot_for_index(server, 200) do
+      %Snapshot{tickets: tickets} ->
+        case Enum.find(tickets, &(&1.identifier == Integer.to_string(number))) do
+          nil -> nil
+          ticket -> ticket.labels
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   @doc "Subscribes the caller to open-ticket change broadcasts."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
@@ -91,7 +106,7 @@ defmodule Aiur.OpenTicketSource do
   @doc "Requests an out-of-band re-list (async)."
   @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__),
-    do: GenServer.cast(server, {:refresh, RequestOrigin.view_originated?()})
+    do: GenServer.cast(server, {:refresh, Access.view_originated?()})
 
   @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
@@ -114,9 +129,9 @@ defmodule Aiur.OpenTicketSource do
       fetch_attempted?: false,
       truncated?: false,
       repo: nil,
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
-      repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
-      token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
+      repo_fun: Keyword.get(opts, :repo_fun, &Access.parse_repo/0),
+      token_fun: Keyword.get(opts, :token_fun, &Access.require_token/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix()),
       github_fun: Keyword.get(opts, :github_fun, &github_tracker?/0),
@@ -212,7 +227,7 @@ defmodule Aiur.OpenTicketSource do
         remove_ticket(state, id)
 
       _change ->
-        case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+        case Access.data(Access.key(:issue, owner, repo, id)) do
           # A labels-only mutation on an issue the store never held (no webhook
           # has deposited it and the boot listing does not write through). The
           # projection still holds the ticket, so keep it and refresh its labels
@@ -227,7 +242,7 @@ defmodule Aiur.OpenTicketSource do
   defp reconcile_issue(state, _owner, _repo, _id, _change), do: state
 
   defp apply_issue_change(%{repo: {owner, repo}} = state, id) do
-    case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+    case Access.data(Access.key(:issue, owner, repo, id)) do
       nil ->
         remove_ticket(state, id)
 
@@ -249,7 +264,7 @@ defmodule Aiur.OpenTicketSource do
   defp update_held_labels(%{repo: {owner, repo}} = state, id) do
     case Map.fetch(state.tickets, id) do
       {:ok, ticket} ->
-        labels = label_names(ResourceStore.data(ResourceStore.key(:issue_labels, owner, repo, id)))
+        labels = label_names(Access.data(Access.key(:issue_labels, owner, repo, id)))
 
         %{state | tickets: Map.put(state.tickets, id, %{ticket | labels: labels})}
         |> apply_tickets()
@@ -388,8 +403,8 @@ defmodule Aiur.OpenTicketSource do
   # -- subscriptions and delivery mode --------------------------------------
 
   defp subscribe_to_events do
-    ResourceStore.subscribe(:issue)
-    ResourceStore.subscribe(:issue_labels)
+    Access.subscribe(:issue)
+    Access.subscribe(:issue_labels)
     ModeRegistry.subscribe()
     ModeRegistry.subscribe_recovered()
     ViewStateSweep.subscribe_diverged()
@@ -407,7 +422,7 @@ defmodule Aiur.OpenTicketSource do
   defp maybe_relist(state, _degraded_repo), do: state
 
   defp start_fetch(%{fetch_task: nil} = state, view_originated?) do
-    task = Task.async(fn -> RequestOrigin.carry(view_originated?, fn -> Fetch.fetch(state) end) end)
+    task = Task.async(fn -> Access.carry(view_originated?, fn -> Fetch.fetch(state) end) end)
     state = %{state | fetch_task: task, fetch_started_at: System.monotonic_time(:millisecond), fetch_events: :queue.new()}
     maybe_mark_loading(state)
   end

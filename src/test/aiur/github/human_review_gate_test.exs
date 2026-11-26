@@ -3,7 +3,9 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
 
   alias Aiur.GitHub.{Client, HumanReviewGate, ResourceStore}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @tested_head String.duplicate("a", 40)
+  @current_head String.duplicate("b", 40)
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -44,7 +46,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
             {:ok,
              %{
                status: 200,
-               body: [%{"number" => 42, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
+               body: [%{"number" => 42, "body" => local_tests_body(@tested_head), "head" => %{"ref" => "aiur/42", "sha" => @tested_head, "repo" => %{"full_name" => "owner/repo"}}}]
              }}
 
           req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
@@ -87,6 +89,94 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       assert detail.pr_number == 77
       assert detail.count == 1
       assert "PRRT_blocking" in detail.review_thread_ids
+    end
+
+    test "rejects human-review handoff when Local tests Tested head trails the PR head" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{"sha" => "parent"}]}]}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert {:error, {:stale_pr_body_evidence, detail}} =
+               HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+
+      assert detail.pr_number == 77
+      assert detail.head_sha == @current_head
+      assert detail.tested_head == @tested_head
+      assert detail.body_update_line == "Tested head: #{@current_head}"
+      assert detail.reason == "Local tests Tested head does not match PR head"
+    end
+
+    test "carries stale evidence only across merge-only commits with identical PR contribution" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/pulls/77" ->
+            {:ok, %{status: 200, body: pr(@tested_head, @current_head)}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{}, %{}]}]}}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@tested_head}" ->
+            {:ok, %{status: 200, body: comparison("old-base")}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@current_head}" ->
+            {:ok, %{status: 200, body: comparison("new-base")}}
+
+          req.method == :get and req.url =~ "/compare/old-base...new-base" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "files" => []}}}
+
+          req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+            {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"pullRequest" => %{"reviewThreads" => %{"pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}, "nodes" => []}}}}}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert :ok = HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+    end
+
+    test "rejects stale evidence when a merge-only commit changes the PR contribution" do
+      request_fun = fn req ->
+        cond do
+          req.method == :get and req.url =~ "/pulls?" ->
+            {:ok, %{status: 200, body: [pr(@tested_head, @current_head)]}}
+
+          req.method == :get and req.url =~ "/pulls/77" ->
+            {:ok, %{status: 200, body: pr(@tested_head, @current_head)}}
+
+          req.method == :get and req.url =~ "/compare/#{@tested_head}...#{@current_head}" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "total_commits" => 1, "commits" => [%{"parents" => [%{}, %{}]}]}}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@tested_head}" ->
+            {:ok, %{status: 200, body: comparison("old-base")}}
+
+          req.method == :get and req.url =~ "/compare/main...#{@current_head}" ->
+            {:ok, %{status: 200, body: comparison("new-base", [{"src/lib/a.ex", "current", "@@ -1,1 +1,1 @@\n-old\n+new"}])}}
+
+          req.method == :get and req.url =~ "/compare/old-base...new-base" ->
+            {:ok, %{status: 200, body: %{"status" => "ahead", "files" => []}}}
+
+          true ->
+            blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert {:error, {:stale_pr_body_evidence, detail}} =
+               HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+
+      assert detail.body_update_line == "Tested head: #{@current_head}"
     end
 
     # #1756: reverting an approved PR to rework deadlocks the ticket — the
@@ -230,7 +320,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         end
       end
 
-      assert {:error, :review_base_ancestry_unavailable} =
+      assert {:error, {:stale_pr_body_evidence, %{reason: "PR head or body is missing"}}} =
                Client.update_issue_state("42", "human-review", request_fun: missing_head, bot_account: "aiur-bot")
     end
 
@@ -282,7 +372,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           {:ok,
            %{
              status: 200,
-             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head", "repo" => %{"full_name" => "owner/repo"}}}]
+             body: [%{"number" => 77, "body" => local_tests_body(@tested_head), "head" => %{"ref" => "aiur/42", "sha" => @tested_head, "repo" => %{"full_name" => "owner/repo"}}}]
            }}
 
         req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
@@ -328,6 +418,21 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
     end
   end
+
+  defp local_tests_body(head) do
+    "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
+  end
+
+  defp pr(tested_head, head) do
+    %{
+      "number" => 77,
+      "body" => local_tests_body(tested_head),
+      "head" => %{"ref" => "aiur/42", "sha" => head, "repo" => %{"full_name" => "owner/repo"}}
+    }
+  end
+
+  defp comparison(base_sha, files \\ []),
+    do: %{"status" => "ahead", "merge_base_commit" => %{"sha" => base_sha}, "files" => Enum.map(files, fn {filename, sha, patch} -> %{"filename" => filename, "sha" => sha, "patch" => patch} end)}
 
   defp review(login, state, submitted_at) do
     %{"id" => :erlang.phash2({login, state, submitted_at}), "user" => %{"login" => login}, "state" => state, "submitted_at" => submitted_at, "body" => ""}

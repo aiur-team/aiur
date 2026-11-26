@@ -158,7 +158,7 @@ defmodule Aiur.BuildQueue.RefreshTest do
   end
 
   defp github_repo do
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous = {System.get_env("GITHUB_TOKEN"), :persistent_term.get(token_key, :unset)}
     :persistent_term.erase(token_key)
     System.put_env("GITHUB_TOKEN", "test-gh-token")

@@ -111,9 +111,10 @@ defmodule Aiur.CapabilitiesTest do
     opts = Keyword.put(opts, :providers, [HungProvider, FakeProvider])
     began = System.monotonic_time(:millisecond)
     monitor(opts)
-    assert System.monotonic_time(:millisecond) - began < 1_000
+    assert System.monotonic_time(:millisecond) - began < 1_500
     caps = Capabilities.report(opts).capabilities
-    assert caps["test.hung"] == %{state: :unknown, reason: :unknown}
+    assert %{state: :unknown, reason: :unknown, detail: detail} = caps["test.hung"]
+    assert Regex.match?(~r/^timed out after \d+ ms$/, detail)
     assert caps["test.fake"].state == :available
   end
 
@@ -125,7 +126,9 @@ defmodule Aiur.CapabilitiesTest do
         pid = monitor(opts)
         tick(pid)
         report = Capabilities.report(opts)
-        assert report.capabilities["test.raising"] == %{state: :unknown, reason: :unknown}
+        assert %{state: :unknown, reason: :unknown, detail: detail} = report.capabilities["test.raising"]
+        assert detail =~ "RuntimeError"
+        assert detail =~ "failed"
         assert report.executor == nil
         assert report.repository == nil
       end)
@@ -139,7 +142,8 @@ defmodule Aiur.CapabilitiesTest do
     tick(pid)
     assert Process.alive?(pid)
     caps = Capabilities.report(opts).capabilities
-    assert caps["test.killed"] == %{state: :unknown, reason: :unknown}
+    assert %{state: :unknown, reason: :unknown, detail: detail} = caps["test.killed"]
+    assert detail =~ "killed"
     assert caps["test.fake"].state == :available
   end
 

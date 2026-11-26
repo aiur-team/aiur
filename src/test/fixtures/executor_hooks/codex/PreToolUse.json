@@ -1,0 +1,19 @@
+{
+  "session_id": "session",
+  "hook_event_name": "PreToolUse",
+  "transcript_path": null,
+  "cwd": "/workspace",
+  "source": "startup",
+  "turn_id": "turn-one",
+  "agent_id": null,
+  "agent_type": null,
+  "agent_transcript_path": null,
+  "last_assistant_message": null,
+  "notification_type": null,
+  "tool_name": "Bash",
+  "stop_hook_active": false,
+  "pid": "123",
+  "model": "example",
+  "permission_mode": "default",
+  "unknown": "discard"
+}

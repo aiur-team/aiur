@@ -25,6 +25,7 @@ defmodule Aiur.Executor.StatePaths do
     cursor: "executor.wakes.cursor.json",
     pending: "executor.wakes.pending.json",
     subscriptions: "executor.subscriptions.json",
+    tracker_identities: "tracker-identities.json",
     watermark: "executor.listener.watermark.json",
     control_lifecycle: "control-lifecycle.json"
   }
@@ -93,6 +94,9 @@ defmodule Aiur.Executor.StatePaths do
   @spec subscriptions_path() :: Path.t()
   def subscriptions_path, do: path_for(:subscriptions)
 
+  @spec tracker_identities_path() :: Path.t()
+  def tracker_identities_path, do: path_for(:tracker_identities)
+
   @spec wakes_path() :: Path.t()
   def wakes_path, do: path_for(:wakes)
 
@@ -108,6 +112,10 @@ defmodule Aiur.Executor.StatePaths do
   @doc "Durable store of consumer lease claims and their liveness evidence."
   @spec claims_path() :: Path.t()
   def claims_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.claims.json")
+
+  @doc "Executor Commands held until their blocker tickets merge."
+  @spec pending_commands_path() :: Path.t()
+  def pending_commands_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.pending-commands.json")
 
   @doc "Fingerprints of the executor-sweep findings already published."
   @spec sweep_seen_path() :: Path.t()

@@ -1,0 +1,439 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 23,
+  "first_id": "telemetry-usage-29",
+  "last_id": "tests-1c-15",
+  "findings": [
+    {
+      "id": "telemetry-usage-29",
+      "status": "changed",
+      "anchor": "src/test/aiur/usage/headless/adapters_test.exs:51",
+      "note": "Normalizer overlap test still checks envelopes rather than aggregate results; self-sent metric sentinel remains, but negative duplicate assertions have independent value. Sampler receive now has explicit timeout. Provisional disposition retained.",
+      "source_ids": [
+        "telemetry-usage-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "telemetry-usage-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/run_telemetry/dataset.ex:315",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-30"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "telemetry-usage-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage_compaction/coordinator.ex:90",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "telemetry-usage-32",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/headless/deep_seek/request_usage.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-32"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "telemetry-usage-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/headless/catalog.ex:28",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "telemetry-usage-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/usage/price_table.ex:122",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-34",
+        "dup-by-constant-01"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "telemetry-usage-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_meters/store.ex:142",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "telemetry-usage-35"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1a-cont-01",
+      "status": "present",
+      "anchor": "src/test/aiur/test_reset_test.exs:272",
+      "note": "Direct-reset test still removes whole shared aiur-workspaces parent in after cleanup rather than owned fixture leaf. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "tests-1a-cont-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1a-cont-02",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/issue_log_transcript_test.exs:45",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1a-cont-02"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1a-cont-03",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/decision_delivery_integration_test.exs:244",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1a-cont-03"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1a-cont-04",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/decision_revision_store_test.exs:564",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1a-cont-04"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1b-cont-01",
+      "status": "present",
+      "anchor": "src/test/aiur/executor_command_attention_test.exs:22",
+      "note": "Attention suite still substitutes alert callback; listener integration shown covers PR wake, not full attention open/resolved inbox roundtrip. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1b-cont-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1b-cont-02",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/json_store_test.exs:69",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1b-cont-02"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1b-cont-03",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/github_body_file_policy_test.exs:15",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1b-cont-03"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1b-cont-04",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/provider_meter_refresh_test.exs:222",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1b-cont-04"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1b-cont-05",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/coordination_tasks_test.exs:323",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1b-cont-05"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1b-cont-06",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_max_duration_test.exs:330",
+      "note": "Refused-resume test still uses two-element message pattern unlike generation-correlated three-element success messages. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1b-cont-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1b-cont-07",
+      "status": "present",
+      "anchor": "src/test/aiur/repo_base_test.exs:958",
+      "note": "Ordered event test still uses selective receives by phase, allowing reverse mailbox ordering. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1b-cont-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1b-cont-08",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/build_gate_test.exs:1479",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1b-cont-08"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1c-01",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:1384",
+      "note": "Named Orchestrator test still starts without initial_poll false while default fixture uses real Linear endpoint and placeholder token; historical 44 count is not recounted and is not claimed current. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "tests-1c-01",
+        "tests-6-19"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-02",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:1",
+      "note": "Status file remains 4968 lines spanning snapshot, orchestration, workspace and CLI responsibilities; historical size/count are not current census. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-03",
+      "status": "changed",
+      "anchor": "src/test/aiur/workspace_and_config_test.exs:1",
+      "note": "Workspace/config suite remains 3648 lines with tracker, dispatch, sandbox and schema tests in one owner. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-04",
+      "status": "changed",
+      "anchor": "src/test/aiur/extensions_test.exs:1",
+      "note": "Extensions suite remains 1940 lines spanning store, trackers, Phoenix API/LiveView and HTTP lifecycle. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-05",
+      "status": "present",
+      "anchor": "src/test/aiur/decision_store_test.exs:1",
+      "note": "DecisionStore suite remains 4866 lines with duplicated decision-state setup and polling helpers. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-06",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:112",
+      "note": "Running-entry helper remains local map construction; suites still hand-build differently correlated controls. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/state.ex:137",
+      "note": "Legacy codex_totals/codex_rate_limits remain State fields and fixtures; live totals use agent fields. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-08",
+      "status": "repaired",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:3146",
+      "note": "All listed asynchronous receives now have explicit timeouts, including multiline operator messages. Repaired by aac8a4532024b48e1cbb03073454cfa0832cb6a2 (#2937/#2796); no dedicated U1..U7 finding-owner ticket; retain the existing regression guard and do not reapply this repair. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-09",
+      "status": "present",
+      "anchor": "src/test/aiur/executor_wake_inbox_test.exs:31",
+      "note": "WakeInbox still sleeps 1100 ms before state assertions; snapshot timing and sleep-based synchronization remain. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-10",
+      "status": "changed",
+      "anchor": "src/test/aiur/agent_chat_test.exs:15",
+      "note": "AgentChat delegation tests still accept either unavailable or missing-agent, so do not constrain delegation; broad cannot-fail count not reaffirmed. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-11",
+      "status": "present",
+      "anchor": "src/test/aiur/test_support_isolation_test.exs:119",
+      "note": "Isolation regression comment still claims definition order for independent randomized test cases. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-12",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/per_class_cadence_test.exs:368",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1c-12"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1c-13",
+      "status": "present",
+      "anchor": "src/test/aiur/extensions_test.exs:189",
+      "note": "Tests still mutate app-owned WorkflowStore and kill singleton store; package isolation concern remains despite cleanup hooks. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-15",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:4956",
+      "note": "Local polling helpers still recur with differing attempts/sleep budgets, including decision and projection loops. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

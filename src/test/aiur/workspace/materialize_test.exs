@@ -53,6 +53,22 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert File.exists?(Path.join(workspace, "README.md"))
   end
 
+  test "materialization recompiles seeded beams that embed the base checkout path", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "seeded")
+    File.write!(Path.join(base, ".gitignore"), "**/_build/\n")
+    System.cmd("git", ["-C", base, "add", ".gitignore"])
+    System.cmd("git", ["-C", base, "commit", "--quiet", "-m", "ignore build"])
+
+    compile_seed!(base, "src/lib/sensitive.ex", "defmodule MaterializeFixture.Sensitive do\n  def dir, do: __DIR__\nend\n")
+    compile_seed!(base, "src/lib/plain.ex", "defmodule MaterializeFixture.Plain do\n  def dir, do: \"lib\"\nend\n")
+    File.touch!(Path.join(base, "src/lib/sensitive.ex"), 0)
+
+    assert :ok = Materialize.materialize_from_base(base, workspace, "seeded-branch", nil, nil)
+    refute File.exists?(seed_beam(workspace, MaterializeFixture.Sensitive))
+    assert File.exists?(seed_beam(workspace, MaterializeFixture.Plain))
+    assert File.stat!(Path.join(workspace, "src/lib/sensitive.ex"), time: :posix).mtime > 0
+  end
+
   test "materialization drops ignored crash dumps while preserving warm artifacts", %{tmp: tmp, base: base} do
     workspace = Path.join(tmp, "dump-free")
     root_dump = Path.join(base, "erl_crash.dump")
@@ -124,4 +140,17 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert {:ok, ^workspace, true} = Provisioner.cold_fallback_workspace(workspace)
     assert File.read!(log_path) == "{\"event\":\"startup\"}\n"
   end
+
+  defp compile_seed!(root, relative, code) do
+    path = Path.join(root, relative)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, code)
+    ebin = Path.join(root, "src/_build/test/lib/app/ebin")
+    File.mkdir_p!(ebin)
+    {:ok, [module], _} = Kernel.ParallelCompiler.compile_to_path([path], ebin, return_diagnostics: true)
+    :code.purge(module)
+    :code.delete(module)
+  end
+
+  defp seed_beam(root, module), do: Path.join(root, "src/_build/test/lib/app/ebin/#{module}.beam")
 end

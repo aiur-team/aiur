@@ -2,7 +2,10 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   @moduledoc false
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.ControlCLI.DispatchAccount
+  alias Aiur.GitHub.Config
+  alias Aiur.Orchestrator.StatusCLI.AgentActivityText
   alias Aiur.Orchestrator.StatusObservation
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
@@ -29,9 +32,33 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         " ",
         agents_activity(agent),
         if(agent[:repl_attach_command], do: " | " <> agent.repl_attach_command, else: ""),
+        skills_suffix(agent),
         WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
+  end
+
+  # Which skills the worker loaded first and why. Compact by design: the full
+  # resolution lives in the ticket's dispatch record (logs/agent.ndjson).
+  defp skills_suffix(%{skills: skills}) when is_binary(skills) and skills != "", do: " | " <> truncate(skills, 120)
+  defp skills_suffix(_agent), do: ""
+
+  @doc false
+  @spec print_idle_count(non_neg_integer()) :: :ok
+  def print_idle_count(0), do: :ok
+  def print_idle_count(count), do: IO.puts("(#{count} idle tickets hidden; use --all to show)")
+
+  @doc false
+  @spec visible_idle_rows([map()], boolean()) :: [map()]
+  def visible_idle_rows(idle, true), do: idle
+  def visible_idle_rows(idle, false), do: Enum.filter(idle, &idle_attention_row?/1)
+
+  @doc false
+  @spec idle_attention_row?(map()) :: boolean()
+  def idle_attention_row?(agent) do
+    Map.get(agent, :work_state) in [:paused, "paused"] or
+      Map.get(agent, :waiting_reason) not in [nil, :active, :awaiting_dispatch] or
+      Map.get(agent, :queue_depth, 0) > 0 or Map.get(agent, :claim_released?, false) == true
   end
 
   # The STATE and ACTIVITY columns read the human wait from the row's derived
@@ -39,13 +66,40 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   # `waiting=waiting_for_human` — never from the raw work state alone. A live
   # agent blocked on an open decision used to read `working` here while
   # `status` read `waiting_for_human` for the same ticket (#2698).
-  defp agents_state_label(%{work_state: state}) when state in [:paused, "paused", :deactivated, "deactivated"],
-    do: to_string(state)
+  defp agents_state_label(%{work_state: state} = agent) when state in [:paused, "paused"],
+    do: reason_label(agent) || to_string(state)
+
+  defp agents_state_label(%{work_state: state} = agent) when state in [:deactivated, "deactivated"],
+    do: persisted_state_label(agent) || to_string(state)
+
+  defp agents_state_label(%{work_state: :starting}), do: "#{Config.label_prefix()}:in-progress"
+
+  defp agents_state_label(%{work_state: :retrying} = agent),
+    do: reason_label(agent) || "#{Config.label_prefix()}:retrying"
 
   defp agents_state_label(agent) do
-    if WaitingReason.waiting_for_human?(agent),
-      do: "waiting",
-      else: to_string(Map.get(agent, :work_state, :working))
+    case reason_label(agent) do
+      nil ->
+        if WaitingReason.waiting_for_human?(agent),
+          do: "waiting",
+          else: to_string(Map.get(agent, :work_state, :working))
+
+      label ->
+        label
+    end
+  end
+
+  defp persisted_state_label(agent) do
+    prefix = Config.label_prefix()
+    labels = TicketTransition.present_runtime_labels(List.wrap(Map.get(agent, :labels)), prefix)
+    Enum.find(labels, &String.starts_with?(&1, prefix <> ":"))
+  end
+
+  defp reason_label(agent) do
+    case TicketTransition.runtime_labels(Map.get(agent, :labels), [Map.get(agent, :pause_reason), Map.get(agent, :waiting_reason)], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
   end
 
   defp agents_activity(agent) do
@@ -76,14 +130,32 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         "(deactivated)"
 
       _ ->
-        activity_values(agent)
-        |> Enum.map(&activity_string/1)
-        |> Enum.find("", &(&1 != ""))
+        agent
+        |> activity_text()
         |> case do
           "" -> "(no activity yet)"
           text -> truncate(text, 80)
         end
     end
+  end
+
+  # An in-process backend (OpenAI-compatible: OpenRouter, DeepSeek, Kimi)
+  # reports activity as normalized events with no app-server `method`, so it
+  # gets its own renderer; every app-server payload keeps the `method` path.
+  defp activity_text(agent) do
+    message = Map.get(agent, :last_codex_message)
+
+    if structured_activity?(message) do
+      generic_activity(agent)
+    else
+      AgentActivityText.describe(message) || generic_activity(agent)
+    end
+  end
+
+  defp generic_activity(agent) do
+    activity_values(agent)
+    |> Enum.map(&activity_string/1)
+    |> Enum.find("", &(&1 != ""))
   end
 
   defp retry_activity(agent) do

@@ -12,7 +12,7 @@ concurrency:
 jobs:
   pr-body:
     name: pr body
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 70
     steps:
       - name: Checkout
@@ -35,7 +35,7 @@ jobs:
   gate-rerun:
     name: Re-run only a failed ci gate
     needs: pr-body
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout

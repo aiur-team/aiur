@@ -187,7 +187,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
     assert traced_request(body, token).status == 200
     assert_received {:trace, _pid, :call, {Aiur.AgentChat, :send, [@identifier, "continue", opts]}}
-    assert opts[:delivery_policy] == :auto
+    assert opts[:delivery_policy] == :listener
+    assert opts[:origin] == :tui
     refute_received {:trace, _pid, :call, {Aiur.AgentChat, :send, _args}}
     assert {:ok, %{body: %{text: "continue"}}} = claim()
     assert :empty = claim()

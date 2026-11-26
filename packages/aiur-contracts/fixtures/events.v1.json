@@ -1,0 +1,36 @@
+{
+  "instance": "local",
+  "epoch": "sample-epoch",
+  "head_seq": 2,
+  "oldest_seq": 1,
+  "records": [
+    {
+      "type": "gap",
+      "seq": 1,
+      "scope": "*",
+      "reason": "exporter_start",
+      "from": null,
+      "to": "2026-10-26T12:00:00Z"
+    },
+    {
+      "type": "event",
+      "seq": 2,
+      "v": 1,
+      "instance": "local",
+      "id": 42,
+      "topic": "ticket.6323.pr.merged",
+      "class": "live",
+      "occurred_at": null,
+      "observed_at": null,
+      "source": "unknown",
+      "refs": {
+        "ticket": "6323",
+        "pr_number": null,
+        "head_sha": null
+      },
+      "attrs": {},
+      "payload_version": 1,
+      "anchor": null
+    }
+  ]
+}

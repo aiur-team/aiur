@@ -1,7 +1,6 @@
 defmodule Aiur.GitHub.TimelineCache do
+  alias Aiur.GitHub.Access
   @moduledoc false
-
-  alias Aiur.GitHub.ResourceStore
 
   @table :aiur_github_dispatch_authorization_timelines
   @index :aiur_github_dispatch_authorization_timeline_index
@@ -37,27 +36,46 @@ defmodule Aiur.GitHub.TimelineCache do
     end
   end
 
-  @spec put(String.t(), String.t(), String.t(), String.t() | nil, [map()], boolean(), pos_integer()) :: :ok
-  def put(owner, repo, id, etag, events, single_page?, per_page) do
-    held = %{etag: etag, events: events, single_page?: single_page?, per_page: per_page, repository: {owner, repo}}
+  @spec put(String.t(), String.t(), String.t(), String.t() | nil, [map()], boolean(), pos_integer(), [map()] | nil) :: :ok
+  def put(owner, repo, id, etag, events, single_page?, per_page, pages \\ nil) do
+    held = %{etag: etag, events: events, single_page?: single_page?, per_page: per_page, pages: pages, repository: {owner, repo}}
     :ets.insert(table(), {id, held})
     if :ets.info(@table, :size) > @max_entries, do: clear()
 
     now = System.system_time(:millisecond)
-    data = %{"events" => events, "single_page" => single_page?, "per_page" => per_page, "stored_at_ms" => now}
-    ResourceStore.put_resource(key(owner, repo, id), data, etag: etag, source: :fetch)
+    data = %{"events" => events, "single_page" => single_page?, "per_page" => per_page, "pages" => persisted_pages(pages), "stored_at_ms" => now}
+    Access.put_resource(key(owner, repo, id), data, etag: etag, source: :fetch)
     bound_persisted(owner, repo, id, now)
     :ok
   end
 
   defp persisted(owner, repo, id, per_page) do
-    with {:ok, %{data: %{"events" => events, "single_page" => single_page?, "per_page" => ^per_page}, etag: etag}} <- ResourceStore.fetch(key(owner, repo, id)),
+    with {:ok, %{data: %{"events" => events, "single_page" => single_page?, "per_page" => ^per_page} = data, etag: etag}} <- Access.fetch_resource(key(owner, repo, id)),
          true <- is_list(events) and Enum.all?(events, &valid_event?/1) and is_boolean(single_page?) do
-      %{events: events, single_page?: single_page?, per_page: per_page, etag: etag}
+      %{events: events, single_page?: single_page?, per_page: per_page, etag: etag, pages: restored_pages(Map.get(data, "pages"))}
     else
       _other -> nil
     end
   end
+
+  # Each page's own validator, so a restart keeps revalidating page by page.
+  defp persisted_pages(pages) when is_list(pages),
+    do: Enum.map(pages, &%{"url" => &1.url, "etag" => &1.etag, "count" => &1.count, "next_url" => &1.next_url})
+
+  defp persisted_pages(_pages), do: nil
+
+  defp restored_pages(pages) when is_list(pages) do
+    if Enum.all?(pages, &valid_page?/1),
+      do: Enum.map(pages, &%{url: &1["url"], etag: &1["etag"], count: &1["count"], next_url: &1["next_url"]}),
+      else: nil
+  end
+
+  defp restored_pages(_pages), do: nil
+
+  defp valid_page?(%{"url" => url, "etag" => etag, "count" => count, "next_url" => next_url}),
+    do: is_binary(url) and (is_binary(etag) or is_nil(etag)) and is_integer(count) and count >= 0 and (is_binary(next_url) or is_nil(next_url))
+
+  defp valid_page?(_page), do: false
 
   defp valid_event?(event) when is_map(event) do
     Enum.all?(["label", "actor"], fn field ->
@@ -85,13 +103,13 @@ defmodule Aiur.GitHub.TimelineCache do
       |> Enum.take(excess)
       |> Enum.each(fn {old_id, _at} ->
         :ets.delete(index, {repo_id, old_id})
-        ResourceStore.drop_data(key(owner, repo, old_id))
+        Access.drop_data(key(owner, repo, old_id))
       end)
     end
   end
 
   defp seed_index(index, owner, repo) do
-    for {{_type, _owner, _repo, id}, entry} <- ResourceStore.list_type(:issue_timeline, owner <> "/" <> repo) do
+    for {{_type, _owner, _repo, id}, entry} <- Access.list_type(:issue_timeline, owner <> "/" <> repo) do
       :ets.insert_new(index, {{{owner, repo}, id}, stored_at(entry)})
     end
   end
@@ -106,7 +124,7 @@ defmodule Aiur.GitHub.TimelineCache do
   defp stored_at(entry) when is_map(entry), do: Map.get(entry, "stored_at_ms", 0)
   defp stored_at(_entry), do: 0
 
-  defp key(owner, repo, id), do: ResourceStore.key(:issue_timeline, owner, repo, id)
+  defp key(owner, repo, id), do: Access.key(:issue_timeline, owner, repo, id)
 
   defp table do
     case :ets.whereis(@table) do

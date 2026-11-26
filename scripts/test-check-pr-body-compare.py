@@ -35,7 +35,7 @@ class PrBodyCompareTests(unittest.TestCase):
             pr = lambda: {'body': f'Tested head: {tested}\n', 'base': {'sha': 'main'},
                           'head': {'sha': self.git(root, 'rev-parse', 'HEAD').strip()}}
             with patch('builtins.print'):
-                self.assertEqual(self.local_carry(pr(), root), (tested, f'identical contribution since {tested}'))
+                self.assertEqual(self.local_carry(pr(), root), (tested, f'tested at {tested}; later commits are main merges only'))
                 (root / 'a.ex').write_text('l1\nl2\nl3\nfeature\nextra\n')
                 self.git(root, 'commit', '-am', 'extra')
                 self.assertEqual(self.local_carry(pr(), root)[1], 'exact head')
@@ -63,7 +63,7 @@ class PrBodyCompareTests(unittest.TestCase):
             pr = {'body': f'Tested head: {tested}\n', 'base': {'sha': 'main'},
                   'head': {'sha': self.git(root, 'rev-parse', 'HEAD').strip()}}
             with patch('builtins.print'):
-                self.assertEqual(self.local_carry(pr, root), (tested, f'identical contribution since {tested}'))
+                self.assertEqual(self.local_carry(pr, root), (tested, f'tested at {tested}; later commits are main merges only'))
 
     def local_carry(self, pr, history):
         # History comes from the scratch repository; the classifier source from this checkout.
@@ -76,6 +76,7 @@ class PrBodyCompareTests(unittest.TestCase):
         pr = {'body': f'Tested head: {"c" * 40}\n', 'head': {'sha': 'a' * 40}, 'base': {'sha': 'b' * 40}}
         hung = subprocess.TimeoutExpired(['git', 'diff'], gate.GIT_TIMEOUT)
         with patch.object(gate, 'is_ancestor', return_value=True), \
+             patch.object(gate, 'only_merges_after', return_value=True), \
              patch.object(gate.subprocess, 'check_output', side_effect=hung) as git, \
              patch('builtins.print') as say:
             self.assertEqual(gate.evidence_head(pr, Path.cwd()), ('a' * 40, 'exact head'))

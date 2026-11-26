@@ -123,7 +123,7 @@ defmodule Aiur.BuildGate.HookSnapshotTest do
     priv = Path.dirname(BuildGate.hook_path())
     File.mkdir_p!(release_priv)
 
-    for entry <- ~w(build_gate.bash browser_build_gate.bash build_priority.bash build_gate_holder.py build_gate build_gate_holder_lib) do
+    for entry <- ~w(build_gate.bash browser_build_gate.bash build_priority.bash build_gate_holder.py build_gate_reaper.py build_gate build_gate_holder_lib) do
       File.cp_r!(Path.join(priv, entry), Path.join(release_priv, entry))
     end
 

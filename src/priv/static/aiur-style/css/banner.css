@@ -5,9 +5,9 @@
     gap: 6px 10px; padding: 10px 44px 10px 16px; text-align: center;
     border-bottom: 1px solid var(--aiur-color-hairline);
     background: linear-gradient(var(--aiur-color-pill-bg), var(--aiur-color-pill-bg)), var(--aiur-color-bg);
-    font: var(--aiur-text-banner)/1.5 var(--aiur-font-mono); letter-spacing: .02em; color: var(--aiur-color-muted);
+    font: var(--aiur-text-banner)/normal var(--aiur-font-mono); letter-spacing: .02em; color: var(--aiur-color-muted);
   }
-  .aiur-banner__text { margin: 0; text-wrap: pretty; }
+  .aiur-banner__text { margin: 0; line-height: 1.5; text-wrap: pretty; }
   .aiur-banner__text strong { color: var(--aiur-color-fg); font-weight: 500; }
   .aiur-banner__link { color: var(--aiur-color-accent); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; transition: text-decoration-thickness .2s ease; }
   .aiur-banner__link:hover { text-decoration-thickness: 2px; }

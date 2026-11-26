@@ -30,6 +30,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.AnalyticsTools
+  alias Aiur.RunTelemetry.RetainedCache
   alias Aiur.RunTelemetry.SummaryReader
 
   @reduce_tool "reduce"
@@ -131,6 +132,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   defp run_reduce_background(script, args) do
     case System.cmd(script, args, stderr_to_stdout: true) do
       {_output, 0} ->
+        RetainedCache.invalidate_identity()
         :ok
 
       {output, status} ->
@@ -159,8 +161,12 @@ defmodule Aiur.RunTelemetry.Summaries do
     case reduce_command(opts) do
       {:ok, {script, args}} ->
         case System.cmd(script, args, stderr_to_stdout: true) do
-          {output, 0} -> {:ok, output}
-          {output, status} -> {:error, {:reduce_failed, status, truncate(output)}}
+          {output, 0} ->
+            RetainedCache.invalidate_identity()
+            {:ok, output}
+
+          {output, status} ->
+            {:error, {:reduce_failed, status, truncate(output)}}
         end
 
       :unavailable ->

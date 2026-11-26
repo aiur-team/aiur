@@ -5,9 +5,9 @@ defmodule Aiur.TestQuarantineTest do
   alias Aiur.TestQuarantine.Detector
 
   test "parses comments, exact test names, and ticket provenance" do
-    source = "# test, name, ticket\nAiur.ExampleTest\tkeeps the exact name\t#42\n"
+    source = "# test, name, ticket, expiry\nAiur.ExampleTest\tkeeps the exact name\t#42\t2026-12-31\n"
 
-    assert {:ok, [%{module: "Aiur.ExampleTest", name: "keeps the exact name", ticket: "#42"}]} =
+    assert {:ok, [%{module: "Aiur.ExampleTest", name: "keeps the exact name", ticket: "#42", expires: ~D[2026-12-31]}]} =
              TestQuarantine.parse(source)
   end
 
@@ -15,46 +15,85 @@ defmodule Aiur.TestQuarantineTest do
     assert {:error, {:invalid_quarantine_entry, 2}} = TestQuarantine.parse("# valid comment\nnot a valid row\n")
   end
 
-  test "the checked-in quarantine list parses and excludes its exact entries" do
+  test "rejects malformed expiry dates with a clear source line" do
+    assert {:error, {:invalid_quarantine_entry, 1, "expected module, name, ticket, and YYYY-MM-DD expiry"}} =
+             TestQuarantine.parse("Aiur.ExampleTest\tkeeps the exact name\t#42\t2026-13-40\n")
+  end
+
+  test "module wildcard is valid only in the test name field" do
+    assert {:ok, [%{module: "Aiur.ExampleTest", name: "*"}]} =
+             TestQuarantine.parse("Aiur.ExampleTest\t*\t#42\t2026-12-31\n")
+
+    assert {:error, {:invalid_quarantine_entry, 1, _}} =
+             TestQuarantine.parse("*\tkeeps the exact name\t#42\t2026-12-31\n")
+  end
+
+  test "the checked-in quarantine list parses with sorted rows, owner tickets and expiries" do
     test_root = Path.join(File.cwd!(), "test")
     path = Path.join(test_root, "quarantine.txt")
     assert {:ok, entries} = TestQuarantine.read(path)
 
-    identities = Enum.map(entries, &{&1.module, &1.name})
+    identities = Enum.map(entries, &TestQuarantine.sort_key/1)
     assert identities == Enum.sort(identities)
     assert length(identities) == length(Enum.uniq(identities))
     assert Enum.all?(entries, &(&1.ticket =~ ~r/^#?[1-9][0-9]*$/))
+    assert Enum.all?(entries, &match?(%Date{}, &1.expires))
 
     test_modules = test_root |> Path.join("**/*_test.exs") |> Path.wildcard() |> test_module_names()
 
     assert Enum.all?(entries, &MapSet.member?(test_modules, &1.module))
+  end
 
-    assert {:excluded, "due to test filter"} =
-             ExUnit.Filters.eval(
-               [],
-               TestQuarantine.filters(entries),
-               %{test: :"test create freezes the baseline and reports its window, count and coverage"},
-               :test
-             )
+  test "sorted insertion places a row in the middle and produces a valid sorted list" do
+    fixture = "# fixture\nAiur.ATest\talpha\t#1\t2026-12-31\nAiur.ZTest\tomega\t#2\t2026-12-31\n"
+    inserted = "Aiur.MTest\tmiddle\t#3\t2026-12-31"
+
+    result = TestQuarantine.insert_sorted(fixture, inserted)
+    assert {:ok, entries} = TestQuarantine.parse(result)
+    identities = Enum.map(entries, &TestQuarantine.sort_key/1)
+
+    assert identities == [{"Aiur.ATest", "alpha"}, {"Aiur.MTest", "middle"}, {"Aiur.ZTest", "omega"}]
+    assert identities == Enum.sort(identities)
+  end
+
+  test "sorted insertion preserves blank lines in the quarantine list" do
+    fixture = "# fixture\nAiur.ATest\talpha\t#1\t2026-12-31\n\nAiur.ZTest\tomega\t#2\t2026-12-31\n"
+    inserted = "Aiur.MTest\tmiddle\t#3\t2026-12-31"
+
+    assert TestQuarantine.insert_sorted(fixture, inserted) ==
+             "# fixture\nAiur.ATest\talpha\t#1\t2026-12-31\n\nAiur.MTest\tmiddle\t#3\t2026-12-31\nAiur.ZTest\tomega\t#2\t2026-12-31\n"
+  end
+
+  test "filters exclude synthetic plain, described, and special-character test names" do
+    entries = [
+      %{module: "Aiur.ExampleTest", name: "plain synthetic test", ticket: "#1"},
+      %{module: "Aiur.ExampleTest", name: "synthetic describe described test", ticket: "#2"},
+      %{module: "Aiur.ExampleTest", name: ~s(synthetic handles [brackets] and "quotes"), ticket: "#3"},
+      %{module: "Aiur.ExampleWildcardTest", name: "*", ticket: "#4"}
+    ]
+
+    filters = TestQuarantine.filters(entries)
+
+    for name <- [
+          "test plain synthetic test",
+          "test synthetic describe described test",
+          ~s(test synthetic handles [brackets] and "quotes")
+        ] do
+      assert {:excluded, "due to test filter"} =
+               ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleTest, test: String.to_atom(name)}, :test)
+    end
 
     assert {:excluded, "due to module filter"} =
-             ExUnit.Filters.eval([], TestQuarantine.filters(entries), %{module: :"Aiur.Core.AgentRunnerCheckpointQueueTest"}, :test)
+             ExUnit.Filters.eval([], filters, %{module: Aiur.ExampleWildcardTest, test: :"test any name"}, :test)
   end
 
-  test "a listed describe-block test is excluded by the name ExUnit gives it" do
-    assert {:ok, entries} = TestQuarantine.read(Path.join([File.cwd!(), "test", "quarantine.txt"]))
+  test "test helper wires parsed quarantine rows into ExUnit exclusions" do
+    path = Path.join([File.cwd!(), "test", "quarantine.txt"])
+    assert {:ok, entries} = TestQuarantine.read(path)
+    configured_exclusions = ExUnit.configuration()[:exclude]
 
-    tags = %{
-      module: Aiur.DecisionStore.EnrichmentTest,
-      describe: "supervisor enrichment",
-      test: :"test supervisor enrichment exact replay is duplicate while changed reuse conflicts without append or notification"
-    }
-
-    assert {:excluded, "due to test filter"} = ExUnit.Filters.eval([], TestQuarantine.filters(entries), tags, :test)
-  end
-
-  test "the blocking ExUnit run config excludes a listed test by its exact name" do
-    assert {:test, :"test create freezes the baseline and reports its window, count and coverage"} in ExUnit.configuration()[:exclude]
+    assert Enum.all?(TestQuarantine.filters(entries), &(&1 in configured_exclusions))
+    assert TestQuarantine.filters([]) == []
   end
 
   defp test_module_names(files) do

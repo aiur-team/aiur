@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.Listeners.Firehose.Window do
   @moduledoc false
   require Logger
-  alias Aiur.{AlertFeed, Alerts, RunTelemetry}
+  alias Aiur.{AlertFeed, RunTelemetry, Signal}
   alias Aiur.Events.GithubFirehose
   alias Aiur.GitHub.Listeners.Firehose
 
@@ -89,6 +89,6 @@ defmodule Aiur.GitHub.Listeners.Firehose.Window do
   end
 
   defp firehose_truncation_alert_fun(opts) do
-    Keyword.get(opts, :firehose_truncation_alert_fun, &Alerts.emit_system/2)
+    Keyword.get(opts, :firehose_truncation_alert_fun, &Signal.alert/2)
   end
 end

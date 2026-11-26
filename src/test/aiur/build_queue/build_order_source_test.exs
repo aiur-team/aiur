@@ -341,11 +341,10 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert get(:calls) == []
   end
 
-  test "paced adoption markers retain membership until a later reconciliation writes them" do
+  test "paced adoption markers defer without losing membership and retry on reconciliation" do
     projection = start_supervised!({Projection, snapshot([member(1), member(2)])})
     pid = server(projection, 1)
-    assert {:error, {:marker_write_failed, failures}} = Aiur.BuildQueue.adopt(99)
-    assert failures != []
+    assert {:ok, {:marker_deferred, ["1"]}} = Aiur.BuildQueue.adopt(99)
 
     for _ <- 1..5 do
       reconcile(pid)
