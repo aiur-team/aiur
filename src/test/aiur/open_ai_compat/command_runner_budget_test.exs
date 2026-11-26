@@ -4,7 +4,6 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
   alias Aiur.AgentGitHubGuard
   alias Aiur.GitHub.Budget
   alias Aiur.OpenAICompat.CommandRunner
-  alias Aiur.TestSupport.RuntimeChildren
 
   @bwrap_skip_reason (case System.find_executable("bwrap") do
                         nil ->
@@ -23,8 +22,6 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
                       end)
 
   setup do
-    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
-
     root = Aiur.TestSupport.tmp_root!("aiur-command-budget")
     workspace = Path.join(root, "workspace")
     budget = Path.join(root, "host-budget")

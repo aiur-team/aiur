@@ -297,6 +297,7 @@ aiur_engine_main() {
       shift
       cmd_usage "$@"
       ;;
+    capacity) shift; cmd_capacity "$@" ;;
     agents)
       shift
       cmd_agents "$@"

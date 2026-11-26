@@ -231,6 +231,7 @@ defmodule Aiur.Codex.TurnLoopRoutingTest do
 
     @tag :tmp_dir
     test "rate-limit notifications reach availability through a privacy-reduced event without rotation", %{tmp_dir: tmp_dir} do
+      unless Process.whereis(Aiur.ProviderMeters.Store), do: start_supervised!(Aiur.ProviderMeters.Store)
       port = open_cat_port()
       owner = start_owner(clock: fn -> ~U[2026-07-13 12:00:00Z] end)
       account_generation = AccountGeneration.new_binding(owner)

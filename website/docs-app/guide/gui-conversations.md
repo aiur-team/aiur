@@ -81,3 +81,47 @@ loopback. Device principals and client tokens always remain masked. Basic Auth i
 on public binds. Treat revealed content as sensitive.
 
 Write verbs return 405; sends continue through the listener path.
+
+## The Executor thread for a host app
+
+Host apps use `/api/v1/executor/thread` with a thread grant, client token, or
+dashboard session.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| `GET` | `/api/v1/executor/thread` | `{conversation_id, executor: {attached, live}, can_send}`; `can_send` is `true` or `{reason}` |
+| `GET` | `/api/v1/executor/thread/messages?after=POS&limit=N` | `{messages, next_after, queued}`, oldest first; `limit` is 1–200, default 50 |
+| `POST` | `/api/v1/executor/thread/messages` | `{text, client_request_id}` returns 202 `{message}` |
+| `POST` | `/api/v1/executor/thread/grants` | Supervisor only. `{subject, ttl_s}` returns 201 `{token, expires_at}` |
+
+Dashboard-session sends also need `X-Aiur-Request: 1`; client tokens need the
+`executor` category. Responses use `Cache-Control: no-store`.
+
+A message is `{id, pos, request_id, role, text, attachments, created_at,
+delivery}`. `role` is `operator` or `executor`. `delivery` is `queued`,
+`delivered`, `outcome_unknown`, or null for Executor messages.
+
+`messages` comes from the Executor conversation. A sent message appears there
+once the Executor session records it. Until then, `queued` lists operator
+messages waiting for a session on every read, regardless of `after`. Both carry
+the send's `request_id` so a host can match its copy. Pass the last
+`next_after` to fetch newer messages.
+
+Queued messages survive a daemon restart, with their `client_request_id`, so
+a retry after the restart still matches. A message is removed from the saved
+queue only when it is handed to an Executor session, so a restart never sends
+it twice.
+
+A send to a live Executor is queued for its session. With no Executor attached,
+the message waits for the next attached session and records an
+`executor.thread.message` wake for `aiur executor-wait`.
+
+Repeating a `client_request_id` with the same text returns the same message;
+with different text it returns 409 `client_request_id_conflict`. A read-only
+instance, or one without Executor delivery, returns 409
+`{"error": "executor_unavailable", "reason": ...}`.
+
+A thread grant is minted by the instance supervisor (`AIUR_SUPERVISOR_TOKEN`)
+for one host user. It lasts `ttl_s` seconds, 900 by default and at most 86400.
+It reaches only these routes: not worker conversations, not Commands, and not
+other grants. An expired grant returns 401 `executor_thread_grant_expired`.

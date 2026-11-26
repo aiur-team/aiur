@@ -23,25 +23,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
-  @invocation_key {__MODULE__, :invocation_id}
+  alias Aiur.CodingAgent.Backend.ToolInvocation
 
   @doc false
   @spec execute((String.t(), term() -> map()), String.t() | nil, term(), term()) :: map()
-  def execute(executor, tool, arguments, invocation_id)
-      when is_function(executor, 2) do
-    previous = Process.get(@invocation_key, :unset)
-    Process.put(@invocation_key, invocation_id)
-
-    try do
-      executor.(tool, arguments)
-    after
-      restore_invocation(previous)
-    end
-  end
+  defdelegate execute(executor, tool, arguments, invocation_id), to: ToolInvocation
 
   @doc false
   @spec invocation_id() :: term()
-  def invocation_id, do: Process.get(@invocation_key)
+  defdelegate invocation_id(), to: ToolInvocation
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() ->
                                                                                    map())
@@ -169,7 +159,4 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       )
     end
   end
-
-  defp restore_invocation(:unset), do: Process.delete(@invocation_key)
-  defp restore_invocation(value), do: Process.put(@invocation_key, value)
 end

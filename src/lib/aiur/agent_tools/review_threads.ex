@@ -8,7 +8,6 @@ defmodule Aiur.AgentTools.ReviewThreads do
   alias Aiur.AgentTools.Args
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
-  alias Aiur.GitHub.Client, as: GitHubClient
 
   @reply_review_thread_description """
   Post a reply to an exact GitHub pull request review thread, then re-fetch
@@ -81,12 +80,17 @@ defmodule Aiur.AgentTools.ReviewThreads do
   @spec execute(String.t(), term(), keyword()) :: map()
   def execute("aiur_reply_review_thread", arguments, opts) do
     review_thread_replier =
-      Keyword.get(opts, :review_thread_replier, &GitHubClient.reply_to_review_thread/3)
+      Keyword.get(opts, :review_thread_replier) ||
+        Application.get_env(:aiur, :review_thread_replier)
 
     with {:ok, review_thread_id, body} <- normalize_reply_review_thread_arguments(arguments),
-         {:ok, response} <- review_thread_replier.(review_thread_id, body, []) do
+         replier when is_function(replier, 3) <- review_thread_replier,
+         {:ok, response} <- replier.(review_thread_id, body, []) do
       Response.build(true, Response.encode_payload(response))
     else
+      nil ->
+        Response.failure(Errors.payload(:review_thread_tool_unavailable))
+
       {:error, reason} ->
         Response.failure(Errors.payload(reason))
     end
@@ -94,14 +98,19 @@ defmodule Aiur.AgentTools.ReviewThreads do
 
   def execute("aiur_resolve_review_thread", arguments, opts) do
     review_thread_resolver =
-      Keyword.get(opts, :review_thread_resolver, &GitHubClient.resolve_review_thread/2)
+      Keyword.get(opts, :review_thread_resolver) ||
+        Application.get_env(:aiur, :review_thread_resolver)
 
     with {:ok, review_thread_id, terminal_reply_body} <-
            normalize_resolve_review_thread_arguments(arguments),
+         resolver when is_function(resolver, 2) <- review_thread_resolver,
          {:ok, response} <-
-           review_thread_resolver.(review_thread_id, terminal_reply_body: terminal_reply_body) do
+           resolver.(review_thread_id, terminal_reply_body: terminal_reply_body) do
       Response.build(true, Response.encode_payload(response))
     else
+      nil ->
+        Response.failure(Errors.payload(:review_thread_tool_unavailable))
+
       {:error, reason} ->
         Response.failure(Errors.payload(reason))
     end
