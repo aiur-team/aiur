@@ -37,6 +37,6 @@ defmodule Aiur.Events.AgentWorkpadProgress do
     end
   end
 
-  defp row_step(nil, phase), do: "#{String.capitalize(phase)} work in progress"
+  defp row_step(nil, phase), do: "#{String.capitalize(phase)} phase complete"
   defp row_step([_mark, step], _phase), do: step |> String.replace(~r/[\r\n\t]+/u, " ") |> String.trim() |> String.slice(0, 120)
 end

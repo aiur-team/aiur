@@ -38,14 +38,42 @@ defmodule AiurWeb.Presenter.Entries do
       open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
       review: review_status(entry.state),
-      progress: public_progress(Map.get(entry, :progress))
+      progress: public_progress(Map.get(entry, :progress), entry.state)
     }
     |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
 
-  defp public_progress(nil), do: nil
-  defp public_progress(progress) when is_map(progress), do: Map.update(progress, :updated_at, nil, &iso8601/1)
+  defp public_progress(nil, state) do
+    phase = fallback_phase(state)
+
+    %{
+      percent: phase_start(phase),
+      step: phase_step(phase),
+      phase: Atom.to_string(phase),
+      source: "phase",
+      checklist: nil,
+      updated_at: nil
+    }
+  end
+
+  defp public_progress(progress, _state) when is_map(progress),
+    do: Map.update(progress, :updated_at, nil, &iso8601/1)
+
+  defp fallback_phase(state) when state in [:ci_wait, "ci-wait"], do: :ci
+  defp fallback_phase(state) when state in [:human_review, "human-review"], do: :pr
+  defp fallback_phase(state) when state in [:merging, "merging"], do: :merge
+  defp fallback_phase(_state), do: :work
+
+  defp phase_start(:work), do: 15
+  defp phase_start(:pr), do: 80
+  defp phase_start(:ci), do: 85
+  defp phase_start(:merge), do: 95
+
+  defp phase_step(:pr), do: "Preparing the pull request"
+  defp phase_step(:ci), do: "Waiting for CI"
+  defp phase_step(:merge), do: "Waiting for merge"
+  defp phase_step(_phase), do: "Working through the plan"
 
   @spec retry_entry_payload(map()) :: map()
   def retry_entry_payload(entry) do
@@ -175,7 +203,7 @@ defmodule AiurWeb.Presenter.Entries do
       last_event_at: iso8601(running.last_codex_timestamp),
       stale_for_seconds: Map.get(running, :stale_for_seconds),
       waiting_reason: Map.get(running, :waiting_reason, :active),
-      progress: public_progress(Map.get(running, :progress)),
+      progress: public_progress(Map.get(running, :progress), Map.get(running, :state)),
       open_decision_count: Map.get(running, :open_decision_count, 0),
       open_decision_count_health: Map.get(running, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(running, :ci_result)),

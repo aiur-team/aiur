@@ -41,6 +41,38 @@ defmodule Aiur.TicketActivityTest do
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: server)
   end
 
+  test "publishes ticket progress immediately then coalesces updates for ten seconds" do
+    ticket = identity()
+    owner = self()
+
+    {:ok, server} =
+      TicketActivity.start_link(
+        name: nil,
+        exchange_subscribe_fun: fn -> :ok end,
+        membership_subscribe_fun: fn -> :ok end,
+        membership_snapshot_fun: fn -> %{members: []} end,
+        retention_retain_fun: fn _identity, _progress -> :ok end,
+        retention_all_fun: fn -> %{} end,
+        progress_debounce_ms: 80,
+        progress_publish_fun: fn topic, payload -> send(owner, {:published_progress, topic, payload}) end,
+        prune_interval_ms: 60_000
+      )
+
+    on_exit(fn -> Aiur.TestSupport.safe_stop(server) end)
+    topic = "ticket.#{ticket.identifier}.progress"
+
+    send(server, {:event, %{ticket_observation: observation(ticket)}})
+
+    assert_receive {:published_progress, ^topic, %{percent: 40, source: "phase"}}, 500
+
+    send(server, {:event, %{ticket_observation: %{observation(ticket) | event_id: 2, attributes: %{percent: 41, step: "Second"}}}})
+    send(server, {:event, %{ticket_observation: %{observation(ticket) | event_id: 3, attributes: %{percent: 42, step: "Latest"}}}})
+
+    refute_receive {:published_progress, _, _}, 30
+    assert_receive {:published_progress, ^topic, %{percent: 42, step: "Latest", checklist: nil}}, 200
+    refute_receive {:published_progress, _, _}, 30
+  end
+
   test "refreshes current membership from membership updates", %{server: server} do
     ticket = identity()
     event = %{identity: ticket}

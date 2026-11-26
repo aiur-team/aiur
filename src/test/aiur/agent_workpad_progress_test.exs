@@ -27,6 +27,11 @@ defmodule Aiur.AgentWorkpadProgressTest do
     assert AgentWorkpadProgress.parse("## Notes\n- [ ] arbitrary todo") == nil
   end
 
+  test "names a completed checklist when every step is checked" do
+    assert %{percent: 100, step: "Merge phase complete"} =
+             AgentWorkpadProgress.parse("## Agent Workpad\n- Phase: merge\n- [x] Land the change")
+  end
+
   test "bounds the exposed step and defaults an absent phase to work" do
     progress = AgentWorkpadProgress.parse("## Agent Workpad\n- [ ] #{String.duplicate("x", 140)}")
 

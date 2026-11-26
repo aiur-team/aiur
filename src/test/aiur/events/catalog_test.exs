@@ -68,7 +68,7 @@ defmodule Aiur.Events.CatalogTest do
       assert %Entry{
                export?: true,
                refs: [:ticket, :job_id],
-               attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}]
+               attrs: [percent: :integer, progress_source: {:enum, ~w(worker checklist phase)}]
              } = Catalog.lookup("ticket.42.agent.#{suffix}")
     end
 

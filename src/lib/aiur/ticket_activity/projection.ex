@@ -221,6 +221,26 @@ defmodule Aiur.TicketActivity.Projection do
 
   def ordered_progress(_state, _identity), do: nil
 
+  @doc false
+  @spec publication_reading(t(), TrackerIdentity.t()) :: map() | nil
+  def publication_reading(%__MODULE__{} = state, %TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      nil ->
+        nil
+
+      entry_key ->
+        case Map.get(state.entries, entry_key) do
+          %{progress: progress, stage: stage} when is_map(progress) ->
+            %{progress: progress, stage: stage}
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  def publication_reading(_state, _identity), do: nil
+
   defp entry_ordered_progress(%{progress: %{order: _} = progress}), do: progress
   defp entry_ordered_progress(_entry), do: nil
 
