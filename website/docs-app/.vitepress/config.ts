@@ -130,6 +130,7 @@ export default withMermaid(defineConfig({
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
             { text: 'GUI conversations', link: '/guide/gui-conversations' },
+            { text: 'Embed conversation components', link: '/guide/conversation-components' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Projects home', link: '/guide/projects-home' },
             { text: 'Outbound events', link: '/guide/outbound-events' },

@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 
 // The element extends the page's HTMLElement, so the DOM must exist before the import.
 const dom = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true });
-for (const name of ['window', 'document', 'HTMLElement', 'CustomEvent', 'customElements', 'Event', 'KeyboardEvent', 'MouseEvent']) {
+for (const name of ['window', 'document', 'HTMLElement', 'CustomEvent', 'customElements', 'Event', 'EventTarget', 'KeyboardEvent', 'MouseEvent']) {
   globalThis[name] = name === 'window' ? dom.window : dom.window[name];
 }
 
@@ -47,7 +47,7 @@ const IDLE = ['attach', 'input', 'mic', 'send'];
 function visible(el) {
   return Array.from(el.shadowRoot.querySelector('[part="actions"]').children)
     .filter((node) => !node.hidden)
-    .map((node) => node.getAttribute('part'));
+    .map((node) => node.getAttribute('part') ?? node.name);
 }
 
 const allAdapters = () => ({

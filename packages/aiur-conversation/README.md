@@ -8,6 +8,22 @@ works in plain HTML, React, Vue or Svelte. It never talks to Aiur or to a voice
 provider itself. The host passes in adapters for upload, dictation and voice,
 and receives the message on send.
 
+## Component contract
+
+Every conversation component pairs a DOM-free controller with a default view.
+The controller owns draft and session state, adapter lifecycle, commands, and
+events. Hosts can render the controller state with their own markup or restyle
+the default view with CSS custom properties, shadow parts and named slots.
+
+Default and slotted controls use the same commands. The controller supplies the
+labels, focus order and announcements, along with each control's availability.
+A host view uses those values to keep replacement controls accessible.
+
+Components share the voice, dictation, attachment and error vocabulary below.
+The host supplies transport adapters. Backend APIs own the conversation data
+and the transport to providers. Every component tests a replacement view or
+control against the same behavior and events as its default.
+
 ## Install
 
 The package is not on a registry. Pin it by commit and install the tarball:
@@ -71,7 +87,7 @@ so a host without voice gets a composer without the voice buttons.
 Idle, the composer is one row: + (attach), the text input, mic and send.
 Tapping the mic starts dictation and the row becomes a recording row, with
 the input above it: cancel ✕, a live waveform, two-way voice, stop ■ and send.
-The two-way voice button only appears in the recording row.
+The two-way voice button appears while dictating or during a voice session.
 
 | Button | Adapter | Behaviour |
 | --- | --- | --- |
@@ -102,22 +118,72 @@ speech-to-text and `voice_converse` provides the live voice session. Your
 adapters talk to your own server endpoint, and that endpoint runs these
 packages. You can use your own voice transport the same way.
 
+## Commands and state
+
+Use the same commands on a `ComposerController` or an `<aiur-composer>`.
+
+| Command | Behavior |
+| --- | --- |
+| `send()` | Sends the draft and ready attachments. While recording, it waits for final dictation first. Resolves to whether the send succeeded. |
+| `attach(file)` | Calls the upload adapter. Resolves to whether the upload became a ready attachment. |
+| `removeAttachment(id)` | Removes the ready attachment with the given ID from `state.attachments`. |
+| `startDictation(start?, end?)` | Starts dictation at a selection. The element uses its input selection. The headless controller defaults to the end of the draft. |
+| `stopDictation()` / `cancelDictation()` | Finish with the final transcript or discard the dictated words. |
+| `startVoice()` / `stopVoice()` | Start or end two-way voice. Starting while recording first finishes dictation. |
+| `clear()` | Clears the draft, attachments and current error. |
+
+The element also has `focus()` for the textarea and `openFilePicker()` for
+an attach button. Element attributes include `placeholder`, `disabled`,
+`accept` (file types) and `pinned` (fixed above the on-screen keyboard).
+Set `controller.disabled` when using a headless view. Stop and cancel remain
+available for an active dictation so the microphone can be released.
+
+Both forms expose writable `value`, ready upload payloads in `attachments`, and
+a `state` snapshot. Voice, dictation and attachment states use these names:
+
+| Field | Values | Element hook |
+| --- | --- | --- |
+| `dictation` | `idle`, `recording`, `stopping` | `data-dictation-state`, plus `data-recording` while recording |
+| `voice` | `idle`, `starting`, `live`, `stopping` | `data-voice-state`, plus `data-voice-live` when live |
+| `attachments[].state` | `uploading`, `ready` | `data-state` on each attachment part |
+| `sending` | Boolean | `data-sending` while pending |
+| `error` | Error details or `null` | `data-error-code` when present |
+
 ### Events
 
-- `aiur-send` has `detail: { text, attachments }`. It fires on every send, with or without `onSend`.
-- `aiur-composer-error` has `detail: { action, error }`, where `action` is `send`, `upload`, `dictation` or `voice`. It fires when an adapter or `onSend` rejects. The composer shows no error text, so the host decides what to tell the user.
+Subscribe with `addEventListener` on either form. On the element the events
+bubble and cross the shadow boundary.
 
-### Attributes and properties
+- `aiur-conversation-state` carries the current snapshot in `detail`. Render
+  `controls[name].hidden`, `.disabled`, `.label` and `voice.pressed` when
+  replacing controls. A headless view also uses `inputLabel`, `readOnly`,
+  `caret` and `focusOrder` to lay out native controls in tab order, plus
+  `announcement` in a polite live region. Return focus to the input when a
+  focused control disappears. Use Enter to send, Shift+Enter for a newline
+  and Escape to cancel dictation.
+- `aiur-send` carries `{ text, attachments }` in `detail` when a send starts.
+  A host that needs to confirm delivery should provide `onSend` and reject
+  that promise on failure so the draft stays available.
+- `aiur-conversation-error` carries `{ action, code, message, error }` in
+  `detail`. The action is `send`, `upload`, `dictation` or `voice`. The
+  shared `conversationError(action, error)` helper keeps a recognized
+  adapter code, maps permission errors to `permission_denied`, and otherwise
+  uses `upload_failed`, `provider_unavailable` or `send_failed` as appropriate.
+  Use `message` for user-facing text. The original error is available for
+  host diagnostics. The element still emits `aiur-composer-error` with the
+  same detail.
 
-- `placeholder`: the input's placeholder.
-- `disabled`: turns off every button and the input.
-- `accept`: file types for the picker, such as `image/*,audio/*`.
-- `pinned`: fixes the composer to the bottom of the viewport and lifts it above
-  the on-screen keyboard. Without `pinned`, the host places the composer in its
-  own layout.
-- `value`: the draft text, readable and writable.
-- `attachments`: the finished uploads, read-only.
-- `send()`, `clear()` and `focus()`.
+### Headless usage
+
+```js
+import { ComposerController } from '@aiur/conversation';
+
+const composer = new ComposerController();
+composer.adapters = hostAdapters;
+composer.onSend = sendToHost;
+composer.addEventListener('aiur-conversation-state', ({ detail }) => render(detail));
+render(composer.state);
+```
 
 ## Theme
 
@@ -133,19 +199,72 @@ custom properties on the composer or on an ancestor:
 | `--aiur-composer-line` | `--aiur-color-line` |
 | `--aiur-composer-button-bg` | `--aiur-color-surface-2` |
 | `--aiur-composer-accent` (send, waveform, active voice) | `--aiur-color-accent` |
-| `--aiur-composer-on-accent` | `#ffffff` |
+| `--aiur-composer-on-accent` | `AccentColorText` |
 | `--aiur-composer-focus` | `--aiur-color-focus` |
 | `--aiur-composer-radius` | `--aiur-radius-xl` |
 | `--aiur-composer-font` | `--aiur-font-body` |
 | `--aiur-composer-shadow` | `--aiur-shadow-md` |
+| `--aiur-composer-gap` | `6px` |
+| `--aiur-composer-padding` | `6px` |
+| `--aiur-composer-control-radius` | `999px` |
+| `--aiur-composer-font-size` | `1rem` |
 | `--aiur-composer-button-size` | `44px` |
 | `--aiur-composer-max-input-height` | `40vh` |
 | `--aiur-composer-z` (pinned) | `10` |
 
-For anything else, use the exposed parts: `::part(card)`, `input`, `actions`,
-`attach`, `mic`, `send`, `cancel`, `waveform`, `voice`, `stop`, `attachments`
-and `attachment`. While dictating, the element has a `data-recording`
-attribute, and during a voice conversation it has `data-voice-live`.
+Use `::part()` for individual pieces. Parts include `card`, `input`,
+`actions`, `status`, `file-input`, `waveform`, `waveform-bar`,
+`attachments`, `attachment`, `attachment-name`, `remove-attachment`,
+and `attach`, `mic`, `send`, `cancel`, `voice` and `stop`. The button
+icons add an `-icon` suffix to their respective button parts.
+
+### OGM-style reskinning
+
+Set theme variables on the element or an ancestor and style parts from the
+host stylesheet. The [example page](examples/composer.html?skin=ogm) uses
+a warm palette, squared corners, serif type and a text send button.
+
+```html
+<style>
+  aiur-composer {
+    --aiur-composer-bg: #fffaf0;
+    --aiur-composer-font: Georgia, serif;
+    --aiur-composer-radius: 6px;
+    --aiur-composer-gap: 12px;
+  }
+  aiur-composer::part(input) { border-bottom: 2px solid #596743; }
+</style>
+
+<aiur-composer>
+  <button type="button" slot="send" disabled>Send message</button>
+</aiur-composer>
+```
+
+Named slots are `input`, `send`, `mic`, `attach`, `voice`, `stop`, `cancel`,
+`status`, and `remove-attachment-<id>` for each ready attachment. The default
+view controls visibility for the action slots. Wire a replacement's native
+activation to its command and use the snapshot for its disabled state and
+accessible name. For example, with the element registered and configured:
+
+```js
+const composer = document.querySelector('aiur-composer');
+const button = composer.querySelector('[slot="send"]');
+button.addEventListener('click', () => composer.send());
+function update({ controls }) {
+  button.disabled = controls.send.disabled;
+  button.setAttribute('aria-label', controls.send.label);
+}
+composer.addEventListener('aiur-conversation-state', ({ detail }) => update(detail));
+update(composer.state);
+```
+
+For `attach`, call `openFilePicker()` or pass files to `attach(file)` from
+your own picker. For `voice`, call `stopVoice()` when `state.voice` is
+`live`, and `startVoice()` otherwise. A replacement input updates `composer.value`
+on edit and renders `state.value`, `caret`, `inputLabel`, `disabled` and
+`readOnly` from snapshots. Wire Enter to `send()` as in a headless view.
+For a status replacement, use
+`role="status"` and update its text from `state.announcement`.
 
 ## React
 
