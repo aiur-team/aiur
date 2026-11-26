@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
           pr_anchored_dispatch_fun(event).(admitted, pr_issue)
         end,
-        pr_anchored_admission_opts(event)
+        Keyword.put(pr_anchored_admission_opts(event), :require_free_slot?, true)
       )
 
     case Process.delete(marker) do

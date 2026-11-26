@@ -200,10 +200,10 @@ defmodule Aiur.Orchestrator.PauseResume.Resume do
   @doc false
   @spec reactivate_issue(State.t(), map()) :: {{:ok, :reactivated} | {:error, term()}, State.t()}
   def reactivate_issue(%State{} = state, running_entry) do
-    if Slots.active_slots(state) >= Slots.max_concurrent_agent_limit(state) do
-      {{:error, :max_concurrent_agents_reached}, state}
-    else
+    if Slots.manual_active_slot_available?(state) do
       do_reactivate(state, running_entry)
+    else
+      {{:error, :max_concurrent_agents_reached}, state}
     end
   end
 

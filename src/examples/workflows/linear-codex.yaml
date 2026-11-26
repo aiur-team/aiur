@@ -99,6 +99,7 @@ agent:
   # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
   # account_selection: balance
   max_concurrent_agents: 10
+  # resource_concurrency: false  # opt in to the measured dispatch ceiling
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
   # max_repeated_identical_commands: 5

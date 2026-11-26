@@ -159,6 +159,7 @@ agent:
   # accounts: {claude: [default, work]}   # machine-local profiles; omit for legacy single-account behavior
   # account_selection: balance            # or priority (accounts list order), or headroom (most usage left across backends)
   max_concurrent_agents: 5
+  # resource_concurrency: false  # opt in to the measured dispatch ceiling
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
   # max_repeated_identical_commands: 5

@@ -197,7 +197,7 @@ defmodule AiurWeb.Presenter.Entries do
       observed_at: Map.get(capacity, :observed_at),
       age_ms: Map.get(capacity, :age_ms)
     }
-    |> Map.merge(Map.take(capacity, [:occupied, :effective, :available, :load, :load_threshold, :schedulers, :queued_demand?, :dispatch_observation]))
+    |> Map.merge(Map.take(capacity, [:occupied, :effective, :available, :load, :load_threshold, :schedulers, :queued_demand?, :dispatch_observation, :resource_binding]))
   end
 
   def capacity_payload(_capacity), do: nil

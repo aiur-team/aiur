@@ -35,10 +35,20 @@ defmodule AiurWeb.Build.Freshness do
   def daemon(_, now_ms), do: %{state: "unknown", heartbeat_at: nil, observed_at: now_ms}
 
   @spec read_daemon(keyword()) :: map()
-  def read_daemon(opts \\ []) do
+  def read_daemon(opts \\ []), do: daemon(snapshot(opts), System.os_time(:millisecond))
+
+  @spec read_dispatch_capacity(keyword()) :: map() | nil
+  def read_dispatch_capacity(opts \\ []) do
+    case snapshot(opts) do
+      {status, %{capacity: %{resource_binding: %{}} = capacity}, _} when status in [:current, :stale] -> capacity
+      _unavailable -> nil
+    end
+  end
+
+  defp snapshot(opts) do
     orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator.server() end)
     timeout = Keyword.get_lazy(opts, :timeout, &snapshot_tolerance_ms/0)
-    daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
+    Orchestrator.dashboard_snapshot(orchestrator, timeout)
   end
 
   @spec snapshot_tolerance_ms() :: non_neg_integer()

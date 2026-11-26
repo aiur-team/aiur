@@ -31,7 +31,7 @@ defmodule Aiur.Capacity.View do
     opts = Keyword.put(opts, :now, now)
     policy = Keyword.get_lazy(opts, :capacity_policy, &CapacityGate.policy/0)
     candidates = UsageFloorGate.candidates(Keyword.get_lazy(opts, :routes, &UsageFloorGate.configured_routes/0), opts)
-    readings = HeadroomDispatch.readings(candidates, opts)
+    readings = account_readings(candidates, opts)
     holds = Keyword.get_lazy(opts, :capacity_holds, fn -> LedgerStore.policy_holds(candidates, readings, CapacityGate.store(opts)) end)
     %{entries: entries} = CapacityGate.evaluate(candidates, readings, Keyword.merge(opts, capacity_policy: policy, capacity_holds: holds))
 
@@ -46,6 +46,15 @@ defmodule Aiur.Capacity.View do
       sources: sources,
       limits: limits(Map.get(policy, :limits))
     }
+  end
+
+  defp account_readings(candidates, opts) do
+    readings = HeadroomDispatch.readings(candidates, opts)
+
+    Map.new(candidates, fn candidate ->
+      key = Headroom.key(candidate)
+      {key, Map.get(readings, key) || UsageFloorGate.credit_reading(candidate.backend, opts)}
+    end)
   end
 
   @doc "`aiur capacity [--json]`, run in the daemon."

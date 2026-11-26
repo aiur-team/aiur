@@ -1,0 +1,7 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Capacity.View",
+  "kind": "reference",
+  "only_paths": ["src/lib/aiur/orchestrator/resource_readings.ex"],
+  "reason": "#8135: opt-in resource admission uses the same projected provider headroom as aiur capacity"
+}

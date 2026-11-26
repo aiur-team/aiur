@@ -410,7 +410,7 @@ The binding admission signal (which host-pressure gate is holding dispatch) and 
 
 Because reading the build gate scans its lock files, that probe runs on a reduced cadence and carries the last observation forward, so telemetry never disturbs a real build acquisition. `/analytics`, `aiurdev analytics` (including `--json`), and the self-contained HTML report expose the same pressure evidence.
 
-This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
+This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically. When [resource-based concurrency](/reference/configuration-agent#resource-based-dispatch-ceiling) is enabled, the dashboard and Analytics concurrency tile report the live dispatch ceiling and the age of its binding reading.
 
 ## Sizing a container
 
