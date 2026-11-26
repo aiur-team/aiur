@@ -356,6 +356,22 @@ defmodule Aiur.GitHub.PullRequests do
   defp head_ref_conditional_response({:error, reason}, _etag),
     do: {:error, Access.classify_error({:error, reason})}
 
+  @doc "The merged pull request whose head is `branch` in the configured repository, or `nil`."
+  @spec fetch_merged_pull_request_for_branch(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def fetch_merged_pull_request_for_branch(branch, opts \\ []) when is_binary(branch) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "closed", "head" => "#{owner}:#{branch}", "per_page" => "10"})
+
+      case request_fun.(%{method: :get, url: "#{Access.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}", token: token}) do
+        {:ok, %{status: 200, body: pulls}} when is_list(pulls) -> {:ok, Enum.find(pulls, &is_binary(&1["merged_at"]))}
+        {:ok, %{status: _status} = response} -> {:error, Access.github_status_error(response)}
+        {:error, reason} -> {:error, Access.classify_error({:error, reason})}
+      end
+    end
+  end
+
   @doc """
   Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
   for PR-anchored routing of watched/commanded PR comments.

@@ -227,6 +227,7 @@ run_session() {
 # Fresh-launch environment: dotenv, run argv, and the tmpfile and crash-dump
 # handoffs the BEAM and its watchdog share.
 run_session_prepare_env() {
+  aiur_enable_core_dumps
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
@@ -319,6 +320,7 @@ run_session_prepare_env() {
   if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
     export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
+    aiur_prepare_dump_target "$AIUR_LOGS_ROOT" "$ERL_CRASH_DUMP"
   fi
 }
 
@@ -370,6 +372,7 @@ run_session_write_pane_launcher() {
     if [ -n "${AIUR_CLIENT_TOKEN:-}" ]; then printf 'export AIUR_CLIENT_TOKEN=%q\n' "$AIUR_CLIENT_TOKEN"; fi
     printf 'capture=%q\n' "$startup_capture"
     printf 'source %q\n' "$engine_dir/aiur-engine.sh"
+    printf 'aiur_enable_core_dumps\n'
     printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"
     printf '%q' "${release_cmd[0]}"
     for arg in "${release_cmd[@]:1}"; do printf ' %q' "$arg"; done

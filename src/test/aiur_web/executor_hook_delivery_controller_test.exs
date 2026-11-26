@@ -72,14 +72,20 @@ defmodule AiurWeb.ExecutorHookDeliveryControllerTest do
     assert {:ok, id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
     assert item(id).target_issue_identifier == "executor"
     assert item(id).body.text == "inspect this run"
-    refute item(id).persist_across_restart?
-    assert AgentQueueStore.get(PendingStore.load(), id) == nil
+    # A daemon restart (every pin swap) must not lose a message waiting for
+    # the Executor, nor forget its request id, so a host retry after the
+    # restart still matches the queued item.
+    restarted = PendingStore.load()
+    assert %{status: :pending, body: %{text: "inspect this run"}} = AgentQueueStore.get(restarted, id)
+    assert AgentQueueStore.find_by_message_id(restarted, "executor-adapter-request").id == id
     assert {:ok, ^id} = Send.send("inspect this run", "executor-adapter-request", writable: true)
     assert {:ok, %{receipt: :accepted}} = Listener.receipt(id)
     response = request(context)
     assert response.status == 200
     assert Jason.decode!(response.resp_body)["reason"] =~ "inspect this run"
     assert {:ok, %{receipt: :harness_queued}} = Listener.receipt(id)
+    # Once the Executor session has it, a restart does not send it again.
+    assert AgentQueueStore.get(PendingStore.load(), id) == nil
   end
 
   test "Stop returns block envelope, persists harness queueing and does not duplicate", context do
