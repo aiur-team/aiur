@@ -84,12 +84,8 @@ Write verbs return 405; sends continue through the listener path.
 
 ## The Executor thread for a host app
 
-A host app, such as a game maker that keeps the operator's conversation in its
-own UI, reads and posts to the operator↔Executor thread through
-`/api/v1/executor/thread`. Callers use a thread grant, a client token, or the
-dashboard session. A dashboard-session send also needs `X-Aiur-Request: 1`, and
-a client token needs the `executor` category to send. Responses set
-`Cache-Control: no-store`.
+Host apps use `/api/v1/executor/thread` with a thread grant, client token, or
+dashboard session.
 
 | Method | Path | Result |
 | --- | --- | --- |
@@ -98,15 +94,18 @@ a client token needs the `executor` category to send. Responses set
 | `POST` | `/api/v1/executor/thread/messages` | `{text, client_request_id}` returns 202 `{message}` |
 | `POST` | `/api/v1/executor/thread/grants` | Supervisor only. `{subject, ttl_s}` returns 201 `{token, expires_at}` |
 
+Dashboard-session sends also need `X-Aiur-Request: 1`; client tokens need the
+`executor` category. Responses use `Cache-Control: no-store`.
+
 A message is `{id, pos, request_id, role, text, attachments, created_at,
 delivery}`. `role` is `operator` or `executor`. `delivery` is `queued`,
 `delivered`, `outcome_unknown`, or null for Executor messages.
 
-`messages` comes from the Executor conversation, so a sent message appears
-there once the Executor session records it. Until then it is in `queued`, which
-lists every operator message still waiting for a session on each read,
-whatever `after` is. Both carry the send's `request_id`, so a host can match
-its own copy. Pass the last `next_after` to fetch only newer messages.
+`messages` comes from the Executor conversation. A sent message appears there
+once the Executor session records it. Until then, `queued` lists operator
+messages waiting for a session on every read, regardless of `after`. Both carry
+the send's `request_id` so a host can match its copy. Pass the last
+`next_after` to fetch newer messages.
 
 Queued messages survive a daemon restart, with their `client_request_id`, so
 a retry after the restart still matches. A message is removed from the saved
