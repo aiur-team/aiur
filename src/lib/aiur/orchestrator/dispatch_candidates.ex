@@ -9,33 +9,43 @@ defmodule Aiur.Orchestrator.DispatchCandidates do
 
   @spec order([Issue.t()], MapSet.t(), [Issue.t()]) :: [Issue.t()]
   def order(issues, terminal_states, polled \\ []) do
+    {ready, optimistic, held} = ordered_tiers(issues, terminal_states, polled)
+    ready ++ optimistic ++ held
+  end
+
+  defp ordered_tiers(issues, terminal_states, polled) do
     groups = issues |> DispatchPolicy.sort_issues_for_dispatch() |> Enum.group_by(&tier(&1, terminal_states))
     optimistic = optimistic_order(Map.get(groups, :optimistic, []), polled ++ issues, terminal_states)
 
     ordering = QueueSetSlots.ordering()
 
-    Enum.sort_by(
-      Map.get(groups, :ready, []),
-      fn issue ->
+    ready =
+      Enum.sort_by(Map.get(groups, :ready, []), fn issue ->
         {member, rank, position} = QueueSetSlots.sort_key(issue.id, ordering)
+        {DispatchPolicy.priority_rank(issue.priority), if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), member, rank, position, Hints.sort_key(issue.id), DispatchPolicy.work_kind_rank(issue)}
+      end)
 
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), member, DispatchPolicy.work_kind_rank(issue), rank, position, DispatchPolicy.priority_rank(issue.priority), Hints.sort_key(issue.id)}
-      end
-    ) ++
+    optimistic =
       Enum.sort_by(optimistic, fn issue ->
         {member, rank, _position} = QueueSetSlots.sort_key(issue.id, ordering)
         {member, rank}
-      end) ++ Map.get(groups, :held, [])
+      end)
+
+    {ready, optimistic, Map.get(groups, :held, [])}
   end
 
-  @doc "Returns `{chain, held}`; fresh cached dependency holds skip validation."
-  @spec partition([Issue.t()], MapSet.t(), [Issue.t()]) :: {[Issue.t()], [Issue.t()]}
+  @doc "Partitions candidates into the validation chain, cached holds, and reasons for deferring lower admission tiers."
+  @spec partition([Issue.t()], MapSet.t(), [Issue.t()]) :: {[Issue.t()], [Issue.t()], [{Issue.t(), atom()}]}
   def partition(issues, terminal_states, polled \\ []) do
     github? = Config.settings!().tracker.kind == "github"
+    {ready, optimistic, held} = ordered_tiers(issues, terminal_states, polled)
 
-    classified = order(issues, terminal_states, polled) |> Enum.map(&classify(&1, terminal_states, github?))
+    classified = Enum.map(ready ++ optimistic ++ held, &classify(&1, terminal_states, github?))
+    chain = pick(classified, :chain)
+    last = pick(classified, :last)
+    deferred = Enum.map(optimistic, &{&1, :optimistic_tier}) ++ Enum.map(last, &{&1, :dependency_recheck})
 
-    {pick(classified, :chain) ++ pick(classified, :last), pick(classified, :held)}
+    {chain ++ last, pick(classified, :held), deferred}
   end
 
   defp pick(classified, class), do: for({^class, issue} <- classified, do: issue)

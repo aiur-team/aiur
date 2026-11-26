@@ -19,11 +19,11 @@ defmodule Aiur.Orchestrator.MachineGrant do
     end
   end
 
-  @spec acquire(term(), String.t() | :none) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
-  def acquire(issue_id, feature \\ :none) do
+  @spec acquire(term(), String.t() | :none, boolean()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
+  def acquire(issue_id, feature \\ :none, ordered_locally? \\ false) do
     case Context.current_id() do
       nil -> :ok
-      id -> Capacity.acquire(id, issue_id, feature)
+      id -> Capacity.acquire(id, issue_id, feature, ordered_locally?)
     end
   end
 

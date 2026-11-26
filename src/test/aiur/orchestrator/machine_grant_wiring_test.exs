@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.MachineGrantWiringTest do
   use Aiur.TestSupport, async: false
 
   alias Aiur.Gateway.Capacity
+  alias Aiur.Issue
   alias Aiur.Orchestrator.{Dispatcher, Lifecycle, MachineGrant, State}
   alias Aiur.Project
   alias Aiur.Project.Context
@@ -56,6 +57,32 @@ defmodule Aiur.Orchestrator.MachineGrantWiringTest do
     assert Capacity.sync("o/b", []) == :ok
     assert Capacity.acquire("o/b", 2) == {:error, :yielded}
     send(b, :release)
+  end
+
+  test "a lower-priority feature cannot veto the chosen todo in the same project" do
+    start_supervised!({Capacity, ceiling: 1, projects: %{"o/a" => nil, "o/b" => nil}, priorities: %{"o/a" => 1, "o/b" => 2}})
+    assert Capacity.acquire("o/b", "busy") == :ok
+    Context.put(project("o/a"))
+
+    urgent = %Issue{id: "7", identifier: "7", title: "Urgent", state: "todo", priority: 1}
+    feature = %Issue{id: "8", identifier: "8", title: "Feature", state: "todo", labels: ["feature:example"]}
+    issues = [feature, urgent]
+    state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+    MachineGrant.report_demand(state, issues)
+    assert Capacity.sync("o/b", []) == :ok
+    assert Capacity.acquire("o/b", "next") == {:error, :yielded}
+
+    final =
+      Dispatcher.choose_issues(state, issues,
+        issue_fetcher: fn [id] -> {:ok, [Enum.find(issues, &(&1.id == id))]} end,
+        blocked_by_hydrator: &{:ok, &1},
+        todo_dispatch_tracker: Aiur.Memory.Tracker,
+        runner: fn _, _, _ -> :ok end
+      )
+
+    assert [%{pid: pid, ref: ref}] = Map.values(final.running)
+    assert Map.has_key?(final.running, urgent.id)
+    receive_barrier({:DOWN, ^ref, :process, ^pid, _reason})
   end
 
   test "feature/1 takes the first sorted valid feature label, else :none" do

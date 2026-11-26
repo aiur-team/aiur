@@ -37,8 +37,8 @@ App-authored fixer tickets carrying the main-watch marker are authorized by this
 config while `dispatch_fixer` remains enabled. Under PAT auth (or a shared daemon
 and agent identity), tickets instead get `needs-triage` and an Executor attention.
 
-Fixers take the next free slot first, within max-agents and the same CPU, memory,
-explicit state limits and pause gates as other workers. After five minutes awaiting
+At equal priority, ready fixers take the next free slot first. Max-agents and the same CPU, memory,
+state limits and pause gates apply. After five minutes awaiting
 first dispatch, `system.main.fixer.stalled` reports the observed hold reason or `unknown`.
 
 Recovery comments on the open ticket without closing it; a missing open PR raises

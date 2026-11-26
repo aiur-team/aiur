@@ -43,7 +43,7 @@ defmodule Aiur.GitHub.MainFixerDispatchTest do
   test "fixer beats downstream rank but cannot exceed a full fleet" do
     :ets.new(Hints.table_name(), [:named_table, :set])
     :ets.insert(Hints.table_name(), {"normal", {-100, 0}, false})
-    fixer = issue("fixer")
+    fixer = %{issue("fixer") | priority: 1}
     normal = %{issue("normal") | labels: [], priority: 1}
     assert DispatchPolicy.sort_issues_for_dispatch([normal, fixer]) == [fixer, normal]
     state = %State{max_concurrent_agents: 1, running: %{"normal" => %{issue: normal, control: %{status: :working}}}}
