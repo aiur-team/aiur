@@ -4,15 +4,16 @@ defmodule AiurPushRelay.Application do
 
   def start(_type, _args) do
     if Application.get_env(:aiur_push_relay, :start_server, true) do
-      with {:ok, pins} <- AiurPushRelay.Config.load() do
-        start_relay(pins)
+      with {:ok, pins} <- AiurPushRelay.Config.load(),
+           {:ok, limits} <- AiurPushRelay.Config.abuse_limits() do
+        start_relay(pins, limits)
       end
     else
       Supervisor.start_link([], strategy: :one_for_one, name: __MODULE__)
     end
   end
 
-  defp start_relay(pins) do
+  defp start_relay(pins, limits) do
     AiurPushRelay.LogFilter.install()
     store = AiurPushRelay.Store.SQLite
 
@@ -23,7 +24,11 @@ defmodule AiurPushRelay.Application do
         apns_children(pins) ++
         [
           {AiurPushRelay.Provider.Router, []},
-          {store, path: System.get_env("AIUR_RELAY_DATABASE") || "relay.sqlite3", name: store},
+          {store,
+           path: System.get_env("AIUR_RELAY_DATABASE") || "relay.sqlite3",
+           name: store,
+           send_limits: limits.send,
+           log_retention_days: limits.log_retention_days},
           {Task.Supervisor, name: AiurPushRelay.Deliveries},
           {AiurPushRelay.Send,
            name: AiurPushRelay.Send,
@@ -37,7 +42,8 @@ defmodule AiurPushRelay.Application do
                 store: {store, store},
                 pins: pins,
                 sender: AiurPushRelay.Send,
-                providers: AiurPushRelay.Provider.Router
+                providers: AiurPushRelay.Provider.Router,
+                limits: limits
               ]},
            port: port()}
         ]

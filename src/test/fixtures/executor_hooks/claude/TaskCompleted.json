@@ -6,6 +6,7 @@
   "source": "startup",
   "turn_id": null,
   "agent_id": null,
+  "task_id": "task-001",
   "agent_type": null,
   "agent_transcript_path": null,
   "last_assistant_message": null,

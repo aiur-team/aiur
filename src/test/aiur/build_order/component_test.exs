@@ -228,6 +228,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
           Aiur.BuildOrder.History.LabelBackfill,
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
+          Aiur.Executor.BackgroundAgents,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
           Aiur.Executor.TranscriptIngest,
           Aiur.Executor.HarnessState,

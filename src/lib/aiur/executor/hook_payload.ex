@@ -9,7 +9,7 @@ defmodule Aiur.Executor.HookPayload do
   Rejections emit `[:aiur, :executor, :hook]` telemetry with count 1 and reason.
   """
   alias Aiur.Executor.TranscriptPath
-  @fields ~w(cwd source reason turn_id agent_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a
+  @fields ~w(cwd source reason turn_id agent_id task_id agent_type last_assistant_message notification_type tool_name pid model permission_mode)a
 
   @spec normalize(term(), term(), keyword()) :: {:ok, map()} | {:error, :invalid_payload}
   def normalize(raw, harness, opts \\ [])
@@ -19,7 +19,8 @@ defmodule Aiur.Executor.HookPayload do
     fields = Map.new(@fields, &{&1, bounded(raw[Atom.to_string(&1)])})
     normalized = Map.merge(fields, %{harness: harness, session_id: id, event: event, observed_at: DateTime.utc_now(), stop_hook_active: boolean(raw["stop_hook_active"])})
     normalized = Map.put(normalized, :transcript_path, path(raw["transcript_path"], harness, id, opts))
-    {:ok, Map.put(normalized, :agent_transcript_path, path(raw["agent_transcript_path"], harness, id, Keyword.put(opts, :agent_id, fields.agent_id)))}
+    normalized = Map.put(normalized, :agent_transcript_path, path(raw["agent_transcript_path"], harness, id, Keyword.put(opts, :agent_id, fields.agent_id)))
+    {:ok, Map.put(normalized, :task_id, fields.task_id)}
   end
 
   def normalize(_raw, _harness, _opts), do: {:error, :invalid_payload}

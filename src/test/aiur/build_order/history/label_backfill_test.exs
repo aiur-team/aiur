@@ -399,10 +399,11 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     opts = [interactive_cli?: false, headless?: true, dashboard?: false, tailscale_funnel?: false]
     enabled = Aiur.Application.child_specs([recording?: true] ++ opts)
 
-    assert Enum.map(Enum.take(enabled, -8), &Supervisor.child_spec(&1, []).id) == [
+    assert Enum.map(Enum.take(enabled, -9), &Supervisor.child_spec(&1, []).id) == [
              LabelBackfill,
              Aiur.Executor.Session,
              Aiur.Executor.SessionIngest,
+             Aiur.Executor.BackgroundAgents,
              Aiur.Executor.TranscriptSupervisor,
              Aiur.Executor.TranscriptIngest,
              Aiur.Executor.HarnessState,

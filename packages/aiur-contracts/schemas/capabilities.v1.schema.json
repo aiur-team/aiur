@@ -288,6 +288,9 @@
             }
           ]
         },
+        "detail": {
+          "type": "string"
+        },
         "depends_on": {
           "type": "array",
           "items": {
