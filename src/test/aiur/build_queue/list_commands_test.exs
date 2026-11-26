@@ -1,6 +1,7 @@
 defmodule Aiur.BuildQueue.ListCommandsTest do
   use ExUnit.Case, async: false
-  alias Aiur.BuildQueue.{ListCommands, Server}
+  alias Aiur.BuildQueue.{ListCommands, Reconcile, Server}
+  alias Aiur.BuildQueue.Model.Intent
   alias Aiur.Config.Schema
   alias Aiur.Events.Exchange
 
@@ -221,11 +222,11 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   # aborted the whole add, so the new list was never saved.
   test "adding a ticket that already carries the queued marker works while a marker write is pending" do
     settings = %Schema{build_queue: %Schema.BuildQueue{enabled: true}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
-    pending = %Aiur.BuildQueue.Model.Intent{id: "pending", issue_id: "9", action: :mark, target_labels: ["agent:queued"], recorded_at_ms: 1_000, outcome: nil}
+    pending = %Intent{id: "pending", issue_id: "9", action: :mark, target_labels: ["agent:queued"], recorded_at_ms: 1_000, outcome: nil}
     update(:snapshot, {:ok, %{"3" => %{labels: ["agent:queued", "game:blobs"]}, "9" => %{labels: []}}, 900})
     state = %{document: %{@empty | intents: [pending]}, settings: settings, tracker: Boundary, clock: fn -> 1_000 end}
 
-    assert Aiur.BuildQueue.Reconcile.observations(state) == %{}
+    assert Reconcile.observations(state) == %{}
     assert {:ok, document, actions, _observations, []} = ListCommands.prepare(state, {:add, ["3"], [queue: "launch-blobs"]})
 
     assert Enum.map(document.items, & &1.issue_id) == ["3"]
