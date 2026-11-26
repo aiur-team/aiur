@@ -63,10 +63,16 @@ def repair_indexes(path):
 def archive_ledger(path, pending):
     # Finish a partial move before any broker opens the live path again.
     os.makedirs(pending, mode=0o700, exist_ok=True)
-    for suffix in ("-wal", "-shm", "-journal", ""):
-        source = path + suffix
-        if os.path.exists(source):
-            os.rename(source, os.path.join(pending, os.path.basename(source)))
+    # The guard and daemon share writable budget storage. Keep archive writes
+    # within the directory we opened even if its name is replaced concurrently.
+    destination = os.open(pending, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for suffix in ("-wal", "-shm", "-journal", ""):
+            source = path + suffix
+            if os.path.exists(source):
+                os.rename(source, os.path.basename(source), dst_dir_fd=destination)
+    finally:
+        os.close(destination)
     archive = tempfile.mkdtemp(prefix=os.path.basename(path) + ".corrupt-", dir=os.path.dirname(path))
     os.rename(pending, archive)
     return archive

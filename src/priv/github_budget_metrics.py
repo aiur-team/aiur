@@ -29,7 +29,7 @@ FALLBACK_RETRY_NS = 60_000_000_000
 @contextlib.contextmanager
 def ledger_lock(path, operation, wait_ms=0):
     deadline = time.monotonic() + wait_ms / 1000
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    fd = os.open(path, os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o600)
     try:
         while True:
             try:
