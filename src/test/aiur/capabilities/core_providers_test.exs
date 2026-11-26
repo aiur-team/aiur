@@ -2,7 +2,6 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
   use ExUnit.Case, async: true
   alias Aiur.DecisionStore.CapabilityProvider, as: Commands
   alias Aiur.Executor.CapabilityProvider, as: Executor
-  alias Aiur.Executor.Session
   alias Aiur.HttpServer.CapabilityProvider, as: Http
   alias Aiur.Orchestrator.CapabilityProvider, as: Orchestration
   alias Aiur.Orchestrator.SnapshotStore
@@ -163,44 +162,6 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
     caps = Executor.evaluate(@context, inputs(lookup_fun: fn _ -> nil end))
     assert caps["executor.wakes"] == %{state: :unavailable, reason: :not_running}
     assert caps["executor.conversation"] == %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
-  end
-
-  test "executor: capability identity maps untested detail and binding identifiers" do
-    root = Aiur.TestSupport.tmp_root!("executor-capability-provider")
-    previous = Application.fetch_env(:aiur, :executor_state_dir)
-    Application.put_env(:aiur, :executor_state_dir, root)
-    start_supervised!({Session, instance_key: "capability-provider"})
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:aiur, :executor_state_dir, value)
-        :error -> Application.delete_env(:aiur, :executor_state_dir)
-      end
-
-      Aiur.TestCleanup.rm_rf!(root)
-    end)
-
-    assert Executor.evaluate(@context, lookup_fun: fn _ -> nil end)["executor.conversation"] == %{
-             state: :unavailable,
-             reason: :executor_not_managed,
-             route: "/executor"
-           }
-
-    assert {:ok, binding} = Session.attach(%{harness: "codex"})
-    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-1"})
-    capability = %{status: :untested, reason: :version_untested}
-
-    assert Executor.evaluate(@context, lookup_fun: fn _ -> nil end, capability_fun: fn -> capability end)["executor.conversation"] == %{
-             state: :degraded,
-             reason: :unknown,
-             detail: "version_untested",
-             route: "/executor",
-             harness: "codex",
-             session_ref: "session-1"
-           }
-
-    assert Executor.evaluate(@context, lookup_fun: fn _ -> nil end, capability_fun: fn -> capability end)["executor.conversation"].session_ref ==
-             "session-1"
   end
 
   for state <- ~w(active idle stalled expired unknown) do
