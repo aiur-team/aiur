@@ -46,6 +46,8 @@ defmodule VoiceConverse.AgentForkTest do
       assert {:ok, ref} = AgentFork.fork(claude_handle(parent), "why did you drop the retry?", claude_executable: exe)
       assert_receive {:fork_answer, ^ref, "It hid the real error.", :native, usage}, 5_000
       assert is_integer(usage.first_token_ms)
+      assert usage.session_id == "child-session-1"
+      assert usage.cost_usd == 0.01
       assert usage.tokens == %{"input_tokens" => 10, "output_tokens" => 5}
 
       assert recorded(ctx.root, "argv") == [

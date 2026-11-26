@@ -72,7 +72,16 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
             send(self(), {:state_write_method, :delete})
             {:ok, %{status: 200}}
 
-          {:patch, 4} ->
+          {:get, 4} ->
+            send(self(), {:state_write_method, :get})
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:done"}]}
+             }}
+
+          {:patch, 5} ->
             send(self(), {:state_write_method, :patch})
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
@@ -85,13 +94,13 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
       assert :ok = IssueState.update_issue_state("42", "Done", request_fun: request_fun)
 
       assert for(
-               _ <- 1..5,
+               _ <- 1..6,
                do:
                  receive do
                    {:state_write_method, method} -> method
                  end
              ) ==
-               [:get, :post, :get, :delete, :patch]
+               [:get, :post, :get, :delete, :get, :patch]
     end
 
     test "closed-issue active-target branch preserves done while removing stale active labels" do
@@ -199,6 +208,53 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
       assert_received {:request, %{method: :get}}
       assert_received {:request, %{method: :delete}}
       refute_received {:request, %{method: :post}}
+    end
+
+    test "merged closing PR terminal write clears merge-owned labels from a closed ticket" do
+      test_pid = self()
+      labels = :ets.new(:closed_issue_labels, [:set, :public])
+      :ets.insert(labels, {:names, ["sym:merge-queued", "sym:body-fix", "sym:human-review"]})
+
+      request_fun = fn req ->
+        send(test_pid, {:request, req})
+
+        case req.method do
+          :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "closed",
+                 "labels" => :ets.lookup_element(labels, :names, 2) |> Enum.map(&%{"name" => &1})
+               }
+             }}
+
+          :post ->
+            :ets.update_element(labels, :names, {2, ["sym:done", "sym:merge-queued", "sym:body-fix", "sym:human-review"]})
+            {:ok, %{status: 200}}
+
+          :delete ->
+            name = req.url |> URI.parse() |> Map.fetch!(:path) |> String.split("/") |> List.last() |> URI.decode()
+            :ets.update_element(labels, :names, {2, List.delete(:ets.lookup_element(labels, :names, 2), name)})
+            {:ok, %{status: 200, body: []}}
+
+          :patch ->
+            {:ok, %{status: 200}}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok =
+               IssueState.update_issue_state("42", "done",
+                 request_fun: request_fun,
+                 clear_terminal_state_labels: ["sym:merge-queued", "sym:body-fix"]
+               )
+
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :post, body: %{"labels" => ["sym:done"]}}}
+      assert :ets.lookup_element(labels, :names, 2) == ["sym:done"]
     end
 
     test "add_active_issue_label re-checks issue closed state before adding (stale-label race)" do

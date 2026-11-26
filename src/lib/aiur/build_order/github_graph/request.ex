@@ -1,7 +1,6 @@
 defmodule Aiur.BuildOrder.GitHubGraph.Request do
+  alias Aiur.GitHub.Access
   @moduledoc false
-
-  alias Aiur.GitHub.{Errors, GraphQLCost, Transport}
 
   @spec page(map(), String.t(), String.t(), map()) ::
           {:ok, map(), map()} | {:error, term(), map()}
@@ -14,7 +13,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   def page(state, token, query, variables) do
     state = %{state | calls: state.calls + 1}
 
-    case Transport.github_graphql_response(state.request_fun, token, query, variables, caller: caller(query)) do
+    case Access.github_graphql_response(state.request_fun, token, query, variables, caller: caller(query)) do
       {:ok, body, response} -> {:ok, body, observe(state, body, response)}
       {:error, reason, response} -> {:error, reason, observe_failure(state, response)}
     end
@@ -25,7 +24,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   # only while someone is looking at it. Ranked together they would be one row
   # and the cadence question could not be answered from the ranking (#2084).
   defp caller(query) do
-    case GraphQLCost.operation_name(query) do
+    case Access.graphql_operation_name(query) do
       "AiurBuildOrderHistoryBackfill" -> :build_order_history_backfill
       "AiurBuildOrderHistoryBackfillBlockedBy" -> :build_order_history_backfill
       "AiurBuildOrderCatalog" -> :build_order_catalog
@@ -44,7 +43,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
 
   defp observe_failure(state, %{body: body} = response), do: %{state | rate_limit: Map.merge(observed_rate_limit(state, response), query_cost(body, state.rate_limit))}
   defp observe_failure(state, response), do: %{state | rate_limit: observed_rate_limit(state, response)}
-  defp observed_rate_limit(state, response), do: Map.merge(state.rate_limit, Errors.rate_limit_observation(response))
+  defp observed_rate_limit(state, response), do: Map.merge(state.rate_limit, Access.rate_limit_observation(response))
 
   # The response headers report the balance left in the GraphQL points budget
   # but never what the call just spent, so a query's cost was unobservable

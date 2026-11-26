@@ -9,7 +9,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @doc "Shares a cold load; failures are propagated to every waiter and never cached."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
+    name = Keyword.get(opts, :name, Aiur.Project.via(__MODULE__))
     result = if is_nil(name), do: GenServer.start_link(__MODULE__, opts), else: GenServer.start_link(__MODULE__, opts, name: name)
 
     case result do
@@ -27,7 +27,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   def fetch(table, key, loader, opts \\ []) do
     ensure_started()
 
-    case GenServer.call(__MODULE__, {:fetch, table, key, loader, opts}, :infinity) do
+    case GenServer.call(Aiur.Project.whereis(__MODULE__), {:fetch, table, key, loader, opts}, :infinity) do
       {:value, value} -> value
       {:raised, kind, reason, stack} -> :erlang.raise(kind, reason, stack)
     end
@@ -37,14 +37,14 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @spec lookup(atom(), term()) :: term() | nil
   def lookup(table, key) do
     ensure_started()
-    GenServer.call(__MODULE__, {:lookup, table, key})
+    GenServer.call(Aiur.Project.whereis(__MODULE__), {:lookup, table, key})
   end
 
   @doc false
   @spec put(atom(), term(), term(), keyword()) :: :ok
   def put(table, key, value, opts \\ []) do
     ensure_started()
-    GenServer.call(__MODULE__, {:put, table, key, value, opts})
+    GenServer.call(Aiur.Project.whereis(__MODULE__), {:put, table, key, value, opts})
   end
 
   @doc "Identity of retained summary files, excluding the current boot."
@@ -57,7 +57,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @spec invalidate_identity() :: :ok
   def invalidate_identity do
     ensure_started()
-    GenServer.call(__MODULE__, :invalidate_identity, :infinity)
+    GenServer.call(Aiur.Project.whereis(__MODULE__), :invalidate_identity, :infinity)
     :ok
   end
 
@@ -65,7 +65,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   @spec invalidate_identity(pid()) :: :ok
   def invalidate_identity(notify) when is_pid(notify) do
     ensure_started()
-    GenServer.call(__MODULE__, {:invalidate_identity, notify}, :infinity)
+    GenServer.call(Aiur.Project.whereis(__MODULE__), {:invalidate_identity, notify}, :infinity)
     :ok
   end
 
@@ -100,7 +100,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   defp cached_identity(current_boot) do
     key = {Summaries.state_node(), current_boot}
     ensure_started()
-    GenServer.call(__MODULE__, {:identity, key, current_boot}, :infinity)
+    GenServer.call(Aiur.Project.whereis(__MODULE__), {:identity, key, current_boot}, :infinity)
   end
 
   @doc false
@@ -131,7 +131,7 @@ defmodule Aiur.RunTelemetry.RetainedCache do
   end
 
   defp ensure_started do
-    case GenServer.start(__MODULE__, nil, name: __MODULE__) do
+    case GenServer.start(__MODULE__, nil, name: Aiur.Project.via(__MODULE__)) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
     end

@@ -55,7 +55,8 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdog do
     if tracked_observation?(observation) do
       track_candidate(observation, now, opts)
     else
-      case ensure_head_first_seen(number, head, now, opts) do
+      # A healthy queue state breaks the UNMERGEABLE run; keep only the head's first sighting.
+      case ensure_head_first_seen(number, head, now, opts, true) do
         {:ok, _first_seen} -> :ok
         {:error, _} = error -> error
       end
@@ -111,7 +112,7 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdog do
     queue_state = get_in(observation, [:merge_queue_entry, "state"])
 
     with {:ok, first_seen} <-
-           ensure_head_first_seen(observation.number, observation.head, now, opts) do
+           ensure_head_first_seen(observation.number, observation.head, now, opts, false) do
       failed_since = failed_group_trigger_since(observation, first_seen, opts)
       candidate_since = candidate_since(queue_state, failed_since, now)
 
@@ -125,7 +126,7 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdog do
     end
   end
 
-  defp ensure_head_first_seen(number, head, now, opts) do
+  defp ensure_head_first_seen(number, head, now, opts, reset_since?) do
     key = "#{number}:#{head}"
 
     Journal.update(opts, fn state ->
@@ -156,6 +157,7 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdog do
         end
 
       row = Map.put(existing, "first_seen_ms", first_seen)
+      row = if reset_since?, do: Map.put(row, "since", nil), else: row
 
       {:ok, Map.put(state, "unmergeable_queue_entries", Map.put(rows, key, row)), first_seen}
     end)

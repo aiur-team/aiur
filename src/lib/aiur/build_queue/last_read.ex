@@ -7,20 +7,21 @@ defmodule Aiur.BuildQueue.LastRead do
   `store_unavailable` view the sweep's own read contradicts.
   """
 
+  alias Aiur.Project.Table
+
   @table :aiur_build_queue_last_read
 
   @doc "Records `model` for the calling server process; the server owns the table."
   @spec put(map()) :: true
   def put(model) do
-    if :ets.whereis(@table) == :undefined, do: :ets.new(@table, [:named_table, :set, :protected, read_concurrency: true])
-    :ets.insert(@table, {self(), model})
+    :ets.insert(Table.new(@table, [:set, :protected, read_concurrency: true]), {self(), model})
   end
 
   @doc "Returns the last model `server` served, aged to `now` (ms), or `:none`."
   @spec carry(GenServer.server(), integer()) :: {:ok, map()} | :none
   def carry(server, now) do
     with pid when is_pid(pid) <- GenServer.whereis(server),
-         [{^pid, model}] <- :ets.lookup(@table, pid) do
+         [{^pid, model}] <- :ets.lookup(Table.ref(@table), pid) do
       {:ok, stale(model, now)}
     else
       _ -> :none

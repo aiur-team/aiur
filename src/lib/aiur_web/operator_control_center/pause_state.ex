@@ -81,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.PauseState do
 
   defp pause_state, do: pause_state(orchestrator())
 
-  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator
+  defp orchestrator, do: EndpointConfig.get(:orchestrator) || Orchestrator.server()
 
   defp loading_pause_state(orchestrator, startup_elapsed_ms) do
     case GlobalPause.global_pause_status(orchestrator, 1_000) do

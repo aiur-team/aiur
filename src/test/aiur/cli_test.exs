@@ -126,6 +126,11 @@ defmodule Aiur.CLITest do
     assert {:error, _} = CLI.evaluate(["accounts", "--purge"], deps())
   end
 
+  test "routes client token arguments to the token command" do
+    assert {:client_token, ["create", "deck", "--scope", "read"]} = CLI.evaluate(["token", "create", "deck", "--scope", "read"], deps())
+    assert {:client_token, ["list"]} = CLI.evaluate(["token", "list"], deps())
+  end
+
   test "uses an explicit workflow path override when provided" do
     parent = self()
     workflow_path = "tmp/custom config/operator.config"

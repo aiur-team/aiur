@@ -34,6 +34,20 @@ defmodule Aiur.LandingWatch.JournalTest do
     assert Map.has_key?(state, "flakes")
   end
 
+  test "merge-group head holds are pruned when their PR advances to a new head" do
+    path = Path.join(System.tmp_dir!(), "landing-head-holds-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    opts = [journal_path: path]
+
+    assert :ok = Journal.hold_merge_group_head(17, "old-head", opts)
+    assert :ok = Journal.hold_merge_group_head(18, "held-head", opts)
+    assert :ok = Journal.retain_current_heads([%{number: 17, head: "new-head"}, %{number: 18, head: "held-head"}], opts)
+
+    assert {:ok, false} = Journal.merge_group_head_held?(17, "old-head", opts)
+    assert {:ok, true} = Journal.merge_group_head_held?(18, "held-head", opts)
+    assert {:ok, %{"merge_group_head_holds" => %{"18:held-head" => true}}} = Journal.state(opts)
+  end
+
   test "metric evidence is retained separately and a touched row removes only its quarantine candidate" do
     path = Path.join(System.tmp_dir!(), "landing-metric-evidence-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)

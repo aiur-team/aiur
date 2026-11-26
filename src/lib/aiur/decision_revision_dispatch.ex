@@ -9,8 +9,9 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
-  alias Aiur.Commands.DeliveryTarget
-  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
+  alias Aiur.Commands
+  alias Aiur.Commands.{DeliveryTarget, NativeAnswer, Overrides}
+  alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, DecisionStore, Issue, Tracker}
 
   @max_message_chars 7_800
 
@@ -37,12 +38,23 @@ defmodule Aiur.DecisionRevisionDispatch do
           {:ok, map()} | {:no_longer_applicable, term()} | {:error, term()}
   def dispatch(%Decision{} = decision, opts \\ []) when is_list(opts) do
     with %DecisionRevision{} = revision <- List.last(decision.revisions),
-         {:ok, %Issue{} = target} <- revalidate_target(decision, opts) do
+         ticket <- Overrides.target_ticket(decision),
+         :ok <- recheck_override(decision, opts),
+         {:ok, %Issue{} = target} <- revalidate_target(%{decision | ticket: ticket}, opts) do
       send_revision(decision, revision, target, opts)
     else
       nil -> {:error, :revision_missing}
       {:no_longer_applicable, _reason} = outcome -> outcome
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp recheck_override(%{overrides: []}, _opts), do: :ok
+
+  defp recheck_override(decision, opts) do
+    case DecisionStore.recheck_override_delivery(decision.decision_id, decision.active_action_id, Keyword.get(opts, :store, Commands.default_store())) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:override_delivery_deferred, reason}}
     end
   end
 
@@ -83,7 +95,7 @@ defmodule Aiur.DecisionRevisionDispatch do
     answer = revision.answer
 
     header = """
-    Durable Decision revision for ticket #{decision.ticket.identifier}
+    Durable Decision revision for ticket #{Overrides.target_ticket(decision).identifier}
     Decision: #{decision.decision_id}
     Request version: #{revision.decision_version}
     Revision sequence: #{revision.sequence}
@@ -101,7 +113,7 @@ defmodule Aiur.DecisionRevisionDispatch do
     When the revised work is complete, emit `decision.resolved` with the same correlation fields.
     """
 
-    bounded_join(header, response_text(decision, answer), footer)
+    bounded_join(header, NativeAnswer.render(decision, answer) || response_text(decision, answer), footer)
   end
 
   defp send_revision(decision, revision, target, opts) do
@@ -121,13 +133,18 @@ defmodule Aiur.DecisionRevisionDispatch do
       answer_content_hash: revision.answer.content_hash
     }
 
+    correlation =
+      if target.identifier != decision.ticket.identifier,
+        do: Map.put(correlation, :target_issue_identifier, target.identifier),
+        else: correlation
+
     payload = %{
       kind: :text,
       body: render(decision),
       delivery_policy: :interrupt,
       fallback: :queue_next,
       action_id: revision.action_id,
-      correlation: correlation,
+      correlation: NativeAnswer.correlate(decision, revision.answer, correlation),
       retry_failed: retry_failed
     }
 

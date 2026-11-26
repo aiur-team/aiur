@@ -5,7 +5,9 @@ defmodule AiurWeb.Api.UsageControllerTest do
 
   alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.GroupedScopes, as: GS
+  alias Aiur.Usage.CLI
   alias AiurWeb.Router
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
   setup do
     Aiur.TestSupport.start_owned_endpoint!()
@@ -32,9 +34,47 @@ defmodule AiurWeb.Api.UsageControllerTest do
     assert response.status == 200
     assert get_resp_header(response, "cache-control") == ["no-store"]
     body = Jason.decode!(response.resp_body)
+    assert body["contract"] == "aiur.ticket_usage"
+    assert body["contract_version"] == 1
     assert body["schema_version"] == 1
     assert body["ticket"]["identifier"] == "5692"
     assert body["totals"]["tokens"] == %{"input" => 100}
+  end
+
+  test "provider routes use the same versioned envelope as the CLI" do
+    netlify = %{
+      provider: :netlify,
+      state: :unavailable,
+      reason: :no_valid_audit_anchor,
+      observed_at: DateTime.utc_now(),
+      age_ms: 0,
+      freshness: :unavailable,
+      fields: %{credits: %{estimated_remaining: nil}}
+    }
+
+    opts = [meter_views: %{}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{}, ticket_usage: %{}, netlify_usage: netlify]
+    previous = Application.get_env(:aiur, :usage_read_opts)
+    Application.put_env(:aiur, :usage_read_opts, opts)
+
+    on_exit(fn ->
+      if is_nil(previous), do: Application.delete_env(:aiur, :usage_read_opts), else: Application.put_env(:aiur, :usage_read_opts, previous)
+    end)
+
+    response = request(:get, "/api/v1/usage/codex")
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body) == elem(CLI.payload("codex", opts), 1)
+
+    summary = request(:get, "/api/v1/usage")
+    assert summary.status == 200
+    assert Jason.decode!(summary.resp_body) == Aiur.Usage.json_snapshot(opts)
+    netlify_response = request(:get, "/api/v1/usage/netlify")
+    assert netlify_response.status == 200
+    assert Jason.decode!(netlify_response.resp_body) == elem(CLI.payload("netlify", opts), 1)
+  end
+
+  test "provider API rejects unknown providers and protects both route forms" do
+    assert request(:get, "/api/v1/usage/nope").status == 404
+    assert request(:get, "/api/v1/usage", nil).status == 401
   end
 
   test "an unknown ticket answers the documented not-found shape" do
@@ -101,7 +141,7 @@ defmodule AiurWeb.Api.UsageControllerTest do
 
   test "unconfigured auth fails closed with the same boundary as state" do
     for path <- ["/api/v1/5692/usage", "/api/v1/state"] do
-      response = conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
+      response = session_conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
       # The test endpoint enforces auth, so an unconfigured credential challenges.
       assert response.status == 401
       assert response.halted
@@ -109,8 +149,16 @@ defmodule AiurWeb.Api.UsageControllerTest do
   end
 
   defp request(method, path, authorization \\ Plug.BasicAuth.encode_basic_auth("operator", "secret")) do
-    connection = conn(method, path) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+    connection = session_conn(method, path) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
     connection = if authorization, do: put_req_header(connection, "authorization", authorization), else: connection
     Router.call(connection, Router.init([]))
+  end
+
+  defp session_conn(method, path) do
+    method
+    |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 end

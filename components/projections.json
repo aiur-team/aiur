@@ -11,6 +11,8 @@
     "src/lib/aiur/current_run_projections/**",
     "src/lib/aiur/current_run_summary.ex",
     "src/lib/aiur/current_run_summary/**",
+    "src/lib/aiur/instance_summary.ex",
+    "src/lib/aiur/instance_summary/**",
     "src/lib/aiur/progress_retention.ex",
     "src/lib/aiur/progress_retention/**",
     "src/lib/aiur/progress_tracker.ex",
@@ -22,6 +24,8 @@
     "Aiur.CurrentRunOutcomeSnapshot",
     "Aiur.CurrentRunProjections",
     "Aiur.CurrentRunSummary",
+    "Aiur.InstanceSummary",
+    "Aiur.InstanceSummary.Fact",
     "Aiur.ProgressRetention",
     "Aiur.ProgressTracker",
     "Aiur.Projections.UnitsPolicy",
@@ -33,6 +37,7 @@
   "requires": [
     "agent-runner",
     "event-bus",
+    "identity",
     "kernel",
     "orchestration",
     "signal",
@@ -62,5 +67,6 @@
   "docs": [],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

@@ -1,4 +1,5 @@
 defmodule Aiur.AgentGitHubGuard.GitGuardTest do
+  # Cohesion: these tests exercise the installed git wrapper across push, ref, and workspace policies.
   use Aiur.AgentGitHubGuardCase, async: true
 
   test "git push rejects a credential-bearing GitHub remote", context do
@@ -42,6 +43,42 @@ defmodule Aiur.AgentGitHubGuard.GitGuardTest do
     assert {output, 64} = run_git_guard(context, ["-C", repo, "push", "--dry-run", "origin", "HEAD"])
     assert output =~ "credential-free https://github.com remote"
     refute output =~ "embedded-token"
+  end
+
+  test "git push to a local .git remote does not consult GitHub", context do
+    repo = context.workspace
+    remote = Path.join(Path.dirname(repo), "local-remote.git")
+    gh_wrapper = Path.join(Path.dirname(context.git_wrapper), "gh")
+    gh_called = Path.join(Path.dirname(context.calls), "unexpected-gh-call")
+
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", "-b", "main", repo], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", "--bare", remote], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "config", "user.name", "Test"], stderr_to_stdout: true)
+    File.write!(Path.join(repo, "tracked.txt"), "tracked\n")
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "add", "tracked.txt"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "commit", "--quiet", "-m", "initial"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "remote", "add", "origin", remote], stderr_to_stdout: true)
+
+    File.write!(
+      gh_wrapper,
+      "#!/bin/sh\nprintf '%s\\n' \"$*\" > #{gh_called}\nexit 99\n"
+    )
+
+    File.chmod!(gh_wrapper, 0o755)
+
+    assert {output, 0} =
+             System.cmd(context.git_wrapper, ["-C", repo, "push", "origin", "HEAD:refs/heads/main"],
+               env: [
+                 {"AIUR_REAL_GIT", real_git()},
+                 {"AIUR_AGENT_WORKSPACE", repo},
+                 {"GITHUB_TOKEN", "agent-token"}
+               ],
+               stderr_to_stdout: true
+             )
+
+    assert output =~ "HEAD -> main"
+    refute File.exists?(gh_called)
   end
 
   test "git wrapper refuses destructive commands without explicit repository context", context do

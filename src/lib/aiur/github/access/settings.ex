@@ -13,20 +13,41 @@ defmodule Aiur.GitHub.Access.Settings do
     :app_account,
     :bot_account,
     :config_error,
+    :freshness,
+    :poll_owner,
+    :recovery_target,
+    :pubsub,
     api_base_url: "https://api.github.com",
     graphql_url: "https://api.github.com/graphql",
     credentials: [],
     budget: %{},
     budget_enabled?: true,
+    hosted_auth_required?: false,
+    pat_opted_in?: false,
     cache: %{},
     broker_timeout: %{budget_broker_rate_window_seconds: 300, budget_broker_degraded_retry_threshold: 5, budget_broker_degraded_alert_after_seconds: 600},
-    alert_sink: &Aiur.Signal.alert/2
+    alert_sink: &Aiur.Signal.alert/2,
+    request_taggers: [],
+    hold_observer: &Function.identity/1,
+    write_scope: &__MODULE__.unscoped/2
   ]
 
+  # Ports are plain values: `freshness` implements `Aiur.GitHub.Access.Freshness` (nil answers polling);
+  # `request_taggers` are `request -> request` functions applied in order before credential selection;
+  # `hold_observer` sees each local hold; `write_scope` wraps each request as `(request, fun) -> result`;
+  # `poll_owner` and `recovery_target` are registered names; `pubsub` is a Phoenix.PubSub server (nil = silent).
   @type t :: %__MODULE__{}
   @type path_field :: :state_root | :budget_dir | :quota_dir | :request_log_dir | :resource_store_path | :probe_dir
 
   @request_key {__MODULE__, :request_snapshot}
+
+  @doc "Default `write_scope`: run the request unscoped."
+  @spec unscoped(map(), (-> result)) :: result when result: term()
+  def unscoped(_request, fun), do: fun.()
+
+  @doc "Forward an alert through the configured embedding application's sink."
+  @spec alert(String.t(), keyword()) :: term()
+  def alert(name, opts), do: current().alert_sink.(name, opts)
 
   @doc "Run a function with one settings snapshot shared by nested accessors."
   @spec with_request((-> result)) :: result when result: term()

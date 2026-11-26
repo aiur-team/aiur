@@ -1,6 +1,6 @@
 defmodule Aiur.RunTelemetry.WindowEventSources do
   @moduledoc false
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
   alias Aiur.RunTelemetry.WindowEventSources.CiRuns
 
   @pulls """
@@ -49,8 +49,8 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
 
   @spec fetch(String.t(), map(), map(), keyword()) :: {map(), [String.t()]}
   def fetch(repo, sources, range, opts) do
-    with [owner, name] <- String.split(repo, "/"), {:ok, token} <- Transport.require_token(opts) do
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with [owner, name] <- String.split(repo, "/"), {:ok, token} <- Access.require_token(opts) do
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       variables = %{"owner" => owner, "name" => name}
       dates = range.start <> ".." <> range.end
       incidents = "repo:#{repo} is:issue created:<=#{range.end} label:" <> Enum.map_join(sources["incident_labels"] || [], ",", &Jason.encode!/1)
@@ -84,8 +84,8 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
   @doc false
   @spec workflow_runs(String.t(), String.t(), map(), keyword()) :: {:ok, [map()]} | {:partial, [map()]} | {:error, term()}
   def workflow_runs(repo, branch, range, opts \\ []) do
-    with {:ok, token} <- Transport.require_token(opts) do
-      runs(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, repo, branch, range)
+    with {:ok, token} <- Access.require_token(opts) do
+      runs(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, repo, branch, range)
     end
   end
 
@@ -145,7 +145,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
   end
 
   defp pages(request, token, query, variables, path, rows \\ [], seen \\ []) do
-    with {:ok, body, _response} <- Transport.github_graphql_response(request, token, query, variables, caller: "experiment_window_events"),
+    with {:ok, body, _response} <- Access.github_graphql_response(request, token, query, variables, caller: "experiment_window_events"),
          %{"nodes" => nodes, "pageInfo" => info} when is_list(nodes) <- get_in(body, ["data" | path]) do
       rows = rows ++ nodes
       count = get_in(body, ["data" | path])["issueCount"] || 0
@@ -167,7 +167,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
 
   defp runs(request, token, repo, branch, range, page \\ 1, rows \\ []) do
     params = %{created: range.start <> ".." <> range.end, per_page: 100, page: page} |> maybe_branch(branch) |> URI.encode_query()
-    req = %{method: :get, url: Transport.base_url() <> "/repos/#{repo}/actions/runs?" <> params, token: token, caller: "experiment_window_events"}
+    req = %{method: :get, url: Access.base_url() <> "/repos/#{repo}/actions/runs?" <> params, token: token, caller: "experiment_window_events"}
 
     case request.(req) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs, "total_count" => total}}} when is_list(runs) ->
@@ -227,7 +227,7 @@ defmodule Aiur.RunTelemetry.WindowEventSources do
 
   defp run_jobs(request, token, repo, run_id, page, rows, total) when page <= 10 do
     query = URI.encode_query(%{per_page: 100, page: page})
-    req = %{method: :get, url: Transport.base_url() <> "/repos/#{repo}/actions/runs/#{run_id}/jobs?" <> query, token: token, caller: "experiment_window_events"}
+    req = %{method: :get, url: Access.base_url() <> "/repos/#{repo}/actions/runs/#{run_id}/jobs?" <> query, token: token, caller: "experiment_window_events"}
 
     case request.(req) do
       {:ok, %{status: 200, body: %{"jobs" => jobs} = body}} when is_list(jobs) ->

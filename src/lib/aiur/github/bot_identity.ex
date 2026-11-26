@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.BotIdentity do
   """
 
   alias Aiur.GitHub
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @viewer_login_query """
   query AiurViewerLogin {
@@ -52,7 +52,7 @@ defmodule Aiur.GitHub.BotIdentity do
 
   @spec fetch_authenticated_viewer_login(function(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def fetch_authenticated_viewer_login(request_fun, token) do
-    case Transport.github_graphql(request_fun, token, @viewer_login_query, %{}, caller: :bot_identity) do
+    case Access.github_graphql(request_fun, token, @viewer_login_query, %{}, caller: :bot_identity) do
       {:ok, %{"data" => %{"viewer" => %{"login" => login}}}} ->
         case normalize_optional_binary(login) do
           nil -> {:error, :github_viewer_login_missing}

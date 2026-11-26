@@ -1,13 +1,8 @@
 defmodule AiurWeb.HostAllowlistTest do
-  use Aiur.TestSupport, async: true
+  use ExUnit.Case, async: true
 
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.HostAllowlist
-
-  setup do
-    Aiur.TestSupport.start_owned_endpoint!()
-    :ok
-  end
 
   test "rejects a foreign Host before downstream endpoint plugs" do
     EndpointStubs.put(allowed_hosts: ["dashboard.example"], allow_tailnet_hosts: false)

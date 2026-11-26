@@ -35,6 +35,14 @@ defmodule AiurWeb.Build.NowAgentPayloadTest do
     assert {"sections.now.0.agent.pause", :enum} in errors
   end
 
+  test "agent capacity reason is an optional bounded string" do
+    for reason <- [nil, "codex/default (preferred; 62% left, 40s old)", String.duplicate("a", 400)],
+        do: assert(Payload.validate(with_agent("reason", reason)) == :ok)
+
+    assert {:error, errors} = Payload.validate(with_agent("reason", String.duplicate("a", 401)))
+    assert {"sections.now.0.agent.reason", :length} in errors
+  end
+
   test "regenerated fixtures carry agent names" do
     for dataset <- ~w(live dense newrepo noqueue offline) do
       {:ok, data} = FixtureSource.full(dataset: dataset)

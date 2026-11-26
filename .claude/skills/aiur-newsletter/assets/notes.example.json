@@ -1,0 +1,6 @@
+{
+  "notes": ["Review capacity remains the main constraint."],
+  "blockers": [{"label": "Package publication", "action": "Enable trusted publishing"}],
+  "shipped": [{"icon": "rocket", "label": "Conversations deployed"}],
+  "bottlenecks": [{"problem": "Review queue", "action": "Reduced concurrent work", "result": "Impact not measured", "tone": "attn"}]
+}

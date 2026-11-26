@@ -10,6 +10,21 @@ defmodule Aiur.Orchestrator.DispatchPolicy.CandidatesTest do
   alias Aiur.Orchestrator.{DispatchPolicy, State}
 
   describe "sort_issues_for_dispatch/1" do
+    test "features precede higher-priority non-features while main-fix stays first" do
+      content = File.read!(Workflow.workflow_file_path())
+      write_workflow_file_atomic!(Workflow.workflow_file_path(), content <> "\nmerge_policy:\n  main_watch:\n    on_red: dispatch_fixer\n")
+      :ok = Aiur.WorkflowStore.force_reload()
+
+      non_feature = issue("fix", priority: 1, labels: ["bug"])
+      feature = issue("feature", priority: 2, labels: ["feature:dispatch"])
+      fixer = issue("main-fix", priority: 4, labels: ["main-fix"])
+      issues = [non_feature, feature, fixer]
+      state = %State{max_concurrent_agents: 3}
+      assert Enum.all?(issues, &DispatchPolicy.should_dispatch_issue?(&1, state))
+
+      assert DispatchPolicy.sort_issues_for_dispatch(issues) == [fixer, feature, non_feature]
+    end
+
     # Compatibility guard: deliberately passes against the pre-hints implementation.
     test "sort is unchanged with no hints table or an empty table" do
       assert :ets.whereis(Hints.table_name()) == :undefined
@@ -40,12 +55,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy.CandidatesTest do
       assert DispatchPolicy.sort_issues_for_dispatch(issues) == expected
     end
 
-    test "a queue item with downstream 3 precedes a priority:1 non-queue item" do
+    test "future regression guard: priority precedes downstream rank without queue hints" do
       :ets.new(Hints.table_name(), [:named_table, :set])
-      :ets.insert(Hints.table_name(), {"7", {-3, 0}, false})
-      issues = [issue("1", priority: 1), issue("7", priority: 4)]
+      issues = [issue("priority-4", priority: 4), issue("unprioritized", priority: nil), issue("priority-1", priority: 1)]
 
-      assert Enum.map(DispatchPolicy.sort_issues_for_dispatch(issues), & &1.id) == ["7", "1"]
+      assert Enum.map(DispatchPolicy.sort_issues_for_dispatch(issues), & &1.id) == ["priority-1", "priority-4", "unprioritized"]
     end
 
     test "list position orders equal-priority queue items before age but after priority" do

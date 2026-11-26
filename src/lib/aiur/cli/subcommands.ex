@@ -33,6 +33,21 @@ defmodule Aiur.CLI.Subcommands do
     end
   end
 
+  @spec evaluate_redispatch(keyword(), [String.t()]) :: {:redispatch, [String.t()], String.t() | nil} | {:error, String.t()}
+  def evaluate_redispatch(opts, positional) do
+    backend = Keyword.get(opts, :backend)
+
+    with true <- Enum.all?(Keyword.keys(opts), &(&1 == :backend)),
+         true <- length(Keyword.get_values(opts, :backend)) <= 1,
+         true <- is_nil(backend) or (is_binary(backend) and String.trim(backend) != ""),
+         true <- positional != [],
+         {:ok, ids} <- parse_todo_ids(positional) do
+      {:redispatch, ids, backend}
+    else
+      _ -> {:error, Aiur.CLI.usage_message()}
+    end
+  end
+
   @spec todo_switch?(keyword()) :: boolean()
   def todo_switch?(opts), do: Keyword.has_key?(opts, :todo) or Keyword.has_key?(opts, :only)
 

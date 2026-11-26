@@ -89,6 +89,7 @@ defmodule VoiceConverse.AgentFork.ClaudeCode do
 
   defp handle_message(%{"type" => "result"} = result, acc) do
     usage = %{
+      session_id: result["session_id"],
       tokens: result["usage"],
       cost_usd: result["total_cost_usd"],
       first_token_ms: acc.first_token_ms,

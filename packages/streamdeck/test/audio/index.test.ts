@@ -32,6 +32,7 @@ describe("the extraction boundary", () => {
         "dbfsToFill",
         "decodePcm16",
         "listMicrophones",
+        "listSpeakers",
         "measure",
         "peak",
         "rms",

@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { seedTheme, settle, routeFonts } from './support/visual'
+import { seedTheme, settle } from './support/visual'
 
 test.use({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false })
 
 test('visual selftest detects 2px install-box padding drift', async ({ page }, testInfo) => {
-  await routeFonts(page)
   await seedTheme(page, 'light')
   await page.goto('/')
   await settle(page)

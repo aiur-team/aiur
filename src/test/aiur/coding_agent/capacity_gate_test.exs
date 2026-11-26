@@ -1,0 +1,296 @@
+defmodule Aiur.CodingAgent.CapacityGateTest do
+  @moduledoc """
+  The capacity policy applied at dispatch (#7889, plan
+  `2026-11-08-7881-provider-capacity-policy.md` §1 and §5): headroom selection,
+  the `priority` chain, pins and the fleet provider gate.
+  """
+
+  use Aiur.TestSupport
+
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.{CapacityGate, CapacityReasonText}
+  alias Aiur.Config.{CapacityPolicy, Overrides}
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{DispatchPolicy, TelemetryCohort}
+
+  @now ~U[2026-10-10 06:00:00Z]
+  @future "2999-01-01T00:00:00Z"
+  @backends ["codex", "claude", "openrouter"]
+
+  # Codex is usage-limited in the ledger.
+  @codex_limited %{"backends" => %{"codex" => %{"limited" => true, "reset_at" => @future}}}
+
+  # The operator's stated policy: keep 30% of Claude for Executors, OpenRouter last.
+  # OpenRouter's recorded spend has reached a $5 daily limit.
+  @spent %{"openrouter" => %{daily_usd: 5.0}}
+  @policy %{
+    sources: %{
+      "claude" => %{billing: "subscription", reserve: %{percent: 30, accounts: ["default"]}},
+      "codex" => %{billing: "subscription"},
+      "openrouter" => %{billing: "prepaid", last_resort: true}
+    }
+  }
+
+  setup do
+    UsageReadings.reset()
+    on_exit(&UsageReadings.reset/0)
+    :ok
+  end
+
+  # Claude/default's polled meter: `used` percent of its seven-day window.
+  defp claude_meter(used) do
+    fn
+      "claude", names ->
+        for "default" = name <- names, into: %{} do
+          {name, %{reading: %{windows: [%{window: "seven_day", used_percent: used}]}, observed_at: @now, freshness: :fresh}}
+        end
+
+      _harness, _names ->
+        %{}
+    end
+  end
+
+  defp opts(overrides) do
+    ledger_path = Path.join(Aiur.TestSupport.tmp_root!("capacity-gate-ledger"), "model-usage.json")
+    File.mkdir_p!(Path.dirname(ledger_path))
+    File.write!(ledger_path, Jason.encode!(%{"backends" => %{}}))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(ledger_path)) end)
+
+    Keyword.merge(
+      [
+        account_selection: "headroom",
+        routing_candidates: %{},
+        priority_backends: @backends,
+        backends: @backends,
+        configured_backends: @backends,
+        accounts: %{"claude" => ["default"]},
+        account_list_fun: fn
+          "claude" -> [%{name: "default"}]
+          _harness -> []
+        end,
+        account_capability_fun: fn
+          "claude" -> {:ok, %{supported: true, multi: :available}}
+          _harness -> {:error, :unsupported_account_backend}
+        end,
+        api_key_fetcher: fn _env -> "test-key" end,
+        provider_view_fun: fn _provider -> nil end,
+        usage_floor_percent_fun: fn _backend -> 5 end,
+        # Claude/default has 25% left: below its 30% reserve.
+        usage_snapshot: claude_meter(75),
+        state: @codex_limited,
+        path: ledger_path,
+        probe_fun: fn _backend, _options -> :ok end,
+        avoid_peak_pricing: false,
+        capacity_policy: @policy,
+        now: @now
+      ],
+      overrides
+    )
+  end
+
+  defp ticket(labels \\ ["complexity:3"]), do: %Issue{id: "id-1", identifier: "T-1", labels: labels}
+
+  defp verdict(issue, name), do: Enum.find(issue.dispatch_selection.candidates, &(&1.name == name))
+
+  describe "headroom selection" do
+    test "claude below its reserve and codex limited: dispatch goes to the last-resort source" do
+      assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), opts([]))
+
+      assert %{policy: "capacity/v1", chosen: %{route: "openrouter", reason: :last_resort_used}} = issue.dispatch_selection
+      assert %{verdict: :hold, reason: :reserve, detail: "reading 25% left, reserve 30%"} = verdict(issue, "claude/default")
+      assert %{reason: :limited, status: :exhausted} = verdict(issue, "codex")
+      assert issue.dispatch_selection.summary =~ "claude/default hold: reserve"
+      # The `dispatch` telemetry point carries the same reason.
+      assert TelemetryCohort.dispatch_reason(issue) == :last_resort_used
+    end
+
+    test "the last-resort source is deferred while another source is allowed" do
+      assert {:ok, %Issue{selected_backend: "claude", selected_account: "default"} = issue} =
+               CodingAgent.select_for_dispatch(ticket(), opts(usage_snapshot: claude_meter(10)))
+
+      assert %{reason: :only_allowed} = issue.dispatch_selection.chosen
+      assert %{verdict: :defer, reason: :last_resort} = verdict(issue, "openrouter")
+    end
+
+    test "every source held: the claim waits instead of dispatching" do
+      policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
+
+      assert {:all_limited, routes} = CodingAgent.select_for_dispatch(ticket(), opts(capacity_policy: policy, capacity_spend: @spent))
+      assert "openrouter" in routes
+    end
+
+    test "a pin obeys the reserve" do
+      assert {:all_limited, ["claude"]} = CodingAgent.select_for_dispatch(ticket(["model:claude"]), opts(state: %{"backends" => %{}}))
+
+      assert {:ok, %Issue{selected_account: "default"} = issue} =
+               CodingAgent.select_for_dispatch(ticket(["model:claude"]), opts(state: %{"backends" => %{}}, usage_snapshot: claude_meter(10)))
+
+      assert %{reason: :pinned} = issue.dispatch_selection.chosen
+    end
+  end
+
+  describe "priority chain" do
+    test "claude below its reserve and codex limited: the chain takes the last-resort source" do
+      assert {:ok, %Issue{selected_backend: "openrouter"}} = CodingAgent.select_for_dispatch(ticket([]), opts(account_selection: "priority"))
+    end
+  end
+
+  describe "provider gate" do
+    test "holds fleet admission when the policy allows no source, naming the cause" do
+      policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
+      opts = opts(capacity_policy: policy, capacity_spend: @spent)
+
+      assert DispatchPolicy.provider_gate(@backends, opts) == :hold
+      assert DispatchPolicy.Gates.provider_hold_threshold(@backends, opts) == :no_authorized_source
+      assert DispatchPolicy.provider_gate(@backends, opts(usage_snapshot: claude_meter(10), capacity_policy: policy, capacity_spend: @spent)) == :dispatch
+    end
+
+    test "dispatches when the last-resort source is the only one allowed" do
+      assert DispatchPolicy.provider_gate(@backends, opts([])) == :dispatch
+    end
+  end
+
+  describe "configured policy" do
+    setup do
+      home = Aiur.TestSupport.tmp_root!("capacity-gate-config")
+      File.mkdir_p!(home)
+      machine = Path.join(home, "machine")
+      previous_machine = Application.get_env(:aiur, :machine_settings_path)
+      previous_instance = System.get_env("AIUR_INSTANCE_KEY")
+      Application.put_env(:aiur, :machine_settings_path, machine)
+      System.put_env("AIUR_INSTANCE_KEY", "capacity-gate-#{System.unique_integer([:positive])}")
+      {:ok, override_path} = Overrides.path()
+
+      on_exit(fn ->
+        if previous_machine, do: Application.put_env(:aiur, :machine_settings_path, previous_machine), else: Application.delete_env(:aiur, :machine_settings_path)
+        if previous_instance, do: System.put_env("AIUR_INSTANCE_KEY", previous_instance), else: System.delete_env("AIUR_INSTANCE_KEY")
+        :persistent_term.erase({Aiur.Machine.Settings, machine})
+        :persistent_term.erase({CapacityGate, :last_error})
+        Aiur.TestCleanup.rm_rf!(home)
+        Aiur.TestCleanup.rm_rf!(Path.dirname(override_path))
+      end)
+
+      %{machine: machine}
+    end
+
+    defp machine_reserve!(path, percent) do
+      File.write!(path, """
+      capacity:
+        sources:
+          claude: { billing: subscription, reserve: { percent: #{percent}, accounts: [default] } }
+          openrouter: { billing: prepaid, last_resort: true }
+      """)
+    end
+
+    defp configured_opts, do: Keyword.delete(opts([]), :capacity_policy)
+
+    test "the machine reserve holds claude without a :capacity_policy option", %{machine: machine} do
+      machine_reserve!(machine, 30)
+
+      assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), configured_opts())
+      assert %{chosen: %{reason: :last_resort_used}} = issue.dispatch_selection
+      assert %{verdict: :hold, reason: :reserve} = verdict(issue, "claude/default")
+    end
+
+    test "a machine reserve raised above the project value still holds", %{machine: machine} do
+      machine_reserve!(machine, 5)
+      workflow = Aiur.Workflow.workflow_file_path()
+      write_workflow_file!(workflow)
+      write_workflow_file_atomic!(workflow, File.read!(workflow) <> "capacity:\n  sources:\n    claude: { reserve: { percent: 5 } }\n")
+      :ok = Aiur.WorkflowStore.force_reload(5_000)
+      # The operator tightens the machine file after the project value was accepted.
+      # A different file size defeats the settings cache within one mtime second.
+      machine_reserve!(machine, 45)
+      assert {:error, _loosens} = CapacityPolicy.effective()
+
+      assert {:ok, %Issue{selected_backend: "openrouter"} = issue} = CodingAgent.select_for_dispatch(ticket(), configured_opts())
+      assert %{verdict: :hold, reason: :reserve, detail: "reading 25% left, reserve 45%"} = verdict(issue, "claude/default")
+    end
+  end
+
+  describe "operator text (#7892)" do
+    test "the dispatch record renders the chosen reason and every passed-over source" do
+      {:ok, issue} = CodingAgent.select_for_dispatch(ticket(), opts([]))
+      text = CapacityReasonText.chosen(issue.dispatch_selection)
+
+      assert text =~ ~r/^openrouter \(last resort; /
+      assert text =~ "claude/default Executor reserve (reading 25% left, reserve 30%)"
+      assert text =~ "codex limited (exhausted at dispatch, age unknown)"
+    end
+
+    test "the fleet hold record lists one clause per held source" do
+      policy = put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5})
+      text = @backends |> CapacityGate.record(opts(capacity_policy: policy, capacity_spend: @spent)) |> CapacityReasonText.waiting()
+
+      assert text =~ "waiting: no authorized source: "
+      clauses = text |> String.replace_prefix("waiting: no authorized source: ", "") |> String.split("; ")
+      assert Enum.map(clauses, &(&1 |> String.split(" ") |> hd())) == ["codex", "claude/default", "openrouter"]
+    end
+  end
+
+  describe "operator surfaces (#7892)" do
+    alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+    alias Aiur.Orchestrator.StatusCLI.{AgentsTable, StatusTable}
+
+    defp probes(gate_opts) do
+      fn ->
+        %{
+          memory_mb: 4_096,
+          memory_threshold_mb: 1_024,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.0,
+          load_threshold: 10.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: @backends,
+          provider_gate_opts: gate_opts,
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+    end
+
+    test "a no-authorized-source hold reaches queued rows, and a dispatch choice reaches running rows" do
+      held = opts(capacity_policy: put_in(@policy, [:sources, "openrouter", :limits], %{daily_usd: 5}), capacity_spend: @spent)
+      queued = %Issue{id: "id-2", identifier: "T-2", state: "todo", title: "Queued"}
+
+      state =
+        Dispatcher.maybe_choose_under_load(%State{max_concurrent_agents: 2, effective_concurrent_agents: 2}, [queued], fn state, _issues -> state end, admission_probes_fun: probes(held))
+
+      assert %{signal: :provider, threshold: :no_authorized_source, capacity: %{policy: "capacity/v1"}} = state.capacity_hold
+
+      # A later cycle refreshes the held hold's record: claude's reading drops from 25% to 20% left.
+      state = Dispatcher.maybe_choose_under_load(state, [queued], fn state, _issues -> state end, admission_probes_fun: probes(Keyword.put(held, :usage_snapshot, claude_meter(80))))
+
+      {:ok, running} = CodingAgent.select_for_dispatch(%{ticket() | state: "in-progress", title: "Running"}, opts([]))
+      entry = %{identifier: running.identifier, issue: running, started_at: DateTime.utc_now(), session_id: "s-1", control: %{status: :working}}
+      state = %{state | running: %{running.id => entry}, last_polled_issues: %{queued.id => queued}}
+
+      snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+      agents = ExUnit.CaptureIO.capture_io(fn -> AgentsTable.print_agents_table(snapshot.running ++ AgentsTable.visible_idle_rows(snapshot.idle, true)) end)
+      status = ExUnit.CaptureIO.capture_io(fn -> StatusTable.print_status_table(StatusReport.agent_statuses(state)) end)
+
+      chosen = "openrouter (last resort; "
+
+      waiting =
+        "[waiting: no authorized source: codex limited (usage-limited); claude/default Executor reserve (reading 20% left, reserve 30%); " <>
+          "openrouter daily spend limit reached (limit daily reached)]"
+
+      for text <- [agents, status] do
+        assert [running_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-1"))
+        assert running_line =~ chosen
+        assert [queued_line] = text |> String.split("\n") |> Enum.filter(&(&1 =~ "T-2"))
+        assert String.ends_with?(queued_line, waiting)
+      end
+    end
+  end
+
+  test "allowed_routes keeps two routes that share a backend" do
+    routes = ["claude:sonnet", "claude:opus", "codex"]
+    assert CapacityGate.allowed_routes(routes, opts(usage_snapshot: claude_meter(10), backends: routes)) == ["claude:sonnet", "claude:opus"]
+  end
+end

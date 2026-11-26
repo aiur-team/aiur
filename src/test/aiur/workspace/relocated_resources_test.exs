@@ -58,7 +58,7 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
     assert output =~ "workspace change"
     assert File.read!(resource_path) == "before"
 
-    for module <- [Templates, Aiur.AgentSkills, AiurWeb.StreamdeckKeyFaceContract],
+    for module <- [Templates, Aiur.AgentSkills, AiurWeb.Streamdeck.Render.Marks],
         [path] <- Keyword.get_values(module.__info__(:attributes), :external_resource) do
       assert Path.type(path) == :relative
       assert File.regular?(path)

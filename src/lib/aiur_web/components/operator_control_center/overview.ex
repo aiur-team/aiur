@@ -13,21 +13,17 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
   def decisions_banner(assigns) do
-    # `awaiting`, not `open`: a Command already deferred to the Executor is
-    # still open — the unit stays blocked — but it is no longer on the
-    # operator's queue, and the inbox no longer lists it. Counting it here would
-    # put a number on the banner that the page underneath contradicts.
     assigns =
       assigns
-      |> assign(:blocking, Map.get(assigns.retained_counts, :awaiting_blocking))
-      |> assign(:open, Map.get(assigns.retained_counts, :awaiting))
+      |> assign(:blocking, Map.get(assigns.retained_counts, :needs_you_blocking))
+      |> assign(:open, Map.get(assigns.retained_counts, :needs_you))
       |> assign(:health, get_in(assigns.retained_counts, [:health, :status]))
 
     ~H"""
     <.link
       :if={is_integer(@open) and @open > 0}
-      patch={!@navigate && DecisionPath.inbox(:all)}
-      navigate={@navigate && DecisionPath.inbox(:all)}
+      patch={!@navigate && DecisionPath.inbox(:needs_you)}
+      navigate={@navigate && DecisionPath.inbox(:needs_you)}
       id="decisions-banner"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} Commands awaiting you, #{@blocking} blocking"}
@@ -115,6 +111,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   defp error_detail(_code, _message),
     do: "No fleet data. The reported fault is shown below."
 
-  defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
-  defp banner_title(_blocking, open), do: "#{open} units awaiting commands"
+  defp banner_title(_blocking, 1), do: "1 Command needs you"
+  defp banner_title(_blocking, open), do: "#{open} Commands need you"
 end

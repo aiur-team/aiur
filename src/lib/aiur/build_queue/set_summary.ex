@@ -82,7 +82,26 @@ defmodule Aiur.BuildQueue.SetSummary do
 
   defp waiting_reason(queue, next_set) do
     Enum.find_value(queue.items, &admission_reason/1) ||
-      dispatch_wait(queue.counts.ready, next_set)
+      waiting_cause(queue) ||
+      if queue.counts.ready == nil, do: "readiness unknown", else: dispatch_wait(queue.counts.ready, next_set)
+  end
+
+  defp waiting_cause(queue) do
+    cond do
+      Enum.any?(queue.items, &(&1.reason == :parked_marker)) ->
+        "parked"
+
+      Enum.any?(queue.items, fn item ->
+        item.verdict in [:unknown, :waiting] and
+            Enum.any?(item.prerequisites, fn prerequisite ->
+              prerequisite[:source] == :github and prerequisite[:verdict] == :unknown
+            end)
+      end) ->
+        "GitHub dependencies unknown"
+
+      true ->
+        nil
+    end
   end
 
   defp dispatch_wait(0, _next_set), do: "no ready tickets"

@@ -70,7 +70,7 @@ defmodule Aiur.Init.Prewarm.Failure do
       "\nThis looks like a GitHub authentication failure cloning ",
       Format.dim(repo),
       ".\nTo fix it yourself:\n",
-      "  • Make sure GITHUB_TOKEN is set in .env and still valid:\n",
+      "  • Make sure GITHUB_TOKEN is set in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) and still valid:\n",
       "      ",
       Format.dim(~s(curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user)),
       "\n",
@@ -128,7 +128,8 @@ defmodule Aiur.Init.Prewarm.Failure do
     #{failure_output(reason)}
 
     Likely causes and what to do:
-    - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in .env whose
+    - GitHub auth: cloning a private repo needs a valid GITHUB_TOKEN in ~/.aiur/.env
+      (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) whose
       account has read access (classic token `repo` scope, or fine-grained
       Contents: Read). If the token is missing or expired, tell the Executor
       exactly what to set — do not invent a secret.

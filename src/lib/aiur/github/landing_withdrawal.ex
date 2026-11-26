@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.LandingWithdrawal do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   Takes a pull request out of the merge queue and turns its auto-merge off.
 
@@ -6,8 +8,6 @@ defmodule Aiur.GitHub.LandingWithdrawal do
   rejected PR keeps its slot and its group keeps failing (#4676). An Executor
   approval later lands the PR through the normal merge path.
   """
-
-  alias Aiur.GitHub.Transport
 
   @type action :: :dequeued | :auto_merge_disabled
 
@@ -17,10 +17,10 @@ defmodule Aiur.GitHub.LandingWithdrawal do
     query =
       "query AiurStaleApprovedHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state headRefOid reviewDecision autoMergeRequest { enabledAt } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo(),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo(),
          {:ok, body} <-
-           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+           Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
              caller: "stale_approved_head"
            ) do
       approved_auto_merge_heads(get_in(body, ["data", "repository", "pullRequest"]))
@@ -61,11 +61,11 @@ defmodule Aiur.GitHub.LandingWithdrawal do
   end
 
   defp withdraw(pr_number, opts, mode) do
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       caller = Keyword.get(opts, :caller, "landing_withdrawal")
-      graphql = fn query, variables -> Transport.github_graphql(request_fun, token, query, variables, caller: caller) end
+      graphql = fn query, variables -> Access.github_graphql(request_fun, token, query, variables, caller: caller) end
       withdraw_read(graphql, fn -> read(graphql, owner, name, pr_number) end, mode)
     else
       {:error, reason} -> {:error, reason, []}

@@ -57,12 +57,22 @@ defmodule Aiur.Config.SchemaValuesTest do
       assert tightened.polling.interval_seconds == 15
     end
 
-    test "instance role defaults to primary and accepts secondary only" do
+    test "instance mode, deployment kind and role default and accept documented values only" do
       assert {:ok, default} = Schema.parse(%{})
+      assert default.instance.mode == "local"
+      assert default.instance.deployment_kind == "operator"
       assert default.instance.role == "primary"
 
-      assert {:ok, secondary} = Schema.parse(%{"instance" => %{"role" => "secondary"}})
+      assert {:ok, secondary} = Schema.parse(%{"instance" => %{"mode" => "hosted", "deployment_kind" => "consumer", "role" => "secondary"}})
+      assert secondary.instance.mode == "hosted"
+      assert secondary.instance.deployment_kind == "consumer"
       assert secondary.instance.role == "secondary"
+
+      assert {:error, {:invalid_workflow_config, mode_message}} = Schema.parse(%{"instance" => %{"mode" => "remote"}})
+      assert mode_message =~ "instance.mode"
+
+      assert {:error, {:invalid_workflow_config, kind_message}} = Schema.parse(%{"instance" => %{"deployment_kind" => "shared"}})
+      assert kind_message =~ "instance.deployment_kind"
 
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"instance" => %{"role" => "other"}})
       assert message =~ "instance.role"

@@ -55,6 +55,8 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
     assert %{"snapshot_freshness" => %{"status" => "current", "freshness_window_ms" => 600_000}, "observations" => nil, "daemon_started_at" => nil} = state_payload
 
     assert state_payload |> without_occ_sections() |> Map.drop(~w(snapshot_freshness observations daemon_started_at)) == %{
+             "contract" => "aiur.status",
+             "contract_version" => 1,
              "generated_at" => state_payload["generated_at"],
              "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
@@ -69,6 +71,7 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
                  "workspace_path" => nil,
                  "session_id" => "thread-http",
                  "adopted_from" => nil,
+                 "capacity_reason" => nil,
                  "repl_attach_command" => nil,
                  "turn_count" => 7,
                  "runtime_seconds" => 0,
@@ -139,6 +142,8 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
     issue_payload = json_response(conn, 200)
 
     assert issue_payload == %{
+             "contract" => "aiur.ticket",
+             "contract_version" => 1,
              "issue_identifier" => "MT-HTTP",
              "issue_id" => "issue-http",
              "status" => "running",

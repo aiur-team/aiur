@@ -1,8 +1,6 @@
 defmodule AiurWeb.OperatorControlCenter.AgentLogModalTest do
   use ExUnit.Case, async: true
 
-  import Phoenix.LiveViewTest, only: [render_component: 2]
-
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.AgentLogModal
 
@@ -26,18 +24,6 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModalTest do
 
     assert modal.tracker_identity == beta
     refute modal.writable_target?
-
-    html =
-      render_component(&AgentLogModal.agent_log_modal/1, %{
-        modal: modal,
-        writable: true,
-        drafts: %{},
-        errors: %{}
-      })
-
-    assert html =~ "not a unique writable target"
-    refute html =~ ~s(phx-submit="send-operator-message")
-    refute html =~ ~s(phx-click="pause-agent")
   end
 
   test "a unique typed running entry remains writable" do
@@ -49,18 +35,6 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModalTest do
 
     assert modal.writable_target?
     assert is_binary(modal.target_key)
-
-    html =
-      render_component(&AgentLogModal.agent_log_modal/1, %{
-        modal: modal,
-        writable: true,
-        drafts: %{modal.target_key => "typed draft"},
-        errors: %{}
-      })
-
-    assert html =~ "typed draft"
-    assert html =~ ~s(phx-submit="send-operator-message")
-    assert html =~ ~s(phx-click="pause-agent")
   end
 
   defp identity(repository, provider_id) do

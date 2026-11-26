@@ -5,7 +5,7 @@ defmodule Aiur.BuildOrder.PackStatusCase do
   import ExUnit.Callbacks
 
   alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
-  alias AiurWeb.BuildOrder.{PackOverlay, PlanningSource, RouteState}
+  alias AiurWeb.BuildOrder.{PackOverlay, PlanningSource}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
@@ -40,7 +40,7 @@ defmodule Aiur.BuildOrder.PackStatusCase do
       alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
       alias Aiur.GitHub.Config
       alias Aiur.RepoBase
-      alias AiurWeb.BuildOrder.{PackOverlay, PlanningSource, RouteState}
+      alias AiurWeb.BuildOrder.{PackOverlay, PlanningSource}
       alias AiurWeb.BuildOrderPresenter
       alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 

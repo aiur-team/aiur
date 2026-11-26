@@ -24,6 +24,13 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     assert Floki.attribute(Floki.find(doc, "#ax-drag"), "data-nav-collapsed") == ["false"]
   end
 
+  test "sidebar slot renders below the nav only when a page supplies it" do
+    assert shell() |> Floki.find(".aiur-shell__meters, .aiur-shell__rail") == []
+    assert shell() |> Floki.find("aside > nav.sidenav-nav") != []
+    doc = shell(sidebar: [%{__slot__: :sidebar, inner_block: fn _, _ -> "meters" end}])
+    assert doc |> Floki.find("aside .aiur-shell__rail.has-meters > nav.sidenav-nav + .aiur-shell__meters") |> Floki.text() == "meters"
+  end
+
   test "unknown pause is disabled without claiming a boolean state" do
     doc = shell(globally_paused: nil, writable: true)
     item = Floki.find(doc, "#ax-pause")
@@ -84,12 +91,6 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     assert Floki.attribute(Floki.find(link, "svg"), "viewbox") == ["0 0 24 24"]
     assert Floki.attribute(Floki.find(link, "svg path"), "d") == ["M9 3h6M10 3v6l-6 10a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3L14 9V3M7 15h10"]
     refute Floki.attribute(Floki.find(shell(action: :analytics, routes: routes), "a[href='/experiments']"), "aria-current") == ["page"]
-  end
-
-  test "back link stays in the top bar when page heads are hidden" do
-    doc = shell(back_path: "/build-orders", back_label: "Back to all Build Orders")
-    assert Floki.attribute(Floki.find(doc, "#ax-title a.ax-back"), "href") == ["/build-orders"]
-    assert Floki.attribute(Floki.find(doc, "#ax-title a.ax-back"), "aria-label") == ["Back to all Build Orders"]
   end
 
   test "future regression guard: invalid stored collapse leaves server state unchanged" do

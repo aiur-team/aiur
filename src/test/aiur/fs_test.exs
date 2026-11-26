@@ -88,4 +88,23 @@ defmodule Aiur.FsTest do
       stderr_to_stdout: true
     )
   end
+
+  describe "append_raw/2" do
+    # One append per agent event: calling mkdir_p first cost ~16 queued file-server
+    # calls per event and stalled the orchestrator on a loaded host (#8051).
+    test "appends to an existing file without touching the directory", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "agent.ndjson")
+      assert :ok = Fs.append_raw(path, "one\n")
+      assert :ok = Fs.append_raw(path, "two\n")
+      assert File.read!(path) == "one\ntwo\n"
+    end
+
+    test "creates a missing directory, so a recreated workspace still logs", %{tmp_dir: tmp_dir} do
+      path = Path.join([tmp_dir, "ws", "logs", "agent.ndjson"])
+      assert :ok = Fs.append_raw(path, "first\n")
+      File.rm_rf!(Path.join(tmp_dir, "ws"))
+      assert :ok = Fs.append_raw(path, "again\n")
+      assert File.read!(path) == "again\n"
+    end
+  end
 end

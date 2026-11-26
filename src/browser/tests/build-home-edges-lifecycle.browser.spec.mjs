@@ -37,7 +37,6 @@ for (const dataset of ['live', 'dense']) test(`windowed edge count follows visib
 
 test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({ page }, info) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
-  // Static edge pixels must not inherit a live snap's queued scroll animation.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.clock.install({ time: 1791408000000 })
   await page.clock.pauseAt(1791408000000)
@@ -48,15 +47,14 @@ test('B4/B12 odd edges draw cycles, failed and unknown without errors', async ({
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'gruvbox')
   await page.evaluate(() => document.fonts.ready)
   await page.clock.runFor(1000)
-  // Exercise the real scroll handler before pinning: an existing guard's unlock
-  // remains pending. Without reduced motion its queued frames recycle edge 19.
+  // Exercise the real scroll handler before pinning (#7446: it no longer snaps the live band).
   await page.evaluate(() => {
     const { ctx } = st, vp = ctx.vp, top = ctx.secs.hist.el.offsetTop + ctx.L.secs.hist.h - 46
     vp.scrollTop = top; vp.dispatchEvent(new Event('scroll'))
     vp.scrollTop -= 90; vp.dispatchEvent(new Event('scroll'))
   })
-  expect(await page.evaluate(() => st.ctx.snapping)).toBe(true)
-  // Edge-only captures isolate deliberate scroll positions from live snapping.
+  expect(await page.evaluate(() => st.ctx.snapping)).toBe(false)
+  // Edge-only captures defer live passes so deliberate scroll positions stay put.
   await page.evaluate(() => { st.ctx.snapping = true })
   const edges = await page.evaluate(() => {
     const { ctx, fx } = st, result = {}

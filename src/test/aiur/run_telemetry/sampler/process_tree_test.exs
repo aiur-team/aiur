@@ -182,29 +182,28 @@ defmodule Aiur.RunTelemetry.Sampler.ProcessTreeTest do
     warnings = for pid <- Map.keys(table), field <- [:io, :fd], do: %{pid: pid, field: field, reason: :eacces}
     warnings = warnings ++ [%{pid: 1, field: :rss, reason: :unavailable}]
 
-    {:ok, sampler} =
-      Sampler.start_link(
-        name: nil,
-        interval_ms: 60_000,
-        start_immediately?: false,
-        recorder: fn batch -> send(test_pid, {:recorded, batch}) end,
-        sample_opts: [
-          process_table_fun: fn -> {:ok, table, [%{pid: 99, field: :stat, reason: :eacces}]} end,
-          measure_fun: fn _table, _pids ->
-            measured = Map.new(metrics(0), fn {pid, process} -> {pid, %{process | rss_bytes: nil, fd_count: nil, read_bytes: nil, write_bytes: nil}} end)
-            {:ok, measured, warnings}
-          end,
-          entries_fun: &reaper_entries/0,
-          daemon_pid: 1,
-          operator_pid: 30,
-          clock_ticks_per_second: 100,
-          fd_headroom_fun: fn -> :unavailable end,
-          fleet_snapshot_fun: fn -> :unavailable end,
-          build_status_fun: fn -> :unavailable end
-        ]
+    sampler =
+      start_supervised!(
+        {Sampler,
+         name: nil,
+         interval_ms: 60_000,
+         start_immediately?: false,
+         recorder: fn batch -> send(test_pid, {:recorded, batch}) end,
+         sample_opts: [
+           process_table_fun: fn -> {:ok, table, [%{pid: 99, field: :stat, reason: :eacces}]} end,
+           measure_fun: fn _table, _pids ->
+             measured = Map.new(metrics(0), fn {pid, process} -> {pid, %{process | rss_bytes: nil, fd_count: nil, read_bytes: nil, write_bytes: nil}} end)
+             {:ok, measured, warnings}
+           end,
+           entries_fun: &reaper_entries/0,
+           daemon_pid: 1,
+           operator_pid: 30,
+           clock_ticks_per_second: 100,
+           fd_headroom_fun: fn -> :unavailable end,
+           fleet_snapshot_fun: fn -> :unavailable end,
+           build_status_fun: fn -> :unavailable end
+         ]}
       )
-
-    on_exit(fn -> if Process.alive?(sampler), do: GenServer.stop(sampler) end)
 
     for _sample <- 1..3 do
       send(sampler, :tick)

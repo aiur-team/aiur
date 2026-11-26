@@ -106,7 +106,10 @@ defmodule Aiur.Orchestrator.BlockerPropagation do
     %{state | tracker_tasks: Map.new(state.tracker_tasks, fn {ref, task} -> {ref, if(task.key == {:propagate, issue.id}, do: Map.put(task, :blocker, job.push.blocker), else: task)} end)}
   end
 
-  defp idle?(state, %Issue{} = issue), do: not Map.has_key?(state.running, issue.id) and issue.state not in ["done", "closed", "cancelled", "canceled", "rework", "error"]
+  defp idle?(state, %Issue{} = issue),
+    do:
+      not Map.has_key?(state.running, issue.id) and
+        issue.state not in ["done", "closed", "cancelled", "canceled", "budget-exhausted", "rework", "error"]
 
   defp run(job) do
     opts = [

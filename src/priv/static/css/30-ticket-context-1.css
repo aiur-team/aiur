@@ -22,8 +22,7 @@
   box-shadow: var(--shadow-lg);
 }
 
-.modal-header,
-.modal-actions {
+.modal-header{
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -33,10 +32,6 @@
 .modal-header h2 {
   margin: 0.15rem 0 0;
   font-size: 1.15rem;
-}
-
-.modal-actions {
-  justify-content: flex-end;
 }
 
 .modal-meta {
@@ -283,7 +278,6 @@
 .ticket-context-metadata {
   margin-top: 0.75rem;
 }
-
 
 .md-table-wrap { max-width: 100%; overflow-x: auto; }
 .md-table-wrap table { width: 100%; border-collapse: collapse; }

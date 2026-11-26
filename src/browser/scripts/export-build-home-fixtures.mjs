@@ -22,10 +22,11 @@ const designFiles = dir => {
 };
 // build.js:1031–1036: API usage is literal render data, unlike PSETS.
 export const API_ROWS = [
-  { tag: 'core', pct: 5, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000']] },
-  { tag: 'gql', pct: 0, reset: '20m', win: '1h', head: 'GitHub GraphQL · resets in 20m', rows: [['Points left', '4,998 of 5,000']] },
-  { tag: 'credits', pct: 0, reset: '22d', win: '30d', head: 'Search · renews in 22d', rows: [['Credits left', '90.0K']] },
+  { tag: 'core', pct: 95, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000 left · 95% left']] },
+  { tag: 'gql', pct: 100, reset: '20m', win: '1h', head: 'GitHub GraphQL · resets in 20m', rows: [['Points left', '4,998 of 5,000 left · 100% left']] },
+  { tag: 'credits', pct: 100, reset: '22d', win: '30d', head: 'Search · renews in 22d', rows: [['Credits left', '90.0K left · 100% left']] },
 ];
+const LIVE_LANE_PROGRESS = { bugs: [20, 65], design: [0, 0], infra: [15, 59], docs: [10, 37] };
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
 const INJECTIONS = { convoFor: '(k, id) => { D = dataFor(k); return convo(D.byId[id]); }' };
@@ -112,11 +113,17 @@ export function buildAll({ designDir = join(DEFAULT_OUT, 'design-source') } = {}
   files['feature-stats.json'] = encode(oracle);
   const hostile = JSON.parse(files['live.json']);
   hostile.sections.now[0].title = `<img src=x onerror="window.__xss=1">'"&`;
-  Object.values(hostile.epics)[0].label = '<b>x</b>';
+  Object.values(hostile.lanes)[0].label = '<b>x</b>';
   Object.values(hostile.features)[0].label = '<b>x</b>';
   hostile.sections.plan[0].cue.held = '" onmouseover="window.__xss=1';
   hostile.sections.plan[0].override = { hours: 1, reason: '" onmouseover="window.__xss=1', by: 'fixture', at: NOW };
   files['hostile.json'] = encode({ snapshot: hostile, invalid_title_base64: Buffer.from([65, 255, 66]).toString('base64') });
+  // fixture only: known general-lane counts for the list view; derived fixtures above keep the unknown form.
+  const live = decode(files['live.json']);
+  live.lane_progress = Object.fromEntries(Object.entries(LIVE_LANE_PROGRESS).map(([k, [closed, open]]) =>
+    [k, { closed, open, total: closed + open, observed_at: NOW, reason: null }]));
+  live.lane_progress_meta = { unmatched: 3, observed_at: NOW, reason: null };
+  files['live.json'] = encode(live);
   files['usage-sets.json'] = encode(PSETS);
   for (const n of [2, 7]) files[`usage/n${n}.json`] = encode(mapRawToPayload({
     meta: { now: NOW, tz: TZ }, data: raw(dataFor('live')),

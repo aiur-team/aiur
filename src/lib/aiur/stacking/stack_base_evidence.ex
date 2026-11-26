@@ -2,7 +2,7 @@ defmodule Aiur.Stacking.StackBaseEvidence do
   @moduledoc "Resolves a CI target's stack base from locally held GitHub evidence."
   require Logger
   alias Aiur.Config
-  alias Aiur.GitHub.{ResourceStore, TicketPullRequest, Transport}
+  alias Aiur.GitHub.{Access, TicketPullRequest}
   alias Aiur.Stacking.StackBase
 
   @spec expected_base(String.t(), map(), keyword()) :: String.t()
@@ -22,8 +22,8 @@ defmodule Aiur.Stacking.StackBaseEvidence do
 
   @spec blocker_facts(String.t()) :: [map()]
   def blocker_facts(target) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, %{data: blockers}} when is_list(blockers) <- ResourceStore.fetch(ResourceStore.key(:issue_blocked_by, owner, repo, target)),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, %{data: blockers}} when is_list(blockers) <- Access.fetch_resource(Access.key(:issue_blocked_by, owner, repo, target)),
          true <- Enum.all?(blockers, &valid_edge?/1) do
       Enum.map(blockers, &with_pr/1)
     else

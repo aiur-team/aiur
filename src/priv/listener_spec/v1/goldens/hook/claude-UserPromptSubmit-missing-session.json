@@ -1,0 +1,8 @@
+{
+  "frame": "<frame/>",
+  "harness": "claude",
+  "parsed": null,
+  "stdin": "{\"hook_event_name\":\"UserPromptSubmit\"}",
+  "stdout": "",
+  "stop_context": false
+}

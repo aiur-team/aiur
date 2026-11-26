@@ -2,6 +2,11 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @moduledoc """
   Routes an approved pull request that conflicts with its base to rebase-only rework (#4729).
 
+  An approved PR outside the merge queue first gets the daemon's own
+  update-branch (`ConflictUpdate`, #6088); only a refused update, or a PR that
+  update cannot apply to, takes the rework path. A refused update names the
+  conflicting files in the rework comment.
+
   A conflicting PR can never land, and GitHub leaves a conflicting merge queue
   entry in place, so the watcher dequeues it, moves the ticket to rework, tells
   the agent to rebase only, and lifts the `agent:paused` override approved
@@ -10,7 +15,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   """
 
   alias Aiur.{CodeHost, Config, Tracker}
-  alias Aiur.LandingWatch.Journal
+  alias Aiur.LandingWatch.{ConflictUpdate, Journal}
   alias Aiur.LandingWatch.Observer
   alias Aiur.Orchestrator.TicketTransition
 
@@ -78,6 +83,15 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   end
 
   defp route_owned(observation, rework, opts) do
+    case Keyword.get(opts, :conflict_update_fun, &ConflictUpdate.attempt/2).(observation, opts) do
+      result when result in [:updated, :held] -> :ok
+      :skip -> route_rework(observation, rework, opts)
+      {:refused, files} -> route_rework(Map.put(observation, :conflict_files, files), rework, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp route_rework(observation, rework, opts) do
     marker = "conflict-rework"
 
     with :ok <- withdraw(observation, opts),
@@ -226,7 +240,7 @@ defmodule Aiur.LandingWatch.ConflictRouting do
     """
     **Rebase only.** Approved PR ##{observation.number} conflicts with `#{base}`#{queue_context}, so the landing watcher took it out of the merge queue and moved this ticket to rework.
 
-    Integrate `#{base}`, resolve the conflicts, and push. Make no other change. The approval at `#{observation.head}` stays on record so re-review can compare the contribution diff.
+    #{conflict_files_line(observation)}Integrate `#{base}`, resolve the conflicts, and push. Make no other change. The approval at `#{observation.head}` stays on record so re-review can compare the contribution diff.
     """
   end
 
@@ -240,6 +254,13 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   end
 
   defp queue_conflict_context(_), do: ""
+
+  defp conflict_files_line(%{conflict_files: [_ | _] = files}),
+    do: "GitHub refused to update the branch. Conflicting files: " <> Enum.map_join(files, ", ", &"`#{&1}`") <> ".\n\n"
+
+  defp conflict_files_line(%{conflict_files: []}), do: "GitHub refused to update the branch. The conflicting files could not be listed.\n\n"
+
+  defp conflict_files_line(_), do: ""
 
   defp pause_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"
 end

@@ -5,7 +5,7 @@ defmodule AiurWeb.Api.UsageProgressRoutes do
   defmacro reads do
     quote do
       scope "/" do
-        pipe_through(:dashboard_auth)
+        pipe_through(:client_token_read)
 
         get("/api/v1/:issue_identifier/progress", AiurWeb.Api.UsageProgressController, :show)
         match(:*, "/api/v1/:issue_identifier/progress", AiurWeb.Api.UsageProgressController, :method_not_allowed)

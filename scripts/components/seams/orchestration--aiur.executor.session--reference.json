@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.Executor.Session",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/operator_messages/executor_hook_claims.ex"
+  ],
+  "reason": "#6503 revalidate binding and generation at claim time; an absent session process returns no delivery"
+}

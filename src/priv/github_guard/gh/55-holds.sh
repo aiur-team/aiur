@@ -30,6 +30,7 @@ case "$now" in
   ''|*[!0-9]*) now=$(date -u +%s) ;;
 esac
 hold_until=0
+hold_name=
 
 # A truncating `>` redirect leaves the hold file empty between truncate and
 # write. A concurrent reader sampling it in that gap sees no hold, `consider_hold`
@@ -86,7 +87,10 @@ consider_hold() {
   if [ "$candidate" -gt $((now + hold_max_ahead)) ]; then
     printf 'aiur: ignoring implausible hold %s until %s\n' "$1" "$candidate" >&2
   elif [ "$candidate" -gt "$now" ]; then
-    if [ "$candidate" -gt "$hold_until" ]; then hold_until=$candidate; fi
+    if [ "$candidate" -gt "$hold_until" ]; then
+      hold_until=$candidate
+      hold_name=${1##*/}
+    fi
   else
     rm -f "$1" 2>/dev/null || true
   fi
@@ -160,10 +164,8 @@ if [ "$resource" != none ] && [ -n "$agent_quota_dir" ] && [ "$agent_quota_dir" 
 fi
 
 if [ "$hold_until" -gt "$now" ]; then
-  delay=$((hold_until - now))
-  printf 'aiur: GitHub quota backoff; waiting %ss until %s\n' "$delay" "$(date -u -d "@$hold_until" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$hold_until")" >&2
-  interruptible_sleep "$delay"
-  now=$(date -u +%s)
+  printf 'aiur: GitHub quota hold (%s) active until %s; refusing governed call\n' "$hold_name" "$(date -u -d "@$hold_until" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '%s' "$hold_until")" >&2
+  exit 75
 fi
 
 if [ "$admission_required" -eq 1 ]; then

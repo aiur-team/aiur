@@ -8,6 +8,7 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 - [Webhooks and resource reconciliation](/apis/github-webhooks)
 - [Credentials, trust, and tunnel security](/apis/github-auth)
 - [Shared agent reads](/apis/github-agent-cache)
+- [Standalone gh-access](/apis/gh-access)
 
 ## Legacy topic links
 

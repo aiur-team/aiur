@@ -3,6 +3,7 @@ defmodule Aiur.AgentRunner.SessionDisplay do
   require Logger
   alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.AgentRunner.WorkerJournal
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.LiveConversation.Source
@@ -112,10 +113,14 @@ defmodule Aiur.AgentRunner.SessionDisplay do
         transcript_event: event
       }
       when is_binary(session_id) and is_map(event) ->
+        WorkerJournal.append(issue, event, backend, Keyword.merge(opts, session_id: session_id, journal_source_kind: :provider_file))
+
         AgentPubSub.broadcast_transcript(identifier, event)
 
       %{source_session_id: session_id, transcript_event: event}
       when is_binary(session_id) and is_map(event) ->
+        WorkerJournal.append(issue, event, backend, Keyword.merge(opts, session_id: session_id, journal_source_kind: :provider_file))
+
         AgentPubSub.broadcast_transcript(identifier, event)
 
         MessageHandler.observe_display_transcript(

@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.ReconcilerRecoveryTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Reconciler, State}
@@ -179,6 +180,84 @@ defmodule Aiur.Orchestrator.ReconcilerRecoveryTest do
              "before_run_failure recovery must be bounded, not retry every poll forever"
 
       assert get_in(final_state.running["issue-brf-loop"], [:control, :status]) == :paused
+    end
+
+    # #7543: the pause used to be silent. An Executor only found it by grepping
+    # the daemon log; it must raise one attention alert naming the ticket and
+    # the reason, and not repeat it on every later poll.
+    test "gives up with one needs-attention alert naming the ticket and the reason" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      issue = %Issue{
+        id: "issue-brf-alert",
+        identifier: "issue-brf-alert",
+        state: "rework",
+        tracker_identity: tracker_identity("I-before-run-failure-alert")
+      }
+
+      workspace = Path.join(Aiur.TestSupport.tmp_root!("before-run-alert"), "issue-brf-alert")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+
+      File.write!(
+        Path.join(workspace, "logs/agent.ndjson"),
+        Jason.encode!(%{
+          "event" => "worker_paused",
+          "last_message" => "wip_preservation_failed: uncommitted work could not be saved, so the dirty workspace was kept"
+        }) <> "\n"
+      )
+
+      entry = %{
+        pid: self(),
+        identifier: "issue-brf-alert",
+        issue: issue,
+        control: paused_control(),
+        paused_reason: :before_run_failure,
+        workspace_path: workspace
+      }
+
+      state = %State{running: %{"issue-brf-alert" => entry}, max_concurrent_agents: 10}
+      topic = "ticket.issue-brf-alert.agent.attention.before_run_resume_exhausted"
+      :ok = Exchange.subscribe(topic)
+
+      final_state =
+        Enum.reduce(1..20, state, fn _poll, acc ->
+          acc = Reconciler.maybe_reactivate_or_refresh(acc, issue)
+
+          receive do
+            {:resume_agent, request_id, 1} ->
+              {:noreply, resumed_state} =
+                Orchestrator.handle_info(
+                  {:worker_control_state, "issue-brf-alert", :working, %{request_id: request_id, generation: 1}},
+                  acc
+                )
+
+              current = resumed_state.running["issue-brf-alert"]
+
+              reparked =
+                current
+                |> put_in([:control, :status], :paused)
+                |> Map.put(:paused_reason, :before_run_failure)
+
+              %{resumed_state | running: Map.put(resumed_state.running, "issue-brf-alert", reparked)}
+          after
+            0 -> acc
+          end
+        end)
+
+      assert_receive {:event, %{"needs_attention" => true, topic: ^topic} = event}, 1_000
+      assert event["message"] =~ "issue-brf-alert"
+      assert event["message"] =~ "wip_preservation_failed"
+      assert event["message"] =~ "before_run"
+      assert event["reason"] == event["message"]
+
+      # The alert opens once; later polls refresh the entry without re-alerting.
+      refute_receive {:event, %{topic: ^topic}}, 200
+      assert get_in(final_state.running["issue-brf-alert"], [:before_run_resume_exhausted]) == true
     end
   end
 

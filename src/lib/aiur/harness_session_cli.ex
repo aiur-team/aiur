@@ -1,5 +1,10 @@
 defmodule Aiur.HarnessSessionCLI do
-  @moduledoc "`aiur executor-session`: prints the live Executor's harness session handle."
+  @moduledoc """
+  Legacy direct control RPC for the Executor harness handle. Retained for callers
+  of `Aiur.HarnessSessionCLI.rpc/1`; the launcher now uses the binding projection
+  from `Aiur.AgentControlCLI.executor_session/1`, with this handle nested under
+  `harness_session`.
+  """
 
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 

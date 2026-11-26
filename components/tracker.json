@@ -48,5 +48,6 @@
     "tracker"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

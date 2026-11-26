@@ -13,6 +13,16 @@ defmodule Aiur.DecisionApiIntegrationTest do
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-984", session_id: "session-984", event_id: nil}
 
+  defmodule ActiveOverrideTarget do
+    @moduledoc false
+    defdelegate send_correlated(server, identifier, payload), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate revalidate_issue(issue, fetcher, states), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate terminal_state_set(), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate terminal_issue_state?(state, states), to: Aiur.Orchestrator.CommandDeliveryTarget
+    defdelegate active_identifiers(), to: Aiur.Orchestrator.CommandDeliveryTarget
+    def override_context(_identifier), do: %{pr: :unknown, worker: :active, capacity: :available}
+  end
+
   setup do
     EndpointStubs.put(allowed_hosts: ["localhost"], allow_tailnet_hosts: true)
     original_dir = Application.get_env(:aiur, :decision_state_dir)
@@ -118,7 +128,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     decided_body = Jason.decode!(decided.resp_body)
     refute decided.resp_body =~ secret
     assert decided_body["status"] == "accepted"
-    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert decided_body["action"]["supervisor_basis"]["confidence"] == 93
 
     assert_receive {:dispatch_observed, action_id, {:ok, audit}}, 1_000
@@ -146,6 +156,16 @@ defmodule Aiur.DecisionApiIntegrationTest do
   end
 
   test "authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis", %{store: store} do
+    prior_target = Application.fetch_env(:aiur, :commands_delivery_target)
+    Application.put_env(:aiur, :commands_delivery_target, ActiveOverrideTarget)
+
+    on_exit(fn ->
+      case prior_target do
+        {:ok, target} -> Application.put_env(:aiur, :commands_delivery_target, target)
+        :error -> Application.delete_env(:aiur, :commands_delivery_target)
+      end
+    end)
+
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
                %{
@@ -169,7 +189,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
                  "custom_response" => "Original direction",
                  "rationale" => "Initial evidence"
                },
-               [actor: %{kind: :operator, id: "operator-1"}],
+               [actor: %{kind: :executor, id: "executor-1"}],
                store
              )
 
@@ -202,10 +222,15 @@ defmodule Aiur.DecisionApiIntegrationTest do
     assert body["status"] == "accepted"
     assert body["revision_result"] == "recorded"
     assert body["action"]["prior_action_id"] == original.action_id
-    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert body["action"]["answer"]["supervisor_basis"]["confidence"] == 89
 
     revision_action_id = body["action"]["action_id"]
+
+    assert {:ok, revised} = DecisionStore.get(decision.decision_id, store)
+    assert [%{route: :active_worker, action_id: ^revision_action_id, prior_action_id: prior_action_id}] = revised.overrides
+    assert prior_action_id == original.action_id
+    assert revised.active_action_id == revision_action_id
 
     assert_receive {:dispatch_observed, ^revision_action_id, {:ok, revision_audit}}, 1_000
     assert :revision_recorded in Enum.map(revision_audit, &audit_type/1)

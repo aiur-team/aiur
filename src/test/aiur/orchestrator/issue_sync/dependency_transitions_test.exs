@@ -8,9 +8,53 @@ defmodule Aiur.Orchestrator.IssueSync.DependencyTransitionsTest do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator.AutoSubscriptions
   alias Aiur.Orchestrator.IssueSync
+  alias Aiur.Orchestrator.IssueSync.Dependencies
   alias Aiur.Orchestrator.State
 
   describe "dependency transition event gating" do
+    test "adds and clears the blocked reason modifier as open dependencies change" do
+      issue_id = "sync-label-#{System.unique_integer([:positive])}"
+      parent = self()
+      previous = %{issue(issue_id, "todo") | blocked_by: []}
+      open = %{issue(issue_id, "todo") | blocked_by: [%{id: "blocker", state: "in-progress"}]}
+      cleared = %{open | blocked_by: [%{id: "blocker", state: "done"}]}
+      identifier = open.identifier
+
+      writer = fn identifier, action ->
+        send(parent, {:blocked_label, identifier, action})
+        :ok
+      end
+
+      Dependencies.emit_dependency_transition_events(%State{}, previous, open, reason_label_writer: writer)
+      Dependencies.emit_dependency_transition_events(%State{}, open, %{cleared | labels: ["agent:blocked"]}, reason_label_writer: writer)
+
+      assert_received {:blocked_label, ^identifier, :add}
+      assert_received {:blocked_label, ^identifier, :remove}
+    end
+
+    test "writes the blocked label only where the reported labels disagree, including after a restart" do
+      parent = self()
+
+      writer = fn identifier, action ->
+        send(parent, {:blocked_label, identifier, action})
+        :ok
+      end
+
+      unblocked = %{issue("sync-restart-#{System.unique_integer([:positive])}", "todo") | blocked_by: []}
+      open_blocker = [%{id: "blocker", state: "in-progress"}]
+
+      # No previous issue (fresh daemon) and nothing to change: no tracker write.
+      Dependencies.emit_dependency_transition_events(%State{}, nil, unblocked, reason_label_writer: writer)
+      Dependencies.emit_dependency_transition_events(%State{}, nil, %{unblocked | blocked_by: open_blocker, labels: ["agent:blocked"]}, reason_label_writer: writer)
+      refute_received {:blocked_label, _, _}
+
+      # A stale label on an unblocked ticket heals even when nothing changed since the last poll.
+      stale = %{unblocked | labels: ["agent:blocked"]}
+      stale_id = stale.identifier
+      Dependencies.emit_dependency_transition_events(%State{}, stale, stale, reason_label_writer: writer)
+      assert_received {:blocked_label, ^stale_id, :remove}
+    end
+
     test "does not enqueue dependency_added when the auto-subscribe fails" do
       on_exit(fn -> AutoSubscriptions.set_add_subscription_fn(nil) end)
 

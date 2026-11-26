@@ -1,32 +1,78 @@
 defmodule Aiur.Events.GithubCIPoller.RecoverySafety do
   @moduledoc false
   alias Aiur.GitHub.CIRecovery
+  alias Aiur.Signal
+
+  # A head's AI-cancelled runs are its only CI when the ticket is approved without
+  # a new push, so recovery reruns them instead of skipping them (#7562).
+  @spec approved_cancelled?(map()) :: boolean()
+  def approved_cancelled?(%{pending_reason: :ci_cancelled, review_decision: "APPROVED"}), do: true
+  def approved_cancelled?(_result), do: false
+
+  @spec rerun_checks(map(), map(), map()) :: [map()]
+  def rerun_checks(result, %{checks: checks} = digest, entry) do
+    sha = result[:head_sha]
+
+    case approved_cancelled?(result) and Enum.filter(checks, &(run_id(&1.url) in initiated_ids(entry, sha))) do
+      [_ | _] = rework_cancelled -> rework_cancelled
+      _ -> cancelled_checks(digest, sha, entry)
+    end
+  end
 
   @spec cancelled_checks(map(), String.t(), map()) :: [map()]
   def cancelled_checks(%{checks: checks}, sha, entry) do
-    initiated = (entry["cancelled_runs"] || []) |> Enum.filter(&(&1["sha"] == sha)) |> Enum.map(& &1["id"]) |> MapSet.new()
+    initiated = initiated_ids(entry, sha)
     Enum.reject(checks, &(run_id(&1.url) in initiated))
   end
 
-  @spec recovery_gate(map(), map()) :: :ready | {:held | :skipped, String.t()}
-  def recovery_gate(result, pr) do
+  # An approved head gets no further push, so its recovery rerun is the operator's
+  # only visible sign that the rework cancel was undone; journal it as an event.
+  @spec record_rerun(map(), map(), [map()], keyword()) :: :ok
+  def record_rerun(issue, result, runs, opts) do
+    if approved_cancelled?(result) do
+      message = "CI recovery reran the cancelled CI (#{Enum.map_join(runs, ", ", &"##{&1["id"]}")}) on approved head #{result[:head_sha]} for PR ##{result[:pr_number]}."
+      emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
+      _ = emitter.("ticket.#{issue.identifier || issue.id}.pr.ci_recovery.rerun", issue: issue, central: true, needs_attention: false, message: message, reason: "approved_head_rework_cancelled_ci")
+    end
+
+    :ok
+  end
+
+  defp initiated_ids(entry, sha) do
+    (entry["cancelled_runs"] || []) |> Enum.filter(&(&1["sha"] == sha)) |> Enum.map(& &1["id"]) |> MapSet.new()
+  end
+
+  @spec recovery_gate(map(), map(), map()) :: :ready | {:held | :skipped, String.t()}
+  def recovery_gate(result, pr, entry) do
     cond do
       pr["state"] != "OPEN" or pr["headRefOid"] != result.head_sha -> {:held, "head_changed"}
       pr["isDraft"] == true -> {:skipped, "draft_pr"}
       pr["isDraft"] != false -> {:held, "pr_observation_unavailable"}
-      true -> landing_gate(pr)
+      true -> landing_gate(result, pr, entry)
     end
   end
 
-  defp landing_gate(pr) do
+  defp landing_gate(result, pr, entry) do
     cond do
       pr["reviewDecision"] == "CHANGES_REQUESTED" -> {:skipped, "changes_requested"}
       not Map.has_key?(pr, "mergeQueueEntry") -> {:held, "queue_observation_unavailable"}
       pr["mergeQueueEntry"] != nil -> {:held, "merge_queue"}
-      pr["reviewDecision"] == "APPROVED" and is_map(pr["autoMergeRequest"]) -> {:held, "approved_landing_pr"}
+      approved_landing?(result, pr, entry) -> {:held, "approved_landing_pr"}
       true -> :ready
     end
   end
+
+  defp approved_landing?(result, %{"reviewDecision" => "APPROVED", "autoMergeRequest" => request}, entry),
+    do: is_map(request) and not rework_cancelled_rerun?(result, entry)
+
+  defp approved_landing?(_result, _pr, _entry), do: false
+
+  # An approved head whose only CI Aiur cancelled for rework gets one bounded rerun
+  # instead of the approved-landing hold; a person cancel keeps the hold.
+  defp rework_cancelled_rerun?(%{pending_reason: :ci_cancelled, head_sha: sha} = result, entry) when is_binary(sha),
+    do: approved_cancelled?(result) and Enum.any?(List.wrap(result[:failures]), &(run_id(&1[:url]) in initiated_ids(entry, sha)))
+
+  defp rework_cancelled_rerun?(_result, _entry), do: false
 
   @spec failed_current_run(integer(), String.t(), keyword()) :: {:ok, map()} | :superseded | {:error, term()}
   def failed_current_run(id, sha, opts) do

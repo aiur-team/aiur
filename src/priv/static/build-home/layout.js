@@ -1,9 +1,11 @@
+import { isUnfiled } from './unfiled.js';
+import { rowOk } from './filters.js';
 import { bandLayout } from './band-layout.js';
 import { sectionState, emptyMark } from './states.js';
 import { nowMs } from './clock.js';
 import { LH, SEC } from './state.js';
 import { esc } from './dom.js';
-import { WD, fmtD, fmtRange, dayKey } from './util.js';
+import { WD, fmtD, fmtT, fmtRange, dayKey } from './util.js';
 import { I } from './icons.js';
 
 export const colKey = t => t.epic || "unsorted";
@@ -22,7 +24,9 @@ export function measureFlow(D, dims) {
 }
 // The design's 62 px lane minimum, measured on the lane applyCols draws (16 px gaps between lanes).
 export const crowded = (dims, n) => (dims.vpW - dims.gut - 14 - 16 * (n - 1)) / n < 62;
-export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => !S.f.epic.length || S.f.epic.includes(colKey(t))).map(colKey));
+// Lane width the board draws for `n` lanes; the LIVE band tiles its cards at the same width (#7687).
+export const laneWidth = (dims, n, flow) => { const gap = flow ? 10 : 16; return { gap, cw: Math.min(flow ? 1e9 : 520, (dims.vpW - dims.gut - 14 - gap * (n - 1)) / n) }; };
+export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => rowOk(S, t)).map(colKey));
 // Most columns visibleCols can draw at any scroll position of an unflowed layout: the lanes of
 // every history day a viewport of height `span` touches, plus the forward set past history (#4769).
 export function laneMax(L, fwd, span) {
@@ -46,8 +50,8 @@ export function laneMax(L, fwd, span) {
 }
 export function computeLayout(D, S, dims, sources, ext = {}) {
   if (S.view === "gantt" && !ext.gantt) throw new Error("gantt layout not installed");
-  const epicOk = t => !S.f.epic.length || S.f.epic.includes(colKey(t));
-  const NOWL = D.now.filter(epicOk), PLANL = D.plan.filter(epicOk), NQL = D.nq.filter(epicOk);
+  const laneOk = t => rowOk(S, t);
+  const NOWL = D.now.filter(laneOk), PLANL = D.plan.filter(laneOk), NQL = D.nq.filter(laneOk);
   const span = S.span || 1, fs = 13, flow = S.flow, K = S.K, vh = Math.max(300, (dims.vpH == null ? 700 : dims.vpH) - LH - 40);
   let gap = 14;
   const pphG = span <= 1 ? 18 : Math.max(0.45, vh / (span * 11));
@@ -57,7 +61,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   const compact = !!ext.compact;
   const entries = ext.entries ?? (list => list.map(t => ({ t })));
   const gapLabel = ext.gapLabel ?? (g => "+" + g.n + " unrelated" + (g.a ? " · " + fmtRange(g.a, g.b) : ""));
-  const histList = D.hist.filter((t) => Number.isFinite(t.end) && t.end >= (S.histFrom || 0) && epicOk(t)).sort((a, b) => a.end - b.end);
+  const histList = D.hist.filter((t) => Number.isFinite(t.end) && t.end >= (S.histFrom || 0) && laneOk(t)).sort((a, b) => a.end - b.end);
   if (span > 1 && S.view !== "gantt") {
     const ds = histDays(D.hist), from = ds.length ? ds[Math.max(0, ds.length - span)] : 0;
     let n = 0, cur = null;
@@ -106,7 +110,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));
   else hs.h = rows(entries(histList), SEC + 4, hs.items, hs.marks, hs.labels, "hist", true) + gap;
   out.secs.hist = hs;
-  out.band = bandLayout(D, S, dims, { ch, gap, base: baseDet, pphG, CH, gantt: ext.gantt });
+  out.band = bandLayout(D, S, dims, { ch, gap, pphG, CH, gantt: ext.gantt, det, lanes: flow ? K : Math.max(1, fwdLanes(D, S).size), laneWidth });
   /* planned */
   const ps = { items: [], marks: [], labels: [], h: 0 };
   const pst = sectionState(P, D, H, 'plan', PLANL);
@@ -119,7 +123,7 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
       const ents = entries(list);
       if (compact && !ents.some((e) => e.t)) { ps.marks.push({ kind: "gap", y, h: 26, label: (w === null ? "W?" : "W" + w) + " · " + gapLabel(ents[0].gap) }); y += 26 + gap; return; }
       y += gap * 0.6;
-      ps.labels.push({ y, day: (w === null ? "W?" : "W" + w), t: list.length + (w === null ? " · wave unknown" : w === 1 ? " · ready" : ""), tk: true, line: w === null || w > 1, wave: true });
+      ps.labels.push({ y, day: (w === null ? "W?" : "W" + w), t: list.length + (w === null ? " · wave unknown" : w === 1 && list.some(t => !isUnfiled(t)) ? " · ready" : ""), tk: true, line: w === null || w > 1, wave: true });
       if (S.view === "gantt") {
         const result = ext.gantt.plan(ents, { ...gctx(y), cum, unknown });
         ps.items.push(...result.items); ps.labels.push(result.label);
@@ -129,6 +133,16 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
       } else y = rows(ents, y, ps.items, ps.marks, ps.labels, "plan", false);
     });
     ps.h = y + gap;
+  }
+  if (PLANL.some(isUnfiled) && ['disabled', 'unavailable', 'incomplete'].includes(pst.src.state)) {
+    ps.marks.push({ ...emptyMark('plan', { ...pst, show: pst.src.state }, mctx), y: ps.h });
+    ps.h += 104;
+  }
+  const packs = sources?.packs;
+  if (packs?.state === 'unavailable') {
+    ps.marks.push({ kind: 'empty', y: ps.h, h: 96, label: 'Planning packs unavailable',
+      sub: (packs.reason || 'unknown cause') + ' · checked ' + (Number.isFinite(packs.observed_at) ? fmtT(packs.observed_at) : 'unknown') });
+    ps.h += 104;
   }
   out.secs.plan = ps;
   /* not queued */

@@ -34,7 +34,7 @@ defmodule Aiur.Capabilities.Monitor do
   defp compute(state) do
     {report, warnings} = Collector.collect(state.opts)
     table = Keyword.get(state.opts, :table, :aiur_capabilities)
-    digest = :erlang.phash2(report.capabilities)
+    digest = :erlang.phash2({report.capabilities, report.executor})
     {revision, changed?} = revision(table, digest)
     report = Map.merge(report, %{revision: revision, observed_at: DateTime.utc_now() |> DateTime.to_iso8601()})
     now = Keyword.get(state.opts, :now_fun, fn -> System.monotonic_time(:millisecond) end)

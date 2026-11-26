@@ -3,9 +3,9 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
+  alias Aiur.Orchestrator.CommentWake.ReviewRelay
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
   alias Aiur.Orchestrator.CommentWake.ReworkTransition
   alias Aiur.Orchestrator.Dispatcher
@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   @doc false
@@ -41,11 +42,19 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
   # `:deactivated` reactivation path (#2814).
   defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
-      not CommentWake.trusted_comment_event?(event) ->
+      not CommentWake.trusted_comment_event?(event) and
+          not ReworkTransition.human_merger_blocking_comment?(event) ->
         state
 
       CommentWake.benign_review_pass_comment?(event) ->
         state
+
+      ReviewRelay.for_running_worker?(running_entry, event) ->
+        ReviewRelay.enqueue(state, issue_number, event)
+
+      ReworkTransition.human_merger_blocking_comment?(event) and
+          DispatchPolicy.normalize_issue_state(get_in(running_entry, [:issue, Access.key(:state)])) == "in-progress" ->
+        OperatorMessages.enqueue_event_digest_item(state, to_string(issue_number), [event], event)
 
       # A live rework worker gets the review; a finished one may have handed off since the last poll (#4601).
       live_rework_worker?(running_entry) ->
@@ -107,7 +116,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
     emit_alert_fun =
       case Map.get(event, :emit_alert_fun) do
         fun when is_function(fun, 2) -> fun
-        _ -> &Alerts.emit_system/2
+        _ -> &Signal.alert/2
       end
 
     identifier = to_string(issue_number)
@@ -187,7 +196,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
         reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
           "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
           issue: to_string(issue_number),
@@ -202,7 +211,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
         state
 
       {:error, reason} ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
           "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
           issue: to_string(issue_number),
@@ -257,7 +266,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
           |> OperatorMessages.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
-          Alerts.emit_custom(
+          Signal.agent_alert(
             "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue",
             "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
             issue: to_string(issue_number),
@@ -277,7 +286,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
           "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
           issue: to_string(issue_number),
@@ -344,7 +353,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
     Logger.warning("#{source} reactivation deferred: issue_id=#{issue_id} issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-    Alerts.emit_system("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
+    Signal.alert("ticket.#{identifier}.agent.review_feedback_delivery_deferred",
       issue: identifier,
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),

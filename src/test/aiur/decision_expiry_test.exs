@@ -239,6 +239,41 @@ defmodule Aiur.DecisionExpiryTest do
     assert_received {:expired, _decision_id, "agent_not_running", @now}
   end
 
+  for route_state <- [:with_human, :with_both] do
+    test "does not expire a nonblocking Command routed #{route_state} an hour after its agent stopped" do
+      decisions = [routed_decision(unquote(route_state))]
+
+      assert {:ok, 0} = sweep_without_agents(decisions, self())
+      refute_received {:expired, _decision_id, _reason, _occurred_at}
+    end
+  end
+
+  test "guard: a nonblocking Command routed with_executor still expires after its agent stopped" do
+    decisions = [routed_decision(:with_executor)]
+
+    assert {:ok, 1} = sweep_without_agents(decisions, self())
+    assert_received {:expired, _decision_id, "agent_not_running", @now}
+  end
+
+  defp routed_decision(route_state) do
+    created_at = DateTime.add(@now, -3_600, :second)
+    %{decision("routed", "DONE-1", created_at, blocking: false, authority: "supervisor_allowed") | route_state: route_state}
+  end
+
+  defp sweep_without_agents(decisions, test_pid) do
+    DecisionExpiry.sweep(
+      now: @now,
+      grace_seconds: 300,
+      active_identifiers_fun: fn -> {:ok, []} end,
+      decisions_fun: fn -> {:ok, decisions} end,
+      expire_fun: fn decision_id, reason_class, occurred_at ->
+        send(test_pid, {:expired, decision_id, reason_class, occurred_at})
+        {:ok, %{status: :accepted}}
+      end,
+      attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
+    )
+  end
+
   defp decision(source_id, ticket_identifier, created_at, overrides \\ []) do
     status = Keyword.get(overrides, :status, :open)
     blocking = Keyword.get(overrides, :blocking, true)

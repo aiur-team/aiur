@@ -348,7 +348,7 @@ defmodule Aiur.ExecutorSweep.Checks do
   defp unreviewed_pr_action(state),
     do: "Review the current PR head, or have the agent:#{state} ticket hand off or return its PR to draft."
 
-  @ticket_states ~w(todo in-progress ci-wait human-review rework merging done cancelled canceled error)
+  @ticket_states ~w(todo in-progress ci-wait human-review rework merging done cancelled canceled budget-exhausted error)
 
   defp ticket_state(snapshot, number) do
     snapshot

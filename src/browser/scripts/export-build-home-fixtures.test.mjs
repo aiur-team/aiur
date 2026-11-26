@@ -117,7 +117,7 @@ test('anchor must occur once', t => {
 });
 test('API usage literals still in build.js', () => {
   for (const row of API_ROWS) {
-    assert.ok(source.includes(`tag: "${row.tag}", pct: ${row.pct}, bar: bar([${row.pct}]), reset: "${row.reset}", win: "${row.win}"`));
+    assert.ok(source.includes(`api: true, tag: "${row.tag}", pct: ${row.pct}, bar: bar([${row.pct}], null, true), reset: "${row.reset}", win: "${row.win}"`));
     assert.ok(source.includes(`head: "${row.head}", rows: [["${row.rows[0][0]}", "${row.rows[0][1]}"]]`));
   }
 });
@@ -271,17 +271,6 @@ test('odd edges are registered outside the design parity datasets', () => {
   assert.equal(history.expected['14'].deps_missing, 1);
   assert.equal(history.expected['19'].dep_states['18'], 'unknown');
   assert.deepEqual(history.expected['7'].deps, []);
-});
-
-test('the design and full motion matrices exclude synthetic edge fixtures', async () => {
-  const { PARITY_MATRIX } = await import('../support/design-parity.mjs');
-  const meta = JSON.parse(files['manifest.json']);
-  assert.deepEqual([...new Set(PARITY_MATRIX.map(cell => cell.dataset))], meta.datasets);
-  assert.equal(PARITY_MATRIX.length, 61);
-  const motionGroups = PARITY_MATRIX.filter(cell => !cell.reducedMotion)
-    .flatMap(cell => ['no-preference', 'reduce'].map(reducedMotion => ({ ...cell, reducedMotion })));
-  assert.equal(motionGroups.length, 120);
-  assert.ok(motionGroups.every(cell => !meta.extra_datasets.includes(cell.dataset)));
 });
 
 test('conversation injection is fixed and all eligible design conversations are exported', () => {

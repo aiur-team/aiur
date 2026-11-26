@@ -25,11 +25,9 @@ defmodule Aiur.AgentTools.TicketState do
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
 
-  # States an agent may declare for its own ticket. `todo` is the pre-work state
-  # dispatch owns, and `merging`/`cancelled` are Executor dispositions — an agent
-  # claiming either would reverse an operator decision, so they are refused here
-  # rather than silently written.
-  @agent_settable_states ~w(in-progress ci-wait human-review rework error done)
+  # Agents may hand work to a reviewer, but only a merged PR or explicit human
+  # disposition may mark a ticket done. `todo` is also owned by dispatch.
+  @agent_settable_states ~w(in-progress ci-wait human-review rework error)
 
   @description """
   Make `agent:<state>` the ONLY `agent:*` state label on the issue you are
@@ -52,11 +50,18 @@ defmodule Aiur.AgentTools.TicketState do
           "Target state, with or without the `agent:` prefix (e.g. `human-review` or `agent:human-review`). One of: " <>
             Enum.join(@agent_settable_states, ", ") <> "."
       },
+      "outside_blocker" => %{
+        "type" => "string",
+        "description" =>
+          "Only with `human-review` while your pull request is still a draft: the stop rule or gate outside this ticket that keeps it " <>
+            "from being ready, written so a reviewer can act on it. Aiur then accepts the draft hand-off and alerts the reviewer with this reason."
+      },
       "review_findings" => %{
         "type" => "array",
         "description" =>
-          "Rework handback only: one answer per finding in the rework prompt's review findings checklist. " <>
-            "`fixed` names the commit that changes the finding's file; `disputed` gives concrete evidence.",
+          "Required on any `ci-wait`/`human-review` handoff while a request-changes review is open: one answer per numbered finding in that review " <>
+            "(the rework prompt's checklist), even if you moved the ticket to `in-progress`. `fixed` names the commit that changes the finding's file " <>
+            "(a finding with no file may instead be fixed by a PR body edit after the review); `disputed` gives concrete evidence.",
         "items" => %{
           "type" => "object",
           "required" => ["id", "status"],
@@ -93,8 +98,8 @@ defmodule Aiur.AgentTools.TicketState do
     setter = Keyword.get(opts, :ticket_state_setter)
 
     with {:ok, state} <- normalize_state(arguments),
-         true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
-         {:ok, result} <- setter.(state, review_findings(arguments)) do
+         true <- is_function(setter, 3) || {:error, :ticket_state_setter_unavailable},
+         {:ok, result} <- setter.(state, review_findings(arguments), outside_blocker(arguments)) do
       result = Response.jsonable(result)
       applied_state = if is_map(result), do: Map.get(result, "state", state), else: state
 
@@ -113,6 +118,9 @@ defmodule Aiur.AgentTools.TicketState do
 
   defp review_findings(arguments) when is_map(arguments), do: Map.get(arguments, "review_findings") || Map.get(arguments, :review_findings)
   defp review_findings(_arguments), do: nil
+
+  defp outside_blocker(arguments) when is_map(arguments), do: Map.get(arguments, "outside_blocker") || Map.get(arguments, :outside_blocker)
+  defp outside_blocker(_arguments), do: nil
 
   @spec agent_settable_states() :: [String.t()]
   def agent_settable_states, do: @agent_settable_states

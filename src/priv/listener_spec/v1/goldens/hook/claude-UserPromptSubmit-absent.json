@@ -1,0 +1,15 @@
+{
+  "frame": "<frame/>",
+  "harness": "claude",
+  "parsed": {
+    "continuation": false,
+    "event": "prompt",
+    "promptText": "hello",
+    "sessionId": "session-1",
+    "transcriptPath": "/workspace/transcript.jsonl",
+    "workspace": "/workspace"
+  },
+  "stdin": "{\"session_id\":\"session-1\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"/workspace\",\"transcript_path\":\"/workspace/transcript.jsonl\",\"prompt\":\"hello\"}",
+  "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"<frame/>\"}}\n",
+  "stop_context": false
+}

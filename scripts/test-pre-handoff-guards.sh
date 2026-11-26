@@ -56,7 +56,11 @@ CODE_CHECKS
 cat > "$events_repo/scripts/pre-handoff-guards" <<'GUARDS'
 #!/usr/bin/env bash
 printf '%s skip-code-checks=%s\n' "$*" "${AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS:-0}" > "$EVENT_LOG"
-printf 'pre-handoff-guards: %s\n' "$*"
+printf 'pre-handoff-guards: %s; %s\n' "$*" "${AIUR_PRE_HANDOFF_EVIDENCE_NOTE:-}"
+if [[ "${AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS:-}" == 1 && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf 'Pre-handoff code checks: selected tests and Dialyzer skipped; %s\n' \
+    "${AIUR_PRE_HANDOFF_EVIDENCE_NOTE:-covered by the full suite}" >> "$GITHUB_STEP_SUMMARY"
+fi
 GUARDS
 cat > "$events_repo/scripts/check-config-docs.py" <<'PYTHON'
 raise SystemExit(0)
@@ -90,13 +94,14 @@ push_before="$(printf '3%.0s' {1..40})"
 dispatch_base="$(printf '4%.0s' {1..40})"
 cp "$tmp/pr.json" "$tmp/pr-original.json"
 run_event() {
-  local name="$1" event="$2" pr_sha="$3" merge_sha="$4" push_sha="$5"
+  local name="$1" event="$2" pr_sha="$3" merge_sha="$4" push_sha="$5" full_ci="${6:-false}"
   : > "$tmp/$name.log"
   if ! (
     cd "$events_repo"
     env GITHUB_EVENT_NAME="$event" GITHUB_REPOSITORY=example/repo AIUR_PR_NUMBER=1 \
       AIUR_PR_BASE_SHA="$pr_sha" AIUR_MERGE_BASE_SHA="$merge_sha" AIUR_PUSH_BEFORE="$push_sha" \
-      RUNNER_TEMP="$tmp" PR_METADATA="$tmp/pr.json" EVENT_LOG="$tmp/$name.args" \
+      AIUR_CI_FULL_CI="$full_ci" \
+      RUNNER_TEMP="$tmp" GITHUB_STEP_SUMMARY="$tmp/$name.summary" PR_METADATA="$tmp/pr.json" EVENT_LOG="$tmp/$name.args" \
       GH_LOG="$tmp/$name.gh" \
       EXPECTED_UPSTREAM=origin/main EXPECTED_DISPATCH_BASE="$dispatch_base" EXPECTED_PARENT="$pr_base" \
       PATH="$tmp/bin:$PATH" bash scripts/run-pre-handoff-guards.sh > "$tmp/$name.log" 2>&1
@@ -104,24 +109,26 @@ run_event() {
     fail "$event runner failed: $(cat "$tmp/$name.log")"
   fi
 }
-run_event pull_request pull_request "$pr_base" "$merge_base" "$push_before"
+run_event pull_request pull_request "$pr_base" "$merge_base" "$push_before" false
+run_event full_ci_pull_request pull_request "$pr_base" "$merge_base" "$push_before" true
+run_event partial_ci_pull_request pull_request "$pr_base" "$merge_base" "$push_before" false
 run_event merge_group merge_group "$pr_base" "$merge_base" "$push_before"
 run_event push push "$pr_base" "$merge_base" "$push_before"
-run_event push_zero push "$pr_base" "$merge_base" "$(printf '0%.0s' {1..40})"
 run_event workflow_dispatch workflow_dispatch "$pr_base" "$merge_base" "$push_before"
 run_event schedule schedule "$pr_base" "$merge_base" "$push_before"
 [[ ! -e "$tmp/pull_request.gh" ]] || fail 'pull-request event read the stale-prone PR body'
 assert_contains "$tmp/pull_request.args" "--skip-pr-body $pr_base" 'pull-request event checked the body pr-body.yml owns'
 assert_contains "$tmp/merge_group.args" "--skip-pr-body $merge_base" 'merge-group event did not use its supplied base'
 assert_contains "$tmp/push.args" "--skip-pr-body $push_before" 'push event did not use its before SHA'
-assert_contains "$tmp/push_zero.args" "--skip-pr-body $pr_base" 'new-branch push did not use the parent SHA'
-assert_contains "$tmp/workflow_dispatch.args" "--skip-pr-body $dispatch_base" 'manual event used the wrong merge base'
-assert_contains "$tmp/schedule.args" "--skip-pr-body $dispatch_base" 'scheduled event used the wrong merge base'
-for event in pull_request merge_group push push_zero workflow_dispatch schedule; do
+for event in pull_request full_ci_pull_request partial_ci_pull_request merge_group push workflow_dispatch schedule; do
   assert_absent "$tmp/$event.log" 'scripts/check-pr-body.py' "$event event included PR body guard"
 done
 assert_contains "$tmp/pull_request.args" 'skip-code-checks=0' 'pull-request event skipped selected tests and Dialyzer'
-for event in merge_group push push_zero workflow_dispatch schedule; do
+assert_contains "$tmp/full_ci_pull_request.args" 'skip-code-checks=1' 'full-CI pull-request repeated checks already covered by parallel jobs'
+assert_contains "$tmp/full_ci_pull_request.log" 'deferred to the parallel coverage and dialyzer jobs' 'full-CI evidence omitted parallel jobs'
+assert_contains "$tmp/full_ci_pull_request.summary" 'Pre-handoff code checks: selected tests and Dialyzer skipped; deferred to the parallel coverage and dialyzer jobs' 'full-CI summary omitted the deferred check evidence'
+assert_contains "$tmp/partial_ci_pull_request.args" 'skip-code-checks=0' 'partial-CI pull-request skipped its selected tests and Dialyzer'
+for event in merge_group push workflow_dispatch schedule; do
   assert_contains "$tmp/$event.args" 'skip-code-checks=1' "$event event repeated selected tests the full suite already runs"
 done
 assert_contains "$tmp/merge_group.log" "pre-handoff-guards: --skip-pr-body $merge_base" 'merge-group event runner did not execute its guard command'

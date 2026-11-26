@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { card, tree, tray, open, reveal, lock, whole } from './support/build-home-chains.mjs'
-import { installFitObserver } from './support/build-home-chains-parity.mjs'
+import { installFitObserver } from './support/build-home-chains-fit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 async function diff(page, name) {
@@ -116,7 +116,7 @@ test('B6 Fit cancels a live-band scroll frame already queued before centering', 
       if (typeof key === 'string' && key.startsWith('scrollVP:')) oldScrollFrames.push(callback)
       else frame(key, callback)
     }
-    st.fx.liveGuard = st.fx.markScrolling = () => {} // Isolate the older animator from new native scroll snaps.
+    st.fx.markScrolling = () => {} // Isolate the older animator from native scroll settles.
     st.fx.renderTools = () => { tools(); st.fx.scrollVP(0, true) }
   })
   await page.locator('[data-lt="fit"]').click()

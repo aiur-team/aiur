@@ -22,9 +22,11 @@ defmodule Aiur.WorkflowStore.Cache do
   """
 
   @table :aiur_workflow_store_cache
-  @current_key :current
-  @settings_key :settings
-  @env_names_key :env_names
+  alias Aiur.Project.Context
+
+  # Rows are keyed `{kind, project}`. The project is the caller's context; the
+  # store process holds none, so it publishes under `:default`.
+  defp key(kind), do: {kind, Context.current_id() || :default}
 
   @type generation :: pos_integer()
 
@@ -57,9 +59,9 @@ defmodule Aiur.WorkflowStore.Cache do
   @spec put(term(), generation(), Path.t()) :: :ok
   def put(workflow, generation, path) when is_integer(generation) and is_binary(path) do
     safe(fn ->
-      :ets.insert(@table, {@current_key, path, workflow, generation, make_ref()})
-      :ets.delete(@table, @settings_key)
-      :ets.delete(@table, @env_names_key)
+      :ets.insert(@table, {key(:current), path, workflow, generation, make_ref()})
+      :ets.delete(@table, key(:settings))
+      :ets.delete(@table, key(:env_names))
     end)
   end
 
@@ -73,9 +75,11 @@ defmodule Aiur.WorkflowStore.Cache do
   """
   @spec fetch(Path.t()) :: {:ok, term(), generation(), reference()} | {:stale, Path.t()} | :error
   def fetch(path) when is_binary(path) do
-    case safe_lookup(@current_key) do
-      [{@current_key, ^path, workflow, generation, publication}] -> {:ok, workflow, generation, publication}
-      [{@current_key, cached_path, _workflow, _generation, _publication}] -> {:stale, cached_path}
+    row = key(:current)
+
+    case safe_lookup(row) do
+      [{^row, ^path, workflow, generation, publication}] -> {:ok, workflow, generation, publication}
+      [{^row, cached_path, _workflow, _generation, _publication}] -> {:stale, cached_path}
       _ -> :error
     end
   end
@@ -95,15 +99,17 @@ defmodule Aiur.WorkflowStore.Cache do
   """
   @spec fetch_settings(term()) :: {:ok, term()} | :error
   def fetch_settings(key) do
-    case safe_lookup(@settings_key) do
-      [{@settings_key, ^key, settings}] -> {:ok, settings}
+    row = key(:settings)
+
+    case safe_lookup(row) do
+      [{^row, ^key, settings}] -> {:ok, settings}
       _ -> :error
     end
   end
 
   @spec put_settings(term(), term()) :: :ok
   def put_settings(key, settings) do
-    safe(fn -> :ets.insert(@table, {@settings_key, key, settings}) end)
+    safe(fn -> :ets.insert(@table, {key(:settings), key, settings}) end)
   end
 
   @doc """
@@ -118,15 +124,17 @@ defmodule Aiur.WorkflowStore.Cache do
   """
   @spec fetch_env_names(term()) :: {:ok, [String.t()]} | :error
   def fetch_env_names(key) do
-    case safe_lookup(@env_names_key) do
-      [{@env_names_key, ^key, names}] -> {:ok, names}
+    row = key(:env_names)
+
+    case safe_lookup(row) do
+      [{^row, ^key, names}] -> {:ok, names}
       _ -> :error
     end
   end
 
   @spec put_env_names(term(), [String.t()]) :: :ok
   def put_env_names(key, names) do
-    safe(fn -> :ets.insert(@table, {@env_names_key, key, names}) end)
+    safe(fn -> :ets.insert(@table, {key(:env_names), key, names}) end)
   end
 
   @doc false

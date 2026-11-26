@@ -77,7 +77,7 @@
   max-width: 46ch;
 }
 
-/* C:215 */ .bd-now {
+/* C:215 */ /* #7758: the band scrolls with the board, then pins under the lane header or to the bottom edge instead of leaving view. */ .bd-now {
   position: sticky;
   top: 46px;
   bottom: 0;

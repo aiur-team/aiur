@@ -12,7 +12,7 @@ defmodule Aiur.Events.GithubWebhook.ReadyTransition do
          opts
        ) do
     case String.split(topic, ".") do
-      ["ticket", ticket, "pr", "ready_for_review"] -> notify(Keyword.get(opts, :orchestrator, Aiur.Orchestrator), ticket, number, sha)
+      ["ticket", ticket, "pr", "ready_for_review"] -> notify(Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)), ticket, number, sha)
       _ -> :ok
     end
   end

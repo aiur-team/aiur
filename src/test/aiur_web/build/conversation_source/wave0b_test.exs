@@ -125,7 +125,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bTest do
     refute Map.has_key?(Enum.at(mapped, 4), :cursor)
     assert Enum.at(mapped, 1).at == DateTime.to_unix(~U[2026-10-21 10:00:00Z], :millisecond)
     assert hd(mapped).at == nil
-    assert Enum.at(mapped, 5) == %{id: "6", at: nil, k: "tool", name: "bash", arg: "first …", res: "✗ exit 2", bad: true}
+    assert Enum.at(mapped, 5) == %{id: "6", at: nil, k: "tool", name: "bash", arg: "first …", res: "✗ exit 2", summary: "first …", status: "✗ exit 2", bad: true}
     assert Enum.at(mapped, 6).res == "✗ auth failure"
     encoded = Jason.encode!(mapped)
     refute encoded =~ "SECRET"
@@ -138,6 +138,16 @@ defmodule AiurWeb.Build.ConversationSource.Wave0bTest do
     row = %{"agent" => %{"model" => "codex", "name" => "GPT-6 Codex", "effort" => "high"}}
     assert [%{text: "Picked up by GPT-6 Codex · high effort"}] = Entries.map_entries([prompt], row, true)
     assert [%{text: "Picked up"}] = Entries.map_entries([prompt], row, false)
+  end
+
+  test "remote tool projection summarizes edits with workspace-relative paths" do
+    workspace = "/remote/issue/7"
+    [entry] = Entries.projection([%{id: "edit-1", role: "tool", title: "Edit", body: "Update File: #{workspace}/lib/example.ex\n@@ -1 +1,2 @@\n-old\n+new\n+added"}], workspace)
+
+    assert entry.name == "edit"
+    assert entry.summary == "lib/example.ex · +2 −1"
+    assert entry.res =~ "@@ -1 +1,2 @@"
+    refute entry.res =~ workspace
   end
 
   test "text is valid UTF-8 and bounded" do

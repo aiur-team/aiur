@@ -36,13 +36,15 @@ defmodule Aiur.DecisionProjectionTest do
     end
   end
 
+  # The rollback reader's Decision has no session-delivery fields (#5506), so
+  # they never reach its hash material.
   defp rollback_reader_data(data, :requested),
-    do: Map.drop(data, ["provenance", "provenance_hash", "provenance_state"])
+    do: Map.drop(data, ["provenance", "provenance_hash", "provenance_state", "pending_for_session", "ticket_comment_status"])
 
   defp rollback_reader_data(data, :enriched) do
     data
     |> Map.drop(["provenance_hash", "provenance_state"])
-    |> update_in(["decision"], &Map.delete(&1, "provenance"))
+    |> update_in(["decision"], &Map.drop(&1, ["provenance", "pending_for_session", "ticket_comment_status"]))
   end
 
   defp rollback_reader_snapshot(data, :requested), do: data

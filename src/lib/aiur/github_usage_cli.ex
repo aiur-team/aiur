@@ -24,8 +24,7 @@ defmodule Aiur.GitHubUsageCLI do
   `data.credentials` is present, which is the honest signal.
   """
 
-  alias Aiur.GitHub.Budget
-  alias Aiur.GitHub.CredentialUsage
+  alias Aiur.GitHub.Access
   alias Aiur.JSONSafe
 
   @spec run(keyword()) :: 0 | 1
@@ -52,7 +51,7 @@ defmodule Aiur.GitHubUsageCLI do
   """
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}
   def build(opts \\ []) do
-    usage_fun = Keyword.get(opts, :usage_fun, &Budget.usage/0)
+    usage_fun = Keyword.get(opts, :usage_fun, &Access.usage/0)
 
     case usage_fun.() do
       %{actors: actors} when is_list(actors) ->
@@ -68,7 +67,7 @@ defmodule Aiur.GitHubUsageCLI do
   end
 
   defp envelope(actors, opts) do
-    rows = CredentialUsage.rows(Keyword.put(opts, :usage_fun, fn -> %{actors: actors} end))
+    rows = Access.credential_usage(Keyword.put(opts, :usage_fun, fn -> %{actors: actors} end))
 
     JSONSafe.normalize(%{
       schema_version: 2,
@@ -88,7 +87,7 @@ defmodule Aiur.GitHubUsageCLI do
     view =
       JSONSafe.normalize(%{
         credentials: Enum.map(rows, &present_credential/1),
-        pool: CredentialUsage.pool(Keyword.put(opts, :rows, rows))
+        pool: Access.credential_pool(Keyword.put(opts, :rows, rows))
       })
 
     update_in(envelope["data"], &Map.merge(&1, view))

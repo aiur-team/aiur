@@ -26,7 +26,11 @@ if [[ "$skip_pr_body" == false ]]; then
 fi
 
 if [[ "${AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS:-}" == 1 ]]; then
-  echo "pre-handoff-guards: selected tests and Dialyzer skipped; this event runs the full suite"
+  skip_note="selected tests and Dialyzer skipped; ${AIUR_PRE_HANDOFF_EVIDENCE_NOTE:-covered by the full suite}"
+  echo "pre-handoff-guards: $skip_note"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    printf 'Pre-handoff code checks: %s\n' "$skip_note" >> "$GITHUB_STEP_SUMMARY"
+  fi
 elif [[ "$skip_pr_body" == true ]]; then
   "$repo_root/scripts/run-pre-handoff-code-checks.sh" "$base"
 else

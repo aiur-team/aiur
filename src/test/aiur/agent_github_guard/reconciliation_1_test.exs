@@ -87,6 +87,21 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
     refute File.exists?(context.calls)
   end
 
+  test "an unreachable daemon socket reports the per-host ledger fallback", context do
+    budget_root = Path.join(context.state_path, "fallback-budget")
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "d" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               AIUR_GITHUB_BUDGET_SOCKET: Path.join(context.state_path, "missing-budget.sock")
+             )
+
+    assert output =~ "daemon GitHub budget socket unavailable; falling back to per-host ledger"
+    assert File.exists?(Path.join(budget_root, "budget.sqlite3"))
+  end
+
   test "a configured budget fingerprints credentials with shasum when sha256sum is unavailable", context do
     budget_root = Path.join(context.state_path, "host-budget")
     credential = "shared-macos-credential"

@@ -16,8 +16,11 @@ defmodule Aiur.AgentTools.CatalogTest do
                "aiur_declare_blocker",
                "aiur_unblock",
                "aiur_set_ticket_state",
+               "aiur_set_lane",
                "aiur_set_epic",
-               "aiur_feature"
+               "aiur_feature",
+               "aiur_read_messages",
+               "aiur_history_export"
              ]
 
       for spec <- Catalog.specs() do

@@ -230,6 +230,7 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
         "action" => "merged",
         "pull_request" => %{
           "number" => 77,
+          "body" => "Closes #930",
           "head" => %{"ref" => "aiur/930-analytics", "sha" => "head-77"}
         }
       }
@@ -279,6 +280,7 @@ defmodule Aiur.RunTelemetry.Writer.LifecycleTest do
         "action" => "merged",
         "pull_request" => %{
           "number" => 77,
+          "body" => "Closes #930",
           "head" => %{"ref" => "aiur/930-analytics", "sha" => "live-head-77"}
         }
       }

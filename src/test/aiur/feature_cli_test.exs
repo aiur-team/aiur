@@ -35,6 +35,36 @@ defmodule Aiur.FeatureCLITest do
     assert length(journal) == 1
   end
 
+  test "feature epic icons persist through create and edit", %{context: context, pid: pid} do
+    epics = [
+      %{key: "lane-runtime", label: "Runtime", icon: "command-line"},
+      %{key: "lane-ui", label: "UI", icon: "window"}
+    ]
+
+    assert {:ok, %{outcome: :created}} = op(:create, context, label: "A", epics: epics)
+    assert {:ok, _} = op(:edit, context, epic_icons: [%{key: "lane-ui", icon: "beaker"}])
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+    assert Enum.map(feature.epics, & &1.icon) == ["command-line", "beaker"]
+    assert length(Enum.uniq(Enum.map(feature.epics, & &1.icon))) == 2
+
+    assert {:error, {:unknown_epic, "missing"}} =
+             op(:edit, context, epic_icons: [%{key: "missing", icon: "beaker"}])
+
+    assert {:error, :invalid_epics} =
+             FeatureCLI.apply_op(
+               %{
+                 op: :create,
+                 slug: "b",
+                 label: "Other",
+                 epics: [
+                   %{key: "one", label: "One", icon: "command-line"},
+                   %{key: "two", label: "Two", icon: "command-line"}
+                 ]
+               },
+               context
+             )
+  end
+
   test "add reruns and conflicts preserve atomic membership and report moved owner", %{context: context, pid: pid} do
     create(context)
     assert {:ok, %{results: [%{outcome: :added, label: "unknown"}]}} = op(:add, context, ids: [12])
@@ -123,9 +153,37 @@ defmodule Aiur.FeatureCLITest do
     assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
     assert feature.label == "New"
     assert feature.to == DateTime.add(@now, 259_200)
-    assert List.last(feature.epics) == %{key: "extra", label: "Extra"}
+    assert Map.take(List.last(feature.epics), [:key, :label]) == %{key: "extra", label: "Extra"}
     assert {:ok, listed} = FeatureCLI.apply_op(%{op: :show}, context)
     assert Output.render(listed) =~ "ended"
+  end
+
+  test "epic hue accepts Gruvbox names and numeric overrides", %{context: context, pid: pid} do
+    assert {:ok, _} = op(:create, context, label: "A", epic_hues: %{"f-a" => "bright-red"})
+    assert {:ok, %{features: %{"a" => %{epics: [%{color: "bright-red", hue: 4}]}}}} = Features.snapshot(server: pid)
+    assert {:ok, _} = op(:edit, context, epic_hues: %{"f-a" => 215})
+    assert {:ok, %{features: %{"a" => %{epics: [%{hue: 215} = epic]}}}} = Features.snapshot(server: pid)
+    refute Map.has_key?(epic, :color)
+  end
+
+  test "edit can assign an icon to an epic added in the same call", %{context: context, pid: pid} do
+    create(context)
+
+    assert {:ok, _} =
+             op(:edit, context,
+               add_epics: [%{key: "extra", label: "Extra"}],
+               epic_icons: [%{key: "extra", icon: "beaker"}]
+             )
+
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+
+    assert Enum.find(feature.epics, &(&1.key == "extra")) == %{
+             key: "extra",
+             label: "Extra",
+             color: "green",
+             hue: 120,
+             icon: "beaker"
+           }
   end
 
   test "unavailable registry is an error in human and JSON output" do
@@ -145,6 +203,26 @@ defmodule Aiur.FeatureCLITest do
     assert {:usage, _} = op(:create, context, label: "A", hue: 400)
     assert {:usage, _} = op(:add, context, ids: [1], source: "agent:77")
     capture_io(fn -> assert FeatureCLI.run(op: :create, slug: "a", label: "A", who: "agent:77", error_fun: fn _ -> :ok end) == 64 end)
+  end
+
+  test "--in puts a new feature in an epic and a second epic is refused", %{context: context, pid: pid} do
+    meta = [server: pid, source: "cli:tester", actor: "tester"]
+    assert {:ok, _} = Features.epic_create("combat-pack", %{label: "Combat pack"}, meta)
+    assert {:ok, _} = Features.epic_create("infra", %{label: "Infra"}, meta)
+
+    assert {:ok, %{epic: "combat-pack", outcome: :created}} = op(:create, context, label: "A", in: "combat-pack")
+    assert {:ok, %{features: ["a"]}} = Features.epic("combat-pack", server: pid)
+
+    assert {:error, {:feature_in_epic, "a", "combat-pack"}} = op(:create, context, label: "A", in: "infra")
+    assert {:ok, %{features: []}} = Features.epic("infra", server: pid)
+    assert {:error, {:unknown_epic, "missing"}} = op(:create, context, label: "B", in: "missing")
+    assert {:usage, _} = op(:add, context, ids: [1], in: "combat-pack")
+  end
+
+  test "a create --epic key=label still defines a lane on the feature", %{context: context, pid: pid} do
+    assert {:ok, %{outcome: :created}} = op(:create, context, label: "A", epics: [%{key: "k", label: "K"}])
+    assert {:ok, %{features: %{"a" => feature}}} = Features.snapshot(server: pid)
+    assert Map.take(hd(feature.epics), [:key, :label]) == %{key: "k", label: "K"}
   end
 
   defp create(context), do: op(:create, context, label: "A")

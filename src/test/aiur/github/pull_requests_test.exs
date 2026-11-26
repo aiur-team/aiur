@@ -401,6 +401,21 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  test "updates a pull request body through the metered daemon transport" do
+    body = "Closes #5794\n"
+
+    request_fun = fn request ->
+      assert request.method == :patch
+      assert request.url =~ "/repos/owner/repo/pulls/42"
+      assert request.caller == "agent_handoff_body"
+      assert request.token == "test-gh-token"
+      assert request.body == %{"body" => body}
+      {:ok, %{status: 200, body: %{"number" => 42, "body" => body}}}
+    end
+
+    assert {:ok, %{"number" => 42, "body" => ^body}} = PullRequests.update_body(42, body, request_fun: request_fun)
+  end
+
   describe "pull_request_has_label?/2" do
     test "returns true when PR carries the label" do
       pr = %{"labels" => [%{"name" => "agent:watch"}]}

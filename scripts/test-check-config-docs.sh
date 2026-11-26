@@ -39,6 +39,30 @@ defmodule Aiur.Config.Schema do
 end
 EOF
 
+  mkdir -p "$root/src/lib/aiur/machine/settings/schema"
+  cat >"$root/src/lib/aiur/machine/settings/schema.ex" <<'EOF'
+defmodule Aiur.Machine.Settings.Schema do
+  embedded_schema do
+    embeds_one(:transport, Transport)
+  end
+end
+EOF
+  cat >"$root/src/lib/aiur/machine/settings/schema/transport.ex" <<'EOF'
+defmodule Aiur.Machine.Settings.Schema.Transport do
+  embedded_schema do
+    embeds_one(:tls, Aiur.Machine.Settings.Schema.Tls)
+  end
+end
+
+defmodule Aiur.Machine.Settings.Schema.Tls do
+  embedded_schema do
+    field(:cert_file, :string)
+  end
+end
+EOF
+  echo '| `machine:transport.tls.cert_file` | path | null | Certificate. |' \
+    >"$root/website/docs-app/reference/configuration-machine.md"
+
   # Two modules in one file, and a field name reused across sections — the two
   # shapes the first version of this check got wrong.
   cat >"$root/src/lib/aiur/config/schema/tracker.ex" <<'EOF'
@@ -83,8 +107,57 @@ EOF
 if ! output="$(run_check "$root")"; then
   fail "fully documented schema should pass, got: $output"
 fi
-grep -q "all 5 config keys are documented" <<<"$output" ||
-  fail "expected all 5 keys to be counted, got: $output"
+grep -q "all 6 config keys are documented" <<<"$output" ||
+  fail "expected all 6 keys to be counted, got: $output"
+
+# Machine keys must be present and carry their file-specific prefix.
+for mode in missing unprefixed; do
+  root="$work/machine-$mode"
+  cp -R "$work/pass" "$root"
+  page="$root/website/docs-app/reference/configuration-machine.md"
+  if [[ "$mode" == missing ]]; then
+    : >"$page"
+  else
+    sed -i 's/machine://g' "$page"
+  fi
+  if output="$(run_check "$root")"; then
+    fail "$mode machine key must fail the check, got: $output"
+  fi
+  grep -Fq 'machine:transport.tls.cert_file' <<<"$output" ||
+    fail "$mode machine key must be named with its prefix, got: $output"
+  echo "check-config-docs guard: $mode machine key passed"
+done
+
+root="$work/machine-no-schema"
+cp -R "$work/pass" "$root"
+rm "$root/src/lib/aiur/machine/settings/schema.ex"
+if output="$(run_check "$root")"; then
+  fail "a missing machine schema must fail the check, got: $output"
+fi
+grep -Fq 'expected path is missing:' <<<"$output" ||
+  fail "a missing machine schema must say so, got: $output"
+echo "check-config-docs guard: missing machine schema passed"
+
+# A split topic contributes keys; deleting it must still report those keys.
+root="$work/split-topic"
+cp -R "$work/pass" "$root"
+reference_file="$root/website/docs-app/reference/configuration.md"
+topic_file="$root/website/docs-app/reference/configuration-tracker.md"
+grep -F 'tracker.github.p95_latency_ms' "$reference_file" >"$topic_file"
+grep -Fv 'tracker.github.p95_latency_ms' "$reference_file" >"$root/index.md"
+mv "$root/index.md" "$reference_file"
+if ! output="$(run_check "$root")"; then
+  fail "a key documented only in a topic should pass, got: $output"
+fi
+grep -q "all 6 config keys are documented" <<<"$output" ||
+  fail "split topics must preserve the complete key count, got: $output"
+rm "$topic_file"
+if output="$(run_check "$root")"; then
+  fail "deleting a topic with a required key must fail, got: $output"
+fi
+grep -q "tracker.github.p95_latency_ms" <<<"$output" ||
+  fail "a missing topic must report its missing key, got: $output"
+echo "check-config-docs guard: split topic inclusion and omission passed"
 
 # --- Case 2: an undocumented key -> fail ------------------------------------
 root="$work/missing"
@@ -215,14 +288,23 @@ reference "$root" <<'EOF'
 | `agent.backend_configs.<backend>.management_api_key_env` | string | registry default | Management key environment name. |
 | `agent.backend_configs.<backend>.transport` | string | registry default | Transport. |
 | `agent.backend_configs.<backend>.balance_baseline` | number | nil | Balance seed. |
+| `agent.backend_configs.<backend>.max_output_tokens` | integer | 16000 | Output-token cap. |
 | `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | registry default | Reasoning replay. |
 | `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | registry default | Text tool fallback. |
 | `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | registry default | OpenRouter metadata. |
 | `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | registry default | Local concurrency. |
 | `agent.backend_configs.openrouter.provider.order` | array | nil | Provider order. |
+| `agent.backend_configs.openrouter.provider.only` | array | nil | Allowed providers. |
 | `agent.backend_configs.openrouter.provider.ignore` | array | nil | Ignored providers. |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean | nil | Provider fallback. |
 | `agent.backend_configs.openrouter.provider.sort` | string | nil | Provider sorting. |
+| `agent.backend_configs.openrouter.provider.max_price` | map | nil | Price cap. |
+| `agent.backend_configs.openrouter.provider.quantizations` | array | nil | Quantizations. |
+| `agent.backend_configs.openrouter.provider.data_collection` | string | nil | Data collection policy. |
+| `agent.backend_configs.openrouter.provider.require_parameters` | boolean | nil | Require parameters. |
+| `agent.backend_configs.openrouter.routes` | map | `%{}` | Per-route overrides. |
+| `agent.backend_configs.openrouter.routes.<route>.provider` | map | nil | Per-route provider preferences. |
+| `agent.backend_configs.openrouter.routes.<route>.models` | array | nil | Per-route model set. |
 EOF
 if ! output="$(run_check "$root")"; then
   fail "a fully documented known map shape should pass, got: $output"
@@ -242,14 +324,23 @@ map_subkeys=(
   'agent.backend_configs.<backend>.management_api_key_env'
   'agent.backend_configs.<backend>.transport'
   'agent.backend_configs.<backend>.balance_baseline'
+  'agent.backend_configs.<backend>.max_output_tokens'
   'agent.backend_configs.<backend>.quirks.reasoning_content_replay'
   'agent.backend_configs.<backend>.quirks.text_tool_fallback'
   'agent.backend_configs.<backend>.quirks.openrouter_metadata'
   'agent.backend_configs.<backend>.quirks.local_concurrency_limit'
   'agent.backend_configs.openrouter.provider.order'
+  'agent.backend_configs.openrouter.provider.only'
   'agent.backend_configs.openrouter.provider.ignore'
   'agent.backend_configs.openrouter.provider.allow_fallbacks'
   'agent.backend_configs.openrouter.provider.sort'
+  'agent.backend_configs.openrouter.provider.max_price'
+  'agent.backend_configs.openrouter.provider.quantizations'
+  'agent.backend_configs.openrouter.provider.data_collection'
+  'agent.backend_configs.openrouter.provider.require_parameters'
+  'agent.backend_configs.openrouter.routes'
+  'agent.backend_configs.openrouter.routes.<route>.provider'
+  'agent.backend_configs.openrouter.routes.<route>.models'
 )
 reference_file="$root/website/docs-app/reference/configuration.md"
 cp "$reference_file" "$root/complete-reference.md"

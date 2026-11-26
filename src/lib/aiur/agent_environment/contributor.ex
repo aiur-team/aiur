@@ -5,7 +5,21 @@ defmodule Aiur.AgentEnvironment.Contributor do
   @callback shell_exports(Path.t(), keyword()) :: String.t()
   @callback repo_slug() :: String.t() | nil
   @callback agent_process_log_path() :: Path.t() | nil
-  @optional_callbacks repo_slug: 0, agent_process_log_path: 0
+  @callback hosted_credential_boundary() :: :daemon | :agent | :unknown
+  @optional_callbacks repo_slug: 0, agent_process_log_path: 0, hosted_credential_boundary: 0
+
+  @doc "List every registered contributor and its declared hosted credential boundary."
+  @spec hosted_credential_boundaries() :: [{module(), :daemon | :agent | :unknown}]
+  def hosted_credential_boundaries do
+    Enum.map(contributors(), fn contributor ->
+      boundary =
+        if Code.ensure_loaded?(contributor) and function_exported?(contributor, :hosted_credential_boundary, 0),
+          do: contributor.hosted_credential_boundary(),
+          else: :unknown
+
+      {contributor, boundary}
+    end)
+  end
 
   @spec port_env(Path.t(), keyword()) :: [{charlist(), charlist() | false}]
   def port_env(workspace, opts), do: Enum.flat_map(contributors(), & &1.port_env(workspace, opts))

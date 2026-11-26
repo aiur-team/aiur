@@ -18,24 +18,25 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
           main > *, nav, .controls { min-width: 0; }
           nav:not(.sidenav-nav), .controls { display: flex; flex-wrap: wrap; gap: .5rem; }
           nav button, .controls button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-          #graph-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
-          #graph-content { min-width: 36rem; }
-          @media (prefers-reduced-motion: no-preference) { #graph-content { transition: transform 120ms ease; } }
+          #fixture-viewport { border: 1px solid currentColor; min-width: 0; min-height: 8rem; overflow: auto; padding: 1rem; }
+          #fixture-content { min-width: 36rem; }
+          @media (prefers-reduced-motion: no-preference) { #fixture-content { transition: transform 120ms ease; } }
         </style>
         <script defer src="/assets/phoenix_html.js"></script>
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
+        <script defer src="/nav-toggle-hook.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/voice-capture.js"></script>
-        <script defer src="/voice-transport.js"></script>
-        <script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script>
+        <script defer src="/voice-waveform.js"></script><script defer src="/voice-playback.js"></script><script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/executor-voice-hook.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
-        <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-knob.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/aiur-style/tokens.css" />
@@ -48,96 +49,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
-            window.BrowserHarnessHooks.NavToggle = {
-              mounted: function () {
-                this.root = document.documentElement;
-                this.media = window.matchMedia("(min-width: 961px)");
-                this.onMedia = () => this.mirror();
-                this.media.addEventListener("change", this.onMedia);
-                this.nav = document.getElementById("ax-nav");
-                this.onNavFocus = (e) => {
-                  if (!this.media.matches && e.target.matches("a.snav")) {
-                    e.target.scrollIntoView({block: "nearest", inline: "nearest"});
-                  }
-                };
-                this.nav?.addEventListener("focusin", this.onNavFocus);
-                this.onKey = (e) => {
-                  if (!["Enter", " ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
-                  e.preventDefault();
-                  this.commit(e.key === "ArrowLeft" || (e.key !== "ArrowRight" && !this.root.classList.contains("nav-collapsed")));
-                };
-                this.onDown = (e) => {
-                  if (e.button !== 0 || !this.media.matches) return;
-                  e.preventDefault();
-                  this.drag = {id: e.pointerId, x: e.clientX, width: this.root.classList.contains("nav-collapsed") ? 60 : 188};
-                  this.el.setPointerCapture(e.pointerId);
-                  this.root.classList.add("nav-drag");
-                };
-                this.onMove = (e) => {
-                  if (!this.drag || e.pointerId !== this.drag.id) return;
-                  var width = Math.max(50, Math.min(204, this.drag.width + e.clientX - this.drag.x));
-                  this.root.style.setProperty("--navw", width + "px");
-                  this.root.classList.toggle("nav-collapsed", width < 124);
-                };
-                this.onUp = (e) => {
-                  if (!this.drag || e.pointerId !== this.drag.id) return;
-                  var width = parseFloat(this.root.style.getPropertyValue("--navw")) || this.drag.width;
-                  var collapsed = Math.abs(e.clientX - this.drag.x) > 3 ? width < 124 : !this.root.classList.contains("nav-collapsed");
-                  this.cleanDrag();
-                  void this.root.offsetWidth;
-                  this.commit(collapsed);
-                };
-                this.onCancel = () => { if (this.drag) { this.cleanDrag(); this.mirror(); } };
-                this.el.addEventListener("keydown", this.onKey);
-                this.el.addEventListener("pointerdown", this.onDown);
-                this.el.addEventListener("pointermove", this.onMove);
-                this.el.addEventListener("pointerup", this.onUp);
-                this.el.addEventListener("pointercancel", this.onCancel);
-                this.el.addEventListener("lostpointercapture", this.onCancel);
-                var stored;
-                try { stored = window.localStorage.getItem("aiur-nav-collapsed"); } catch (_error) {}
-                if ((stored === "true" || stored === "false") && (stored === "true") !== this.collapsed()) {
-                  this.pending = stored === "true";
-                  this.pushEvent("restore-nav", {collapsed: this.pending}, () => {});
-                } else this.mirror();
-              },
-              reconnected: function () { this.mirror(); },
-              collapsed: function () { return this.el.dataset.navCollapsed === "true"; },
-              mirror: function () {
-                if (!this.drag) this.root.classList.toggle("nav-collapsed", this.media.matches && this.collapsed());
-              },
-              updated: function () {
-                if (this.pending !== undefined && this.collapsed() !== this.pending) return;
-                this.pending = undefined;
-                this.mirror();
-                try { window.localStorage.setItem("aiur-nav-collapsed", String(this.collapsed())); } catch (_error) {}
-              },
-              commit: function (collapsed) {
-                this.root.classList.toggle("nav-collapsed", this.media.matches && collapsed);
-                this.pushEvent("restore-nav", {collapsed: collapsed}, () => {});
-                clearTimeout(this.resizeTimer);
-                this.resizeTimer = setTimeout(() => window.dispatchEvent(new Event("resize")), 260);
-              },
-              cleanDrag: function () {
-                var drag = this.drag;
-                this.drag = null;
-                this.root.classList.remove("nav-drag");
-                this.root.style.removeProperty("--navw");
-                if (drag && this.el.hasPointerCapture(drag.id)) this.el.releasePointerCapture(drag.id);
-              },
-              destroyed: function () {
-                this.cleanDrag();
-                clearTimeout(this.resizeTimer);
-                this.media.removeEventListener("change", this.onMedia);
-                this.nav?.removeEventListener("focusin", this.onNavFocus);
-                this.el.removeEventListener("keydown", this.onKey);
-                this.el.removeEventListener("pointerdown", this.onDown);
-                this.el.removeEventListener("pointermove", this.onMove);
-                this.el.removeEventListener("pointerup", this.onUp);
-                this.el.removeEventListener("pointercancel", this.onCancel);
-                this.el.removeEventListener("lostpointercapture", this.onCancel);
-              }
-            };
+            window.BrowserHarnessHooks.NavToggle = window.AiurNavToggleHook;
             window.BrowserHarnessHooks.AxMenu = {
               mounted: function () {
                 this.cog = this.el.querySelector("#ax-cog");
@@ -234,12 +146,11 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
+            if (window.AiurVoiceInputHook) window.BrowserHarnessHooks.VoiceInput = window.AiurVoiceInputHook;
+            if (window.AiurExecutorVoiceHook) window.BrowserHarnessHooks.ExecutorVoice = window.AiurExecutorVoiceHook;
+
             if (window.AiurConversationDrawerHook) {
               window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
-            }
-
-            if (window.AiurBuildOrderGridHook) {
-              window.BrowserHarnessHooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
             }
 
             if (window.AiurStreamdeckEmulatorHook) {
@@ -256,6 +167,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: window.BrowserHarnessHooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
               params: {_csrf_token: csrfToken}
             });
             window.liveSocket.connect();
@@ -288,7 +200,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
         _ -> nil
       end
 
-    counts = if is_integer(awaiting), do: %{awaiting: awaiting, awaiting_blocking: 0}, else: %{}
+    counts = if is_integer(awaiting), do: %{needs_you: awaiting, needs_you_blocking: 0}, else: %{}
 
     {:ok,
      socket
@@ -317,7 +229,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     <main class="app-shell">
       <DashboardShell.dashboard_shell route={RouteRegistry.current_route(:index)} routes={RouteRegistry.routes(%{})}
         tracker_kind="fixture" agent_kind="fixture" nav_collapsed={@nav_collapsed}
-        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:awaiting]}}>
+        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:needs_you]}}>
         <:banner><Overview.decisions_banner retained_counts={@counts} /></:banner>
         <button id="probe-patch" phx-click="patch-shell" data-patch={@patch}>Patch shell</button>
         <button id="probe-palette-button" type="button" aria-pressed="true" phx-hook="PaletteToggle" data-probe-patch={to_string(@nav_collapsed)}>Gruvbox palette button</button>

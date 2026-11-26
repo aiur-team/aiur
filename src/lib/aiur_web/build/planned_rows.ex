@@ -4,11 +4,13 @@ defmodule AiurWeb.Build.PlannedRows do
 
   `read/1` reads History only for planned queue numbers. Pass outside-queue
   candidates as `:todo_rows` with `:todo_label`; queue lifecycle facts take precedence.
+  `:capacity` maps a ticket number to its capacity waiting text for `cue.capacity`.
   """
   alias AiurWeb.Build.{PlannedGraph, PlannedSource}
   @planned ~w(waiting ready promoted overridden promoted_unauthorized held failed_prerequisite unknown)a
   @terminal ~w(completed cancelled removed)a
   @type cue :: %{
+          optional(:capacity) => String.t(),
           held: String.t() | nil,
           promoted: integer() | nil,
           wait: pos_integer() | nil,
@@ -17,7 +19,18 @@ defmodule AiurWeb.Build.PlannedRows do
           blockedChain: boolean(),
           unknown: boolean()
         }
-  @type row :: %{id: String.t(), num: pos_integer(), sec: String.t(), status: String.t(), ord: non_neg_integer(), qpos: pos_integer() | nil, wave: pos_integer(), deps: [String.t()], cue: cue()}
+  @type row :: %{
+          id: String.t(),
+          num: pos_integer(),
+          sec: String.t(),
+          status: String.t(),
+          ord: non_neg_integer(),
+          qpos: pos_integer() | nil,
+          wave: pos_integer(),
+          deps: [String.t()],
+          cue: cue(),
+          dependency_ready: boolean() | nil
+        }
   @type source :: %{state: String.t(), observed_at: integer() | nil, reason: String.t() | nil}
   @type result :: %{rows: [row()], source: source()}
 
@@ -41,6 +54,10 @@ defmodule AiurWeb.Build.PlannedRows do
     active = Keyword.get(opts, :active, MapSet.new())
     rows = Enum.map(planned, fn {item, queue} -> row(item, queue, graph, active) end)
     rows = rows ++ todo_rows(history, live, active, Keyword.get(opts, :todo_label))
+    # Why the capacity policy holds a queued ticket, keyed by number (#7892).
+    capacity = Keyword.get(opts, :capacity, %{})
+    # Set only when held: the key is optional and the payload has a byte budget.
+    rows = Enum.map(rows, &if(text = capacity[&1.num], do: put_in(&1, [:cue, :capacity], text), else: &1))
     rows = rows |> Enum.with_index() |> Enum.map(fn {row, ord} -> %{row | ord: ord, qpos: if(row.qpos, do: ord + 1)} end)
     %{rows: rows, source: PlannedSource.build(show)}
   end
@@ -92,7 +109,25 @@ defmodule AiurWeb.Build.PlannedRows do
       unknown: item.state == :unknown or item.verdict == :unknown
     }
 
-    %{id: to_string(item.number), num: item.number, sec: "plan", status: "queued", ord: 0, qpos: 1, wave: graph.waves[item.number], deps: Enum.map(item.prerequisites, &to_string(&1.number)), cue: cue}
+    %{
+      id: to_string(item.number),
+      num: item.number,
+      dependency_ready: dependency_ready(cue, item.prerequisites),
+      sec: "plan",
+      status: "queued",
+      ord: 0,
+      qpos: 1,
+      wave: graph.waves[item.number],
+      # An unobserved GitHub blocker (number: nil) has no id; its :unknown verdict already nulls dependency_ready.
+      deps: for(%{number: number} when is_integer(number) <- item.prerequisites, do: to_string(number)),
+      cue: cue
+    }
+  end
+
+  defp dependency_ready(%{unknown: true}, _prerequisites), do: nil
+
+  defp dependency_ready(cue, prerequisites) do
+    if Enum.any?(prerequisites, &(&1.verdict == :unknown)), do: nil, else: not cue.waitAny and is_nil(cue.failed) and not cue.blockedChain
   end
 
   defp waiting(edges, active) do
@@ -145,6 +180,7 @@ defmodule AiurWeb.Build.PlannedRows do
       status: "queued",
       ord: 0,
       qpos: nil,
+      dependency_ready: nil,
       wave: 1,
       deps: [],
       cue: %{held: nil, promoted: nil, wait: nil, waitAny: false, failed: nil, blockedChain: false, unknown: false}

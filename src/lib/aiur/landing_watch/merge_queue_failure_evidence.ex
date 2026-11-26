@@ -22,7 +22,7 @@ defmodule Aiur.LandingWatch.MergeQueueFailureEvidence do
     runs
     |> Enum.filter(fn run ->
       run["event"] == "merge_group" and
-        run["conclusion"] in ["failure", "cancelled", "timed_out", "startup_failure"] and
+        run["conclusion"] in ["failure", "timed_out", "startup_failure"] and
         is_integer(run["id"]) and is_integer(run_time_ms(run)) and
         run_time_ms(run) >= first_seen_ms and
         number in run_pr_numbers(run["head_branch"], base)

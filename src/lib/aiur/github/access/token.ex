@@ -1,18 +1,14 @@
 defmodule Aiur.GitHub.Access.Token do
   @moduledoc "Resolves GitHub credentials and their daemon identity."
   require Logger
-  alias Aiur.GitHub.Access.Settings
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, Transport}
+  alias Aiur.GitHub.{Access.Settings, AppCredentials, AppToken, AppTokenRefresher, Transport}
 
   @spec token() :: String.t() | nil
   def token do
-    if AppCredentials.configured?() do
-      AppTokenRefresher.current_token()
-    else
-      case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
-        :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
-        resolved -> resolved
-      end
+    cond do
+      AppCredentials.configured?() -> AppTokenRefresher.current_token()
+      hosted_mode?() and not pat_opted_in?() -> nil
+      true -> resolved_token()
     end
   end
 
@@ -33,11 +29,26 @@ defmodule Aiur.GitHub.Access.Token do
   """
   @spec resolve_token(keyword()) :: String.t() | nil
   def resolve_token(opts \\ []) do
-    if AppCredentials.configured?() do
-      resolve_installation_token(opts)
-    else
-      resolve_pat_token(opts)
+    cond do
+      AppCredentials.configured?() -> resolve_installation_token(opts)
+      Keyword.get_lazy(opts, :hosted?, &hosted_mode?/0) -> resolve_hosted_pat_token_if_opted_in(opts)
+      true -> resolve_pat_token(opts)
     end
+  end
+
+  defp resolved_token do
+    case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
+      :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
+      resolved -> resolved
+    end
+  end
+
+  defp resolve_hosted_pat_token_if_opted_in(opts) do
+    if Keyword.get_lazy(opts, :pat_opted_in?, &pat_opted_in?/0), do: resolve_hosted_pat_token(opts)
+  end
+
+  defp resolve_hosted_pat_token(opts) do
+    resolve_pat_token(Keyword.put(opts, :keyring_fun, fn -> nil end))
   end
 
   defp resolve_installation_token(opts) do
@@ -102,6 +113,9 @@ defmodule Aiur.GitHub.Access.Token do
       AppCredentials.configured?() ->
         :github_app
 
+      hosted_mode?() and not pat_opted_in?() ->
+        :none
+
       (source = :persistent_term.get({__MODULE__, :resolved_token_source}, nil)) in [:env, :keyring] ->
         source
 
@@ -112,6 +126,10 @@ defmodule Aiur.GitHub.Access.Token do
         :none
     end
   end
+
+  defp hosted_mode?, do: Settings.current().hosted_auth_required?
+
+  defp pat_opted_in?, do: Settings.current().pat_opted_in?
 
   defp nonblank_token?(value) when is_binary(value), do: String.trim(value) != ""
   defp nonblank_token?(_value), do: false

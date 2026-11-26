@@ -53,7 +53,7 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
       end)
 
     assert_received {:watcher_processed, 17}
-    assert is_integer(LandingWatch.state(server).last_poll_at_ms)
+    assert eventually(fn -> is_integer(LandingWatch.state(server).last_poll_at_ms) end)
     assert LandingWatch.state(server).watcher == :running
   end
 
@@ -115,5 +115,18 @@ defmodule Aiur.LandingWatch.UnlinkedPrTest do
     path = Path.join(System.tmp_dir!(), "landing-watch-unlinked-#{System.unique_integer([:positive])}.json")
     ExUnit.Callbacks.on_exit(fn -> File.rm(path) end)
     path
+  end
+
+  defp eventually(fun, attempts \\ 50)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.(),
+      do: true,
+      else:
+        (
+          Process.sleep(20)
+          eventually(fun, attempts - 1)
+        )
   end
 end

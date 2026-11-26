@@ -49,6 +49,16 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Muse", "Fake"]
     end
 
+    test "attaches the shared usage read model to registered provider cards" do
+      view = Presenter.present(authorized(), %{codex: healthy(:codex)})
+      usage = card(view, :codex).usage
+
+      assert %Aiur.Usage.Provider.Codex{provider: :codex, freshness: :fresh, source: "provider_meter_projection"} = usage
+      assert usage.observed_at == @observed
+      assert is_integer(usage.age_ms)
+      assert usage.fields.windows == card(view, :codex).windows
+    end
+
     test "names the generic transport backend" do
       snapshot = %{healthy(:deepseek) | backend: :openai_compat}
       view = Presenter.present(authorized(), %{deepseek: snapshot})
@@ -116,6 +126,26 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "provider and window health states are distinct" do
+    test "known used percentages become remaining while unknown values stay absent" do
+      windows = %{
+        "empty" => %{kind: :rate_limit, name: "Empty", used_percent: 100, coverage: :supported},
+        "half" => %{kind: :rate_limit, name: "Half", used_percent: 50, coverage: :supported},
+        "full" => %{kind: :rate_limit, name: "Full", used_percent: 0, coverage: :supported},
+        "unknown" => %{kind: :rate_limit, name: "Unknown", used_percent: nil, coverage: :supported}
+      }
+
+      snapshot = %{healthy(:codex) | windows: windows}
+      codex = card(Presenter.present(authorized(), %{codex: snapshot}), :codex)
+
+      assert Enum.sort(Enum.map(codex.windows, &{&1.name, &1.meter.kind, Map.get(&1.meter, :now)})) ==
+               Enum.sort([
+                 {"Empty", :exact, 0},
+                 {"Full", :exact, 100},
+                 {"Half", :exact, 50},
+                 {"Unknown", :none, nil}
+               ])
+    end
+
     test "loading: awaiting first observation for a known generation" do
       snapshot = ProviderMeterSnapshot.empty(:codex, :app_server, "gen-codex")
       assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).state == :loading
@@ -181,12 +211,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "credential absence is awaiting observation, not a hard failure" do
-    # A missing DeepSeek/OpenRouter API key, a missing credentials file, or a
-    # malformed credential blob means the provider cannot be read *yet* — not
+    # A missing DeepSeek/OpenRouter API key or malformed credential blob means
+    # the provider cannot be read *yet* — not
     # that it is broken. These render as loading, matching a first observation
     # that has not arrived, rather than a misleading hard "unavailable".
     test "a missing or malformed credential blob renders loading" do
-      for failure <- [:no_credentials, :malformed_credentials] do
+      for failure <- [:malformed_credentials] do
         snapshot = %ProviderMeterSnapshot{
           provider: :claude,
           backend: :app_server,
@@ -197,6 +227,17 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
         assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :loading,
                "expected #{inspect(failure)} to render loading, got a hard state"
       end
+    end
+
+    test "a missing Claude credential reports the signed-out state" do
+      snapshot = %ProviderMeterSnapshot{
+        provider: :claude,
+        backend: :app_server,
+        provider_account_generation: nil,
+        health: %{state: :unavailable, failure: :no_credentials, last_observed_at: nil, last_source_version: nil}
+      }
+
+      assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :signed_out
     end
 
     test "a missing API key or disabled provider renders loading" do
@@ -254,7 +295,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       [meter] = codex.windows
 
       assert meter.coverage == :supported
-      assert meter.meter == %{kind: :exact, now: 40, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 60, min: 0, max: 100}
       assert meter.standing_label == "Allowed"
       assert meter.resets_at == @reset
     end
@@ -262,7 +303,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     test "zero usage is an exact value distinct from unknown" do
       window = window(used_percent: 0, remaining_percent: 100, coverage: :supported)
       [meter] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"z" => window})}), :codex).windows
-      assert meter.meter == %{kind: :exact, now: 0, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 100, min: 0, max: 100}
     end
 
     test "unsupported and empty-supported windows carry no meter value and stay distinct" do

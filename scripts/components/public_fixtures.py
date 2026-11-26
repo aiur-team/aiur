@@ -3,7 +3,7 @@
 
 def public_fields(entry):
     return dict(entry, kind="in-app", dependency_kind=entry["kind"],
-                summary="Provides fixture behavior.", status="core", install={"type": "included"},
+                summary="Provides fixture behavior.", status="core", goal="run-agents", install={"type": "included"},
                 docs=[], config=[], env=[], capabilities=[])
 
 

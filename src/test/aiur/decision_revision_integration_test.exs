@@ -2,7 +2,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
-  alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
 
   @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
@@ -227,7 +227,10 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     restarted = start_store!(dir)
     assert {:ok, replayed_current} = DecisionStore.get(decision.decision_id, restarted)
     assert replayed_current.answer == original
-    assert Decision.active_answer(replayed_current) == revision.answer
+
+    assert DecisionAnswer.content(Decision.active_answer(replayed_current)) ==
+             DecisionAnswer.content(revision.answer)
+
     assert replayed_current.active_action_id == revision.action_id
     assert replayed_current.decision_status == :resolved
     assert replayed_current.dispatch_attempts == current.dispatch_attempts

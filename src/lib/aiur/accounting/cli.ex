@@ -2,6 +2,7 @@ defmodule Aiur.Accounting.CLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
   alias Aiur.AccountsCLI
+  alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.CLI
   alias Aiur.Webhooks.ModePresenter
@@ -29,6 +30,8 @@ defmodule Aiur.Accounting.CLI do
       |> Enum.sort_by(fn {provider, _view} -> provider end)
       |> Enum.each(&CLI.print/1)
 
+      print_usage_floor_holds()
+
       opts
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
       |> print_delivery_modes()
@@ -37,11 +40,23 @@ defmodule Aiur.Accounting.CLI do
     end)
   end
 
+  # Routes dispatch is skipping at the remaining-usage floor (#7504). Printed
+  # beside the provider meters because the two answer one question: what can
+  # aiur still start work on, and why not.
+  defp print_usage_floor_holds do
+    case UsageFloorGate.held_lines() do
+      [] -> :ok
+      lines -> Enum.each(lines, &IO.puts("held  " <> &1))
+    end
+  rescue
+    _error -> IO.puts("held  unavailable (usage readings could not be read)")
+  end
+
   @doc false
   @spec accounts(boolean(), String.t() | nil) :: :ok
   def accounts(json, harness \\ nil) do
     guarded("accounts", fn ->
-      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot_for_accounts/1)
       exit_marker(0)
     end)
   end

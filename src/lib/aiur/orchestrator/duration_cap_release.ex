@@ -9,13 +9,13 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   require Logger
 
   alias Aiur.AgentRunner.TurnProgress
-  alias Aiur.Alerts
   alias Aiur.CodeHost
   alias Aiur.Config
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, DispatchPolicy, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.{Dispatcher.Budgets, DurationCapRetryStore}
   alias Aiur.Orchestrator.StartupClaimReconciler.Release
+  alias Aiur.Signal
 
   @spec maybe_release(State.t(), map(), atom(), keyword()) :: State.t()
   def maybe_release(state, running_entry, status, opts \\ [])
@@ -270,7 +270,7 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   end
 
   defp emit_pause_alert(entry, reason, opts) do
-    emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit.("ticket.#{entry.identifier}.agent.attention.paused-max_agent_duration",
       issue: entry.identifier,
@@ -283,7 +283,7 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   end
 
   defp resolve_pause_alert(entry, target, opts) do
-    emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit.("ticket.#{entry.identifier}.agent.attention.paused-max_agent_duration.resolved",
       issue: entry.identifier,

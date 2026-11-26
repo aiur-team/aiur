@@ -75,6 +75,13 @@ defmodule Aiur.PrMerge.GateTest do
     assert Gate.refusals(pr(%{approved: false, author_id: 3, operator_id: 5}), policy(), opts(%{approve_body: "Reviewed"})) == ["approval at current head required"]
   end
 
+  test "single account accepts the reviewed head as attestation while preserving other gates" do
+    assert Gate.refusals(pr(%{approved: false}), policy(), opts(%{identity_mode: "single_account"})) == []
+    assert Gate.refusals(pr(%{approved: false, head: "moved"}), policy(), opts(%{identity_mode: "single_account"})) == ["head moved: reviewed #{@head}, current moved"]
+    assert Gate.refusals(pr(%{approved: false, changes_requested: true}), policy(), opts(%{identity_mode: "single_account"})) == ["changes requested by reviewer"]
+    assert Gate.refusals(pr(%{approved: false, author_id: 4, operator_id: 4}), policy(), opts(%{identity_mode: "single_account", approve_body: "Reviewed"})) == []
+  end
+
   test "attribution scan covers title and body case insensitively" do
     assert Gate.refusals(pr(%{title: "CLAUDE-SESSION", body: "Generated with [Claude"}), policy(%{attribution_scan: true}), opts()) ==
              ["attribution scan: generated with [claude", "attribution scan: claude-session"]

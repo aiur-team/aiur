@@ -23,6 +23,8 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
 
+  @contract "aiur.ticket_usage"
+  @contract_version 1
   @schema_version 1
   @currency "USD"
   @scan_page 10_000
@@ -134,6 +136,8 @@ defmodule AiurWeb.Api.Usage.TicketUsage do
 
   defp payload(number, {owner, name}, source, scope, snapshot) do
     JSONSafe.normalize(%{
+      contract: @contract,
+      contract_version: @contract_version,
       schema_version: @schema_version,
       ticket: %{owner: owner, repository: name, identifier: number},
       currency: snapshot.currency,

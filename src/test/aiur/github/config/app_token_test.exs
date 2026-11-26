@@ -41,6 +41,8 @@ defmodule Aiur.GitHub.Config.AppTokenTest do
       "GITHUB_APP_PRIVATE_KEY_PATH"
     ]
 
+    @hosted_auth_env_keys ["AIUR_SECRETS_FROM_ENV", "AIUR_STATE_PERSISTENT", "AIUR_GITHUB_ALLOW_PAT"]
+
     defp put_app_credentials do
       {_jwk, pem} = JOSE.JWK.to_pem(JOSE.JWK.generate_key({:rsa, 2048}))
       System.put_env("GITHUB_APP_ID", "12345")
@@ -49,10 +51,10 @@ defmodule Aiur.GitHub.Config.AppTokenTest do
     end
 
     setup do
-      previous = Map.new(@app_env_keys, fn key -> {key, System.get_env(key)} end)
+      previous = Map.new(@app_env_keys ++ @hosted_auth_env_keys, fn key -> {key, System.get_env(key)} end)
 
       on_exit(fn ->
-        Enum.each(@app_env_keys, fn key ->
+        Enum.each(@app_env_keys ++ @hosted_auth_env_keys, fn key ->
           case Map.fetch!(previous, key) do
             nil -> System.delete_env(key)
             value -> System.put_env(key, value)
@@ -70,11 +72,28 @@ defmodule Aiur.GitHub.Config.AppTokenTest do
 
       AppTokenRefresher.cache_token(
         "ghs_installation_token",
-        DateTime.from_iso8601("2026-08-03T12:00:00Z") |> elem(1),
+        DateTime.add(DateTime.utc_now(), 3_600, :second),
         %{"contents" => "write"}
       )
 
       assert Config.token() == "ghs_installation_token"
+    end
+
+    test "regression guard: hosted token resolution keeps App priority when PAT is also set" do
+      put_app_credentials()
+      System.put_env("GITHUB_TOKEN", "personal-access-token")
+      System.put_env("AIUR_SECRETS_FROM_ENV", "1")
+      System.delete_env("AIUR_STATE_PERSISTENT")
+      System.delete_env("AIUR_GITHUB_ALLOW_PAT")
+
+      AppTokenRefresher.cache_token(
+        "ghs_installation_token",
+        DateTime.add(DateTime.utc_now(), 3_600, :second),
+        %{"contents" => "write"}
+      )
+
+      assert Config.token() == "ghs_installation_token"
+      assert Config.token_source() == :github_app
     end
 
     test "token/0 returns nil when App credentials are configured but no token is cached" do
@@ -114,6 +133,48 @@ defmodule Aiur.GitHub.Config.AppTokenTest do
 
       assert Config.resolve_token(request_fun: request_fun) == nil
       assert Config.token() == nil
+    end
+
+    test "hosted auth refuses a PAT unless the PAT opt-in is enabled" do
+      previous = Map.new(@app_env_keys, &{&1, System.get_env(&1)})
+
+      on_exit(fn ->
+        Enum.each(previous, fn
+          {name, nil} -> System.delete_env(name)
+          {name, value} -> System.put_env(name, value)
+        end)
+      end)
+
+      Enum.each(@app_env_keys, &System.delete_env/1)
+      System.put_env("GITHUB_TOKEN", "hosted-pat")
+
+      assert Config.resolve_token(
+               hosted?: true,
+               pat_opted_in?: false,
+               validate_fun: fn _token -> true end,
+               keyring_fun: fn -> flunk("hosted auth must not consult the keyring") end
+             ) == nil
+
+      assert Config.resolve_token(hosted?: true, pat_opted_in?: true, validate_fun: fn _token -> true end, keyring_fun: fn -> flunk("explicit hosted PAT does not need the keyring") end) ==
+               "hosted-pat"
+    end
+
+    test "public token access refuses a hosted PAT without opt-in and allows it with opt-in" do
+      Enum.each(@app_env_keys, &System.delete_env/1)
+      System.put_env("AIUR_SECRETS_FROM_ENV", "1")
+      System.delete_env("AIUR_STATE_PERSISTENT")
+      System.put_env("GITHUB_TOKEN", "hosted-pat")
+      System.delete_env("AIUR_GITHUB_ALLOW_PAT")
+      :persistent_term.erase(@cache_key)
+      :persistent_term.erase(@source_cache_key)
+
+      assert Config.token() == nil
+      assert Config.token_source() == :none
+
+      System.put_env("AIUR_GITHUB_ALLOW_PAT", "1")
+
+      assert Config.token() == "hosted-pat"
+      assert Config.token_source() == :env
     end
 
     test "validate!/0 names the App credentials when configured but the token is unavailable" do

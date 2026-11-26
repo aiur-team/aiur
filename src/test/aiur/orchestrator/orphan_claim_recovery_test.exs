@@ -26,7 +26,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     assert_received {:comment, "3622", body}
     assert body =~ "no live worker or workspace lease"
     assert body =~ "grace period"
-    assert_received {:alert, "ticket.3622.agent.attention.startup_orphan_claim_released", alert}
+    assert_received {:alert, "ticket.3622.agent.attention.orphan_claim_released", alert}
     assert alert[:central] and alert[:durable]
     refute alert[:needs_attention]
     assert Observation.dispatch_candidates(released, [todo]) == [todo]

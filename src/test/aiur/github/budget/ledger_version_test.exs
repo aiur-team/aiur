@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
   alias Aiur.GitHub.BudgetTestSupport
 
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.BudgetBroker
 
   setup do
     BudgetTestSupport.setup()
@@ -20,6 +21,14 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
     broker = Budget.broker_path()
     token = "rate-limit-pacing-token"
     key = Budget.token_key(token)
+
+    opts = [
+      state_dir: root,
+      requests_per_minute: 1,
+      stagger_ms: 0,
+      timeout_ms: 2_000,
+      broker_server: start_supervised!({Aiur.GitHub.BudgetBroker, name: nil})
+    ]
 
     assert {"granted " <> _lease, 0} =
              System.cmd("python3", [
@@ -60,15 +69,23 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
 
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
 
+    # Warm the resident broker against the same ledger with its own deadline.
+    # Budget.snapshot/2 turns broker errors into an empty snapshot, so call the
+    # broker directly and require a successful response before testing pacing.
+    assert {:ok, _snapshot, 0} =
+             BudgetBroker.command(
+               opts[:broker_server],
+               broker,
+               ["snapshot", "--db", db, "--token-key", key],
+               System.monotonic_time(:millisecond) + 5_000
+             )
+
     # One free admission fills the single requests-per-minute slot, so a second
     # admission in the same minute is paced even though the first cost nothing.
     assert {:hold, %{reason: :shared_budget}} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
-               state_dir: root,
-               requests_per_minute: 1,
-               stagger_ms: 0,
-               timeout_ms: 300
+               opts
              )
   end
 

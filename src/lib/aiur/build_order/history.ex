@@ -97,7 +97,7 @@ defmodule Aiur.BuildOrder.History do
     table = table(Keyword.get(opts, :name, __MODULE__))
     :ets.new(table, [:named_table, :set, :protected, read_concurrency: true])
     Process.put(:build_history_table, table)
-    state = initial_state(opts) |> Map.merge(%{table: table, flush_ms: Keyword.get(opts, :flush_ms, 2_000), timer: nil, synced?: false})
+    state = initial_state(opts) |> Map.merge(%{table: table, flush_ms: Keyword.get(opts, :flush_ms, 30_000), timer: nil, synced?: false, encoded_rows: %{}})
     mirror(state, Map.values(state.rows))
     {:ok, schedule(state)}
   end
@@ -246,7 +246,7 @@ defmodule Aiur.BuildOrder.History do
 
   defp do_flush(state) do
     case Persistence.write(state) do
-      :ok ->
+      {:ok, encoded_rows} ->
         failure =
           cond do
             state.status == "rebuilding" -> :history_rebuilding
@@ -254,7 +254,7 @@ defmodule Aiur.BuildOrder.History do
             true -> nil
           end
 
-        state = %{state | dirty?: false, synced?: true, health: %{state.health | last_success_at: DateTime.utc_now(), failure: failure}}
+        state = %{state | dirty?: false, synced?: true, encoded_rows: encoded_rows, health: %{state.health | last_success_at: DateTime.utc_now(), failure: failure}}
         mirror(state, [])
         {:ok, state}
 

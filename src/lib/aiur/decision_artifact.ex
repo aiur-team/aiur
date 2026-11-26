@@ -24,7 +24,7 @@ defmodule Aiur.DecisionArtifact do
   @spec validate(String.t(), [Path.t()]) :: {:ok, t()} | {:error, atom()}
   def validate(value, safe_roots) when is_binary(value) and is_list(safe_roots) do
     case classify(value) do
-      :url -> validate_url(value)
+      :url -> validate_url(value, configured_allowed_hosts())
       :path -> validate_path(value, safe_roots)
       :invalid -> {:error, :artifact_invalid}
     end
@@ -69,13 +69,15 @@ defmodule Aiur.DecisionArtifact do
     end)
   end
 
-  defp validate_url(value) do
+  @doc "Validates `value` as an HTTPS URL without credentials whose host is in `allowed_hosts`."
+  @spec validate_url(String.t(), [String.t()]) :: {:ok, t()} | {:error, atom()}
+  def validate_url(value, allowed_hosts) when is_binary(value) and is_list(allowed_hosts) do
     uri = URI.parse(value)
 
     cond do
       uri.scheme != "https" -> {:error, :artifact_url_insecure_scheme}
       uri.userinfo not in [nil, ""] -> {:error, :artifact_url_has_credentials}
-      not allowed_host?(uri.host) -> {:error, :artifact_url_host_not_allowed}
+      not allowed_host?(uri.host, allowed_hosts) -> {:error, :artifact_url_host_not_allowed}
       encoded_credential?(value) -> {:error, :artifact_url_has_credentials}
       true -> {:ok, redacted_artifact(:url, value)}
     end
@@ -92,12 +94,12 @@ defmodule Aiur.DecisionArtifact do
     %{kind: kind, value: SecretRedactor.redact(value)}
   end
 
-  defp allowed_host?(nil), do: false
+  defp allowed_host?(nil, _allowed_hosts), do: false
 
-  defp allowed_host?(host) when is_binary(host) do
+  defp allowed_host?(host, allowed_hosts) when is_binary(host) do
     downcased = String.downcase(host)
 
-    Enum.any?(configured_allowed_hosts(), fn allowed ->
+    Enum.any?(allowed_hosts, fn allowed ->
       downcased == allowed or String.ends_with?(downcased, "." <> allowed)
     end)
   end

@@ -29,13 +29,43 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
         state,
         issue,
         "transition_ci_review",
-        fn -> TicketTransition.write_state(to_string(issue.id || issue.identifier), @human_review_state, Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)) end,
+        fn ->
+          TicketTransition.write_state(
+            to_string(issue.id || issue.identifier),
+            @human_review_state,
+            Transition.expected_state_opts(issue)
+            |> Keyword.put(:writer, :ci_lifecycle)
+            |> Keyword.put(:reason_modifiers, [])
+          )
+        end,
         fn current, response -> apply_transition(current, response, {issue, result}) end
       )
     end
   end
 
-  defp apply_transition(current, :ok, {issue, result}) do
+  @doc false
+  @spec transition_stalled(State.t(), struct(), map(), (-> term())) :: State.t()
+  def transition_stalled(state, issue, result, write_state) do
+    case write_state.() do
+      :ok ->
+        apply_transition_success(state, issue, result)
+
+      {:error, reason} ->
+        Logger.warning("Stalled worker CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  @doc false
+  @spec apply_transition(State.t(), term(), {struct(), map()}) :: State.t()
+  def apply_transition(current, :ok, {issue, result}), do: apply_transition_success(current, issue, result)
+
+  def apply_transition(current, {:error, reason}, {issue, _result}) do
+    Logger.warning("CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+    current
+  end
+
+  defp apply_transition_success(current, issue, result) do
     review_issue = %{issue | state: @human_review_state}
 
     current
@@ -43,10 +73,5 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
     |> Reconciler.refresh_running_issue_state(review_issue)
     |> TerminalEvent.ensure_ci_terminal_subscription(issue)
     |> TerminalEvent.publish_ci_terminal_event(issue, result, :passed)
-  end
-
-  defp apply_transition(current, {:error, reason}, {issue, _result}) do
-    Logger.warning("CI review handoff skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-    current
   end
 end

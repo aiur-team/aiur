@@ -76,5 +76,6 @@
     "TMP",
     "TMPDIR"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

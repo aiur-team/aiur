@@ -1,0 +1,31 @@
+{
+  "pilot_ticket": 6353,
+  "population": 802,
+  "unresolved_total": 2101,
+  "bodies_held": 33,
+  "bodies_of": 802,
+  "sample_size": 100,
+  "sample_with_pr": 13,
+  "proposals_with_epic": 95,
+  "proposals_with_feature": 11,
+  "unsorted": 5,
+  "feature_writes_in_sample": 11,
+  "epic_writes_in_sample": 95,
+  "tokens": {
+    "input": 411256,
+    "cached_input": 345600,
+    "cache_creation_input": 0,
+    "output": 3266,
+    "reasoning_output": 241
+  },
+  "github": {
+    "core": 2,
+    "graphql": 0,
+    "search": 0
+  },
+  "ceilings_per_hour": [
+    60,
+    125
+  ],
+  "recommended_tickets_per_run": 100
+}

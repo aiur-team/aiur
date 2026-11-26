@@ -35,6 +35,6 @@ defmodule Aiur.OperatorAnswerCLIDecisionStoreTest do
              DecisionStore.get(decision.decision_id, store)
 
     assert answer.selected_option_id == "approve"
-    assert answer.actor == %{kind: :operator, id: "cli:operator-42"}
+    assert answer.actor == %{kind: :operator, id: "cli:operator-42", source: :rpc}
   end
 end

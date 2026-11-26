@@ -314,4 +314,4 @@ if kill -0 "$(cat "$tmp/hup-grandchild.pid")" 2>/dev/null; then
   exit 1
 fi
 
-echo 'test-run-pre-handoff-code-checks: selected test and Dialyzer failures refuse handoff'
+echo 'test-run-pre-handoff-code-checks: selected checks refuse handoff on failure; CI full-CI skips the serial fallback'

@@ -6,7 +6,8 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogReviewTest do
     LandingReconciliation,
     MergeGroupFailureProcessor,
     MergeQueueFailureEvidence,
-    MergeQueueWatchdog
+    MergeQueueWatchdog,
+    MergeQueueWatchdogEvidence
   }
 
   test "landing reconciliation passes prepared flake evidence to the watchdog" do
@@ -87,6 +88,42 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogReviewTest do
              "main",
              DateTime.from_iso8601(earlier) |> elem(1) |> DateTime.to_unix(:millisecond)
            ) == base |> DateTime.add(10, :minute) |> DateTime.to_unix(:millisecond)
+  end
+
+  test "cancelled merge-group runs do not start the failure-count clock" do
+    now = DateTime.utc_now()
+    earlier = DateTime.add(now, -60, :second)
+
+    cancelled = %{
+      "id" => 3,
+      "event" => "merge_group",
+      "conclusion" => "cancelled",
+      "head_branch" => "gh-readonly-queue/main/pr-48-example",
+      "created_at" => DateTime.to_iso8601(earlier)
+    }
+
+    failed = failed_run(4, DateTime.to_iso8601(now), 48, "example")
+
+    assert MergeQueueFailureEvidence.failed_group_trigger_since_ms(
+             48,
+             [cancelled, failed],
+             "main",
+             DateTime.to_unix(earlier, :millisecond) - 1_000
+           ) == nil
+  end
+
+  test "watchdog ignores cancelled group runs without classifying them" do
+    observation = observation(48, "UNMERGEABLE", "UNKNOWN")
+    run = %{failed_run(5, iso(DateTime.utc_now() |> DateTime.to_unix(:millisecond)), 48) | "conclusion" => "cancelled"}
+
+    assert {:skip, :no_completed_failed_merge_group} =
+             MergeQueueWatchdogEvidence.classify(observation,
+               completed_merge_group_runs: [run],
+               base_branch: "main",
+               unmergeable_since_ms: 0,
+               journal_path: temp_journal(),
+               jobs_fun: fn _, _ -> flunk("cancelled runs are not classified") end
+             )
   end
 
   test "keeps the watchdog timer through AWAITING_CHECKS and repairs when the head is unmergeable again" do

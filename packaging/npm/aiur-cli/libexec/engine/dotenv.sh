@@ -14,6 +14,9 @@
 GITHUB_CREDENTIAL_ENV_NAMES="GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY"
 
 load_dotenv() {
+  case "${AIUR_SECRETS_FROM_ENV:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+  esac
   local global_skip=""
   if dotenv_file_sets_github_credential ".env"; then
     global_skip="github_credentials"

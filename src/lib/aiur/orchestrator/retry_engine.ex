@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.RetryEngine.AgentDown
@@ -67,6 +68,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       | completed: MapSet.put(state.completed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
@@ -79,6 +81,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   defdelegate handle_agent_down(state, ref, reason), to: AgentDown
+
+  @spec handle_agent_down(State.t(), reference(), term(), keyword()) :: {:noreply, State.t()}
+  defdelegate handle_agent_down(state, ref, reason, opts), to: AgentDown
 
   @spec prior_work_for_retry?(map(), boolean()) :: boolean()
   defdelegate prior_work_for_retry?(running_entry, continuation_enabled? \\ Config.agent_prior_work_continuation?()), to: AgentDown
@@ -145,9 +150,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec fetch_retry_issue(
           [term()],
           String.t(),
-          ([String.t()] -> {:ok, [term()]} | {:error, term()})
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          boolean()
         ) :: {:ok, Issue.t() | nil} | {:error, term()}
-  defdelegate fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun), to: Lookup
+  defdelegate fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun, prefer_fresh? \\ false), to: Lookup
 
   @doc false
   @spec handle_retry_issue_lookup(

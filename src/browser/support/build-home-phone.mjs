@@ -1,17 +1,17 @@
 // Phone cells and probes shared by the Chromium phone spec and the hand-run WebKit spec (MP-E8-C12-T04).
 import { test } from '@playwright/test'
-import { FIXTURE_META, openProduct, parityContextOptions } from './design-parity.mjs'
+import { BUILD_FIXTURE_META, openProduct, productContextOptions } from './build-home-product.mjs'
 
 export const PHONE_CELLS = {
   p360: { width: 360, height: 780 },
   p390: { width: 390, height: 844 },
   p430: { width: 430, height: 932 },
 }
-export const PHONE_DATASETS = FIXTURE_META.datasets
+export const PHONE_DATASETS = BUILD_FIXTURE_META.datasets
 export const phoneCell = (name, dataset = 'live') => ({ viewport: PHONE_CELLS[name], deviceScaleFactor: 3, isMobile: true, hasTouch: true, theme: 'dark', palette: 'gruvbox', dataset })
 
 export async function openPhoneProduct(browser, cell, opts = {}) {
-  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
+  const context = await browser.newContext({ ...productContextOptions(cell), baseURL: test.info().project.use.baseURL })
   const page = await context.newPage()
   try { await openProduct(page, cell, opts) } catch (error) { await context.close(); throw error }
   return { page, close: () => context.close() }

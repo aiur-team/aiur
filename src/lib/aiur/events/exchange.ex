@@ -67,7 +67,7 @@ defmodule Aiur.Events.Exchange do
   subscriber dies.
   """
   @spec subscribe(String.t(), GenServer.server()) :: :ok
-  def subscribe(pattern, server \\ __MODULE__) when is_binary(pattern) do
+  def subscribe(pattern, server \\ Aiur.Events.exchange_server()) when is_binary(pattern) do
     validate_pattern!(pattern)
     GenServer.call(server, {:subscribe, pattern, self()})
   end
@@ -77,7 +77,7 @@ defmodule Aiur.Events.Exchange do
   doesn't exist.
   """
   @spec unsubscribe(String.t(), GenServer.server()) :: :ok
-  def unsubscribe(pattern, server \\ __MODULE__) when is_binary(pattern) do
+  def unsubscribe(pattern, server \\ Aiur.Events.exchange_server()) when is_binary(pattern) do
     GenServer.call(server, {:unsubscribe, pattern, self()})
   end
 
@@ -90,7 +90,7 @@ defmodule Aiur.Events.Exchange do
   public table directly without routing delivery through the GenServer mailbox.
   """
   @spec publish(String.t(), event(), GenServer.server()) :: non_neg_integer()
-  def publish(topic, event, server \\ __MODULE__) when is_binary(topic) do
+  def publish(topic, event, server \\ Aiur.Events.exchange_server()) when is_binary(topic) do
     table = table_for(server)
 
     :ets.foldl(
@@ -112,7 +112,7 @@ defmodule Aiur.Events.Exchange do
   tests and observability.
   """
   @spec bindings_for(pid(), GenServer.server()) :: [String.t()]
-  def bindings_for(pid, server \\ __MODULE__) when is_pid(pid) do
+  def bindings_for(pid, server \\ Aiur.Events.exchange_server()) when is_pid(pid) do
     server
     |> table_for()
     |> :ets.match({:"$1", pid, :_})

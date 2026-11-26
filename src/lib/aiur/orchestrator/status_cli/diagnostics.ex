@@ -16,10 +16,13 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   def print_global_pause_banner(opts, timeout_ms) do
     result =
       Keyword.get_lazy(opts, :global_pause_status, fn ->
-        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+        Orchestrator.global_pause_status(Aiur.Project.whereis(Aiur.Orchestrator), timeout_ms)
       end)
 
     case result do
+      {:ok, %{pause_scope: :fleet}} ->
+        IO.puts("paused (fleet) — no agents will be provisioned (run `aiur resume --all-gateways` to lift)")
+
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance =
           [format_pause_source(source), format_pause_time(paused_at)]
@@ -29,6 +32,8 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         suffix = if provenance == "", do: "", else: " (#{provenance})"
 
         IO.puts("GLOBALLY PAUSED#{suffix} — no agents will be provisioned (run `aiur resume` to lift)")
+        if match?({:ok, %{pause_scope: :both}}, result), do: IO.puts("paused (fleet) — also held by the fleet pause")
+        :ok
 
       {:ok, _} ->
         :ok
@@ -272,7 +277,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
     if Config.prewarm_enabled?() do
       case prewarm_status_safe() do
         {phase, _base} when phase in @prewarm_warming_phases ->
-          IO.puts("PREWARM prewarm: warming phase=#{phase} — dispatch held while the base build completes")
+          IO.puts("PREWARM prewarm: warming phase=#{phase}#{prewarm_phase_age()} — dispatch held while the base build completes")
 
         {{:error, reason}, _base} ->
           IO.puts("PREWARM prewarm: unavailable reason=#{inspect(reason)} — dispatching via cold clone")
@@ -281,6 +286,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
           :ok
       end
     end
+  end
+
+  # A long phase is the stall signal (#8100); an unreadable age prints nothing.
+  defp prewarm_phase_age do
+    case div(RepoBase.phase_age_ms(), 1000) do
+      seconds when seconds < 60 -> " for #{seconds}s"
+      seconds -> " for #{div(seconds, 60)}m"
+    end
+  rescue
+    _ -> ""
+  catch
+    :exit, _ -> ""
   end
 
   defp prewarm_status_safe do

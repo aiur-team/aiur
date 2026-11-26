@@ -174,6 +174,24 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
     assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
   end
 
+  test "running issue CI projection includes the poll observation time" do
+    identifier = "MT-RUNNING-CI"
+
+    state = %State{
+      running: %{"issue-ci" => running_entry("issue-ci", identifier, :working)},
+      ci_lifecycle: %{
+        %State{}.ci_lifecycle
+        | poll_cache: %{identifier => %{decision: :passed, pr_number: 1601, head_sha: "head-sha"}},
+          ci_observed_at_ms: %{identifier => 1234}
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert [%{identifier: ^identifier, ci_result: %{decision: :passed, head_sha: "head-sha", observed_at_ms: 1234}}] =
+             snapshot.running
+  end
+
   test "capacity hold is projected with the measured limiting signal and threshold" do
     held_at = System.monotonic_time(:millisecond) - 5_000
 

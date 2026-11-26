@@ -25,7 +25,7 @@ full ||= !gated && patterns.any? do |glob|
   paths.any? { |path| Regexp.new("\\A#{regex}\\z", Regexp::MULTILINE).match?(path) }
 end
 puts "full_ci=#{full}"
-browser_smoke = !gated && paths.any? do |path|
+browser_smoke = paths.any? do |path|
   browser_paths.any? do |glob|
     regex = Regexp.escape(glob).gsub('\\*\\*/', '(?:.*/)?').gsub('\\*\\*', '.*').gsub('\\*', '[^/]*')
     Regexp.new("\\A#{regex}\\z").match?(path)

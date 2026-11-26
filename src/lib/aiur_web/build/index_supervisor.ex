@@ -12,5 +12,14 @@ defmodule AiurWeb.Build.IndexSupervisor do
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts)
 
   @impl true
-  def init(opts), do: Supervisor.init([{Index, opts}], strategy: :one_for_one, max_restarts: 10, max_seconds: 60)
+  def init(opts) do
+    # Inside a project tree the index registers under that project, so its reads resolve the project's servers.
+    index_opts = opts |> Keyword.put_new(:idle_without_subscribers?, true) |> Keyword.put_new(:name, Aiur.Project.name(Index))
+
+    Supervisor.init([{Index, index_opts}],
+      strategy: :one_for_one,
+      max_restarts: 10,
+      max_seconds: 60
+    )
+  end
 end

@@ -284,8 +284,11 @@ defmodule Aiur.DecisionRevisionStoreFollowUpTest do
 
     assert_receive {:dispatch_scheduled, ^restarted, {:reconcile_dispatches, [_fence]} = boot_reconciliation, 0}, 2_000
 
-    assert {:ok, %{status: :duplicate, action: ^second}} =
+    assert {:ok, %{status: :duplicate, action: duplicate}} =
              DecisionStore.revise(current.decision_id, second_payload, [actor: @actor], restarted)
+
+    assert duplicate.action_id == second.action_id
+    assert duplicate.answer.content_hash == second.answer.content_hash
 
     assert_receive {:dispatch_scheduled, ^restarted, replay_dispatch, 0}, 2_000
     send(restarted, replay_dispatch)

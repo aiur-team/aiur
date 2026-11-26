@@ -4,15 +4,37 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   test "a broker that never answers is terminated with the governed call", context do
     broker = Path.join(context.workspace, "never-answers.py")
     pid_file = Path.join(context.workspace, "broker.pid")
+    broker_pgid_file = Path.join(context.workspace, "broker.pgid")
+    supervisor_pgid_file = Path.join(context.workspace, "supervisor.pgid")
     child_pid_file = Path.join(context.workspace, "broker-child.pid")
+    child_pgid_file = Path.join(context.workspace, "broker-child.pgid")
 
     File.write!(broker, """
     import os, subprocess, time
     child = subprocess.Popen(["/bin/sh", "-c", "trap '' TERM; exec sleep 5"])
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_CHILD_PID_FILE"], "w", encoding="utf-8") as pid_file:
         pid_file.write(str(child.pid))
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_CHILD_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(os.getpgid(child.pid)))
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_PID_FILE"], "w", encoding="utf-8") as pid_file:
         pid_file.write(str(os.getpid()))
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(os.getpgrp()))
+    supervisor_pid = os.getppid()
+    supervisor_pgid = None
+    while supervisor_pid > 1:
+        with open(f"/proc/{supervisor_pid}/stat", encoding="ascii") as parent_stat:
+            fields = parent_stat.read().rsplit(")", 1)[1].split()
+        with open(f"/proc/{supervisor_pid}/cmdline", "rb") as parent_cmdline:
+            command_line = parent_cmdline.read()
+        if b"@aiur-deadline-body@" in command_line:
+            supervisor_pgid = int(fields[2])
+            break
+        supervisor_pid = int(fields[1])
+    if supervisor_pgid is None:
+        raise RuntimeError("deadline supervisor was not found in broker ancestors")
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_SUPERVISOR_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(supervisor_pgid))
     time.sleep(5)
     """)
 
@@ -27,7 +49,10 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
                AIUR_GITHUB_BUDGET_KEY: String.duplicate("a", 64),
                AIUR_GITHUB_BUDGET_BROKER: broker,
                AIUR_GH_NEVER_ANSWERS_CHILD_PID_FILE: child_pid_file,
-               AIUR_GH_NEVER_ANSWERS_PID_FILE: pid_file
+               AIUR_GH_NEVER_ANSWERS_CHILD_PGID_FILE: child_pgid_file,
+               AIUR_GH_NEVER_ANSWERS_PID_FILE: pid_file,
+               AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE: broker_pgid_file,
+               AIUR_GH_NEVER_ANSWERS_SUPERVISOR_PGID_FILE: supervisor_pgid_file
              )
 
     assert output =~ "governed gh call exceeded 1s deadline; terminated process group"
@@ -36,7 +61,32 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     broker_pid = pid_file |> File.read!() |> String.to_integer()
     assert process_gone?(broker_pid)
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
+    broker_pgid = broker_pgid_file |> File.read!() |> String.to_integer()
+    supervisor_pgid = supervisor_pgid_file |> File.read!() |> String.to_integer()
+    child_pgid = child_pgid_file |> File.read!() |> String.to_integer()
+    assert broker_pgid == supervisor_pgid
+    assert child_pgid == broker_pgid
+    wait_until(fn -> process_gone?(child_pid) end)
     assert process_gone?(child_pid)
+  end
+
+  test "repeated broker wait responses fail at the admission bound before gh runs", context do
+    broker = Path.join(context.workspace, "always-waits.py")
+    File.write!(broker, "print('wait 1000')\n")
+    File.chmod!(broker, 0o700)
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {output, 75} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GITHUB_BUDGET_ROOT: Path.join(context.state_path, "busy-budget"),
+               AIUR_GITHUB_BUDGET_KEY: String.duplicate("b", 64),
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_ADMISSION_WAIT_MS: "1000"
+             )
+
+    assert output =~ "GitHub budget broker busy; admission wait exceeded 1000ms"
+    assert System.monotonic_time(:millisecond) - started_at < 4_000
+    refute File.exists?(context.calls)
   end
 
   test "the deadline also kills descendants that start their own session", context do
@@ -179,12 +229,30 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   end
 
   defp process_gone?(pid) do
+    case process_identity(pid) do
+      {:ok, "Z", _start_time} -> true
+      {:ok, _state, _start_time} -> false
+      :gone -> true
+    end
+  end
+
+  defp process_identity(pid) do
     case File.read("/proc/#{pid}/stat") do
       {:ok, stat} ->
-        stat |> String.split() |> Enum.at(2) == "Z"
+        case String.split(stat, ")", parts: 2) do
+          [_command, fields] ->
+            [state | rest] = String.split(fields)
+            {:ok, state, Enum.at(rest, 18)}
+
+          _malformed ->
+            :gone
+        end
 
       {:error, :enoent} ->
-        true
+        :gone
+
+      {:error, _reason} ->
+        :gone
     end
   end
 end

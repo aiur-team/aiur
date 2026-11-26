@@ -17,11 +17,12 @@ def check():
     manifest = read_manifest(root)
     problems, _, owners = checker.ownership(manifest, files)
     relevant = [(p, message) for p, message in problems if not p.startswith('src/priv/')
-                or p == 'src/priv/github_budget.py' or p.startswith('src/priv/github_guard/gh/')]
+                or p.startswith('src/priv/github_budget/') or p.startswith('src/priv/github_guard/gh/')]
     assert not relevant, relevant
     github_files = [p for p in files if p.startswith('src/lib/aiur/github/')]
     assert github_files and all(p in owners for p in github_files)
-    assert owners['src/priv/github_budget.py'] == 'github-access'
+    broker_parts = [p for p in files if p.startswith('src/priv/github_budget/')]
+    assert broker_parts and all(owners[p] == 'github-access' for p in broker_parts)
     guard_files = [p for p in files if p.startswith('src/priv/github_guard/gh/')]
     assert guard_files and all(owners[p] == 'github-access' for p in guard_files)
     assert owners['src/lib/aiur/github/transport.ex'] == 'github-access'

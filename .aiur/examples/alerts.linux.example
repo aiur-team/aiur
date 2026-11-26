@@ -62,6 +62,10 @@ alerts:
     message: Fleet dispatch capacity is constrained
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.conversation.subject_index.unreadable":
+    message: Conversation index skipped unreadable subject files
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "system.dispatch.capacity_starved.resolved":
     message: Fleet dispatch capacity recovered
     sound:

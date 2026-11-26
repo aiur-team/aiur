@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
 
   alias Aiur.AgentPubSub
   alias Aiur.GitHub.DispatchAuthorization
+  alias Aiur.GitHub.DispatchAuthorization.MissingTriggerLabel
 
   setup do
     DispatchAuthorization.clear_cache()
@@ -41,6 +42,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     denied =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
         allowed_users: ["trusted"],
+        label_prefix: "agent",
         token: "test-token",
         request_fun: fn _request -> {:error, :timeout} end
       )
@@ -188,14 +190,141 @@ defmodule Aiur.GitHub.DispatchAuthorization.FailClosedTest do
     assert denied.dispatch_authorization == :deferred
   end
 
-  test "fails closed before timeline lookup when the issue has no trigger label" do
+  test "repeated empty rechecks defer dispatch until a later poll sees the state label" do
+    :ok = AgentPubSub.subscribe_agent("42")
+    counter = start_supervised!({Agent, fn -> :empty end})
+
+    request_fun = fn
+      %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+        case Agent.get(counter, & &1) do
+          :empty -> {:ok, %{status: 200, body: %{"number" => 42, "labels" => []}}}
+          :labeled -> {:ok, %{status: 200, body: %{"number" => 42, "labels" => [%{"name" => "agent:todo"}]}}}
+        end
+
+      %{url: url} ->
+        assert url =~ "/issues/42/timeline"
+        {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+    end
+
+    for _ <- 1..3 do
+      deferred = DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent", allowed_users: ["trusted"], label_prefix: "agent", token: "test-token", request_fun: request_fun)
+
+      refute deferred.dispatch_authorized?
+      assert deferred.dispatch_authorization == :deferred
+    end
+
+    Agent.update(counter, fn _ -> :labeled end)
+
+    recovered = DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent", allowed_users: ["trusted"], label_prefix: "agent", token: "test-token", request_fun: request_fun)
+
+    assert recovered.dispatch_authorized?
+    assert recovered.dispatch_authorization == :authorized
+  end
+
+  test "missing-label recheck timeout defers with the fetch cause preserved" do
+    issue = %{issue() | state: nil}
+    calls = start_supervised!({Agent, fn -> 0 end})
+    :ok = AgentPubSub.subscribe_agent("42")
+    assert MissingTriggerLabel.deferred_reason({:fetch_failed, :timeout}) == {:missing_trigger_label_fetch, :timeout}
+
+    log =
+      capture_log(fn ->
+        deferred =
+          DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+            allowed_users: ["trusted"],
+            label_prefix: "agent",
+            token: "test-token",
+            request_fun: fn _request ->
+              Agent.update(calls, &(&1 + 1))
+              {:error, :timeout}
+            end
+          )
+
+        refute deferred.dispatch_authorized?
+        assert deferred.dispatch_authorization == :deferred
+      end)
+
+    assert log =~ "reason={:missing_trigger_label_fetch, {:github, :timeout,"
+    assert Agent.get(calls, & &1) == 1
+    refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 50
+  end
+
+  # Future regression guard: recovered labels must keep using the trusted-applier check.
+  test "rechecked label applied by an outsider is denied after provenance verification" do
     denied =
       DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
         allowed_users: ["trusted"],
+        label_prefix: "agent",
         token: "test-token",
-        request_fun: fn _ -> flunk("unlabeled issue must not query the timeline") end
+        request_fun: fn
+          %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+            {:ok, %{status: 200, body: %{"number" => 42, "labels" => [%{"name" => "agent:todo"}]}}}
+
+          %{url: url} ->
+            assert url =~ "/issues/42/timeline"
+            {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]}}
+        end
       )
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
+  end
+
+  test "missing-state alert tells the operator how to restore dispatch" do
+    {message, detail} = MissingTriggerLabel.alert_message(:missing_trigger_label)
+
+    assert message =~ "issue had no agent:* state label at dispatch time"
+    assert message =~ "aiur --todo <n>"
+    assert message =~ "next poll"
+    assert detail =~ "Re-apply the state label"
+  end
+
+  test "freshly re-fetches a missing label and defers when the issue remains empty" do
+    :ok = AgentPubSub.subscribe_agent("42")
+
+    denied =
+      DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        label_prefix: "agent",
+        token: "test-token",
+        request_fun: fn
+          %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+            {:ok, %{status: 200, body: %{"number" => 42, "labels" => []}}}
+
+          %{url: url} ->
+            flunk("unlabeled issue must not query timeline: #{url}")
+        end
+      )
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :deferred
+    assert_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", message: message}}, 500
+    assert message =~ "aiur --todo <n>"
+  end
+
+  test "freshly re-fetches a missing trigger label once and authorizes the recovered issue" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn
+      %{url: "https://api.github.com/repos/owner/repo/issues/42"} ->
+        {:ok, %{status: 200, body: %{"number" => 42, "labels" => [%{"name" => "agent:todo"}]}}}
+
+      %{url: url} ->
+        assert url =~ "/issues/42/timeline"
+        Agent.update(counter, &(&1 + 1))
+        {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+    end
+
+    authorized =
+      DispatchAuthorization.authorize(%{issue() | state: nil}, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        label_prefix: "agent",
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
+    assert Agent.get(counter, & &1) == 1
   end
 end

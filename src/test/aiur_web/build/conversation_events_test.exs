@@ -7,19 +7,79 @@ defmodule AiurWeb.Build.ConversationEventsTest do
   alias AiurWeb.Build.ConversationEvents, as: Events
 
   @ts "2026-10-07T21:13:20.000000Z"
-  @at 1_791_407_600_000
+  @at @ts |> DateTime.from_iso8601() |> elem(1) |> DateTime.to_unix(:millisecond)
   @repo "aiur-team/aiur"
 
   defp line(id, suffix, summary \\ "", opts \\ []),
-    do: %{kind: "self", id: id, topic: Keyword.get(opts, :topic, "ticket.12.agent." <> suffix), ts: Keyword.get(opts, :ts, @ts), summary: summary}
+    do: %{
+      kind: "self",
+      id: id,
+      topic: Keyword.get(opts, :topic, topic(suffix)),
+      ts: Keyword.get(opts, :ts, @ts),
+      summary: summary,
+      percent: Keyword.get(opts, :percent),
+      review_state: Keyword.get(opts, :review_state)
+    }
+
+  defp topic("agent." <> _ = suffix), do: "ticket.12." <> suffix
+  defp topic(suffix) when suffix in ["pr.opened", "pr.ready_for_review", "pr.review_comment", "pr.merged", "branch.push"], do: "ticket.12." <> suffix
+  defp topic(suffix), do: "ticket.12.agent." <> suffix
 
   defp facts(overrides \\ %{}), do: Map.merge(%{deps: %{}, merges: [], decisions: {:ok, []}, pause: nil, by_you_at: nil, repository: @repo}, overrides)
   defp row(overrides), do: Map.merge(%{"id" => "12", "num" => 12, "title" => "Ticket twelve", "deps" => [], "agent" => %{"state" => "active"}}, overrides)
   defp tail(row, facts \\ facts()), do: Events.current_facts(row, facts).tail
 
   describe "log rows" do
-    test "E1 the eight mapped topics map per table and unmapped agent topics give nothing" do
-      mapped = ~w(progress progress.checkin progress.phase phase.review.start phase.review.end blocked unblocked pause.request)
+    test "breakpoints are chronological, use first reports at each progress mark, and retain every review and pause" do
+      rows = [
+        line(1, "phase.work.start", "started", ts: "2026-10-07T21:13:20Z"),
+        line(2, "progress", "", percent: 20, ts: "2026-10-07T21:13:21Z"),
+        line(3, "progress", "first quarter", percent: 30, ts: "2026-10-07T21:13:22Z"),
+        line(4, "progress", "half", percent: 50, ts: "2026-10-07T21:13:23Z"),
+        line(5, "progress", "nearly", percent: 74, ts: "2026-10-07T21:13:24Z"),
+        line(6, "progress", "three quarters", percent: 80, ts: "2026-10-07T21:13:25Z"),
+        line(7, "phase.work.end", "implementation complete", ts: "2026-10-07T21:13:26Z"),
+        line(8, "pr.opened", "PR #8", ts: "2026-10-07T21:13:27Z"),
+        line(9, "pr.review_comment", "", review_state: "APPROVED", ts: "2026-10-07T21:13:28Z"),
+        line(10, "pr.review_comment", "", review_state: "CHANGES_REQUESTED", ts: "2026-10-07T21:13:29Z"),
+        line(11, "agent.paused", "waiting for capacity", ts: "2026-10-07T21:13:30Z"),
+        line(12, "agent.unpaused", "capacity returned", ts: "2026-10-07T21:13:31Z"),
+        line(13, "agent.unblocked", "dependency merged", ts: "2026-10-07T21:13:32Z"),
+        line(14, "pr.merged", "merged", ts: "2026-10-07T21:13:33Z")
+      ]
+
+      assert Enum.map(Events.breakpoints(rows, "12", %{}), &{&1.kind, &1.label, &1.at, &1.detail, &1.source_id}) == [
+               {:implementation_started, "Implementation started", @at, "started", 1},
+               {:progress_25, "Progress 25%", @at + 2_000, "first quarter", 3},
+               {:progress_50, "Progress 50%", @at + 3_000, "half", 4},
+               {:progress_75, "Progress 75%", @at + 5_000, "three quarters", 6},
+               {:implementation_finished, "Implementation finished", @at + 6_000, "implementation complete", 7},
+               {:pr_opened, "PR opened", @at + 7_000, "PR #8", 8},
+               {:pr_reviewed, "PR reviewed · approved", @at + 8_000, "", 9},
+               {:pr_reviewed, "PR reviewed · changes requested", @at + 9_000, "", 10},
+               {:pause, "Paused · waiting for capacity", @at + 10_000, "waiting for capacity", 11},
+               {:resumed, "Resumed", @at + 11_000, "capacity returned", 12},
+               {:resumed, "Resumed", @at + 12_000, "dependency merged", 13},
+               {:pr_merged, "PR merged", @at + 13_000, "merged", 14}
+             ]
+    end
+
+    test "missing work start uses the first persisted file edit as its breakpoint" do
+      transcript = [
+        %{id: "tool:read", k: "tool", name: "Read", arg: "lib/a.ex", at: @at},
+        %{id: "diff:1", k: "diff", file: "lib/a.ex", at: @at + 1_000}
+      ]
+
+      edit_at = @at + 1_000
+
+      assert [%{kind: :implementation_started, label: "Implementation started", at: ^edit_at, detail: "lib/a.ex", source_id: "diff:1"}] =
+               Events.breakpoints([], "12", %{}, transcript)
+    end
+
+    test "supported ticket topics map to event rows and unsupported topics are omitted" do
+      mapped =
+        ~w(agent.progress agent.progress.checkin agent.progress.phase agent.phase.review.start agent.phase.review.end agent.blocked agent.unblocked agent.pause.request pr.opened pr.ready_for_review branch.push)
+
       unmapped = ~w(phase.work.end ci.unrelated-failure attention.resolved)
       rows = Enum.with_index(mapped ++ unmapped, &line(&2 + 1, &1))
 
@@ -31,7 +91,10 @@ defmodule AiurWeb.Build.ConversationEventsTest do
                {"review", "Review complete"},
                {"dep", "Blocked"},
                {"dep", "Unblocked"},
-               {"you", "Agent asked to pause"}
+               {"you", "Agent asked to pause"},
+               {"pr", "Opened PR"},
+               {"pr", "PR ready for review"},
+               {"commit", "Commit pushed"}
              ]
     end
 
@@ -107,9 +170,43 @@ defmodule AiurWeb.Build.ConversationEventsTest do
       assert tail(row(%{}), facts(%{merges: [merge]})) == []
     end
 
+    test "atom-keyed live ticket rows show dependencies and PR without matching an unowned merge" do
+      row = %{id: "12", num: 12, title: "Ticket twelve", deps: ["1"], pr: %{num: 8, state: "open"}, status: "running", agent: %{state: "active"}}
+      dep = %{"id" => "1", "num" => 1, "title" => "Dependency", "status" => "open"}
+      orphan_merge = %{ticket_id: nil, repository: @repo, number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+
+      current = Events.current_facts(row, facts(%{deps: %{"1" => dep}, merges: [orphan_merge]}))
+
+      assert [%{label: "Dependency #1 open", go: "1"}] = current.deps
+      assert [%{ev: "pr", label: "Opened PR #8"}] = current.tail
+      refute Enum.any?(current.tail, &(&1.ev == "merge"))
+    end
+
+    test "a missing ticket id never matches a merge with no ticket id" do
+      row = %{pr: nil, status: "running", agent: %{state: "active"}}
+      orphan_merge = %{ticket_id: nil, repository: @repo, number: 7193, merged_at: ~U[2026-10-07 21:13:20Z]}
+
+      assert tail(row, facts(%{merges: [orphan_merge]})) == []
+    end
+
+    test "atom-keyed failed ticket state and closed PR render the failure rows" do
+      row = %{id: "12", num: 12, title: "Ticket twelve", pr: %{num: 8, state: "closed"}, status: "failed", agent: %{state: "error"}}
+
+      assert [%{ev: "fail", label: "PR #8 closed"}, %{ev: "fail", label: "Error"}] = tail(row)
+    end
+
     test "E22 an open PR reads like the design and has no invented time; a failed closed PR is a fail row" do
       assert [%{ev: "pr", label: "Opened PR #8", sub: "Ticket twelve", at: nil}] = tail(row(%{"pr" => %{"num" => 8, "state" => "open"}}))
       assert [%{ev: "fail", label: "PR #8 closed", id: "ev:fail:pr:8"}] = tail(row(%{"pr" => %{"num" => 8, "state" => "closed"}, "status" => "failed"}))
+    end
+
+    test "a logged PR-open event suppresses its duplicate current-fact row" do
+      logged = Events.from_log([line(7, "pr.opened", "PR #8")], "12", %{})
+      row = row(%{"pr" => %{"num" => 8, "state" => "open"}})
+      current = Events.current_facts(row, facts(%{logged_events: logged}))
+
+      opened = Enum.filter(logged ++ current.tail, &(&1.ev == "pr"))
+      assert [%{id: "ev:log:7", label: "Opened PR"}] = opened
     end
 
     test "E12 state rows per agent state" do

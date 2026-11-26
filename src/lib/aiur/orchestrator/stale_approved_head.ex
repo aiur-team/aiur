@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.StaleApprovedHead do
   @moduledoc "Disarms auto-merge when a pushed PR head changes its approved contribution."
 
-  alias Aiur.Alerts
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.LandingWithdrawal
+  alias Aiur.Signal
 
   @read_retries 2
   @read_retry_delay_ms 200
@@ -66,7 +66,7 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
     files = Enum.map_join(hunks, ", ", & &1.file)
     details = if files == "", do: "Comparison reason: #{inspect(reason)}", else: "Changed files: #{files}"
 
-    Alerts.emit_system("ticket.#{ticket}.agent.attention.stale_approved_pr_head",
+    Signal.alert("ticket.#{ticket}.agent.attention.stale_approved_pr_head",
       issue: ticket,
       message: "Auto-merge was disabled on PR ##{pr_number} after a push changed its approved contribution.",
       reason: "Approved commit `#{approved}` was replaced by `#{head}`. Review the new head and approve it again to re-enable auto-merge. #{details}",
@@ -78,7 +78,7 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
   end
 
   defp emit_withdrawal_failure(ticket, pr_number, reason) do
-    Alerts.emit_system("ticket.#{ticket}.agent.attention.landing_withdrawal_failed",
+    Signal.alert("ticket.#{ticket}.agent.attention.landing_withdrawal_failed",
       issue: ticket,
       message: "Could not disable auto-merge on PR ##{pr_number} after its approved contribution changed",
       reason: "Disable auto-merge before the new head can merge (#{inspect(reason)}).",
@@ -89,7 +89,7 @@ defmodule Aiur.Orchestrator.StaleApprovedHead do
   end
 
   defp emit_check_failure(ticket, pr_number, reason) do
-    Alerts.emit_system("ticket.#{ticket}.agent.attention.landing_withdrawal_failed",
+    Signal.alert("ticket.#{ticket}.agent.attention.landing_withdrawal_failed",
       issue: ticket,
       message: "Could not verify or protect auto-merge on PR ##{pr_number} after a synchronize event",
       reason: "Review the PR's current head and disable auto-merge if it has not been approved (#{inspect(reason)}).",

@@ -6,6 +6,9 @@ defmodule Aiur.ExecutorBindings do
 
   @defaults [
     {"executor.#", "commands:auto"},
+    {"system.newsletter.ready", "newsletter:auto"},
+    {"system.feature_supply_low", "dispatch:auto"},
+    {"system.feature_supply_low.resolved", "dispatch:auto"},
     {"system.dispatch.capacity_starved", "dispatch:auto"},
     {"system.dispatch.capacity_starved.resolved", "dispatch:auto"},
     {"system.fleet.capacity.starved", "dispatch:auto"},
@@ -17,6 +20,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
     {"system.toolchain.erlang_missing", "dispatch:auto"},
     {"system.toolchain.erlang_missing.resolved", "dispatch:auto"},
+    {"system.toolchain.below_minimum", "dispatch:auto"},
+    {"system.toolchain.below_minimum.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},
@@ -37,6 +42,8 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.agent.retry_exhausted", "attention:auto"},
     {"ticket.*.agent.handoff.human_review", "handoff:auto"},
     {"ticket.*.pr.parked_ready", "attention:auto"},
+    # A mandatory-skill gate refused the ticket start; only the operator can unblock it.
+    {"ticket.*.skills.blocked", "attention:auto"},
     {"system.main.ci.failed", "ci:auto"},
     {"system.main.ci.failed.resolved", "ci:auto"},
     {"system.main.ci.flaked", "ci:auto"},

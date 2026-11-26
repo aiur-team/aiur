@@ -4,13 +4,19 @@
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
 
+An accepted blocking decision answer is mirrored to its ticket with a stable action marker, so retries do not duplicate comments. If no agent is running, Aiur keeps the answer pending and includes it in the next session's launch prompt.
+
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
+
+Setting `PUT /api/v1/<ticket>/spend-cap` resolves that issue once through the existing `issue_by_id` read before it stores a repository-qualified tracker identity. Reading or clearing an existing cap is local and adds no GitHub request.
 
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)). A stale queue [lists open issues](/concepts/build-orders#queue-cost) as `build_queue_open_issue_list`.
 
 Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
+
+Pending `--after` Commands use `pending_commands`: one read per blocker at request, one per trigger (that ticket's `pr.merged` or agent `done`/`cancelled`) within one cached minute, and one at boot. No timer reads.
 
 Build queue closure uses `build_queue_observe`. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event. `optimistic_guard_approval` checks approval on the current head and mergeability; parked dependent labels are confirmed before release.
 
@@ -22,7 +28,9 @@ Withdrawal removes only `agent:todo` after holding dispatch and proving it uncla
 
 CI-wait recovery uses the [failure digest](/apis/ci-failure-evidence), changed paths and Actions attempts (`ci_recovery`). Fully annotated tests outside the diff and known flakes may be rerun once per head.
 
-Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
+Landing-watch degraded-runner classification reads failed Actions job logs. When a job has a compile step, it also reads up to five recent successful main push runs and their steps to compare against that job's median. These bounded reads use `landing_watch_runner_degradation` and are memoized per poll; they claim no quota saving.
+
+Cancelled runs and drafts are not rerun; changes-requested PRs get one attention. An approved head whose runs Aiur itself cancelled for rework is the exception: recovery reruns those runs once so auto-merge can queue. Failed CI leaves queued or auto-merging approved heads in `ci-wait`. New heads wait with blocking attention until review.
 
 Reruns default on; limits: `agent.ci_recovery_max_per_poll` (5) and `agent.ci_recovery_max_per_hour` (20). Disable with `agent.ci_recovery_enabled: false`. Hourly cap shared across tickets and restarts.
 
@@ -40,13 +48,15 @@ A rework handback with no commit since the blocking review reads the PR body's G
 
 The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.
 
+When handoff evidence is stale, the daemon may apply a validated workspace-staged PR body through `agent_handoff_body`, then re-reads the PR to confirm the stored body and head before allowing handoff.
+
 Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 
 The write response supplies this state without another read. Two consequences:
 
 | Situation | What happens |
 | --- | --- |
-| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; unconfirmed backfill waits for explicit release. |
+| Feature membership changes | CLI or agent joins write `feature:<slug>`; leaves remove it. Calls, including label creation, use `build_queue.max_writes_per_minute` and a 200/hour cap. Human labels become journaled joins/leaves through History without extra reads. Imports are exempt; backfill joins wait for explicit release even after CLI confirmation, including when projection first observes the join after confirmation. |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
 | The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
 | A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |
@@ -93,6 +103,10 @@ A merge-queue rule routes the pinned head through GraphQL enqueueing; it never a
 The daemon independently verifies the configured repository, PR head, base and merge SHA against GitHub before publishing `system.pr.merged`; caller-supplied actor data is replaced with GitHub's merge attribution. See [the command reference](/reference/cli#pr-merge).
 
 
+## Label catalogue
+
+`label_catalogue_refresh` lists the repository's labels (`GET /repos/{owner}/{repo}/labels`, 100 per page) once at boot and hourly after that. Features rows take their names from these descriptions, including features whose tickets have all closed. That costs about one Core point an hour for repositories with up to 100 labels.
+
 ## Measured feature epics
 
 The feature worker uses the quota-accounted transport as `experiments_auto`:
@@ -116,3 +130,32 @@ GitHub's [`since` filter](https://docs.github.com/en/rest/issues/issues#list-rep
 Failed or incomplete reads never authorize a POST. After backoff, a complete scan proving absence permits creation with the same request and nonce.
 
 Attached-ticket failure detection uses the daemon's complete, fresh open-issue label snapshot through the tracker facade. It adds no per-ticket poll. The listing must have begun after the request's latest revision; its completion time cannot prove closure. Missing observation provenance also cannot prove closure. No quota saving is claimed.
+
+
+## Corrective Command tickets
+
+Post-merge Command overrides create corrective issues through the governed transport as `command_override_create`. Their marker lookup uses `command_override_reconcile`, paging the repository issue listing rather than GitHub search so reconciliation does not depend on search indexing.
+
+The lookup shares the creation-time window and incomplete-read refusal described under [Experiment analyst tickets](#experiment-analyst-tickets). A read failure never proves absence or authorizes another create.
+
+Missing or stale source PR evidence first checks issue closure through the conditional resource cache (`build_queue_observe`, five-minute freshness). Successful unresolved observations wait five minutes before another reconciliation; ordinary 30-second store ticks do not each trigger a remote read.
+
+When recovering an earlier override's corrective ticket, reconciliation checks whether the issue remains open through the same conditional closure cache before reuse; the current override's own marker is reused directly without a closure read.
+
+For a closed source ticket, `command_override_merged_pr` performs one governed GraphQL read of closing PRs and merge SHAs, outside dispatch. It is bounded to 100 references and rejects incomplete results. A complete result with no merged PR in the configured repository records a final journal fact, retained across restart.
+
+Linked corrective tickets observe only the delivered PR cache, including when no PR exists yet. They do not fetch issue labels or closing PRs on each reconciliation. Errors retain durable exponential backoff capped at one hour. These are read-cadence contracts; no measured production saving is claimed.
+
+
+Normal queued overrides route from the cached PR observation. Only an admitted
+recovery candidate reads the recorded PR and head branch through the governed
+REST transport as `command_override_recovery`. Recovery observations wait at least 60 seconds between reads. Failed reads
+back off to one hour; the journal retains retry state across restart.
+
+A failed fresh read defers recovery without adding a dependency to normal T2
+resumes. Capacity waits and active workers make no recovery reads.
+
+A missing branch or closed unmerged PR uses the corrective marker lookup and
+creates a parked successor. The old PR receives `superseded by #M`
+(`command_override_supersede`), reusing that comment on retries, then is closed
+and read back before the successor becomes dispatchable. No saving is claimed.

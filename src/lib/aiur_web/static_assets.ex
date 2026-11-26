@@ -15,24 +15,36 @@ defmodule AiurWeb.StaticAssets do
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
   @revalidated_static_paths ~w(
+    aiur-build-order
     aiur-style
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
     build-home
-    build-order-grid-hook.js
+    conversation-scroll-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
     dashboard.css
+    nav-toggle-hook.js
+    decision-questions-validation.js
     elevenlabs-symbol.svg
+    executor-voice-controller.js
+    executor-voice-hook.js
     sortable-table-hook.js
+    projects-home-hook.js
+    gateway-state.js
+    gateway-view-hook.js
     streamdeck-emulator-hook.js
     streamdeck-emulator-knob.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
     voice-capture.js
     voice-capture-worklet.js
+    voice-input-hook.js
+    voice-mode-choice.js
+    voice-playback.js
     voice-transport.js
+    voice-waveform.js
   )
   @long_lived_static_paths ~w(aiur-logo.png)
   # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
@@ -55,9 +67,13 @@ defmodule AiurWeb.StaticAssets do
   }
 
   @runtime_static_assets %{
+    "/decision-questions-validation.js" => {"application/javascript", "priv/static/decision-questions-validation.js"},
+    "/nav-toggle-hook.js" => {"application/javascript", "priv/static/nav-toggle-hook.js"},
     "/ticket-context-dialog-hook.js" => {"application/javascript", "priv/static/ticket-context-dialog-hook.js"},
-    "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
+    "/projects-home-hook.js" => {"application/javascript", "priv/static/projects-home-hook.js"},
+    "/gateway-state.js" => {"application/javascript", "priv/static/gateway-state.js"},
+    "/gateway-view-hook.js" => {"application/javascript", "priv/static/gateway-view-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
     "/streamdeck-emulator-knob.js" => {"application/javascript", "priv/static/streamdeck-emulator-knob.js"},
@@ -137,7 +153,7 @@ defmodule AiurWeb.StaticAssets do
   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error
   def fetch("/aiur-logo.png") do
     :aiur
-    |> Application.app_dir("priv/static/aiur-logo.png")
+    |> Application.app_dir("priv/static/aiur-style/assets/aiur-logo.png")
     |> File.read()
     |> case do
       {:ok, body} -> {:ok, "image/png", body}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-spend-cap-reached.v1.schema.json",
+  "title": "TicketSpendCapReached",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.ticket_spend_cap_reached" },
+    "contract_version": { "const": 1 },
+    "schema_version": { "const": 1 },
+    "job_id": { "type": "string", "minLength": 1 },
+    "ticket": { "$ref": "#/$defs/ticket" },
+    "currency": { "const": "USD" },
+    "cap_amount": { "$ref": "#/$defs/amount" },
+    "spent_amount": { "$ref": "#/$defs/amount" },
+    "remaining_amount": { "$ref": "#/$defs/amount" },
+    "state": { "const": "budget_exhausted" },
+    "end_state": { "const": "budget_exhausted" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "authority": { "type": "object", "additionalProperties": true },
+    "configured_at": { "type": "string" },
+    "reached_at": { "type": "string" }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "schema_version",
+    "job_id",
+    "ticket",
+    "currency",
+    "cap_amount",
+    "spent_amount",
+    "remaining_amount",
+    "state",
+    "end_state",
+    "coverage",
+    "authority",
+    "configured_at",
+    "reached_at"
+  ],
+  "$defs": {
+    "amount": {
+      "title": "TicketSpendCapReachedAmount",
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]{0,11})(?:\\.[0-9]{1,6})?$"
+    },
+    "ticket": {
+      "title": "TicketSpendCapReachedIdentity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "identifier": { "type": "string", "minLength": 1 }
+      },
+      "required": ["owner", "repository", "identifier"]
+    },
+    "coverage": {
+      "title": "TicketSpendCapReachedCoverage",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "partial", "unknown", "none"] },
+        "known": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

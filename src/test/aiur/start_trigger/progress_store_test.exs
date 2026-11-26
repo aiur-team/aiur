@@ -4,6 +4,7 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
   alias Aiur.Events.GithubWebhook.Deposit
   alias Aiur.GitHub.{BlockerProgress, ResourceStore}
   alias Aiur.StartTrigger.ProgressStore
+  alias AiurWeb.Build.ProgressPRFacts
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
@@ -38,13 +39,15 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert %{stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12")
   end
 
-  test "stage-less rows remain visible at 24 hours and expire one millisecond later" do
+  test "open identity-only rows persist while closed-unmerged stage-less rows expire after 24 hours" do
     start(clock: fn -> 0 end)
     ProgressStore.record("12", %{pr_number: 99, closed_unmerged?: true})
+    ProgressStore.record("14", %{pr_number: 101, stage: nil, closed_unmerged?: false, identity_only?: true})
     ProgressStore.record("13", %{pr_number: 100, stage: :pr_ci_green})
     flush()
     assert %{pr_number: 99, stage: nil, closed_unmerged?: true} = ProgressStore.lookup("12", 86_400_000)
     assert ProgressStore.lookup("12", 86_400_001) == nil
+    assert %{pr_number: 101, stage: nil, closed_unmerged?: false} = ProgressStore.lookup("14", 86_400_001)
     assert %{pr_number: 100, stage: :pr_ci_green} = ProgressStore.lookup("13", 86_400_001)
   end
 
@@ -53,11 +56,12 @@ defmodule Aiur.StartTrigger.ProgressStoreTest do
     assert :ok = ProgressStore.record("12", %{pr_number: 99, stage: :pr_opened})
   end
 
-  test "draft delivers nothing, ready opens, merged satisfies final and closed clears" do
+  test "first draft delivery exposes PR identity without a stage, ready opens, merged satisfies final and closed clears" do
     start()
     pr = %{"number" => 99, "state" => "open", "draft" => true, "merged" => false, "head" => %{"ref" => "aiur/12-progress", "sha" => "head", "repo" => %{"full_name" => "owner/repo"}}}
     deposit(pr)
-    assert ProgressStore.lookup("12") == nil
+    assert %{pr_number: 99, stage: nil, closed_unmerged?: false} = ProgressStore.lookup("12")
+    assert ProgressPRFacts.read([%{identity: %{identifier: "12"}}]) == %{"12" => %{num: 99, state: "open", ci: nil}}
     deposit(%{pr | "draft" => false})
     assert %{stage: :pr_opened} = ProgressStore.lookup("12")
     ProgressStore.record("12", %{pr_number: 99, stage: :pr_ci_green})

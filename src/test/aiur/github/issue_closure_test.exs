@@ -48,6 +48,22 @@ defmodule Aiur.GitHub.IssueClosureTest do
     assert Tracker.issue_closure("77", 60_000) == {:error, :invalid_issue_closure}
   end
 
+  test "a caller-tagged read is metered under that caller and a missing issue reads as not found" do
+    Process.put(:closure_response, {:ok, %{"state" => "open", "state_reason" => nil}, :fetched})
+    assert Aiur.Tracker.issue_closure("77", 60_000, "pending_commands") == {:ok, %{open?: true, state_reason: nil}}
+    assert_received {:closure_read, "77", opts}
+    assert opts[:caller] == "pending_commands"
+
+    for status <- [404, 410] do
+      Process.put(:closure_response, {:error, {:github, :http, %{status: status}}})
+      assert Tracker.issue_closure("77", 60_000, "pending_commands") == {:error, :not_found}
+    end
+
+    Process.put(:closure_response, {:error, {:github, :http, %{status: 500}}})
+    assert Tracker.issue_closure("77", 60_000, "pending_commands") == {:error, {:github, :http, %{status: 500}}}
+    assert Aiur.Tracker.issue_closure("77", 60_000, "pending_commands") == {:error, {:github, :http, %{status: 500}}}
+  end
+
   test "unsupported adapters fail closed" do
     assert Aiur.Memory.Tracker.issue_closure("77", 60_000) == {:error, :unsupported}
     assert Aiur.Linear.Tracker.issue_closure("77", 60_000) == {:error, :unsupported}

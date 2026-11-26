@@ -2,12 +2,10 @@ import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { openFixture } from './support/browser-helpers.mjs'
 
-// The Build Order route no longer mounts the DOM/SVG layout adapter — it
-// renders a synchronous CSS grid via the BuildOrderGrid hook, and that grid's
-// rendering, interaction, performance, and responsive behaviour are covered by
-// the build-order-* specs. The vendored DOM/SVG layout modules are still
-// shipped, so these specs keep exercising their protocol/measurement/validation
-// contract directly (imported as modules), independent of any route mounting.
+// BuildOrderGraph was retired in #6527, so the shared fixture no longer mounts
+// a graph or its layout adapter. The vendored DOM/SVG layout modules are still
+// shipped, and these specs exercise their protocol, measurement, and validation
+// contract directly, independent of route mounting.
 
 test('adapter validation rejects stale and malformed geometry before it can render', async ({ browser }) => {
   const context = await browser.newContext({ httpCredentials: dashboardCredentials })

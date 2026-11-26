@@ -24,7 +24,7 @@ defmodule Aiur.BuildQueueCLI do
 
   defp show(opts) do
     with :ok <- validate(opts),
-         envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.BuildQueue.Server)),
+         envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.Project.via(Aiur.BuildQueue.Server))),
          {:ok, envelope} <- select(envelope, Keyword.get(opts, :queue)) do
       envelope = envelope |> select_next(opts) |> JSONSafe.normalize()
 
@@ -119,6 +119,10 @@ defmodule Aiur.BuildQueueCLI do
 
     Enum.each(queue["items"], fn item ->
       IO.puts("  #{item["position"] || "—"}  ##{item["number"]}  #{item["state"]}  #{item_waiting(item)}  #{rank(item)}#{attention(item)}")
+    end)
+
+    Enum.each(queue["elsewhere"] || [], fn [number, owner] ->
+      IO.puts("  —  ##{number}  owned elsewhere  #{owner || "another set"}")
     end)
   end
 

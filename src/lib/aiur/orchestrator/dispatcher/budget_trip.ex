@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.{CodeHost, Config, Issue, Tracker}
   alias Aiur.GitHub.{Issues, StatePolicy}
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -14,6 +13,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @doc false
   @spec trip_thrash_breaker(State.t(), term()) :: State.t()
@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
           "Codex dispatch circuit opened (#{reason}); window restarts=#{count}, lifetime dispatches=#{lifetime}/#{lifetime_max}."
         end
 
-      Alerts.emit_system("ticket.#{issue.identifier}.agent.thrash_circuit_open",
+      Signal.alert("ticket.#{issue.identifier}.agent.thrash_circuit_open",
         issue: issue.identifier,
         reason: alert_body,
         needs_attention: true,
@@ -205,7 +205,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
     lifetime = Map.get(entry, :lifetime, 0)
     maximum = Config.agent_max_dispatches_per_ticket()
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
       "Ticket was automatically parked as needs-triage after #{lifetime}/#{maximum} lifetime dispatches.",
       issue: issue.identifier,
@@ -235,7 +235,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
     if entry[:latch_alert_emitted] do
       state
     else
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
         "Lifetime dispatch latch could not park ticket in needs-triage (#{inspect(reason)}); it remains active for retry.",
         issue: issue.identifier,

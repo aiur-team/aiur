@@ -14,10 +14,20 @@ defmodule AiurEngineCommandsTest do
              "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
   end
 
+  test "commands passes hyphenated routing filters as allowlisted quoted atoms" do
+    for filter <- ["needs-you", "with-executor", "from-executor"] do
+      {out, 0} = run_sourced_engine("run_control_rpc() { echo \"RPC:$1\"; }\ncmd_commands --filter #{filter}", [])
+      assert out =~ "commands([filter: :\"#{filter}\"])"
+      assert {:ok, call} = Aiur.ControlCall.parse(String.trim_leading(String.trim(out), "RPC:"))
+      assert call.scope == :read
+      assert call.args == [[filter: String.to_existing_atom(filter)]]
+    end
+  end
+
   test "units routes page-visible filters through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
         []
       )
 
@@ -28,7 +38,7 @@ defmodule AiurEngineCommandsTest do
   test "units forwards the human layout format" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
         []
       )
 
@@ -42,7 +52,7 @@ defmodule AiurEngineCommandsTest do
   test "bare units invocation routes an empty condition list" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
         []
       )
 
@@ -52,6 +62,27 @@ defmodule AiurEngineCommandsTest do
   test "commands reports missing option values as usage errors" do
     {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
     assert out =~ "commands --filter requires a value"
+  end
+
+  test "legacy usage commands print a deprecation line and route to the shared CLI" do
+    aliases = [
+      {"accounts", "aiur usage", "", "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
+      {"accounts", "aiur usage", "kimi --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"a2ltaQ==\"))"},
+      {"github-cost", "aiur usage github", "--budget core --format records", "Aiur.AgentControlCLI.github_cost([budget: \"core\", format: :records])"},
+      {"github-usage", "aiur usage github", "--json", "Aiur.AgentControlCLI.github_usage([json: true])"},
+      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.TicketUsageCLI.rpc(Base.decode64!(\"NTY5Mg==\"), json: true)"}
+    ]
+
+    for {command, replacement, args, expression} <- aliases do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { echo "RPC:$1"; }\nusage_alias #{command} #{args}|,
+          []
+        )
+
+      assert out =~ "deprecated; use '#{replacement}'"
+      assert out =~ "RPC:#{expression}"
+    end
   end
 
   test "executor-answer safely routes one option answer through the control rpc" do
@@ -68,6 +99,57 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
     assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "per-question answer flags, the answers file and moot replay fields reach the control rpc" do
+    file = Path.join(System.tmp_dir!(), "answers-#{System.unique_integer([:positive])}.json")
+    File.write!(file, ~s({"scope":["core"]}))
+    on_exit(fn -> File.rm(file) end)
+    rpc = ~s|run_control_rpc() { echo "RPC:$1"; }\n|
+
+    answer = rpc_opts(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answer scope=core,cli --answer=order=last --answer-text 'note=a b' --rationale r --idempotency-key k|)
+    assert answer[:answers] == ["scope=core,cli", "order=last"]
+    assert answer[:answer_texts] == ["note=a b"]
+    refute Keyword.has_key?(answer, :option_id)
+
+    assert rpc_opts(rpc <> ~s|cmd_operator_relay_answer dec --expected-version 3 --answers-file #{file} --quote q --relayed-by e --idempotency-key k|)[:answers_json] == ~s({"scope":["core"]})
+    assert rpc_opts(rpc <> ~s|cmd_command dec --relayed --quote q --answer scope=core|)[:answers] == ["scope=core"]
+
+    File.write!(file, String.duplicate(" ", 65_537))
+    {out, 64} = run_sourced_engine(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answers-file #{file} --rationale r --idempotency-key k|, [])
+    assert out =~ "--answers-file #{file} is larger than 65536 bytes"
+    refute out =~ "RPC:"
+
+    moot = rpc_opts(rpc <> ~s|cmd_executor_moot dec --expected-version 3 --reason-class ticket_closed --idempotency-key mk --rationale shipped|)
+    assert {moot[:idempotency_key], moot[:rationale]} == {"mk", "shipped"}
+
+    {out, 64} = run_sourced_engine(rpc <> ~s|cmd_executor_answer dec --expected-version 3 --answer a=b --option x --rationale r --idempotency-key k|, [])
+    assert out =~ "not both"
+  end
+
+  defp rpc_opts(script) do
+    # Unset so relay paths run as the attended Executor even when tests run inside a worker workspace.
+    {out, 0} = run_sourced_engine(script, [{"AIUR_AGENT_WORKSPACE", nil}])
+    [_, args] = Regex.run(~r/^RPC:Aiur\.AgentControlCLI\.\w+\((\[.*\])\)$/m, out)
+    {opts, _binding} = Code.eval_string(args)
+    opts
+  end
+
+  test "fleet workers cannot relay an operator answer through either entry point" do
+    rpc = ~s|run_control_rpc() { echo "RPC:$1"; }\n|
+    worker = [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+
+    for script <- [
+          ~s|cmd_operator_relay_answer dec --expected-version 3 --option yes --quote yes --relayed-by attended-executor --idempotency-key k|,
+          ~s|cmd_command dec --relayed --quote yes --option yes|
+        ] do
+      {out, 64} = run_sourced_engine(rpc <> script, worker)
+      assert out =~ "fleet workers cannot relay"
+      refute out =~ "RPC:"
+
+      {executor, 0} = run_sourced_engine(rpc <> script, [{"AIUR_AGENT_WORKSPACE", nil}, {"CLAUDECODE", "1"}])
+      assert executor =~ "RPC:Aiur.AgentControlCLI.operator_relay_answer("
+    end
   end
 
   test "operator answer refuses agent processes before contacting the daemon" do
@@ -229,7 +311,7 @@ defmodule AiurEngineCommandsTest do
   test "build-orders routes its selector and JSON mode through the control rpc" do
     {out, 0} =
       run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        ~s|cd /\nrun_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
         []
       )
 
@@ -252,72 +334,6 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
     assert out =~ "since: Base.decode64!"
     assert out =~ "build_order: Base.decode64!"
-  end
-
-  test "github-cost routes the budget selection through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --budget core --json|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "core", json: true])|
-  end
-
-  test "github-cost defaults to the GraphQL budget, which is the one that runs out" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost|, [])
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql"])|
-  end
-
-  test "github-cost passes an output format through as an atom" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --format records|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql", format: :records])|
-  end
-
-  test "github-cost rejects malformed launcher arguments before an RPC" do
-    for {argv, message} <- [
-          {~s|--budget points|, "github-cost --budget accepts graphql, core or all"},
-          {~s|--budget|, "github-cost --budget requires a value"},
-          {~s|--format wide|, "github-cost --format accepts auto, table or records"},
-          {~s|--format|, "github-cost --format requires a value"},
-          {~s|--unknown|, "github-cost received an unknown option"},
-          {~s|extra|, "github-cost does not accept positional arguments"}
-        ] do
-      {out, 64} = run_sourced_engine("cmd_github_cost #{argv}", [])
-      assert out =~ message
-    end
-  end
-
-  test "github-usage routes through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage --json|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([json: true])|
-  end
-
-  test "github-usage defaults to a plain per-actor report" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage|, [])
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([])|
-  end
-
-  test "github-usage rejects malformed launcher arguments before an RPC" do
-    for {argv, message} <- [
-          {~s|--unknown|, "github-usage received an unknown option"},
-          {~s|extra|, "github-usage does not accept positional arguments"}
-        ] do
-      {out, 64} = run_sourced_engine("cmd_github_usage #{argv}", [])
-      assert out =~ message
-    end
   end
 
   test "alerts ack refuses agent sessions before contacting the daemon" do

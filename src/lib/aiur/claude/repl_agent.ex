@@ -99,6 +99,9 @@ defmodule Aiur.Claude.ReplAgent do
   @impl Aiur.CodingAgent.Backend
   defdelegate send_operator_message(session, payload), to: OperatorInject
 
+  @impl Aiur.CodingAgent.Backend
+  def steer(session, payload, _expected_turn_id), do: OperatorInject.send_operator_message(session, payload)
+
   @doc false
   @spec restore_handoff_session(map(), Aiur.Issue.t(), GenServer.server()) :: map()
   def restore_handoff_session(session, _issue, _server), do: session

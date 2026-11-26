@@ -53,6 +53,7 @@ defmodule Aiur.Extensions.DashboardDecisionTest do
     end
 
     def handle_call(:all_audit_history, _from, decisions), do: {:reply, %{}, decisions}
+    def handle_call({:audit_history, _decision_id}, _from, decisions), do: {:reply, {:error, :not_found}, decisions}
   end
 
   defmodule StaticPayloadProvider do

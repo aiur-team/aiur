@@ -13,7 +13,7 @@ npm install -g aiur-cli
 | Tool | Why you need it |
 | --- | --- |
 | Node.js | Runs the `aiur-cli` npm package. |
-| `gh` (GitHub CLI) | Authenticates with GitHub. Run `gh auth login` once — the boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| `gh` (GitHub CLI) | Provides git push/PR credentials. Local daemon auth can also use the keyring after `gh auth login`; hosted/container daemon auth requires a GitHub App unless `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. |
 | `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
 | A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
 
@@ -59,11 +59,11 @@ The wizard offers these setup steps:
 | Detect tools | Finds available agent toolchains. |
 | Scaffold | Writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`. |
 | Prepare state | Creates the repository state node and optional `.aiur/prewarm`. |
-| GitHub auth | Defaults to `GITHUB_TOKEN` and offers GitHub App setup as an optional upgrade when agents are hitting rate limits. A `gh auth login` keyring credential also satisfies the boot gate. |
+| GitHub auth | Local setup defaults to `GITHUB_TOKEN` and offers GitHub App setup. Hosted/container setup defaults to the GitHub App; `AIUR_GITHUB_ALLOW_PAT=1` is required to opt into `GITHUB_TOKEN`. |
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github-auth#github-app-authentication).
+Add `agent:todo` to the issues you want worked. For hosted/container deployment, configure the [GitHub App](/apis/github-auth#github-app-authentication) and its required permissions and webhook events.
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
 
@@ -93,6 +93,7 @@ Continue with the [GUI](/guide/gui) guide.
 | `aiur watch` | Show a one-shot board of tickets, state, and what each agent is doing; add `--interval <secs>` to refresh continuously. |
 | `aiur pause <ids…>` / `aiur pause --all` | Cooperatively pause agents by issue id. |
 | `aiur resume <ids…>` / `aiur resume --all` | Resume paused agents by issue id. |
+| `aiur redispatch <ids…> [--backend <backend>]` | Restart a live ticket on current routing or pin it to an exact configured backend name, keeping its workspace, branch, PR, and workpad. The old session stops immediately, so save important output into the workspace first; unsaved output held only in that session is lost. |
 | `aiur stop` | Stop this instance's session (BEAM + tmux). |
 | `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
@@ -102,17 +103,52 @@ Continue with the [GUI](/guide/gui) guide.
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.
 
+After any pull request review, send its findings to the ticket's worker with
+`aiur message <ticket> "<findings>"`, including when the worker is still
+`agent:in-progress`. For a comment-only review to trigger rework, begin the
+request with an explicit `Blocking:` line.
+
+Trusted review submissions, including `COMMENTED` reviews, are relayed to a
+running in-progress worker unless they are benign approval or “looks good”
+passes. Plain PR conversation comments are relayed only when their body has an
+explicit blocking line.
+
 ## Running two daemons against one repository
 
-Use one primary and distinct `tracker.github.label_prefix` values. Set
-`instance.role: secondary` on other daemons: they keep dispatching and handling
-ticket CI, while repository-wide watchers run only on primary. The role is read at daemon start, so restart after changing it. `aiur status`
-shows each role and disabled service.
+Set shared `AIUR_LEASE_DATABASE_URL`. `primary` instances are equally eligible
+to lead; `secondary` instances skip repository-wide services but still dispatch
+tickets and handle CI. Role changes apply after restart. The lease holder runs
+repository services until expiry; the dashboard and `aiur status` show its ID
+and lease age.
 
-Dispatch is split by prefix, but per-ticket watchers (landing, merge close-out,
-pr_health, the Executor sweep and wake inbox) see every ticket. On each daemon,
-list the other instance's tickets under `instance.ignore`.
+Each instance heals labels for tickets in its own tracker view, so split label
+prefixes do not depend on the repository leader. Use distinct
+`tracker.github.label_prefix` values to split dispatch between instances.
 
-`label_prefixes: [nuc]` is the durable rule; `tickets: [4121]` covers a ticket
-handed over mid-flight. Edits apply without a restart, and `aiur status` prints
-the active rules and the count of events ignored since boot.
+Use `instance.owns` to reserve selected tickets without changing their labels.
+For example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work
+to the NUC while it is live and dispatching; when it stops or pauses, matching
+tickets return to the shared pool.
+
+When `AIUR_LEASE_DATABASE_URL` is configured, `aiur status` also prints the
+shared instance roster with each heartbeat's observation age, host kind,
+version, public URL, capacity, running tickets, and held tickets. Leadership
+comes from the current shared lease; missing metadata is shown as unknown.
+
+Open `/instances` on any instance's dashboard to see the roster and ticket rows
+with their observation ages. Expired heartbeats are stale during the retention
+window, then disappear.
+
+`instance.pool: false` keeps a daemon on its owned tickets only. These rules
+require the shared `AIUR_LEASE_DATABASE_URL`.
+
+`aiur status` shows ownership rules for this instance and other live ones.
+
+`instance.ignore` remains available for static installations and per-ticket
+watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
+not affect dispatch; use `instance.owns` for live rule-based dispatch.
+
+Register each daemon in `~/.aiur/remote-instances.yaml` as described under
+[Remote instances](/reference/cli-options#remote-instances). From the Executor
+machine, use `aiur --instance nuc status` (or another control command) to
+operate the named daemon without starting a second local Aiur run.

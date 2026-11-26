@@ -226,13 +226,11 @@ defmodule Aiur.Env do
   shadowing, it never aborts the boot.
   """
   @spec warn_precedence_conflicts() :: :ok
-  def warn_precedence_conflicts do
-    home = Path.join(System.user_home!(), ".aiur/.env")
-    repo = Path.join(File.cwd!(), ".env")
+  def warn_precedence_conflicts, do: Aiur.Secrets.warn_precedence_conflicts()
 
-    Enum.each(precedence_warnings(precedence_conflicts(home, repo)), &Logger.warning/1)
-    :ok
-  end
+  @doc false
+  @spec warn_precedence_conflicts(map(), Path.t(), Path.t()) :: :ok
+  def warn_precedence_conflicts(env, home, repo), do: Aiur.Secrets.warn_precedence_conflicts(env, home, repo)
 
   # --- validation ------------------------------------------------------------
 

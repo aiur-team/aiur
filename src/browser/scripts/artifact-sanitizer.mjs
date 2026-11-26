@@ -14,6 +14,8 @@ const retainedBinaryExtensions = new Set(['.png', '.zip'])
 const realGitName = 'AIUR_REAL_GIT'
 const buildAdmissionNames = [
   'BASH_ENV',
+  'AIUR_BUILD_GATE_HOOK',
+  'AIUR_AGENT_BIN',
   'AIUR_BUILD_GATE_BIN',
   'AIUR_BUILD_GATE_DIR',
   'AIUR_BUILD_GATE_LOCK_DIR',
@@ -33,7 +35,6 @@ const inheritedRuntimeNames = [
   // Names the evidence directory for a #1358 proof run so a re-run can be
   // written back into the same committed directory instead of a new timestamp.
   'AIUR_STREAMDECK_PROOF_RUN',
-  'AIUR_PARITY_FULL',
   'CI',
   'HEX_HOME',
   'HOME',
@@ -83,6 +84,9 @@ export function browserChildEnvironment(environment = process.env, overrides = {
 // can be asserted without spawning the server that module starts on import.
 const fixtureRuntimeNames = [
   realGitName,
+  // The fixture runs `mise exec` through the workspace command wrappers.
+  // Preserve BASH_ENV and AIUR_BUILD_GATE_HOOK so the shell hook can restore
+  // PATH guards and load build admission in that subprocess too.
   ...buildAdmissionNames,
   'HOME',
   'PATH',

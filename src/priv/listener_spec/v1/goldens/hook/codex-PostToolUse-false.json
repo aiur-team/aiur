@@ -1,0 +1,14 @@
+{
+  "frame": "<frame/>",
+  "harness": "codex",
+  "parsed": {
+    "continuation": false,
+    "event": "tool",
+    "sessionId": "session-1",
+    "transcriptPath": "/workspace/transcript.jsonl",
+    "workspace": "/workspace"
+  },
+  "stdin": "{\"session_id\":\"session-1\",\"hook_event_name\":\"PostToolUse\",\"cwd\":\"/workspace\",\"transcript_path\":\"/workspace/transcript.jsonl\",\"stop_hook_active\":false}",
+  "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"<frame/>\"}}\n",
+  "stop_context": false
+}

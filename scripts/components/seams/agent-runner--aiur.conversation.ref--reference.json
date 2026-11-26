@@ -1,0 +1,9 @@
+{
+  "from": "agent-runner",
+  "to_module": "Aiur.Conversation.Ref",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/agent_runner/worker_journal.ex"
+  ],
+  "reason": "#6624 derive durable worker identity at the isolated best-effort journal boundary"
+}

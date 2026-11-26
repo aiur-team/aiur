@@ -1,0 +1,438 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 18,
+  "first_id": "orch-b-11",
+  "last_id": "platform-misc-05",
+  "findings": [
+    {
+      "id": "orch-b-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/reconciler.ex:29",
+      "note": "Reconciler calls facade reconcile_runtime_health/stalled/overrunning/pending-auto-resume methods while facade delegates to submodules; reverse facade coupling persists. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/state.ex:208",
+      "note": "Large State struct keeps CI, capacity, control and polling data with StructFieldAmount disabled; contradictory-label fields remain in defstruct and running entries remain untyped maps. Historical field/key census not restated. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/token_accounting.ex:38",
+      "note": "Every accepted worker update calls notify_dashboard, which constructs bounded snapshot input including per-identifier queue scans and broadcasts running summaries; SnapshotPublisher tab2list precedes version comparison. Actual stream load/cost unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/status_report.ex:729",
+      "note": "Unavailable blocking-decision count still becomes zero and is passed without health to WaitingReason classification. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-14"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-15",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/status_report.ex:996",
+      "note": "Waiting-human episode sync still calls full agent_statuses; nearby snapshot comment excludes those rows specifically because budgets and RepoBase reads are expensive. Structural repeated work persists. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/snapshot_store.ex:335",
+      "note": "put_snapshot writes full snapshot/source_state to persistent_term on projection; stale-read warning suppression also writes persistent_term. Runtime scan cost unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/control_lifecycle_store.ex:66",
+      "note": "Control journal persistence locks, loads and writes synchronously, retries with Process.sleep, and converts lock/write failures to warning plus :ok; PauseResume hard-match cannot detect lost write. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:1",
+      "note": "PauseResume retains client/control APIs, correlated worker state, pause-reason routing, replacement redispatch and duration accounting in one module. Historical line/clause counts not represented as current measurements. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/retry_engine.ex:494",
+      "note": "schedule_issue_retry still assembles retry metadata through many pick_retry helpers and hand-built maps; continuation/failure metadata differ and retries lack a dedicated envelope type. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/status_report.ex:466",
+      "note": "running_snapshot and running_status separately derive control capabilities, pause cause, stale age and WaitingReason; dashboard and CLI rows still have independently maintained schemas. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-21",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/retry_engine.ex:1486",
+      "note": "RetryEngine and Reconciler independently implement membership pending/unavailable helpers that rescue exceptions/exits into ok/error without recording the failed durability operation. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-22",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:1157",
+      "note": "Completion expiration and RetryEngine worker-unavailable expiration separately retrieve pending request, expire, persist and broadcast. Transition boilerplate remains duplicated. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/retry_engine.ex:730",
+      "note": "Each retry poll still calls fetch_candidate_issues/0 then searches its list before single-issue fallback; unconditional caller selection persists. ReadCache absorption and live API incidence unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/pr_health_scanner.ex:43",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-b-24",
+        "dup-by-body-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-b-25",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/rework_requeue.ex:266",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-b-25"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-b-26",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/runtime_watchdog.ex:24",
+      "note": "Pinned src/lib search finds apply_stall_check only at definition/spec; Slots.slot_status is called only by facade slot_status_for_test. Test-specific production entrypoints remain. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:664",
+      "note": "worker_pid_alive? treats remote pid as live, while same-module live_replacement? calls Process.alive? directly and redispatch helpers accept any pid. Liveness semantics remain inconsistent. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/state.ex:878",
+      "note": "Running lookup still requires exact string equality; Issue.identifier_matches? additionally accepts id and repo-number suffix, so callers use different identifier rules. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/push_routing.ex:3",
+      "note": "PushRouting still combines agent pause/sleep, explicit dependency auto-resume, default-branch notification and GithubBudgetPause pass-throughs; the module boundary remains broader than push routing. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pr_anchored.ex:190",
+      "note": "Admission still uses Process.put inside the choose callback and Process.delete afterwards as its success marker.",
+      "source_ids": [
+        "orch-b-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/state.ex:1021",
+      "note": "Rework counts and alerted heads are only added with Map.put/MapSet.put; source-wide search found no pruning writer.",
+      "source_ids": [
+        "orch-b-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/reconciler.ex:100",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-b-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "orch-b-34",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/workspace_cleanup.ex:216",
+      "note": "Workspace cleanup preflight and tracker-health formatting still match Linear-specific error atoms.",
+      "source_ids": [
+        "orch-b-34"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/token_accounting/payloads.ex:8",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-b-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "orch-b-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/tracked_set.ex:78",
+      "note": "Reset still calls GenServer.call with default timeout and three retries; pause/resume refresh invokes it synchronously.",
+      "source_ids": [
+        "orch-b-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-38",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:1488",
+      "note": "Completed restart and replacement still duplicate dispatch revalidation outcome handling; result-dropping wrapper remains.",
+      "source_ids": [
+        "orch-b-38"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-39",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:1677",
+      "note": "Resume capacity checks remain copied across control submission and preflight; reactivate retains its fleet-only preliminary check.",
+      "source_ids": [
+        "orch-b-39"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-40",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/retry_engine.ex:522",
+      "note": "Give-up emits retry-exhausted, error attention and claim-released alerts on the same permanent-failure path.",
+      "source_ids": [
+        "orch-b-40"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/schema/agent.ex:294",
+      "note": "Declared max_consecutive_noop_turns remains absent between max_turns and max_retry_attempts in cast permitted list, so operator override is dropped. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/schema.ex:149",
+      "note": "Schema still relies on explicit cast lists without unknown-key validation; obsolete-root error handling remains separate from nested schema policy. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-03",
+      "status": "changed",
+      "anchor": "src/lib/aiur/workspace/ownership/guardian.ex:437",
+      "note": "Missing-provider same-boot hold remains reaping without timer, but verified reboot exit, explicit remote release and audited release_if_held_with_exit_proof now exist. No-exit-only-delete claim is stale; U2/U3 ownership work should target residual unknown-provider state. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/ownership/store.ex:297",
+      "note": "Every persisted receipts rewrite still fsyncs then invokes default Fs.sync_filesystem through Store; host duration and transition frequency remain unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "platform-misc-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/workspace/reconstruction.ex:31",
+      "note": "Reconstruction still holds log lock across prepare hook; acquire retries global registration every 10ms without deadline. Preserve measurement-first defer. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "platform-misc-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

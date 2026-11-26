@@ -6,8 +6,6 @@ const routes = [
   { path: '/route-shell', title: 'Build' },
   { path: '/commands', title: 'Commands' },
   { path: '/commands/decision-123', title: 'Commands' },
-  { path: '/build-orders', title: 'Build Order' },
-  { path: '/build-orders/42', title: 'Build Order #42' },
   { path: '/analytics', title: 'Analytics' },
   { path: '/streamdeck', title: 'Streamdeck+' }
 ]
@@ -48,8 +46,6 @@ async function openRoute(page, route, collapsed) {
   await expect(page.locator('section.dashboard-shell')).toBeVisible()
 
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-
-  if (route.path === '/build-orders/42') await expect(page.locator('#selected-build-order-graph [data-bo-card]').first()).toBeVisible()
 
   expect(await page.evaluate((key) => window.localStorage.getItem(key), navCollapsedStorageKey)).toBe(String(collapsed))
   await expect(page.locator('#ax-drag')).toHaveAttribute('data-nav-collapsed', String(collapsed))

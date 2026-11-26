@@ -1,13 +1,16 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
-  alias Aiur.BuildOrder.Index
-  alias AiurWeb.Build.{Freshness, NowRows, PlannedRows}
+  alias Aiur.BuildOrder.{Index, Metadata}
+  alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows, ProgressPRFacts}
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @spec read(MapSet.t() | :all, map(), keyword()) :: map()
   def read(dirty, previous, opts) do
     core = Index.read_core_parts(dirty, opts)
     parts = Map.merge(previous, core)
+    feature_packs = read_part(:packs, dirty, Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs])), fn -> load_packs(opts) end)
+    parts = Map.put(parts, :feature_packs, feature_packs)
 
     repo =
       case parts[:repository] do
@@ -15,8 +18,10 @@ defmodule AiurWeb.Build.IndexReader do
         _ -> nil
       end
 
+    todo_ids = open_todo_ids(parts[:open], parts[:settings])
+
     now =
-      read_part(:now, dirty, parts, fn -> read_now(repo, opts) end)
+      read_part(:now, dirty, parts, fn -> read_now(repo, todo_ids, opts) end)
 
     parts = Map.put(parts, :now, now)
     active = MapSet.new(producer_rows(now), & &1.num)
@@ -24,21 +29,27 @@ defmodule AiurWeb.Build.IndexReader do
 
     planned =
       read_part(:planned, dirty, parts, fn ->
-        PlannedRows.build(parts[:queue], context.history_snapshot, active: active, todo_label: context.todo_label)
+        PlannedRows.build(parts[:queue], context.history_snapshot, active: active, todo_label: context.todo_label, capacity: capacity_reasons(now))
       end)
 
     nq = read_part(:not_queued, dirty, parts, fn -> context.not_queued end)
-    parts |> Map.put(:planned, planned) |> Map.put(:not_queued, nq)
+    parts = parts |> Map.put(:planned, planned) |> Map.put(:not_queued, nq)
+    Map.put(parts, :packs, fn index -> PackRead.read(index, opts) end)
   end
 
   defp read_part(key, dirty, previous, fun) do
     if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
   end
 
-  defp read_now(repo, opts) do
+  defp load_packs(opts), do: Keyword.get(opts, :pack_loader, &PackLoader.load_packs/0).()
+
+  defp read_now(repo, todo_ids, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
     catalog = units_fun.()
-    units_now = NowRows.build(catalog, repository: repo) |> Map.put(:unit_rows, unit_rows(catalog, repo))
+    pr_facts = ProgressPRFacts.read(catalog, lookup: Keyword.get(opts, :pr_lookup))
+    unit_rows = unit_rows(catalog, repo)
+
+    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids, pr_facts: pr_facts) |> Map.put(:unit_rows, unit_rows)
 
     result =
       if map_size(units_now.rows) > 0 do
@@ -49,7 +60,7 @@ defmodule AiurWeb.Build.IndexReader do
         case snapshot_fun.(opts) do
           {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
             rows = fleet_rows(statuses, running)
-            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo, pr_facts: ProgressPRFacts.read(rows, lookup: Keyword.get(opts, :pr_lookup)))
 
           {:error, :timeout} ->
             {:error, :running_snapshot_timeout}
@@ -61,6 +72,22 @@ defmodule AiurWeb.Build.IndexReader do
 
     if is_map(result), do: Map.put(result, :unit_rows, units_now.unit_rows), else: result
   end
+
+  defp open_todo_ids(%{status: :available, tickets: tickets}, settings) when is_list(tickets) do
+    prefix =
+      case settings do
+        {:ok, settings} -> settings.tracker.github.label_prefix
+        _ -> "agent"
+      end
+
+    label = prefix <> ":todo"
+
+    tickets
+    |> Enum.filter(&(is_list(Map.get(&1, :labels)) and label in Map.get(&1, :labels)))
+    |> MapSet.new(&Map.get(&1, :identifier))
+  end
+
+  defp open_todo_ids(_open, _settings), do: MapSet.new()
 
   defp unit_rows(%{status: status, snapshot: %{rows: rows}}, {owner, repo}) when status in [:ready, :empty] do
     rows
@@ -79,18 +106,27 @@ defmodule AiurWeb.Build.IndexReader do
     running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
 
     Enum.map(statuses, fn status ->
-      now_row(status, Map.get(running_by_identifier, Map.get(status, :identifier), %{}))
+      identifier = Map.get(status, :identifier)
+      running = Map.get(running_by_identifier, identifier)
+      now_row(status, running)
     end)
     |> Enum.reject(&is_nil/1)
   end
 
+  # Waiting text for queued tickets the capacity policy holds, from their Units rows (#7892).
+  defp capacity_reasons(%{unit_rows: rows}) when is_map(rows),
+    do: for({id, %{capacity_reason: text}} when is_binary(text) <- rows, {num, ""} <- [Integer.parse(id)], into: %{}, do: {num, String.slice(text, 0, 400)})
+
+  defp capacity_reasons(_now), do: %{}
+
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
   defp producer_rows(_), do: []
 
-  defp now_row(%{identifier: _identifier, state: :running} = summary, running), do: now_row(summary, running, :running)
-  defp now_row(%{identifier: _identifier, work_state: :retrying} = summary, running), do: now_row(summary, running, :retrying)
+  defp now_row(%{identifier: _identifier, state: :running} = summary, running) when is_map(running), do: now_row(summary, running, :running)
 
-  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session),
+  defp now_row(%{identifier: _identifier, state: :paused, work_state: :retrying} = summary, running) when is_map(running), do: now_row(summary, running, :retrying)
+
+  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session) and is_map(running),
     do: now_row(summary, running, :running)
 
   defp now_row(_summary, _running), do: nil
@@ -102,14 +138,17 @@ defmodule AiurWeb.Build.IndexReader do
 
     %{
       identity: identity,
+      labels: Map.get(summary, :labels, []),
       runtime: %{
         bucket: bucket,
         work_state: Map.get(summary, :work_state, :working),
         usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
       },
-      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
+      reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason), native_hold: Map.get(running, :native_hold)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),
+      priority: Map.get(summary, :priority),
+      build_lane: Metadata.parse(Map.get(summary, :labels, [])).lane,
       open_command_count: Map.get(summary, :open_decision_count, 0),
       agent_family: Map.get(summary, :agent_family),
       backend: Map.get(summary, :backend),

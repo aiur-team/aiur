@@ -6,7 +6,19 @@ defmodule Aiur.RunTelemetry.EventFields do
   `analytics/lib/analytics/event_fields.py` carries the same list (`EVENT_FIELDS`).
   """
 
-  @fields ~w(from_state to_state blocker head_sha pr_number input_tokens output_tokens cached_tokens cost_amount cost_currency coverage)a
+  @fields ~w(
+    from_state
+    to_state
+    blocker
+    head_sha
+    pr_number
+    input_tokens
+    output_tokens
+    cached_tokens
+    cost_amount
+    cost_currency
+    coverage
+  )a
 
   @spec take(map()) :: %{atom() => term()}
   def take(attributes), do: Map.new(@fields, &{&1, Map.get(attributes, Atom.to_string(&1))})

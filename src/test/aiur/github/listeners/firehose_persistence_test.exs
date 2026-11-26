@@ -69,12 +69,17 @@ defmodule Aiur.GitHub.Listeners.FirehosePersistenceTest do
         }
       }
 
-      request_fun = fn
-        %{etag: "new-etag"} ->
-          {:ok, %{status: 304, headers: [{"ETag", "new-etag"}], body: ""}}
+      request_fun = fn request ->
+        cond do
+          String.contains?(Map.get(request, :url, ""), "/pulls/42/commits") ->
+            {:ok, %{status: 200, body: [], headers: []}}
 
-        %{etag: "previous-etag"} ->
-          {:ok, %{status: 200, headers: [{"ETag", "new-etag"}], body: [event, %{"id" => "last-seen"}]}}
+          Map.get(request, :etag) == "new-etag" ->
+            {:ok, %{status: 304, headers: [{"ETag", "new-etag"}], body: ""}}
+
+          Map.get(request, :etag) == "previous-etag" ->
+            {:ok, %{status: 200, headers: [{"ETag", "new-etag"}], body: [event, %{"id" => "last-seen"}]}}
+        end
       end
 
       {:ok, attempts} = Agent.start_link(fn -> 0 end)

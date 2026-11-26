@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSend do
   # Each Send press is one user action with its own message id (#2717). When
   # the daemon does not answer in time, the outcome is unknown: the id is kept
   # in `pending`, so pressing Send again with the same text retries this send
-  # and cannot queue a copy. Any other result drops it. A changed draft is a
+  # and cannot queue a copy. A known failure keeps it too until the text changes. A changed draft is a
   # new message and gets a new id.
   @spec send(composer(), String.t(), pending()) ::
           {:ok, integer(), String.t(), pending()} | {:error, term(), String.t() | nil, pending()}
@@ -52,7 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.OperatorSend do
     case send_agent_message(target(composer), text, message_id) do
       {:ok, request_id} -> {:ok, request_id, message_id, Map.delete(pending, key)}
       {:error, {:outcome_unknown, _info} = reason} -> {:error, reason, message_id, Map.put(pending, key, {message_id, text})}
-      {:error, reason} -> {:error, reason, message_id, Map.delete(pending, key)}
+      {:error, reason} -> {:error, reason, message_id, Map.put(pending, key, {message_id, text})}
     end
   end
 

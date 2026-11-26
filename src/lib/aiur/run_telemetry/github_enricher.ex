@@ -8,7 +8,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   to apply the normal trust and benign-review rules and are never returned.
   """
 
-  alias Aiur.GitHub.{CodeOwners, Transport}
+  alias Aiur.GitHub.{Access, CodeOwners}
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.TicketBranch
@@ -23,8 +23,8 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   def enrich(repo, tickets, opts) when is_list(tickets) and is_list(opts) do
     with {:ok, {owner, name}} <- parse_repo(repo),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       ticket_set = tickets |> Enum.map(&to_string/1) |> MapSet.new()
 
       trusted_author_fun =
@@ -92,16 +92,16 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   defp safe_repo_segment?(segment), do: Regex.match?(~r/\A[A-Za-z0-9_.-]+\z/, segment)
 
   defp pulls_url(owner, name),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{name}/pulls?state=all&per_page=100"
+    do: "#{Access.base_url()}/repos/#{owner}/#{name}/pulls?state=all&per_page=100"
 
   defp comments_url(owner, name, issue),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{name}/issues/#{issue}/comments?per_page=100"
+    do: "#{Access.base_url()}/repos/#{owner}/#{name}/issues/#{issue}/comments?per_page=100"
 
   defp review_comments_url(owner, name, pull),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{name}/pulls/#{pull}/comments?per_page=100"
+    do: "#{Access.base_url()}/repos/#{owner}/#{name}/pulls/#{pull}/comments?per_page=100"
 
   defp reviews_url(owner, name, pull),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{name}/pulls/#{pull}/reviews?per_page=100"
+    do: "#{Access.base_url()}/repos/#{owner}/#{name}/pulls/#{pull}/reviews?per_page=100"
 
   defp fetch_all(url, request_fun, token, opts) do
     max_pages = Keyword.get(opts, :max_pages, @max_pages)
@@ -135,7 +135,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   defp fetch_page(url, request_fun, token, pages_left, seen, items) do
     case request_fun.(%{method: :get, url: url, token: token, caller: "run_telemetry_enricher"}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        next_url = Transport.parse_next_page_url(Map.get(response, :headers, %{}))
+        next_url = Access.parse_next_page_url(Map.get(response, :headers, %{}))
         continue_pages(next_url, request_fun, token, pages_left, [url | seen], items ++ body)
 
       {:ok, %{status: status}} when is_integer(status) ->
@@ -156,7 +156,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   end
 
   defp safe_api_url?(url) when is_binary(url) do
-    base = URI.parse(Transport.base_url())
+    base = URI.parse(Access.base_url())
     parsed = URI.parse(url)
     parsed.scheme == base.scheme and parsed.host == base.host
   end

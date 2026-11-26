@@ -55,7 +55,6 @@
         "kind",
         "paths",
         "facades",
-        "facade_pending",
         "requires",
         "optional",
         "owns",
@@ -145,6 +144,14 @@
           },
           "uniqueItems": true
         },
+        "boundary_reference_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
         "owns": {
           "type": "object",
           "additionalProperties": false,
@@ -195,6 +202,7 @@
         "summary": {
           "$ref": "#/$defs/summary"
         },
+        "goal": {"enum": ["run-agents", "steer", "notify", "voice", "hardware"]},
         "status": {
           "enum": [
             "core",
@@ -269,6 +277,7 @@
         }
       },
       "allOf": [
+        {"if": {"properties": {"status": {"enum": ["core", "optional", "experimental", "deprecated"]}}}, "then": {"required": ["goal"]}},
         {
           "if": {
             "properties": {
@@ -280,6 +289,7 @@
             }
           },
           "then": {
+            "required": ["facade_pending"],
             "properties": {
               "facade_pending": {
                 "type": "string",

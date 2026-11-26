@@ -1,6 +1,7 @@
 defmodule Aiur.Core.ConfigValidationTest do
   use Aiur.TestSupport
   import Aiur.TestSupport.RejectedWorkflow
+  alias Aiur.Config.Schema.Codex
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.LifecycleFence
 
@@ -73,7 +74,17 @@ defmodule Aiur.Core.ConfigValidationTest do
              )
 
     assert message =~ "codex.command"
-    assert message =~ "can't be blank"
+    # Ecto 3.14's `validate_required/3` no longer reports `""` as "can't be
+    # blank" when the changeset opts out of empty values — `empty_values: []`
+    # is kept so a whitespace-only command stays valid. The length validation
+    # still rejects the empty string; only the message text changed.
+    assert message =~ "should be at least 1 character(s)"
+
+    # The required validation still catches a nil command, which is the case
+    # that would otherwise reach the Codex app-server launch.
+    errors = Codex.changeset(%Codex{}, %{command: nil}).errors
+
+    assert {"can't be blank", [validation: :required]} in Keyword.get_values(errors, :command)
 
     write_workflow_file!(Workflow.workflow_file_path(), codex_command: "   ")
     assert :ok = Config.validate!()
