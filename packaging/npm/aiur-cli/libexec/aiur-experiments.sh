@@ -6,7 +6,8 @@ cmd_experiments() {
     [ "${1:-}" = submit ] || { echo "aiur: experiments report expects submit <id> --file <file|->" >&2; exit 64; }
     verb=report_submit
   fi
-  case "$verb" in list|show|create|metrics|freeze|abandon|events|preregister|report_submit|stats|analyze) shift ;; *) echo "aiur: experiments expects list, show, events, metrics, create or freeze" >&2; exit 64 ;; esac
+  case "$verb" in list|show|create|metrics|freeze|import-baseline|abandon|events|preregister|report_submit|stats|analyze) shift ;; *) echo "aiur: experiments expects list, show, events, metrics, create, freeze or import-baseline" >&2; exit 64 ;; esac
+  [ "$verb" = import-baseline ] && verb=import_baseline
   while [ "$#" -gt 0 ]; do
     arg="$1"; shift
     case "$arg" in
@@ -18,6 +19,12 @@ cmd_experiments() {
           value="$(cat -- "$value")" || { echo "aiur: experiments cannot read input file" >&2; exit 1; }
         fi
         arg="--contract-json=$value"
+        ;;
+      --source)
+        [ "$#" -gt 0 ] || { echo "aiur: experiments --source requires a file" >&2; exit 64; }
+        value="$(base64 < "$1" | tr -d '\n')" || { echo "aiur: experiments cannot read baseline source" >&2; exit 1; }
+        shift
+        arg="--source-base64=$value"
         ;;
       --contract-json*) echo "aiur: experiments use --file to supply JSON" >&2; exit 64 ;;
       --from)

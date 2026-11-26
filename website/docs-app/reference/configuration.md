@@ -217,7 +217,7 @@ the machine, independently of repository workflows.
 | `machine:capacity.sources.<backend>.serves` | string array | `[coding]` | Work kinds this source may take. |
 | `machine:capacity.sources.<backend>.reserve.percent` | number | `0` | 0–100; remaining percent workers must leave on the reserved accounts. |
 | `machine:capacity.sources.<backend>.reserve.accounts` | string array | all accounts | Which `agent.accounts.<backend>` entries the reserve covers. |
-| `machine:capacity.sources.<backend>.limits.daily_usd` | number | `null` | Hard USD cap per UTC day; also `weekly_usd` and `monthly_usd` (UTC calendar periods). Non-negative. |
+| `machine:capacity.sources.<backend>.limits.daily_usd` | number | `null` | Hard USD cap per UTC day; also `weekly_usd` and `monthly_usd` (UTC calendar periods). Non-negative. Applies to `metered` and `prepaid` sources only. |
 | `machine:capacity.sources.<backend>.limits.weekly_usd` | number | `null` | See `daily_usd`. |
 | `machine:capacity.sources.<backend>.limits.monthly_usd` | number | `null` | See `daily_usd`. |
 | `machine:capacity.limits` | map | `{}` | Hard USD caps over all metered and prepaid sources together. |

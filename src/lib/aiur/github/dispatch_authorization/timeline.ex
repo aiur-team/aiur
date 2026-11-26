@@ -58,9 +58,9 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
     url = timeline_url(owner, repo, issue.id, per_page)
     held = TimelineCache.get(owner, repo, issue.id, per_page)
 
-    case fetch_timeline(request_fun, token, url, held, page_budget(per_page)) do
-      {:ok, events, etag, single_page?} ->
-        {:ok, events, etag, single_page?, per_page}
+    case fetch_timeline(request_fun, token, url, held, per_page) do
+      {:ok, events, etag, single_page?, pages} ->
+        {:ok, events, etag, single_page?, per_page, pages}
 
       {:error, :timeline_truncated} when smaller != [] ->
         Logger.warning(
@@ -86,80 +86,92 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
   # means more of them.
   defp page_budget(per_page), do: max(div(@max_timeline_events, per_page), 1)
 
-  # The only validator we hold belongs to page 1 of the timeline. A `304`
-  # against it proves page 1 unchanged — and issue timelines are ordered
-  # oldest-first, so page 1 is effectively immutable and a `304` there says
-  # nothing about the later pages where new `labeled` events land. The held
-  # timeline is therefore reusable on a `304` only when it was a *single page*
-  # AND GitHub does not report a new page on the `304` (the single→multi
-  # transition is exactly the staleness this must never serve). A multi-page
-  # held timeline is refetched every cycle: its validator belongs to a page that
-  # cannot move, so it can never buy an answer.
-  defp fetch_timeline(request_fun, token, url, held, pages) do
-    etag = if reusable?(held), do: held.etag, else: nil
+  # Every page keeps its own validator. Issue timelines are ordered
+  # oldest-first, so a page-1 `304` says nothing about the later pages where new
+  # `labeled` events land — but a `304` on each page in turn does: every page
+  # GitHub vouches for is unchanged, and the walk still follows the `Link`
+  # chain to the end. The one page whose `304` cannot be trusted is a *full*
+  # last page: a new event opens a page after it while its own body, and so its
+  # validator, stays the same. That page is always read unconditionally, which
+  # also reports the new `rel="next"` link. Unchanged full pages are then free,
+  # and a refetch of a busy ticket's timeline costs one billable page rather
+  # than one per page.
+  defp fetch_timeline(request_fun, token, url, held, per_page) do
+    walk_timeline(request_fun, token, url, held_pages(held, url), page_budget(per_page), per_page, [])
+  end
+
+  defp walk_timeline(_request_fun, _token, _url, _held_pages, 0, _per_page, _pages), do: {:error, :timeline_page_limit_exceeded}
+
+  defp walk_timeline(request_fun, token, url, held_pages, pages_left, per_page, pages) do
+    held_page = Map.get(held_pages, url)
+    etag = page_validator(held_page, per_page)
 
     case request_fun.(timeline_request(url, token, etag)) do
-      {:ok, %{status: 304} = response} ->
-        timeline_not_modified(request_fun, token, url, held, etag, response, pages)
-
-      {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        continue_timeline_pages(request_fun, token, page, response, pages, [])
-
-      other ->
-        timeline_fetch_error(other)
-    end
-  end
-
-  # A `304` with no validator sent is a proxy answering a request that carried
-  # none — not a page.
-  defp timeline_not_modified(_request_fun, _token, _url, _held, nil, _response, _pages),
-    do: {:error, :timeline_unexpected_304}
-
-  defp timeline_not_modified(request_fun, token, url, held, _etag, response, pages) do
-    if next_page?(response) do
-      # Page 1 is unchanged but the timeline grew a page the held single page
-      # cannot see (or the held timeline spanned pages whose newer content page 1
-      # cannot vouch for). Refetch the whole timeline rather than answer from a
-      # snapshot page 1 cannot confirm.
-      fetch_timeline(request_fun, token, url, nil, pages)
-    else
-      {:reused, held.events}
-    end
-  end
-
-  # Page 1 answered 200: capture its validator (the only one ever reusable,
-  # because it belongs to the immutable head of the list) and follow the `Link`
-  # pages. A single page answers `single_page?: true`, which is what makes a
-  # future `304` trustworthy.
-  defp continue_timeline_pages(request_fun, token, page, response, pages_left, events) do
-    first_etag = response_etag(response, nil)
-
-    case Access.parse_next_page_url(Map.get(response, :headers, [])) do
-      nil -> {:ok, events ++ prune_events(page), first_etag, true}
-      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
-    end
-  end
-
-  defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events, _first_etag), do: {:error, :timeline_page_limit_exceeded}
-
-  defp fetch_timeline_pages(request_fun, token, url, pages_left, events, first_etag) do
-    case request_fun.(timeline_request(url, token, nil)) do
-      {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, events ++ prune_events(page), first_etag, false}
-          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
-        end
+      {:ok, %{status: 304} = response} when is_binary(etag) ->
+        page = Map.merge(held_page, %{next_url: next_page_url(response) || held_page.next_url, reused?: true})
+        continue_timeline(request_fun, token, held_pages, pages_left, per_page, [page | pages])
 
       {:ok, %{status: 304}} ->
-        # Pages after the first are unconditional, so a `304` here is a proxy
-        # answering a request that carried no validator — not a page. Fail
-        # closed rather than serve a truncated timeline.
+        # A `304` to a request that carried no validator is a proxy answering
+        # — not a page. Fail closed rather than serve a truncated timeline.
         {:error, :timeline_unexpected_304}
+
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        page = %{url: url, etag: response_etag(response, nil), events: prune_events(body), next_url: next_page_url(response), reused?: false}
+        continue_timeline(request_fun, token, held_pages, pages_left, per_page, [page | pages])
 
       other ->
         timeline_fetch_error(other)
     end
   end
+
+  defp continue_timeline(_request_fun, _token, _held_pages, _pages_left, _per_page, [%{next_url: nil} | _rest] = pages),
+    do: finish_timeline(Enum.reverse(pages))
+
+  defp continue_timeline(request_fun, token, held_pages, pages_left, per_page, [%{next_url: next_url} | _rest] = pages),
+    do: walk_timeline(request_fun, token, next_url, held_pages, pages_left - 1, per_page, pages)
+
+  # Every page answered `304`, so the held timeline — validators, page
+  # boundaries and all — is exactly what GitHub would return.
+  defp finish_timeline(pages) do
+    events = Enum.flat_map(pages, & &1.events)
+
+    if Enum.all?(pages, & &1.reused?) do
+      {:reused, events}
+    else
+      meta = Enum.map(pages, &%{url: &1.url, etag: &1.etag, count: length(&1.events), next_url: &1.next_url})
+      {:ok, events, hd(pages).etag, length(pages) == 1, meta}
+    end
+  end
+
+  # A held page may be revalidated unless it is a full last page (see
+  # `fetch_timeline/5`).
+  defp page_validator(%{etag: etag, events: events, next_url: next_url}, per_page)
+       when is_binary(etag) and etag != "" and (is_binary(next_url) or length(events) < per_page),
+       do: etag
+
+  defp page_validator(_held_page, _per_page), do: nil
+
+  # The held timeline, keyed by page URL. A held page list that does not add up
+  # to the held events is not evidence of anything, so it holds no validators.
+  defp held_pages(%{pages: pages, events: events}, _first_url) when is_list(pages) and is_list(events) do
+    if Enum.sum(Enum.map(pages, & &1.count)) == length(events) do
+      pages
+      |> Enum.map_reduce(events, fn %{url: url, etag: etag, count: count, next_url: next_url}, remaining ->
+        {{url, %{url: url, etag: etag, events: Enum.take(remaining, count), next_url: next_url}}, Enum.drop(remaining, count)}
+      end)
+      |> elem(0)
+      |> Map.new()
+    else
+      %{}
+    end
+  end
+
+  # A held single page with no page list is its own page 1.
+  defp held_pages(%{single_page?: true, etag: etag, events: events}, first_url) when is_list(events),
+    do: %{first_url => %{url: first_url, etag: etag, events: events, next_url: nil}}
+
+  defp held_pages(_held, _first_url), do: %{}
 
   # A 200 whose body is not a JSON list means the page was truncated at
   # @max_timeline_response_bytes by the transport (the body becomes ""), or was
@@ -191,13 +203,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
     Access.header(Map.get(response, :headers, []), "etag") || fallback
   end
 
-  defp next_page?(response), do: not is_nil(Access.parse_next_page_url(Map.get(response, :headers, [])))
-
-  defp reusable?(%{single_page?: true, etag: etag, events: events})
-       when is_binary(etag) and etag != "" and is_list(events),
-       do: true
-
-  defp reusable?(_held), do: false
+  defp next_page_url(response), do: Access.parse_next_page_url(Map.get(response, :headers, []))
 
   @spec decision(Issue.t(), String.t(), String.t(), list()) :: tuple()
   def decision(issue, label, prefix, events) do

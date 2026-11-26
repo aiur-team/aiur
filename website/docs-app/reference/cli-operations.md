@@ -320,8 +320,11 @@ Fleet-capacity and build-gate evidence have independent source states: stale fle
 | `aiur experiments report submit <id> --file <file\|-> [--json]` | Recomputes and validates a report, then stores its next version. Invalid or stale reports exit 1; a stored interim result also exits 1 while a stronger analysis request remains open. | `aiur experiments report submit delivery-change --file report.json` |
 | `aiur experiments preregister <id> --file <file\|-> [--json]` | Validates and stores a pre-registration. Repeating it requires a `reason` in the JSON and appends an amendment. | `aiur experiments preregister delivery-change --file prereg.json` |
 | `aiur experiments freeze <id> [--window before\|after\|observation] [--reason <r>] [--json]` | Freezes observations; another revision requires a reason. Default window: before (before/after), observation (A/B). | `aiur experiments freeze delivery-change --reason "baseline complete"` |
+| `aiur experiments import-baseline <id> --source <file> --sha256 <hex> --metric <pack/metric> [--summary-path <a.b.c>] [--window <name>] [--reason <r>] [--json]` | Imports a summary-only baseline after checking the source file's SHA-256. Source bytes are retained; no unit observations are inferred. | `aiur experiments import-baseline optimistic-start --source baseline.json --sha256 e88e475b38f1abf9ec2f70016453129904b2357f668290b21fd8991da1cde4cb --metric app/blocker_merge_to_start --summary-path primary.blocker_merge_to_dependent_start.all` |
 
 Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Manual lines need a UTC timestamp; tag/commit times resolve from base history. Before/after creation freezes before unless `--no-freeze`, reporting count and coverage (`frozen_snapshot` in JSON). Exit codes: 0 success, 1 refused, 64 usage. Newer specs refuse writes.
+
+An imported summary preserves the exact source bytes and SHA-256, and keeps raw observation coverage unavailable without creating unit rows. For A/B experiments, import it under `before` as contextual evidence; cohort evaluation continues to use the separate `observation` window.
 
 ## Operational facts that change an incident response
 
@@ -365,7 +368,7 @@ A failed read prints `ownership unknown` with no owner fields and exits 75; it n
 
 `aiur ticket assign <n> --to <gateway> --reason <text> [--force] [--as <id>] [--json]` transfers an owned ticket with compare-and-set (`epoch + 1`), then disables auto-merge on the old owner's open PR. It needs the `tickets` grant.
 
-`--to` names the target; `--gateway` still selects where the command runs. Today `--to` accepts only the gateway the command runs on (label or id), so run it where the ticket is going. A peer name needs the gateway registry and exits 64.
+`--to` names the target; `--gateway` still selects where the command runs. `--to` accepts this gateway or a peer by registry name, label or id, judged on what `aiur gateway status <peer>` last cached. See [Delegating a ticket](/concepts/executor#delegating-a-ticket-to-another-gateway).
 
 The owner's liveness decides:
 

@@ -84,6 +84,17 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.CommandsScopeAuth)
   end
 
+  # Operator↔Executor thread API: a host grant, a client token or the dashboard session.
+  pipeline :executor_thread_read do
+    plug(:fetch_session)
+    plug(AiurWeb.ExecutorThreadAuth)
+  end
+
+  pipeline :executor_thread_write do
+    plug(:fetch_session)
+    plug(AiurWeb.ExecutorThreadAuth, write?: true)
+  end
+
   # GitHub webhook deliveries carry no bearer token and no browser session:
   # they authenticate by HMAC signature over the raw body, so they need their
   # own pipeline rather than the dashboard or supervisor auth pipelines.
@@ -222,6 +233,23 @@ defmodule AiurWeb.Router do
     get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)
     get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
     match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through(:executor_thread_read)
+    get("/api/v1/executor/thread", ExecutorThreadController, :show)
+    get("/api/v1/executor/thread/messages", ExecutorThreadController, :index)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through([:executor_thread_write, :require_writable])
+    post("/api/v1/executor/thread/messages", ExecutorThreadController, :create)
+  end
+
+  # Only the instance supervisor mints a host grant.
+  scope "/", AiurWeb do
+    pipe_through([:supervisor_auth, :require_writable])
+    post("/api/v1/executor/thread/grants", ExecutorThreadController, :mint_grant)
   end
 
   GatewaySummary.reads()

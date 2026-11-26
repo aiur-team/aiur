@@ -75,6 +75,32 @@ defmodule Aiur.OrchestratorCiWaitDraftAlertTest do
     assert MapSet.member?(overdue.ci_lifecycle.ci_wait_draft_recovered, identifier)
   end
 
+  test "#8102 moves a ci-wait ticket with no open PR to rework with a reason comment and attention" do
+    identifier = "ci-wait-no-pr-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.pr.draft_ci_wait"
+    ref = make_ref()
+    issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}
+    result = %{decision: :pending, pending_reason: :open_pr_not_yet_visible}
+    emitter = fn alert_topic, opts -> send(self(), {:alert, ref, alert_topic, opts}) && :ok end
+    comment = fn id, body -> send(self(), {:comment, id, body}) && :ok end
+
+    transition = fn state, ticket ->
+      send(self(), {:transition, ticket.identifier, "rework"})
+      {:ok, state}
+    end
+
+    first = poll_ci(%State{}, issue, result, emitter, 1_000, comment, transition)
+    refute_received {:transition, ^identifier, _}
+    overdue = poll_ci(first, issue, result, emitter, 1_000 + 60 * 60_000, comment, transition)
+
+    assert_received {:comment, ^identifier, "No open PR; commit, push and open the PR"}
+    assert_received {:transition, ^identifier, "rework"}
+    assert_received {:alert, ^ref, ^topic, alert_opts}
+    assert alert_opts[:needs_attention]
+    assert alert_opts[:message] =~ "no open PR"
+    assert MapSet.member?(overdue.ci_lifecycle.ci_wait_draft_recovered, identifier)
+  end
+
   test "does not mark recovery complete when the state write fails" do
     identifier = "ci-wait-draft-retry-#{System.unique_integer([:positive])}"
     issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait"}

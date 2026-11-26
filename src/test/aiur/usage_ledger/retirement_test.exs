@@ -1,7 +1,7 @@
 defmodule Aiur.UsageLedger.RetirementTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.UsageLedger.{RetiredFloor, Store}
+  alias Aiur.UsageLedger.{Checkpoint, RetiredFloor, RetiredKeys, Store}
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 1]
 
@@ -100,6 +100,65 @@ defmodule Aiur.UsageLedger.RetirementTest do
     assert {:duplicate, _ack} = GenServer.call(context.name, {:append, first})
     GenServer.stop(restarted)
   end
+
+  # The checkpoint cap bounds the retained counter state. After a retirement the
+  # full idempotency history lives in retired-idempotency.json, so a checkpoint
+  # that also carried every key overflowed the cap, rejected the append, and
+  # left the checkpoint due again on every later append (2026-11 wedge).
+  @wedge_opts [checkpoint_interval: 10, limits: [max_checkpoint_bytes: 200_000]]
+
+  test "appends keep landing at the checkpoint interval after retiring a large key history", context do
+    {:ok, ledger} = start_ledger(context.root, context.name, @wedge_opts)
+    append_long_keys(context.name, 1..600)
+    {:ok, _} = Store.retire(context.name, 600)
+
+    for index <- 601..625 do
+      assert {:ok, %{position: ^index}} = GenServer.call(context.name, {:append, long_key_envelope(index)})
+    end
+
+    assert GenServer.call(context.name, :health) == :healthy
+    assert {:ok, %{position: 620}} = Checkpoint.load(Path.join(context.root, "checkpoint.json"), max_bytes: 200_000)
+    GenServer.stop(ledger)
+
+    {:ok, restarted} = start_ledger(context.root, context.name, @wedge_opts)
+    assert GenServer.call(context.name, :generation) == 625
+    assert {:duplicate, _ack} = GenServer.call(context.name, {:append, long_key_envelope(1)})
+    GenServer.stop(restarted)
+  end
+
+  test "a ledger left wedged on disk boots and appends without losing records", context do
+    {:ok, ledger} = start_ledger(context.root, context.name, @wedge_opts)
+    append_long_keys(context.name, 1..600)
+    {:ok, _} = Store.retire(context.name, 600)
+    append_long_keys(context.name, 601..609)
+
+    # The wedged shape: the last good checkpoint sits one interval behind the
+    # segment head, and a failed retirement already archived every key up to it.
+    %{policy: policy} = :sys.get_state(context.name)
+    :ok = RetiredKeys.write(Path.join(context.root, "retired-idempotency.json"), 609, policy.idempotency)
+    GenServer.stop(ledger)
+
+    {:ok, restarted} = start_ledger(context.root, context.name, @wedge_opts)
+    assert GenServer.call(context.name, :health) == :healthy
+    assert GenServer.call(context.name, :generation) == 609
+    assert {:ok, %{position: 610}} = GenServer.call(context.name, {:append, long_key_envelope(610)})
+    assert {:ok, %{position: 610}} = Checkpoint.load(Path.join(context.root, "checkpoint.json"), max_bytes: 200_000)
+    GenServer.stop(restarted)
+
+    {:ok, recovered} = start_ledger(context.root, context.name, @wedge_opts)
+    assert GenServer.call(context.name, :health) == :healthy
+    assert GenServer.call(context.name, :generation) == 610
+    assert scan_positions(context.name) == Enum.to_list(601..610)
+    assert {:duplicate, _ack} = GenServer.call(context.name, {:append, long_key_envelope(1)})
+    assert {:duplicate, _ack} = GenServer.call(context.name, {:append, long_key_envelope(605)})
+    GenServer.stop(recovered)
+  end
+
+  defp append_long_keys(name, range) do
+    for index <- range, do: {:ok, _} = GenServer.call(name, {:append, long_key_envelope(index)})
+  end
+
+  defp long_key_envelope(index), do: envelope(%{idempotency_key: "codex:" <> String.duplicate("k", 240) <> "-#{index}"})
 
   test "recovery excludes archived keys newer than a failed checkpoint", context do
     {:ok, ledger} = start_ledger(context.root, context.name, checkpoint_interval: 2)
