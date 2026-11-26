@@ -73,6 +73,9 @@ def actor_usage_rows(conn, token_key, consumer_key, resource, now):
 
 
 def actor_ceiling_hold(conn, args, now):
+    # Unmetered probes still obey concurrency and request-rate admission.
+    if args.resource == "none":
+        return 0
     if args.resource == "graphql":
         limit = args.graphql_limit
     elif args.resource == "search":
