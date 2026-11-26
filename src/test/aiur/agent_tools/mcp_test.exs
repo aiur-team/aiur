@@ -5,13 +5,15 @@ defmodule Aiur.AgentTools.MCPTest do
 
   alias Aiur.AgentTools.MCP
   alias Aiur.AgentTools.MCP.Router
+  alias Aiur.AppServer.ToolCallLedger
 
   setup do
     {:ok, gateway} = MCP.start_link(owner: self())
-    %{gateway: gateway, connection: Map.put(MCP.connection(gateway), :gateway, gateway)}
+    ledger = start_supervised!({ToolCallLedger, name: nil})
+    %{gateway: gateway, ledger: ledger, connection: Map.put(MCP.connection(gateway), :gateway, gateway)}
   end
 
-  test "a scoped gateway initializes, lists tools and executes in its owner", %{gateway: gateway, connection: connection} do
+  test "a scoped gateway initializes, lists tools and executes in its owner", %{gateway: gateway, ledger: ledger, connection: connection} do
     assert {:ok, binding} = MCP.bind(gateway, "attempt-1")
 
     assert {:ok, %{"result" => %{"protocolVersion" => "2025-06-18"}}} =
@@ -25,22 +27,27 @@ defmodule Aiur.AgentTools.MCPTest do
     receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^binding, _, "emit_event", %{} = _args} = message)
 
     assert :ok =
-             MCP.execute_request(gateway, message, fn name, args ->
-               assert self() == caller
-               assert name == "emit_event"
-               assert args == %{}
-               %{"success" => true, "output" => "done"}
-             end)
+             MCP.execute_request(
+               gateway,
+               message,
+               fn name, args ->
+                 assert self() == caller
+                 assert name == "emit_event"
+                 assert args == %{}
+                 %{"success" => true, "output" => "done"}
+               end,
+               ledger
+             )
 
     assert {:ok, %{"result" => %{"content" => [%{"text" => "done"}], "isError" => false}}} = Task.await(request, :infinity)
   end
 
-  test "an executor exit becomes a tool error without escaping the owner", %{gateway: gateway, connection: connection} do
+  test "an executor exit becomes a tool error without escaping the owner", %{gateway: gateway, ledger: ledger, connection: connection} do
     assert {:ok, binding} = MCP.bind(gateway, "exit-attempt")
     request = Task.async(fn -> post(connection, 41, "tools/call", %{"name" => "emit_event", "arguments" => %{}}) end)
     receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^binding, _, _, _} = message)
 
-    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> exit(:boom) end)
+    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> exit(:boom) end, ledger)
 
     assert {:ok, %{"result" => %{"content" => [%{"text" => "tool_execution_exit"}], "isError" => true}}} =
              Task.await(request, 1_000)
@@ -57,19 +64,19 @@ defmodule Aiur.AgentTools.MCPTest do
              post(connection, 2, "tools/call", %{"name" => "emit_event", "arguments" => %{}})
   end
 
-  test "revoking an attempt fences a tool call already queued to its owner", %{gateway: gateway, connection: connection} do
+  test "revoking an attempt fences a tool call already queued to its owner", %{gateway: gateway, ledger: ledger, connection: connection} do
     assert {:ok, binding} = MCP.bind(gateway, "revoked-attempt")
     request = Task.async(fn -> post(connection, 31, "tools/call", %{"name" => "emit_event", "arguments" => %{}}) end)
     receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^binding, _, _, _} = message)
 
     assert :ok = MCP.unbind(gateway, binding)
-    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> flunk("revoked tool must not execute") end)
+    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> flunk("revoked tool must not execute") end, ledger)
 
     assert {:ok, %{"result" => %{"content" => [%{"text" => "inactive_attempt"}], "isError" => true}}} =
              Task.await(request, :infinity)
   end
 
-  test "replaying an identical tool request returns the result and executes once", %{gateway: gateway, connection: connection} do
+  test "replaying an identical tool request returns the result and executes once", %{gateway: gateway, ledger: ledger, connection: connection} do
     assert {:ok, binding} = MCP.bind(gateway, "replay-attempt")
     calls = :atomics.new(1, [])
 
@@ -78,10 +85,15 @@ defmodule Aiur.AgentTools.MCPTest do
       receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^binding, _, "emit_event", %{"value" => 42}} = message)
 
       assert :ok =
-               MCP.execute_request(gateway, message, fn _, _ ->
-                 :atomics.add(calls, 1, 1)
-                 %{"success" => true, "output" => "durable result"}
-               end)
+               MCP.execute_request(
+                 gateway,
+                 message,
+                 fn _, _ ->
+                   :atomics.add(calls, 1, 1)
+                   %{"success" => true, "output" => "durable result"}
+                 end,
+                 ledger
+               )
 
       assert {:ok, %{"result" => %{"content" => [%{"text" => "durable result"}], "isError" => false}}} = Task.await(request, :infinity)
     end
@@ -106,11 +118,11 @@ defmodule Aiur.AgentTools.MCPTest do
     assert Enum.any?(tools, &(&1["name"] == "emit_event"))
   end
 
-  test "a request id cannot cross attempts or change arguments", %{gateway: gateway, connection: connection} do
+  test "a request id cannot cross attempts or change arguments", %{gateway: gateway, ledger: ledger, connection: connection} do
     assert {:ok, first} = MCP.bind(gateway, "attempt-1")
     request = Task.async(fn -> post(connection, 7, "tools/call", %{"name" => "emit_event", "arguments" => %{"x" => 1}}) end)
     receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^first, _, _, _} = message)
-    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> %{"success" => true, "output" => "once"} end)
+    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> %{"success" => true, "output" => "once"} end, ledger)
     assert {:ok, %{"result" => _}} = Task.await(request, :infinity)
 
     assert {:ok, %{"error" => %{"message" => "conflicting_invocation"}}} =

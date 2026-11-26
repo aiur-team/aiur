@@ -46,6 +46,10 @@ defmodule Aiur.Workspace do
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   defdelegate remove(workspace), to: Remove
 
+  @doc false
+  @spec ensure_tool_results_excluded(Path.t()) :: :ok | {:error, term()}
+  defdelegate ensure_tool_results_excluded(workspace), to: GitMetadata
+
   @spec remove(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   defdelegate remove(workspace, worker_host), to: Remove
 

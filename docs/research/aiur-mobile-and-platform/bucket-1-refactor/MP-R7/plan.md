@@ -140,6 +140,80 @@ The exact prescribed roots are used, including the sibling
 owned by the expanded component has independent test coverage. No code,
 tests, durable state, recovery, or migration files are moved by this record.
 
+## C4-T03 in-tree recheck (2026-11-21)
+
+Issue #3478 was re-scoped to repair the logical component without creating a
+physical package. The #3477 record measured 94 live allowlisted keys (54
+outgoing, 40 incoming). The integration base had 83 (54 outgoing, 29 incoming),
+an 11-key reduction before this ticket's code. This change moves the provider
+family identity into `Aiur.CodingAgent.Backend` and keeps the adapter-module map
+inside accounting, removing seven outgoing keys. The shared setup-I/O type is
+declared on the harness backend contract, removing type-only references to
+`Aiur.Init`; OpenAI-compatible config now uses the config-owned dotenv parser
+instead of the setup-wizard wrapper. Tool-call invocation context now lives in
+`Aiur.CodingAgent.Backend.ToolInvocation`; event-humanizer behavior and shared
+helpers were moved behind the harness and kernel owners. The shared pure
+`Aiur.TokenUsage` normalizer now belongs to kernel, where both adapters and
+accounting can consume it without an upward dependency. Dispatch now supplies
+pricing schedule and window-classifier callbacks from the app-level toolchain composition point,
+removing two more harness-to-accounting keys without changing routing behavior.
+Provider meter and account-generation submodule calls now go through their
+public accounting facades, removing five more outgoing keys; the component
+allowlist was pruned of those stale rows. Claude and Codex native-capture calls
+now use the shared Commands facade, removing two further outgoing keys; those
+stale rows were pruned as well. The Claude hook liveness notification now uses
+a callback installed by the application composition root, removing the
+harness-to-Orchestrator dependency. Review-thread writes and Linear GraphQL now
+use callbacks installed by the application composition root instead of
+importing GitHub and Linear clients. Subscription policy and tool-result
+exclusion now route through existing event and workspace facades. The current
+census is **40 live keys: 11 outgoing and 29 incoming**, down from 83 on the
+integration base and 94 in the #3477 record. The harness-adapters allowlist
+itself has 11 entries; the remaining NativeCapture facade key is declared as
+a seam. The re-scoped ≤40 total live-key target is met. Physical promotion
+criterion 1 still fails because the zero-allowlisted-violation release streak
+is not established; criterion 5 also remains unestablished.
+Criterion 5 remains not established: no second consumer or independent-release
+need is recorded.
+
+| Promotion criterion | Re-run result | Evidence |
+| --- | --- | --- |
+| 1. Zero allowlisted violations in/out for two consecutive releases | FAIL | 40 live keys remain (11 out, 29 in); no two qualifying zero-violation releases are recorded. |
+| 2. Component declares children and boot ordering; root composes | PASS | The existing `Aiur.Claude.Telemetry` child and provider `init_order: 0` remain declared and composed by the root; this change does not alter supervision. |
+| 3. State/recovery moves together; tests run without whole app | PASS for the prescribed no-start subset | `--no-start` passed 1,532 tests and 2 properties (3 excluded). The separate full suite timed out in this workspace. |
+| 4. Config section owned in manifest | PASS | `harness-adapters` remains the sole owner of `agent` config. |
+| 5. Second consumer exists/planned, or independent release is needed | NOT ESTABLISHED | No qualifying second consumer or independent-release need is recorded. |
+
+The refreshed assessment remains **NO-GO** for physical promotion: criteria 1
+and 5 do not pass.
+
+The structural ratchet already runs in the CI lint-guards action via
+`scripts/check-components-ci.sh`; `scripts/test-check-components.sh` includes
+`new_violation_beside_allowlist_fails`, which proves a new unallowlisted
+cross-boundary reference fails. The gate checks all components, including
+harness-adapters.
+
+The prescribed no-start selection passes in this workspace after isolating
+the OpenAI decision-media test's durable store, ensuring its event ID
+generator is available, and giving per-test PubSub instances the dependency
+application's registry without starting Aiur:
+
+```text
+env -C src mise exec -- mix test --no-start --max-cases 4 test/aiur/codex test/aiur/claude test/aiur/muse test/aiur/open_ai_compat test/aiur/coding_agent test/aiur/app_server test/aiur/agent_tools test/aiur/coding_agent_test.exs
+2 properties, 1,287 tests, 0 failures (3 excluded)
+```
+
+The full `mise exec -- mix test --max-cases 4` run hit the shared build-gate
+timeout (exit 124) after reporting 2,530 tests, with earlier workspace Git
+guard failures and a test guard finding that `tools_test.exs` started the
+application-owned `Aiur.TaskSupervisor`. That test now injects a private
+supervisor name; focused tests for it pass. The full suite has not been rerun
+after that repair.
+
+Re-run assessment: **NO-GO for the physical package move**. Boundary criterion 1
+is still above the re-scoped target, and criterion 5 still has no qualifying
+need. No package-move follow-up is filed. The logical component stays in `src/`.
+
 ### E. Consumer/release need and manual acceptance
 
 Read migration-plan §5 and DESIGN-R7 at the revisions linked above with

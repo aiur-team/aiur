@@ -59,8 +59,8 @@ defmodule Aiur.BuildOrder.EpicOverrides do
     end
   end
 
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  @spec subscribe(keyword()) :: :ok | {:error, term()}
+  def subscribe(opts \\ []), do: Phoenix.PubSub.subscribe(Keyword.get(opts, :pubsub, Aiur.PubSub), @topic)
 
   defp read(opts, select) do
     with {:ok, state} <- snapshot(opts) do
@@ -105,7 +105,8 @@ defmodule Aiur.BuildOrder.EpicOverrides do
       health: unavailable(:epic_overrides_state_dir_unavailable),
       settings_fun: Keyword.get(opts, :settings_fun, &Aiur.Config.settings/0),
       writer: Keyword.get(opts, :writer, &Aiur.Fs.atomic_write/3),
-      max_bytes: Keyword.get(opts, :max_bytes, @max_bytes)
+      max_bytes: Keyword.get(opts, :max_bytes, @max_bytes),
+      pubsub: Keyword.get(opts, :pubsub, Aiur.PubSub)
     }
 
     loaded = initialize(state, opts)
@@ -235,7 +236,7 @@ defmodule Aiur.BuildOrder.EpicOverrides do
         publish(next)
 
         Phoenix.PubSub.broadcast(
-          Aiur.PubSub,
+          state.pubsub,
           @topic,
           {:epic_overrides_changed, %{generation: next.generation, changed: changed, health: next.health}}
         )
@@ -247,7 +248,7 @@ defmodule Aiur.BuildOrder.EpicOverrides do
         publish(failed)
 
         Phoenix.PubSub.broadcast(
-          Aiur.PubSub,
+          state.pubsub,
           @topic,
           {:epic_overrides_changed, %{generation: state.generation, changed: [], health: failed.health}}
         )

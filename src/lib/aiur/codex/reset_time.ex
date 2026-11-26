@@ -55,6 +55,7 @@ defmodule Aiur.Codex.ResetTime do
 
   def parse(hint, now, zone) when is_binary(hint) do
     hint = String.trim(hint)
+    now = utc_instant(now)
 
     case DateTime.from_iso8601(hint) do
       {:ok, time, _offset} -> future_iso8601(time, now)
@@ -171,7 +172,7 @@ defmodule Aiur.Codex.ResetTime do
 
   # The text drops the seconds of the real reset; resume at the end of the
   # printed minute, never inside it.
-  defp end_of_minute(%DateTime{} = time), do: DateTime.add(time, 60, :second)
+  defp end_of_minute(%DateTime{} = time), do: time |> utc_instant() |> DateTime.add(60, :second)
   defp end_of_minute(nil), do: nil
 
   defp erl_to_utc(erl), do: erl |> NaiveDateTime.from_erl!() |> DateTime.from_naive!("Etc/UTC")
@@ -181,5 +182,13 @@ defmodule Aiur.Codex.ResetTime do
   end
 
   defp to_iso8601(nil), do: nil
+
+  defp to_iso8601(%DateTime{microsecond: {0, _}} = time),
+    do: time |> DateTime.shift_zone!("Etc/UTC") |> Map.put(:microsecond, {0, 0}) |> DateTime.to_iso8601()
+
   defp to_iso8601(time), do: time |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+
+  defp utc_instant(%DateTime{} = time) do
+    time |> DateTime.to_unix() |> DateTime.from_unix!()
+  end
 end
