@@ -386,9 +386,7 @@ defmodule Aiur.BuildQueue.ReadModel do
     }
   end
 
-  # GitHub blockers only decide a member that is about to start. A held, claimed
-  # or otherwise settled member keeps the planner's own reason: a cached blocker
-  # miss there used to replace `parked_marker` with "GitHub dependencies unknown".
+  # GitHub blockers only decide a member about to start; any other member keeps the planner's own reason.
   defp native_readiness(%{state: state} = projection, prerequisites) when state in [:ready, :waiting] do
     case Enum.find(prerequisites, &(&1.source == :github and &1.verdict in [:pending, :unknown])) do
       nil -> {projection.state, verdict(projection.verdict), Map.get(projection, :reason)}
