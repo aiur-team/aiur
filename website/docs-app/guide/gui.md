@@ -216,9 +216,16 @@ The circle button on the right expands the footer into a panel of about 38% of t
 viewport (at most 360px; half the screen on a phone). Press the button again or
 Esc to collapse it. Each browser remembers whether the panel was open.
 
-The panel lists the latest Executor events, then the conversation and its message
-form. **Open full history** opens the complete conversation page, with paging and event
-filters.
+**Blockers** lists Executor Commands, open asks, and fleet blockers. Answer
+Commands in the panel on a writable dashboard. Asks show the CLI command to
+resolve them. If one source is unavailable, the others still appear.
+
+**Background agents** lists agents observed for the current attachment, with
+their type, state, age, and latest message when available. The panel reports
+when the harness cannot provide a roster.
+
+The footer also shows recent events and the conversation. **Open full history**
+opens the complete conversation page, with paging and event filters.
 
 Attach with `aiur executor-attach --harness claude` or
 `aiur executor-attach --harness codex`; until then the panel shows that command.

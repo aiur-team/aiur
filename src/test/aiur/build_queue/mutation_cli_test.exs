@@ -3,7 +3,10 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   import ExUnit.CaptureIO
   alias Aiur.BuildQueue.{Hints, Model, MutationCLI, Server}
   alias Aiur.Config.Schema
+  alias Aiur.ControlCall
+  alias Aiur.Project
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
+  @project "queue-control/sandbox"
 
   defmodule Boundary do
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
@@ -65,7 +68,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     pid =
       start_supervised!(
         {Server,
-         name: nil,
+         name: Project.Registry.via(@project, Server),
          tracker: Boundary,
          store: Boundary,
          claim_probe: Boundary,
@@ -82,6 +85,19 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     send(pid, {:reconcile, token})
     assert GenServer.call(pid, :status) == :running
     %{server: pid}
+  end
+
+  test "local project RPC adds a ticket at rank zero", %{server: pid} do
+    Project.Registry.register_root(Project.from_machine_entry(%{repo: @project, config: "/unused/config"}, "/unused/state"))
+    run(pid, :add, ids: ["1"], queue: "first")
+    expression = ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "", ids: ["2"], queue: "p0-now", rank: 0, project_hint: "#{@project}")|
+
+    assert capture_io(fn -> ControlCall.Project.run_local(expression) end) =~ "__AIUR_CONTROL_EXIT__:0"
+    assert [%{name: "p0-now", rank: 0, id: queue_id}, %{name: "first", rank: 1}] = document().queues
+    assert Enum.any?(document().items, &(&1.issue_id == "2" and &1.queue_id == queue_id))
+
+    assert {:ok, %{scope: :write} = call} = ControlCall.parse(expression, remote: false)
+    assert_raise ArgumentError, "control call is not authorized by the allowlist", fn -> ControlCall.run(call, 1_000, "token:t") end
   end
 
   test "daemon refuses caller workspace before touching server" do

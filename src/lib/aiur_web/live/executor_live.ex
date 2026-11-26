@@ -7,24 +7,54 @@ defmodule AiurWeb.ExecutorLive do
   """
   use Phoenix.LiveView
   alias Aiur.Conversation.Ref
+  alias Aiur.Executor.{BackgroundAgents, Blockers}
   alias AiurWeb.Conversation.{Components, Composer, Navigation, Session}
-  alias AiurWeb.{ConversationLive, ExecutorView}
+  alias AiurWeb.{ConversationLive, EndpointConfig, ExecutorView}
+  alias AiurWeb.Executor.{BackgroundAgentsPanel, BlockersPanel}
+  alias Phoenix.LiveView.AsyncResult
   alias Phoenix.LiveView.JS
 
   on_mount(AiurWeb.DashboardPagesGate)
 
   @impl true
   def mount(_params, session, socket) do
+    socket = assign(socket, :executor_footer?, true)
     {:ok, socket} = Session.mount(Ref.conversation_id(Ref.executor()), session, socket)
     # A nested LiveView gets no handle_params, which is where a page loads its tail.
     socket = if connected?(socket), do: Navigation.params(socket, %{}), else: socket
+    socket = assign(socket, blockers: AsyncResult.loading(), background_agents: AsyncResult.loading(), panels_now: DateTime.utc_now())
+    socket = if connected?(socket), do: load_panels(socket), else: socket
     refresh({:ok, socket})
   end
 
   @impl true
   def handle_event(event, params, socket), do: ConversationLive.handle_event(event, params, socket) |> refresh()
   @impl true
+  def handle_info(:age_tick, socket), do: ConversationLive.handle_info(:age_tick, socket) |> refresh_panels()
+
+  def handle_info({:decision_changed, id, _version} = message, socket) do
+    {:noreply, updated} = ConversationLive.handle_info(message, socket)
+
+    if Enum.any?(socket.assigns.decision_page.decisions ++ updated.assigns.decision_page.decisions, &(&1.decision_id == id)) do
+      refresh_panels({:noreply, updated})
+    else
+      refresh({:noreply, updated})
+    end
+  end
+
   def handle_info(message, socket), do: ConversationLive.handle_info(message, socket) |> refresh()
+
+  defp refresh_panels({reply, socket}), do: refresh({reply, load_panels(socket)})
+
+  defp load_panels(socket) do
+    store = EndpointConfig.get(:decision_store) || Aiur.Commands.default_store()
+    now = DateTime.utc_now()
+
+    socket
+    |> assign(:panels_now, now)
+    |> assign_async(:blockers, fn -> {:ok, %{blockers: Blockers.snapshot(store: store, now: now)}} end)
+    |> assign_async(:background_agents, fn -> {:ok, %{background_agents: BackgroundAgents.snapshot()}} end)
+  end
 
   defp refresh({reply, socket}), do: {reply, assign(socket, :executor_frame, ExecutorView.present(socket.assigns))}
 
@@ -49,6 +79,10 @@ defmodule AiurWeb.ExecutorLive do
       </div>
       <div id="executor-footer-panel" class="executor-footer__panel" hidden>
         <ExecutorView.notices view={@executor_frame} writable={@writable} />
+        <BlockersPanel.panel :if={@blockers.ok? and !@blockers.failed} snapshot={@blockers.result} decisions={@decision_page.decisions} actions={@decision_actions} writable={@writable} />
+        <p :if={@blockers.failed} role="status">Executor blockers unavailable</p>
+        <BackgroundAgentsPanel.panel :if={@background_agents.ok? and !@background_agents.failed} snapshot={@background_agents.result} now={@panels_now} />
+        <p :if={@background_agents.failed} role="status">Background agents unavailable</p>
         <section class="executor-footer__events" aria-label="Latest Executor events">
           <h2>Latest events</h2>
           <ul id="executor-footer-events" phx-update="stream">

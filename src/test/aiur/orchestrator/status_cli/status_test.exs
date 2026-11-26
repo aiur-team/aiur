@@ -6,6 +6,7 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
   import ExUnit.CaptureIO
 
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.Executor.Session
   alias Aiur.ExecutorWakeInbox
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
@@ -192,6 +193,14 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
 
     assert output =~ "WAKES unavailable (cursor and pending count could not be read)"
     refute output =~ "WAKES CURSOR 0 PENDING 0"
+  end
+
+  test "status prints the exact Executor attachment hint when no session is attached" do
+    start_supervised!({Session, instance_key: "status-detached"})
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert "EXECUTOR not attached (aiur executor-attach --harness claude|codex)" in String.split(output, "\n")
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
   test "a stalled status snapshot names the active global pause and its start" do

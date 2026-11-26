@@ -14,6 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   attr(:compact, :boolean, default: false)
   attr(:voice_capabilities, :map, default: %{})
   attr(:live_connected, :boolean, default: true)
+  attr(:id_prefix, :string, default: "")
   attr(:question_heading_id, :string, default: nil)
 
   @spec decision_action(map()) :: Phoenix.LiveView.Rendered.t()
@@ -72,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
       <form
         :if={@writable and @answerable?}
-        id={"decision-answer-form-#{@decision.decision_id}"}
+        id={"#{@id_prefix}decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
         phx-hook="VoiceInput"
         data-voice-select-custom={if @questions == [], do: "answer[choice]"}
@@ -139,7 +140,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
         <.voice_input delivery={@voice_delivery}
           :if={@questions == [] and answerable?(@decision) and not @disabled? and @live_connected}
-          id={"decision-answer-voice-#{@decision.decision_id}"}
+          id={"#{@id_prefix}decision-answer-voice-#{@decision.decision_id}"}
           capabilities={Map.put(@voice_capabilities, "voice.conversation", %{state: :unavailable, reason: :command_response})}
           legacy_conversation={false} converse={false}
           surface="command_response"

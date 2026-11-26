@@ -184,17 +184,21 @@ defmodule Aiur.GitHub.Client do
   # repo-scoped response across cycles and share the freshly checked result
   # across targets in the current cycle. This keeps the listing validator
   # separate from `:branch_pull_request`, whose validator describes one PR body.
-  defp fetch_open_pull_request_listing_stored(opts) do
+  @doc "Reads the shared repository-wide open pull request listing."
+  @spec fetch_open_pull_request_listing_stored(keyword(), Access.freshness(), String.t()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_request_listing_stored(opts, freshness \\ Access.resource_decision(), caller \\ "open_pull_request_for_branch") do
     key = Access.key_for_repo(:branch_pull_request_listing_all, repo_full_name(opts), "open")
 
     fetcher = fn fetch_opts ->
-      case PullRequests.fetch_open_pull_requests_conditional(Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag), caller: "open_pull_request_for_branch")) do
+      request_opts = Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag), caller: caller)
+
+      case PullRequests.fetch_open_pull_requests_conditional(request_opts) do
         {:ok, pull_requests, etag} -> {:ok, Enum.map(pull_requests, &without_api_links/1), etag}
         other -> other
       end
     end
 
-    case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "open pull request listing") do
+    case Access.resource_need(key, fetcher, freshness: freshness, reason: "open pull request listing") do
       {:ok, pull_requests, _meta} ->
         {:ok, pull_requests}
 

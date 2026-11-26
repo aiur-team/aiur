@@ -16,6 +16,14 @@ body:has(#executor-footer) .app-shell { padding-bottom: var(--executor-footer-ba
 .executor-footer__panel { height: min(38vh, 360px); overflow: auto; padding: 8px 16px 16px; box-sizing: border-box; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 16px; align-content: start; animation: executor-footer-open .2s ease-out; }
 .executor-footer__panel[hidden] { display: none; }
 .executor-footer__panel > .executor-frame { grid-column: 1 / -1; }
+#executor-blockers, #executor-background-agents { min-width: 0; overflow-wrap: anywhere; }
+#executor-blockers .conversation-command-card { margin-block: 4px; }
+#executor-blockers section > h3 { font-size: .8125rem; margin-block: 8px 4px; }
+#executor-blockers section:not(:has(div, p, article)) { display: none; }
+@media (min-width: 961px) {
+  #executor-blockers { grid-column: 2; }
+  #executor-background-agents { grid-column: 1; grid-row: 2; }
+}
 .executor-footer__panel h2 { font-size: .875rem; margin: 4px 0 8px; }
 .executor-footer__events ul { list-style: none; padding: 0; margin: 0; }
 .executor-footer__events li { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; overflow-wrap: anywhere; }

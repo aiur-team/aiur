@@ -326,7 +326,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
       {:error, reason} ->
         Logger.error("Unable to spawn agent for #{State.issue_context(issue)}: #{inspect(reason)}")
-
         state = Candidates.emit_dispatch_attempt_decline(state, issue, :runner_start_failed, false)
         next_attempt = if is_integer(attempt), do: attempt + 1, else: nil
 
@@ -358,6 +357,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       rework_head_sha = capture_rework_head(issue, context.rework_head_sha, opts)
       maybe_report_rework_head(recipient, issue, rework_head_sha)
+      Aiur.OverlapReviewer.before_dispatch(issue)
 
       runner.(issue, recipient,
         attempt: context.attempt,
