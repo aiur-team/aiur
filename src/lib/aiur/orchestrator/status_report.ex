@@ -223,6 +223,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :dispatch_declines,
       :dispatch_hold,
       :dispatch_selection_hold,
+      :dispatch_selections,
       :dispatch_recovery,
       :effective_concurrent_agents,
       :global_pause,

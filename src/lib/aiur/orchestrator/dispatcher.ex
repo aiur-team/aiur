@@ -14,7 +14,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.CommandPolling
   alias Aiur.Orchestrator.CommentPollingState
   alias Aiur.Orchestrator.DispatchBatch
-  alias Aiur.Orchestrator.DispatchCandidates
   alias Aiur.Orchestrator.DispatchCycleCompletion
   alias Aiur.Orchestrator.DispatchCycleLiveness
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -24,7 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.Dispatcher.Prevalidated
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.Dispatcher.Selection
   alias Aiur.Orchestrator.FeatureSupply
   alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
@@ -193,7 +192,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp dispatch_chain_pending?(state) do
     Enum.any?(state.tracker_tasks, fn
-      {_ref, %{key: {:dispatch, _id}}} -> true
+      {_ref, %{key: {kind, _id}}} when kind in [:dispatch, :rework_claim] -> true
       _ -> false
     end)
   end
@@ -396,49 +395,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @spec choose_issues(State.t(), [Issue.t()], keyword()) :: State.t()
-  def choose_issues(state, issues, opts \\ []) when is_list(opts) do
-    active_states = DispatchPolicy.active_state_set()
-    terminal_states = DispatchPolicy.terminal_state_set()
-    initial_dispatch_cycle? = state.initial_dispatch_cycle == true
-    visible_issue_ids = MapSet.new(issues, & &1.id)
-    state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
-
-    {candidates, held} =
-      DispatchCandidates.partition(issues, terminal_states, Map.values(state.last_polled_issues))
-
-    state = Candidates.hold_cached_dependencies(state, held, active_states, terminal_states)
-    choose_issues_in_order(state, candidates, opts, active_states, terminal_states, initial_dispatch_cycle?, 0)
-  end
-
-  defp choose_issues_in_order(%State{} = state, _issues, opts, _active, _terminal, _initial, _index) when effective_paused?(state),
-    do: DispatchBatch.finish(state, opts, nil)
-
-  defp choose_issues_in_order(state, [], opts, _active, _terminal, _initial, _index), do: DispatchBatch.finish(state, opts, nil)
-
-  defp choose_issues_in_order(state, [issue | rest] = remaining, opts, active, terminal, initial, index) do
-    DispatchBatch.advance(state, remaining, opts, fn -> choose_ready_issue(state, issue, rest, opts, active, terminal, initial, index) end, fn current, resume_opts ->
-      choose_issues_in_order(current, remaining, resume_opts, active, terminal, initial, index)
-    end)
-  end
-
-  defp choose_ready_issue(state, issue, rest, opts, active, terminal, initial, index) do
-    {state, decision} = Launch.recover_orphaned_claim(state, issue, active, terminal)
-
-    case decision do
-      :dispatch ->
-        was_claimed? = MapSet.member?(state.claimed, issue.id)
-
-        completion = fn current ->
-          next_index = maybe_schedule_startup_todo_alert(was_claimed?, current, issue, index, initial)
-          choose_issues_in_order(current, rest, opts, active, terminal, initial, next_index)
-        end
-
-        dispatch_issue(state, issue, nil, nil, Keyword.put(opts, :dispatch_result_fun, completion))
-
-      {:skip, reason} ->
-        state |> Candidates.maybe_emit_dispatch_decline(issue, reason) |> choose_issues_in_order(rest, opts, active, terminal, initial, index)
-    end
-  end
+  defdelegate choose_issues(state, issues, opts \\ []), to: Selection, as: :choose
 
   @spec dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
@@ -467,33 +424,4 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_choose(state, issues, opts) do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues, opts), else: DispatchBatch.finish(state, opts, nil)
   end
-
-  defp maybe_schedule_startup_todo_alert(
-         was_claimed?,
-         next_state,
-         %Issue{} = issue,
-         index,
-         true
-       ) do
-    if DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
-         not was_claimed? and
-         MapSet.member?(next_state.claimed, issue.id) do
-      delay_ms = index * 1_000
-      worker_host = State.WorkerHost.running_worker_host(next_state, issue.id)
-      topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
-      Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
-      index + 1
-    else
-      index
-    end
-  end
-
-  defp maybe_schedule_startup_todo_alert(
-         _was_claimed?,
-         _next_state,
-         _issue,
-         index,
-         _initial_dispatch_cycle?
-       ),
-       do: index
 end

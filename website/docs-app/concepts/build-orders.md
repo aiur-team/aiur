@@ -254,7 +254,9 @@ Ownership is ranked: a list owns over a feature, and a feature over an epic or B
 
 ### Feature sets
 
-A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
+A queue is a feature set. In the ready tier, explicit ticket priority comes first. At the same priority, main-fix tickets lead, then ranked queue-set members in set and list order, followed by unqueued tickets. Queue hints and work kind break remaining ties. Dependency and capacity gates still apply.
+
+On a shared gateway, the broker gives capacity to projects by project priority, and the dispatcher selects tickets within its project.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 

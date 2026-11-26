@@ -250,6 +250,7 @@ defmodule Aiur.Orchestrator.Slots do
       dispatch_cycle_stage: state.dispatch_cycle_stage,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
+      dispatch_selections: state.dispatch_selections,
       load_discount_reason: Map.get(sample, :load_discount_reason, :unavailable),
       load_daemon_nice: Map.get(sample, :load_daemon_nice, :unavailable),
       gate_signal: Map.get(sample, :gate_signal, :unavailable),
