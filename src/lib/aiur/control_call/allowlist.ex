@@ -95,8 +95,8 @@ defmodule Aiur.ControlCall.Allowlist do
     {:epic, 0, &__MODULE__.epic_category/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
     {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
-    {:queue, 0, &__MODULE__.queue_category/1, [], %{}},
-    {:queue, 1, &__MODULE__.queue_category/1, [:keyword],
+    {:queue, 0, :read, [], %{}},
+    {:queue, 1, &__MODULE__.queue_category/2, [:keyword],
      %{
        verb: {:enum, [:show, :order, :add, :set, :remove, :reorder, :hold, :release, :recover, :clear]},
        caller_agent_workspace: :string,
@@ -304,6 +304,11 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec categories() :: [atom()]
   def categories, do: @categories
 
+  @spec category(atom() | function(), list(), boolean()) :: atom()
+  def category(class, args, remote?) when is_function(class, 2), do: class.(args, remote?)
+  def category(class, args, _remote?) when is_function(class, 1), do: class.(args)
+  def category(class, _args, _remote?), do: class
+
   @spec scope_of(atom()) :: :read | :write | :deny
   def scope_of(:read), do: :read
   def scope_of(:deny), do: :deny
@@ -348,15 +353,14 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec epic_category(list()) :: atom()
   def epic_category(args), do: lane_category(args)
 
-  @spec queue_category(list()) :: atom()
-  def queue_category(args) do
+  @spec queue_category(list(), boolean()) :: atom()
+  def queue_category(args, remote?) do
     verb = option(args, :verb, :show)
 
     cond do
-      verb in [:add, :set, :remove, :reorder, :hold, :release, :recover, :clear] -> :deny
-      verb == :order and (option(args, :queue) || option(args, :to)) -> :deny
-      verb == :order -> :read
       verb == :show -> :read
+      verb == :order and is_nil(option(args, :queue)) and is_nil(option(args, :to)) -> :read
+      remote? -> :deny
       true -> :tickets
     end
   end
