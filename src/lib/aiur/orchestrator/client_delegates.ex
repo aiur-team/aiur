@@ -88,6 +88,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate status(server, timeout), to: Aiur.Orchestrator.Client
       defdelegate status_with_capacity(server, timeout), to: Aiur.Orchestrator.Client
       defdelegate snapshot(server, timeout), to: Aiur.Orchestrator.Client
+      defdelegate live_snapshot(server, timeout), to: Aiur.Orchestrator.Client
 
       defdelegate dashboard_snapshot(server \\ Aiur.Project.whereis(Aiur.Orchestrator), timeout \\ 15_000),
         to: Aiur.Orchestrator.Client

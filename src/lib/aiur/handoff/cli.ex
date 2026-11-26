@@ -32,7 +32,7 @@ defmodule Aiur.Handoff.CLI do
 
   defp prepare_single(opts) do
     timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
-    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
+    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
 
     case snapshot_fun.() do
       :timeout ->
@@ -150,7 +150,7 @@ defmodule Aiur.Handoff.CLI do
   @spec agents(keyword()) :: :ok
   def agents(opts \\ []) do
     guarded("agents --json", fn ->
-      snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
+      snapshot = Keyword.get_lazy(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), 15_000) end)
       IO.puts(Jason.encode!(agents_payload(snapshot)))
       exit_marker(0)
     end)

@@ -80,13 +80,30 @@ defmodule Aiur.Orchestrator.StatusReport do
   def snapshot_api, do: snapshot_api(Aiur.Project.whereis(Aiur.Orchestrator), 15_000)
 
   @spec snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
-  def snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
+  def snapshot_api(server, timeout) do
+    case SnapshotStore.read(server, timeout) do
+      {:current, snapshot, _freshness} -> snapshot
+      {:stale, snapshot, _freshness} -> snapshot
+      :snapshot_unpublished -> status_api_call(server, :snapshot, timeout, true)
+      :orchestrator_unavailable -> :unavailable
+    end
+  end
+
+  # Handoff needs the exact provider pids now; a retained snapshot can lag a publish interval.
+  @spec live_snapshot_api(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
+  def live_snapshot_api(server, timeout), do: status_api_call(server, :snapshot, timeout, true)
 
   @spec status_api() :: [map()] | :timeout | :unavailable
   def status_api, do: status_api(Aiur.Project.whereis(Aiur.Orchestrator), 5_000)
 
   @spec status_api(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
-  def status_api(server, timeout), do: status_api_call(server, :status, timeout, true)
+  def status_api(server, timeout) do
+    case fleet_view(server, timeout, fleet_rows?: true) do
+      {:ok, %{statuses: statuses}, _freshness} -> statuses
+      {:error, :timeout} -> :timeout
+      {:error, :unavailable} -> :unavailable
+    end
+  end
 
   @spec status_with_capacity_api(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
   def status_with_capacity_api(server, timeout), do: status_api_call(server, :status_with_capacity, timeout, true)

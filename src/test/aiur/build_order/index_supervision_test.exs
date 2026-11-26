@@ -5,7 +5,7 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
 
   test "index follows interactive children before the optional backfill writer and is absent without dashboard" do
     modules = modules(build_index?: true)
-    assert Enum.take(modules, -2) == [AiurWeb.Build.IndexSupervisor, Aiur.BuildOrder.History.LabelBackfill]
+    assert Enum.take(modules, -3) == [AiurWeb.Build.IndexSupervisor, Aiur.BuildOrder.History.LabelBackfill, Aiur.Orchestrator.UnresponsiveWatchdog]
     assert Aiur.Tmux in modules
 
     without =
