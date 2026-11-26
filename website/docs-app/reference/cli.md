@@ -29,6 +29,15 @@ Choose a topic below. Use `aiur command` to list, inspect, or answer Commands; `
 
 [Read this section](./cli-operations#inspect-and-operate-a-running-daemon).
 
+### Executor status
+
+`aiur status` includes an `EXECUTOR` line with the harness state, age of the last
+harness-state observation in seconds, read capability, and blocker count. The
+count reads `unavailable` if any blocker source could not be read. Without an
+attachment, the line shows the `aiur executor-attach` command.
+
+See [Executor session JSON](./cli-decisions#executor-session-json) for the full snapshot.
+
 ### Restart semantics
 
 [Read this section](./cli-operations#restart-semantics).
