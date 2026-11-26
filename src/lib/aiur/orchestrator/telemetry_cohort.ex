@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.TelemetryCohort do
   @moduledoc "Bounded attempt cohort attributes resolved from the dispatched issue."
   alias Aiur.BuildOrder.Features
+  alias Aiur.BuildQueue.Hints
   alias Aiur.{CodingAgent, Config}
   alias Aiur.RunTelemetry
   alias Aiur.Signal
@@ -32,6 +33,22 @@ defmodule Aiur.Orchestrator.TelemetryCohort do
       blockers: Enum.map(issue.blocked_by, &blocker/1),
       start_mode: "normal"
     }
+    |> Map.merge(queue_attributes(issue.identifier))
+  end
+
+  defp queue_attributes(issue_id) do
+    case Hints.sets() do
+      %{members: members} when is_map(members) ->
+        case members[issue_id] do
+          %{set_id: id, start_trigger: trigger} -> %{queue_id: id, start_trigger: trigger}
+          _ -> %{}
+        end
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
   end
 
   @doc "The issue's first `feature:<slug>` label in sorted order, else `:none`."

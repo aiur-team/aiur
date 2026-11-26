@@ -303,6 +303,24 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
     test "is opt-in so retry exhaustion and the turn limit keep their behaviour" do
       assert handoff([review("older")], superseded_review_handoff?: false) == :none
     end
+
+    # A pushed head with pending CI would otherwise send the draft to ci-wait,
+    # where nothing marks it ready and the ticket sits (Open-Games #310).
+    test "never hands a draft PR to ci-wait or review" do
+      draft = Map.put(@pr, "draft", true)
+      ci = fn _ -> {:ok, %{check_runs: [%{"status" => "queued"}], commit_status: %{}}} end
+
+      opts = [
+        open_pr_fetcher: fn _ -> {:ok, draft} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        pull_request_approval_fetcher: fn 42 -> {:error, :not_found} end,
+        commit_ci_status_fetcher: ci
+      ]
+
+      assert ReworkGate.stopped_agent_handoff("3971", "older", opts) == :none
+      assert ReworkGate.stopped_agent_handoff("3971", "older", [draft_handoff: {:handoff, "rework"}] ++ opts) == {:handoff, "rework"}
+      assert ReworkGate.stopped_agent_handoff("3971", "older", Keyword.put(opts, :open_pr_fetcher, fn _ -> {:ok, @pr} end)) == {:handoff, "ci-wait"}
+    end
   end
 
   test "a completed agent handoff with an approval at head routes to ci-wait" do

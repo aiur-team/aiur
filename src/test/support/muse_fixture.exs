@@ -2,11 +2,24 @@ defmodule Aiur.TestSupport.MuseFixture do
   @moduledoc false
   alias Aiur.Muse.{Session, Turn}
 
+  defmodule HostObservations do
+    def attach(:muse, :app_server, _owner), do: {:ok, make_ref()}
+    def observe(_scope, _observation), do: :ok
+    def fail(_scope, _reason), do: :ok
+    def retire(_scope), do: :ok
+  end
+
   def run_fixture(dir, mode, turn_timeout_ms \\ 30_000, opts \\ []) do
     test_owner = self()
 
     Task.async(fn ->
-      {:ok, session} = Session.start(dir, config: %{}, command: fixture(dir, mode), timeout_ms: 30_000)
+      {:ok, session} =
+        Session.start(dir,
+          config: %{},
+          command: fixture(dir, mode),
+          timeout_ms: 30_000,
+          host_observations: HostObservations
+        )
 
       try do
         Turn.run(session, "Implement it", %{id: 1, identifier: "MUSE-1"},
@@ -69,6 +82,8 @@ defmodule Aiur.TestSupport.MuseFixture do
             continue
         if method == 'initialize':
             result = {'schema': {'version': 1}, 'grantedCapabilities': ['sessionMcp']}
+        elif method == 'usage/read':
+            result = {'usage': None}
         elif method == 'session/start':
             mcp = frame['params']['config']['mcpServers']['aiur']
             result = {'session': {'sessionId': 'native-session'}, 'viewCursor': 'view-0'}

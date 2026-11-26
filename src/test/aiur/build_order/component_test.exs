@@ -228,9 +228,12 @@ defmodule Aiur.BuildOrder.ComponentTest do
           Aiur.BuildOrder.History.LabelBackfill,
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
+          Aiur.Executor.BackgroundAgents,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
           Aiur.Executor.TranscriptIngest,
-          Aiur.ControlCLI.PendingCommands
+          Aiur.Executor.HarnessState,
+          Aiur.ControlCLI.PendingCommands,
+          Aiur.Orchestrator.UnresponsiveWatchdog
         ]
 
     assert Aiur.Application.child_specs(@opts) == expected

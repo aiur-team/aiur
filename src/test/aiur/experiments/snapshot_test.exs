@@ -91,6 +91,36 @@ defmodule Aiur.Experiments.SnapshotTest do
     assert List.last(Experiments.journal(spec.id))["reason"] == "more complete"
   end
 
+  test "imports a hash-pinned summary without manufacturing observations and preserves revisions" do
+    {:ok, spec} = Experiments.create(attrs(), freeze: false)
+
+    source =
+      Jason.encode!(%{
+        "window_start" => "2026-10-01T00:00:00Z",
+        "cut" => "2026-10-01T17:00:00Z",
+        "primary" => %{"latency" => %{"all" => %{"n" => 27, "median_h" => 0.775, "p25_h" => 0.694, "p75_h" => 3.633}}}
+      })
+
+    sha = :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+    opts = [metric_ref: "app/latency", summary_path: ["primary", "latency", "all"]]
+
+    assert {:error, :invalid_baseline} = Experiments.import_baseline(spec.id, source, String.duplicate("0", 64), opts)
+    assert {:ok, first} = Experiments.import_baseline(spec.id, source, sha, opts)
+    assert first["revision"] == 1
+    assert first["observation_count"] == 0
+    assert first["metrics"]["app/latency"]["observations"] == []
+    assert first["metrics"]["app/latency"]["summary"]["n"] == 27
+    assert first["metrics"]["app/latency"]["summary"]["median"] == 0.775
+    assert first["baseline_import"]["source_bytes_base64"] |> Base.decode64!() == source
+    assert [%{"kind" => "created"}, %{"kind" => "baseline_imported", "source_sha256" => ^sha}] = Experiments.journal(spec.id)
+
+    assert {:error, {:reason_required, 1}} = Experiments.import_baseline(spec.id, source, sha, opts)
+    assert {:ok, second} = Experiments.import_baseline(spec.id, source, sha, Keyword.put(opts, :reason, "source revalidated"))
+    assert second["revision"] == 2
+    assert {:ok, shown} = Experiments.fetch(spec.id)
+    assert Enum.map(shown.snapshots, & &1["revision"]) == [1, 2]
+  end
+
   test "50001 observations refuse without any snapshot or pending write", %{ctx: ctx} do
     {:ok, spec} = Experiments.create(attrs(), freeze: false)
     rows = for n <- 1..50_001, do: %{unit_id: to_string(n), value: n, at: ~U[2026-10-01 01:00:00Z], attrs: %{}}

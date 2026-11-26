@@ -23,6 +23,7 @@ defmodule Aiur.Toolchain do
   alias Aiur.{AlertFeed, CodingAgent, Config, Issue, Signal}
   alias Aiur.Config.RoutingValue
   alias Aiur.Toolchain.Probe
+  alias Aiur.Usage.PriceTable.{Data, Window}
 
   @alert "system.toolchain.below_minimum"
   @interval_ms :timer.hours(1)
@@ -141,6 +142,11 @@ defmodule Aiur.Toolchain do
   """
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [String.t()]} | {:error, {:toolchain_hold, String.t()}}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
+    opts =
+      opts
+      |> Keyword.put_new(:window_schedule_for, &Data.window_schedule/1)
+      |> Keyword.put_new(:window_classifier, &Window.classify/2)
+
     case held_tools() do
       [] ->
         CodingAgent.select_for_dispatch(issue, opts)

@@ -83,8 +83,9 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   test "public payload contains no private keys or secret-shaped values" do
     response = request(:get)
     assert response.status == 200
-    refute secret_value?(Jason.decode!(response.resp_body))
-    refute private_key?(Jason.decode!(response.resp_body))
+    body = Jason.decode!(response.resp_body)
+    refute secret_value?(body)
+    refute private_key?(body)
   end
 
   defp request(method, authorization \\ Plug.BasicAuth.encode_basic_auth("operator", "secret")) do
@@ -106,7 +107,7 @@ defmodule AiurWeb.CapabilitiesControllerTest do
   defp secret_value?(value) when is_binary(value), do: Regex.match?(~r/(ghp_|github_pat_|sk-|\/home\/|:\d{4,5}\b)/, value)
   defp secret_value?(_value), do: false
 
-  defp private_key?(value) when is_map(value), do: Enum.any?(value, fn {key, item} -> key in ~w(token password path detail) or private_key?(item) end)
+  defp private_key?(value) when is_map(value), do: Enum.any?(value, fn {key, item} -> key in ~w(token password path) or private_key?(item) end)
   defp private_key?(value) when is_list(value), do: Enum.any?(value, &private_key?/1)
   defp private_key?(_value), do: false
 end

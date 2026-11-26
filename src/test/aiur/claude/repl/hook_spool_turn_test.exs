@@ -15,11 +15,13 @@ defmodule Aiur.Claude.Repl.HookSpoolTurnTest do
 
     name = Module.concat(__MODULE__, :"Tmux#{System.unique_integer([:positive])}")
     start_supervised!({Tmux, [transport: {:mock, self()}, name: name, session: "test"]})
+    pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive])}")
+    start_supervised!({Phoenix.PubSub, name: pubsub})
     id = "OFFLINE-STOP-#{System.unique_integer([:positive])}"
     session = %{tmux: name, pane_id: "%50", os_pid: 4242, identifier: id}
     {:ok, path} = HookSettings.spool_path(id)
     File.mkdir_p!(Path.dirname(path))
-    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 1, turn_timeout_ms: 10_000) end)
+    task = Task.async(fn -> HookTurn.run(session, "work", pubsub: pubsub, poll_interval_ms: 1, turn_timeout_ms: 10_000) end)
     assert {:ok, %{result: :completed, thread_id: "offline-session", message: "offline done"}} = drive(name, path, task, id)
   end
 

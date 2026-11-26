@@ -73,7 +73,7 @@ defmodule AiurExperimentsEngineTest do
 
   test "rejects absent verbs and a line lacking its reference before invoking RPC" do
     assert {output, 64} = run_engine(["experiments"])
-    assert output =~ "expects list, show, events, metrics, create or freeze"
+    assert output =~ "expects list, show, events, metrics, create, freeze or import-baseline"
     assert {output, 64} = run_engine(["experiments", "create", "--line", "release"])
     assert output =~ "requires type:ref"
     refute output =~ "RPC:"

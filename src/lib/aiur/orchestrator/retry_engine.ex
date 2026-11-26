@@ -110,6 +110,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:ok, integer(), map(), State.t()} | :missing
   defdelegate pop_retry_attempt_state(state, issue_id, retry_token), to: Scheduling
 
+  @doc false
+  @spec local_budget_hold_reason(term()) :: map() | nil
+  defdelegate local_budget_hold_reason(reason), to: Aiur.LocalBudgetHold, as: :reason
+
   @spec retry_delay(integer(), map()) :: non_neg_integer()
   defdelegate retry_delay(attempt, metadata), to: Scheduling
 

@@ -58,6 +58,7 @@ reads verify their SHA-256. Tampered evidence is refused without live fallback.
 `observation` for A/B. Use `--window after` to freeze the after window, or
 `--reason "updated baseline"` to add a revision; previous revisions remain.
 
+
 The observation limit (50,000 by default) refuses excess data without truncation.
 Open duration units are censored observations with their elapsed value.
 

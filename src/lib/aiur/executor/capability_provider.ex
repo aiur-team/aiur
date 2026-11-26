@@ -2,10 +2,10 @@ defmodule Aiur.Executor.CapabilityProvider do
   @moduledoc "Read-only Executor presence and wake availability."
   @behaviour Aiur.Capabilities.Provider
   alias Aiur.Capabilities.Provider
-  alias Aiur.Executor.{Capability, Claims, Roster, Session, TranscriptIngest}
+  alias Aiur.Executor.{BackgroundAgents, Capability, Claims, Roster, Session, TranscriptIngest}
 
   @impl true
-  def capability_ids, do: ~w(executor.wakes executor.conversation)
+  def capability_ids, do: ~w(executor.wakes executor.conversation executor.background_agents)
 
   @impl true
   def capabilities(context), do: evaluate(context)
@@ -17,7 +17,8 @@ defmodule Aiur.Executor.CapabilityProvider do
 
     %{
       "executor.wakes" => if(lookup.(Aiur.ExecutorWakeInbox), do: %{state: :available}, else: %{state: :unavailable, reason: :not_running}),
-      "executor.conversation" => conversation
+      "executor.conversation" => conversation,
+      "executor.background_agents" => background_agents(Keyword.get(opts, :background_agents_fun, &BackgroundAgents.snapshot/0).())
     }
   end
 
@@ -43,6 +44,11 @@ defmodule Aiur.Executor.CapabilityProvider do
   catch
     :exit, _reason -> %{}
   end
+
+  defp background_agents({:ok, _rows, _observed_since}), do: %{state: :available}
+  defp background_agents({:unsupported, :fields_unverified}), do: %{state: :degraded, reason: :unknown, detail: "fields_unverified"}
+  defp background_agents({:unsupported, _reason}), do: %{state: :unavailable, reason: :unknown, detail: "unsupported"}
+  defp background_agents(_), do: %{state: :unknown, reason: :unknown}
 
   @impl true
   def sections(context), do: executor(context)

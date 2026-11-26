@@ -43,7 +43,7 @@ defmodule Aiur.RunTelemetry.Cohort do
 
   @spec event_fields(map()) :: map()
   def event_fields(attributes) do
-    Map.new([:backend, :model, :effort, :feature, :epic, :tags, :work_kind, :blockers, :start_mode], &{&1, attributes[Atom.to_string(&1)]})
+    Map.new([:backend, :model, :effort, :feature, :epic, :tags, :work_kind, :blockers, :start_mode, :queue_id, :start_trigger], &{&1, attributes[Atom.to_string(&1)]})
   end
 
   @spec bounded_strings(list()) :: [String.t()]

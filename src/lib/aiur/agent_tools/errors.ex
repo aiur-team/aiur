@@ -76,6 +76,9 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload(:linear_graphql_unavailable),
+    do: %{"error" => %{"message" => "Linear GraphQL is unavailable in this runtime."}}
+
   def payload(:invalid_arguments) do
     %{
       "error" => %{
@@ -105,6 +108,9 @@ defmodule Aiur.AgentTools.Errors do
 
   def payload(:missing_review_thread_terminal_reply_body),
     do: %{"error" => %{"message" => "`terminal_reply_body` is required."}}
+
+  def payload(:review_thread_tool_unavailable),
+    do: %{"error" => %{"message" => "GitHub review thread tools are unavailable in this runtime."}}
 
   def payload(:missing_review_thread_body),
     do: %{"error" => %{"message" => "`aiur_reply_review_thread.body` is required."}}
@@ -462,7 +468,8 @@ defmodule Aiur.AgentTools.Errors do
              :rework_findings_unaddressed,
              :pull_request_conflicting,
              :override_handoff_unconfirmed,
-             :status_note_invalid
+             :status_note_invalid,
+             :ci_wait_work_unpublished
            ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
   end

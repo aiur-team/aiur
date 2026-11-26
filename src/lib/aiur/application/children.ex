@@ -353,12 +353,15 @@ defmodule Aiur.Application.Children do
             do: [
               Aiur.Executor.Session,
               Aiur.Executor.SessionIngest,
+              Aiur.Executor.BackgroundAgents,
               {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
               Aiur.Executor.TranscriptIngest,
+              Aiur.Executor.HarnessState,
               Aiur.ControlCLI.PendingCommands
             ]
           )
-        )
+        ) ++
+        [Aiur.Orchestrator.UnresponsiveWatchdog]
     )
     |> with_projects(projects, recording?)
   end

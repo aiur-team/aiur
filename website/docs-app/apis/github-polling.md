@@ -107,7 +107,9 @@ Agent pushes and `gh pr update-branch` check ticket labels via REST and refuse i
 
 Draft PRs remain pending even with green checks. Mark completed work ready before CI wait; `ci gate` requires fast checks on PRs and full checks in the merge queue, or on policy-forced PRs. Main has no `ci` push run.
 
-`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait. `aiur status` shows `draft_pr`.
+`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. `aiur status` shows `draft_pr`.
+
+After `agent.ci_wait_rewake_minutes`, a CI-wait draft, or a CI-wait ticket with no open PR, raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait; after an hour it moves to `rework`. A worker's own `ci-wait` hand-off is refused unless an open PR's head is its clean, committed local `HEAD`.
 
 Review polling keeps a per-ticket cursor seeded from its first cutoff. Issue comments cannot advance it; disabled or failed reads retain it.
 
@@ -210,6 +212,10 @@ A page-1 `304` on a churned ticket cannot self-heal: the change that would refre
 Only trust a `304` for a paginated read when the read was single-page (then page 1 *is* the list), or when the validator kept is the last page's rather than the first's. If neither is practical, do not make the read conditional: an unconditional read that is correct beats a conditional one that is quietly wrong.
 
 The open-PR branch lookup is a narrow exception: new PRs appear on page 1, so its validator changes. A later-page closure may remain visible until page 1 changes or a pull-request webhook arrives. This held listing serves only branch lookups, not general paginated-list queries.
+
+Dispatch authorization keeps one validator per timeline page and revalidates every page. A full last page is always read unconditionally, because a new event opens the next page without changing it. An unchanged timeline then costs no billable request, and a changed one costs one per changed page.
+
+The held open-PR listing drops REST URL templates (`_links` and `*_url` keys except `html_url`) so it fits the resource store's body cap and keeps its validator.
 
 Issue comments and PR changed files drain every page; single-list readers refuse a next page with `pagination_unexpected` rather than return a partial list.
 

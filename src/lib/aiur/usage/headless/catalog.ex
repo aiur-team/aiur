@@ -7,21 +7,23 @@ defmodule Aiur.Usage.Headless.Catalog do
   never changes how a retained envelope is interpreted.
   """
 
-  alias Aiur.CodingAgent
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
+  @adapters_by_provider %{
+    claude: [Aiur.Usage.Headless.Claude.RequestUsage],
+    codex: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage],
+    deepseek: [Aiur.Usage.Headless.DeepSeek.RequestUsage],
+    fake: [Aiur.Usage.Headless.Fake.RequestUsage],
+    kimi: [Aiur.Usage.Headless.Kimi.RequestUsage],
+    muse: [Aiur.Usage.Headless.Muse.SessionUsage],
+    openrouter: [Aiur.Usage.Headless.OpenRouter.RequestUsage]
+  }
+
   @spec adapters() :: [module()]
-  def adapters do
-    CodingAgent.provider_descriptors()
-    |> Enum.flat_map(&(get_in(&1, [:usage, :adapters]) || []))
-  end
+  def adapters, do: Enum.flat_map(@adapters_by_provider, fn {_provider, adapters} -> adapters end)
 
   @spec adapters_for(atom()) :: [module()]
-  def adapters_for(provider) when is_atom(provider) do
-    CodingAgent.provider_descriptor(provider)
-    |> then(&get_in(&1 || %{}, [:usage, :adapters]))
-    |> Kernel.||([])
-  end
+  def adapters_for(provider) when is_atom(provider), do: Map.get(@adapters_by_provider, provider, [])
 
   def adapters_for(_provider), do: []
 

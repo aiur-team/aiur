@@ -62,10 +62,19 @@ defmodule Aiur.Usage.CLI do
   # on the key, and what each route has spent. The generic field dump would
   # print both as nested maps.
   defp openrouter_summary(fields) do
-    [credit_line(Map.get(fields, "credits")) | route_lines(Map.get(fields, "routes"))]
+    [credit_line(Map.get(fields, "credits")), key_line(Map.get(fields, "key")) | route_lines(Map.get(fields, "routes"))]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
+
+  defp key_line(%{"state" => "reported"} = key) do
+    limit = if is_number(key["limit"]), do: ", #{money(key["limit_remaining"])} remaining of #{money(key["limit"])} limit", else: ", no limit"
+    tier = if key["is_free_tier"], do: ", free tier", else: ""
+    "  key: #{money(key["usage"])} used#{limit}#{tier} (reported #{key["observed_at"]})"
+  end
+
+  defp key_line(%{"reason" => reason}), do: "  key: no reading (#{reason})"
+  defp key_line(_absent), do: nil
 
   defp credit_line(%{} = credits) do
     remaining = number(Map.get(credits, "remaining"))

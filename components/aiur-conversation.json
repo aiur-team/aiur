@@ -1,0 +1,34 @@
+{
+  "id": "aiur-conversation",
+  "name": "Conversation components",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    ".github/workflows/aiur-conversation.yml",
+    "packages/aiur-conversation/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "Published ESM only: the package exports a browser custom element, not an Elixir facade",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Embeddable conversation components for a host application: the chat composer with attach, hold-to-dictate, two-way voice and send.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "steer"
+}

@@ -1,6 +1,6 @@
 defmodule Aiur.Experiments.Predicate do
   @moduledoc "Closed, data-only predicates over cohort attributes."
-  @attributes ~w(aiur_version backend model epic feature_tags config_hash complexity)
+  @attributes ~w(aiur_version backend model epic feature_tags config_hash complexity queue_id start_trigger)
   @operators ~w(eq neq in prefix exists)
 
   @spec attribute?(term()) :: boolean()
