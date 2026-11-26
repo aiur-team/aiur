@@ -156,10 +156,9 @@ defmodule Aiur.ControlCall.GateParityTest do
     assert unmapped(Enum.map(functions(), &elem(&1, 0)), @remote, @local) == []
   end
 
-  test "every mapped gate word is accepted by the remote gate" do
-    gate = gate_words()
-    missing = for {key, words} <- @remote, word <- words, word not in gate, do: {key, word}
-    assert missing == []
+  test "every remote engine gate word maps to an allowlisted call and vice versa" do
+    mapped_words = @remote |> Map.values() |> List.flatten() |> MapSet.new()
+    assert MapSet.new(gate_words()) == mapped_words
   end
 
   test "deny-class functions are never mapped to a remote word" do

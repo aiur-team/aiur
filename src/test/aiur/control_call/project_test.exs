@@ -1,6 +1,9 @@
 defmodule Aiur.ControlCall.ProjectTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
+  alias Aiur.BuildOrder.Features
   alias Aiur.ControlCall
   alias Aiur.ControlCall.Allowlist
   alias Aiur.ControlCall.Project
@@ -100,6 +103,26 @@ defmodule Aiur.ControlCall.ProjectTest do
       assert {:ok, output} = ControlCall.run(parsed, 5_000, "token:t")
       assert output =~ "pick a project: "
       assert output =~ "__AIUR_CONTROL_EXIT__:64"
+    end
+
+    test "local feature create uses the CLI identity in the selected project" do
+      dir = Aiur.TestSupport.tmp_root!("local-feature-create")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+      name = Aiur.Project.Registry.via("t311/b", Features)
+      start_supervised!({Features, name: name, state_dir: dir, general_epics: fn -> {:ok, []} end})
+
+      expression = "Aiur.AgentControlCLI.feature(#{inspect(op: :create, slug: "demo", label: "Demo", who: "operator", project_hint: "t311/b")})"
+
+      assert {:ok, %{category: :tickets, scope: :write} = local_call} = ControlCall.parse(expression, remote: false)
+      assert {:error, :option_not_allowed} = ControlCall.parse(expression, remote: true)
+
+      assert_raise ArgumentError, "control call is not authorized by the allowlist", fn ->
+        ControlCall.run(local_call, 1_000, "token:t")
+      end
+
+      assert capture_io(fn -> Project.run_local(expression) end) =~ "__AIUR_CONTROL_EXIT__:0"
+      assert {:ok, %{features: %{"demo" => %{label: "Demo"}}}} = Features.snapshot(server: name)
+      assert {:ok, [%{actor: "cli:operator"}]} = Features.journal("demo", server: name)
     end
   end
 
