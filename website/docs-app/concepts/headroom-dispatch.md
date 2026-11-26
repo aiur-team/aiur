@@ -63,6 +63,10 @@ reading.
 While this policy is on, the daemon refreshes the Claude meters whether or not
 a dashboard is open, so dispatch does not depend on someone watching.
 
+Under any policy, a provider is re-read a minute after a recorded window reset
+and every 15 minutes while a window is exhausted, so a reset shows without a
+restart. A Claude window whose reset has passed counts as unknown, not used.
+
 It uses the shorter of `polling.usage_interval_seconds` and
 `agent.headroom_reading_max_age_seconds`, without going below the provider's
 120-second polling floor. A max age below that floor can become stale between

@@ -363,7 +363,15 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   end
 
   defp meter_reading(%{reading: %{windows: windows}} = entry, now, opts) when is_list(windows) do
-    used = for %{window: window, used_percent: percent} when window in ["five_hour", "seven_day"] and is_number(percent) <- windows, into: %{}, do: {window, percent}
+    # A window whose reset has passed no longer says anything about what is left:
+    # it reads as unknown until the next observation, never as exhausted.
+    used =
+      for %{window: window, used_percent: percent} = reading <- windows,
+          window in ["five_hour", "seven_day"] and is_number(percent),
+          not reset_passed?(Map.get(reading, :resets_at), now),
+          into: %{},
+          do: {window, percent}
+
     if used == %{}, do: nil, else: with_age(%{windows: used, source: "meter"}, parse_time(entry[:observed_at]), now, opts)
   end
 
@@ -431,6 +439,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp reset_passed?(nil, _now), do: false
   defp reset_passed?(value, now) when is_integer(value), do: value <= DateTime.to_unix(now)
+  defp reset_passed?(%DateTime{} = value, now), do: DateTime.compare(value, now) != :gt
 
   defp reset_passed?(value, now) when is_binary(value) do
     case DateTime.from_iso8601(value) do
