@@ -45,7 +45,7 @@ defmodule Aiur.Experiments.OptimisticStartFixtureTest do
 
   test "CLI stores the original frozen source and displays its actual sample count and rounded hours" do
     cli(:create, ["--spec-json", Jason.encode!(fixture("optimistic-start")), "--no-freeze"])
-    bytes = @research |> Path.join("baseline-2026-10-09/baseline.json.gz") |> File.read!() |> :zlib.gunzip()
+    bytes = baseline_bytes()
     assert Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == @sha
     output = cli(:import_baseline, ["optimistic-start", "--source-base64", Base.encode64(bytes), "--sha256", @sha, "--metric", @gap])
     assert {:ok, detail} = Experiments.fetch("optimistic-start")
@@ -67,7 +67,7 @@ defmodule Aiur.Experiments.OptimisticStartFixtureTest do
     assert length(evidence["subissues"]) == 17
     assert context.design["change"]["time"] == latest["mergedAt"]
     assert context.design["change"]["evidence"]["latest_pr"] == latest["url"]
-    assert context.windows["before"]["end"] == "2026-10-09T17:55:20Z"
+    assert context.windows["before"]["end"] == Jason.decode!(baseline_bytes())["cut"]
     assert context.windows["after"]["start"] == latest["mergedAt"]
     assert context.status == "draft"
     assert context.filters == %{"attr" => "tags.late_linked", "op" => "eq", "value" => false}
@@ -89,6 +89,11 @@ defmodule Aiur.Experiments.OptimisticStartFixtureTest do
   end
 
   defp fixture(id), do: @fixtures |> Path.join(id <> ".json") |> File.read!() |> Jason.decode!()
+
+  defp baseline_bytes do
+    cut = fixture("optimistic-start-default-path")["windows"]["before"]["end"] |> String.slice(0, 10)
+    @research |> Path.join("baseline-#{cut}/baseline.json.gz") |> File.read!() |> :zlib.gunzip()
+  end
 
   defp assert_schema(spec) do
     schema = @repo |> Path.join("src/priv/experiments/spec.v1.schema.json") |> File.read!() |> Jason.decode!() |> ExJsonSchema.Schema.resolve()
