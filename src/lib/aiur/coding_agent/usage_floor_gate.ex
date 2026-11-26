@@ -371,7 +371,9 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   # Alert topics are slugs: a route or account name may contain `:` or `/`.
   defp alert_name(route), do: "system.agent.usage_floor.#{String.replace(route, ~r/[^a-zA-Z0-9_-]+/, "-")}"
 
-  defp configured_routes do
+  @doc "The routes dispatch reads: `agent.priority`, else `switch_model_on_ratelimit`."
+  @spec configured_routes() :: [String.t()]
+  def configured_routes do
     case Config.agent_priority() do
       [] -> Config.switch_model_on_ratelimit()
       priority -> priority
