@@ -113,11 +113,12 @@ a retry after the restart still matches. A message is removed from the saved
 queue only when it is handed to an Executor session, so a restart never sends
 it twice.
 
-A send to a live Executor is queued for its session. With no Executor
-attached, the message waits for the next attached session and records an
-`executor.thread.message` wake for `aiur executor-wait`. Repeating a
-`client_request_id` with the same text returns the same message; with
-different text it returns 409 `client_request_id_conflict`. A read-only
+A send to a live Executor is queued for its session. With no Executor attached,
+the message waits for the next attached session and records an
+`executor.thread.message` wake for `aiur executor-wait`.
+
+Repeating a `client_request_id` with the same text returns the same message;
+with different text it returns 409 `client_request_id_conflict`. A read-only
 instance, or one without Executor delivery, returns 409
 `{"error": "executor_unavailable", "reason": ...}`.
 
