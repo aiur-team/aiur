@@ -5,8 +5,9 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, TurnAlerts, TurnLoop, TurnProgress}
-  alias Aiur.{Config, Issue}
+  alias Aiur.AgentRunner.{MergedNoop, NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.CodingAgent.CapacityGate
+  alias Aiur.{Commands, Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
 
@@ -24,11 +25,13 @@ defmodule Aiur.AgentRunner.TurnCompletion do
       "Completed agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}"
     )
 
-    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher) do
+    # #7958: reconcile the turn's USD hold; a source past a hard USD limit starts no new turn.
+    backend = SessionIdentity.session_backend_label(app_session)
+    CapacityGate.turn_ended(issue, backend, turn_context.opts)
+
+    case TurnLoop.continue_with_issue?(issue, issue_state_fetcher, Map.get(turn_context, :opts, [])) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
-          continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
-        end)
+        continue_within_limits(turn_context, app_session, refreshed_issue, message_handler, backend)
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
@@ -48,6 +51,17 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     end
   end
 
+  defp continue_within_limits(turn_context, app_session, refreshed_issue, message_handler, backend) do
+    if CapacityGate.stop_new_turns?(backend, turn_context.opts) do
+      Logger.info("aiur_autonomous_loop phase=capacity_limit_reached identifier=#{refreshed_issue.identifier} backend=#{backend}; returning control to orchestrator")
+      TurnLoop.return_completed(turn_context, refreshed_issue)
+    else
+      ReworkHandoff.after_turn(refreshed_issue, turn_context, fn ->
+        continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler)
+      end)
+    end
+  end
+
   # #2806: fold turn progress into the no-op counter and hand off once an
   # unproductive run reaches its cap. Productive turns reset the counter.
   defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
@@ -64,29 +78,43 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     {verdict, progress} = TurnProgress.observe(TurnProgress.from_opts(opts), witness)
     cap = noop_turn_cap(opts)
 
-    cond do
-      verdict == :noop and is_integer(cap) and progress.consecutive_noops >= cap ->
-        stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap)
+    if verdict == :noop do
+      continue_after_optional_command(turn_context, refreshed_issue, fn ->
+        handle_noop_turn(turn_context, app_session, refreshed_issue, progress, witness, cap, message_handler)
+      end)
+    else
+      continue_productive_turn(turn_context, app_session, refreshed_issue, progress, turn_number, max_turns, opts)
+    end
+  end
 
-      verdict == :noop ->
-        NoopWait.park(turn_context, app_session, message_handler, refreshed_issue, progress)
+  defp continue_productive_turn(turn_context, app_session, issue, progress, turn_number, max_turns, opts) do
+    Logger.info(
+      "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{issue.identifier} turn=#{turn_number + 1}/#{TurnLoop.max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
+    )
 
-      true ->
-        Logger.info(
-          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{TurnLoop.max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
-        )
+    Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(issue)} after normal turn completion turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}")
 
-        Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{TurnLoop.max_turns_display(max_turns)}")
+    TurnLoop.continue_issue_turn(
+      %{
+        turn_context
+        | issue: issue,
+          turn_number: turn_number + 1,
+          opts: Keyword.put(opts, :turn_progress, progress)
+      },
+      app_session
+    )
+  end
 
-        TurnLoop.continue_issue_turn(
-          %{
-            turn_context
-            | issue: refreshed_issue,
-              turn_number: turn_number + 1,
-              opts: Keyword.put(opts, :turn_progress, progress)
-          },
-          app_session
-        )
+  defp handle_noop_turn(turn_context, app_session, issue, progress, witness, cap, message_handler) do
+    case MergedNoop.handoff(turn_context, issue, progress) do
+      {:handoff, result} ->
+        result
+
+      :none when is_integer(cap) and progress.consecutive_noops >= cap ->
+        stop_on_noop_bound(turn_context, issue, progress, witness, cap)
+
+      :none ->
+        NoopWait.park(turn_context, app_session, message_handler, issue, progress)
     end
   end
 
@@ -94,7 +122,9 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   # ticket-scoped needs-attention alert naming the ticket, the count, and the
   # state label that kept the loop alive. A rework run whose head is newer than
   # its blocking review gets a review handoff (#3971); one with no push fails.
-  defp stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
+  @doc false
+  @spec stop_on_noop_bound(map(), Issue.t(), map(), map(), pos_integer()) :: term()
+  def stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
     %{turn_number: turn_number, max_turns: max_turns} = turn_context
 
     Logger.warning(
@@ -107,8 +137,17 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
       :none ->
         complete_noop_bound_without_handoff(turn_context, refreshed_issue, progress, witness, cap)
+
+      {:error, reason} ->
+        log_refused_handoff(refreshed_issue, reason)
+        complete_noop_bound_without_handoff(turn_context, refreshed_issue, progress, witness, cap)
     end
   end
+
+  # A refused or failed handoff write is not an agent crash: the run stops
+  # without the handoff, as a park does, instead of spending a retry attempt.
+  defp log_refused_handoff(issue, reason),
+    do: Logger.warning("Stopped-agent handoff not written for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}")
 
   @doc "Handoff for a no-op turn; the bound and the park share these opts (#3971)."
   @spec noop_handoff(map(), Aiur.Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
@@ -129,9 +168,10 @@ defmodule Aiur.AgentRunner.TurnCompletion do
           :allow ->
             handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
 
+          # Left active, the stopped ticket is redispatched within a minute and
+          # loops through the same no-op turns, holding a slot for hours.
           {:refused, _reason, _message} ->
-            emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
-            TurnLoop.return_completed(turn_context, issue)
+            fail_noop_bound(turn_context, issue, "error", progress, witness, cap)
         end
 
       :keep_rework ->
@@ -139,15 +179,21 @@ defmodule Aiur.AgentRunner.TurnCompletion do
         TurnLoop.return_completed(turn_context, issue)
 
       {:fail, state_name} ->
-        case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
-          :ok ->
-            failed_issue = %{issue | state: state_name}
-            emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
-            TurnLoop.return_completed(turn_context, failed_issue)
+        fail_noop_bound(turn_context, issue, state_name, progress, witness, cap)
+    end
+  end
 
-          {:error, reason} ->
-            {:error, {:noop_bound_state_write_failed, reason}}
-        end
+  defp fail_noop_bound(turn_context, issue, state_name, progress, witness, cap) do
+    %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
+
+    case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
+      :ok ->
+        failed_issue = %{issue | state: state_name}
+        emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
+        TurnLoop.return_completed(turn_context, failed_issue)
+
+      {:error, reason} ->
+        {:error, {:noop_bound_state_write_failed, reason}}
     end
   end
 
@@ -177,6 +223,24 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     end
   end
 
+  # An optional Command asks for operator input without blocking the worker.
+  # If the no-op bound would park the ticket, retain its active state and leave
+  # a durable reason for the next dispatched recommendation.
+  defp continue_after_optional_command(turn_context, issue, otherwise) do
+    case Commands.nonblocking_question_pause?(issue.identifier) do
+      {:ok, true} ->
+        reason = "An optional Command is still open; continue on your recommendation while awaiting the Executor's answer."
+
+        case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
+          :ok -> TurnLoop.return_completed(turn_context, issue)
+          {:error, comment_reason} -> {:error, {:optional_command_requeue_comment_failed, comment_reason}}
+        end
+
+      _other ->
+        otherwise.()
+    end
+  end
+
   defp emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number) do
     TurnAlerts.emit_noop_turn_bound_alert(issue, workspace, worker_host, %{
       consecutive_noops: progress.consecutive_noops,
@@ -188,8 +252,15 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
   defp stop_on_turn_limit(turn_context, refreshed_issue) do
     case transition_agent_handoff(turn_context, refreshed_issue) do
-      {:handoff, result} -> result
-      :none -> TurnLoop.return_completed(turn_context, refreshed_issue)
+      {:handoff, result} ->
+        result
+
+      :none ->
+        TurnLoop.return_completed(turn_context, refreshed_issue)
+
+      {:error, reason} ->
+        log_refused_handoff(refreshed_issue, reason)
+        TurnLoop.return_completed(turn_context, refreshed_issue)
     end
   end
 

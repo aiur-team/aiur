@@ -10,6 +10,13 @@ defmodule AiurPushRelay.MixProject do
   end
 
   defp deps do
-    [{:bandit, "~> 1.14"}, {:plug, "~> 1.18"}, {:jason, "~> 1.4"}, {:exqlite, "~> 0.27"}]
+    [
+      {:bandit, "~> 1.14"},
+      {:plug, "~> 1.18"},
+      {:jason, "~> 1.4"},
+      {:exqlite, "~> 0.27"},
+      {:jose, "~> 1.11"},
+      {:req, "~> 0.7"}
+    ]
   end
 end
