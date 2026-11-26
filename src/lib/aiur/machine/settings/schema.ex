@@ -1,7 +1,7 @@
 defmodule Aiur.Machine.Settings.Schema do
   @moduledoc "Embedded machine settings tree, independent of workflow configuration."
   use Ecto.Schema
-  alias Aiur.Machine.Settings.Schema.{Capacity, Coordination, Gateway, Mobile, Pairing, Project, Transport}
+  alias Aiur.Machine.Settings.Schema.{Capacity, Coordination, Gateway, Mobile, Pairing, Project, Push, Transport}
   alias Aiur.Machine.Settings.Validation
 
   @primary_key false
@@ -13,6 +13,7 @@ defmodule Aiur.Machine.Settings.Schema do
     embeds_many(:projects, Project, on_replace: :delete)
     embeds_one(:capacity, Capacity, defaults_to_struct: true, on_replace: :update)
     embeds_one(:coordination, Coordination, defaults_to_struct: true, on_replace: :update)
+    embeds_one(:push, Push, defaults_to_struct: true, on_replace: :update)
   end
 
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()

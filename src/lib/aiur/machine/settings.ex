@@ -17,6 +17,7 @@ defmodule Aiur.Machine.Settings do
             projects: [],
             capacity: %Schema.Capacity{},
             coordination: %Schema.Coordination{},
+            push: %Schema.Push{},
             last_error: nil
 
   @type t :: %__MODULE__{}
@@ -95,7 +96,7 @@ defmodule Aiur.Machine.Settings do
   end
 
   defp validate(attrs) do
-    changeset = Schema.changeset(%Schema{}, Map.take(attrs, ["mobile", "gateway", "pairing", "transport", "projects", "capacity", "coordination"]))
+    changeset = Schema.changeset(%Schema{}, Map.take(attrs, ["mobile", "gateway", "pairing", "transport", "projects", "capacity", "coordination", "push"]))
     errors = Validation.unknown_keys(attrs, Schema) ++ Validation.errors(changeset)
 
     if errors == [] do
