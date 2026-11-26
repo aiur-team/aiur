@@ -3,6 +3,8 @@ defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
 
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.{Guardian, Store}
+  alias Aiur.TestCleanup
+  alias Aiur.TestSupport.Isolation
 
   @registry __MODULE__.Registry
   @store __MODULE__.Store
@@ -12,7 +14,7 @@ defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
     sync_control = start_supervised!({Agent, fn -> :ok end})
     start_supervised!({Registry, keys: :unique, name: @registry})
     start_supervised!({Store, name: @store, state_dir: root, sync_fun: fn -> Agent.get_and_update(sync_control, fn result -> {result, :ok} end) end})
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> TestCleanup.rm_rf!(root) end)
     {:ok, sync_control: sync_control}
   end
 
@@ -59,14 +61,17 @@ defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
     parent = self()
 
     owner =
-      spawn(fn ->
-        assert {:ok, lease} = Ownership.claim(ticket, @registry, store: @store)
-        send(parent, {:claimed, lease})
+      Isolation.start_owned!(
+        {Task,
+         fn ->
+           assert {:ok, lease} = Ownership.claim(ticket, @registry, store: @store)
+           send(parent, {:claimed, lease})
 
-        receive do
-          :stop -> :ok
-        end
-      end)
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
 
     assert_receive {:claimed, lease}, 500
     on_exit(fn -> if Process.alive?(lease.guardian), do: Process.exit(lease.guardian, :kill) end)
