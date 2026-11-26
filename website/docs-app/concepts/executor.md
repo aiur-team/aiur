@@ -296,6 +296,4 @@ shows the repo missing.
 - It stays while the peer is offline: the ticket remains owned by it, and no other gateway dispatches it.
 - Dispatch never reads the label.
 
-`aiur gateway list` and `aiur gateway status <peer>` fill that cache with each answering peer's `daemon_key`
-and repos (matched case-insensitively). Only entries with a pinned `gateway_id` are cached. A peer never read, or unpinned, exits 64; run `aiur gateway status <peer>` first.
-A peer on an older build reports neither, so assign refuses for the missing key.
+`aiur gateway list` and `aiur gateway status <peer>` cache each answering peer's `daemon_key` and repos (matched case-insensitively). Only entries with a pinned `gateway_id` are cached. A peer never read, or unpinned, exits 64; run `aiur gateway status <peer>` first. Older peers report neither, so assign refuses for the missing key.

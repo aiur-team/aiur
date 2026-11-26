@@ -1,6 +1,10 @@
 {
   "contract": "aiur.agents",
   "contract_version": 1,
+  "daemon_key": null,
+  "projects": [
+    "aiur-team/aiur"
+  ],
   "running": [
     {
       "adopted_from": "handoff-7",
