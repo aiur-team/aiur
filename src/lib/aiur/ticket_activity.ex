@@ -12,6 +12,7 @@ defmodule Aiur.TicketActivity do
   alias Aiur.{CurrentRunMembership, ProgressRetention, TicketObservation, TrackerIdentity}
   alias Aiur.Events
   alias Aiur.TicketActivity.Projection
+  alias Aiur.TicketActivity.Projection.Publication
 
   @pubsub Aiur.PubSub
   @topic "ticket-activity:changed"
@@ -194,7 +195,7 @@ defmodule Aiur.TicketActivity do
   end
 
   defp publish_progress(state, identity, projection) do
-    case Projection.publication_reading(projection, identity) do
+    case Publication.reading(projection, identity) do
       reading when is_map(reading) ->
         queue_progress(state, identity.identifier, progress_payload(reading))
 

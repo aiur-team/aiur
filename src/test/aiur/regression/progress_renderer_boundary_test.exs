@@ -103,6 +103,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/ticket_activity.ex",
     "aiur/project/status_rows.ex",
     "aiur/ticket_activity/projection.ex",
+    "aiur/ticket_activity/projection/publication.ex",
     "aiur/ticket_activity/projection/snapshot.ex",
     "aiur/units_cli.ex",
     "aiur_web/build_order/ticket_context_presenter.ex",
