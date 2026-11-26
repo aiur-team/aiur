@@ -61,6 +61,7 @@ defmodule Aiur.Executor.SessionIngest do
     with :ok <- same_harness(binding, event),
          {:ok, bound} <- bind(binding, event),
          {:ok, _} <- finish(bound.binding_id, event) do
+      event = Map.merge(event, Map.take(bound, [:binding_id, :generation]))
       Phoenix.PubSub.broadcast(state.pubsub, topic(), {:executor_hook, event})
       state
     else

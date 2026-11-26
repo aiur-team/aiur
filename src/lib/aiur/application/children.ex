@@ -353,6 +353,7 @@ defmodule Aiur.Application.Children do
             do: [
               Aiur.Executor.Session,
               Aiur.Executor.SessionIngest,
+              Aiur.Executor.BackgroundAgents,
               {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
               Aiur.Executor.TranscriptIngest,
               Aiur.Executor.HarnessState,
