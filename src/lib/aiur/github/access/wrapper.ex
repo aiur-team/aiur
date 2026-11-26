@@ -2,9 +2,6 @@ defmodule Aiur.GitHub.Access.Wrapper do
   @moduledoc "Embedded GitHub wrapper artifacts and host installation mechanics."
   require Logger
   alias Aiur.GitHub.Access.WrapperToken
-  @broker_root Path.expand("../../../../priv/github_budget", __DIR__)
-  @broker_paths Enum.map(~w(00_schema 10_admission 20_report_and_cli), &Path.join(@broker_root, &1 <> ".py"))
-  for path <- @broker_paths, do: @external_resource(path)
   @broker_metrics_path Path.expand("../../../../priv/github_budget_metrics.py", __DIR__)
   @external_resource @broker_metrics_path
   @socket_client_path Path.expand("../../../../priv/github_budget_socket.py", __DIR__)
@@ -33,7 +30,7 @@ defmodule Aiur.GitHub.Access.Wrapper do
   # (which installs the embedded broker in a test directory), not through the
   # daemon-run broker in its own workspace — the same tension the issue called
   # out for either choice.
-  @broker Enum.map_join(@broker_paths, &File.read!/1)
+  @broker Aiur.GitHub.BudgetBrokerSource.text()
   @broker_metrics File.read!(@broker_metrics_path)
   @socket_client File.read!(@socket_client_path)
   @scripts [
