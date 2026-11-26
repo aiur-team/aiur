@@ -2,7 +2,7 @@ defmodule Aiur.Executor.CapabilityProvider do
   @moduledoc "Read-only Executor presence and wake availability."
   @behaviour Aiur.Capabilities.Provider
   alias Aiur.Capabilities.Provider
-  alias Aiur.Executor.{BackgroundAgents, Claims, Roster}
+  alias Aiur.Executor.{BackgroundAgents, Capability, Claims, Roster, Session, TranscriptIngest}
 
   @impl true
   def capability_ids, do: ~w(executor.wakes executor.conversation executor.background_agents)
@@ -13,12 +13,36 @@ defmodule Aiur.Executor.CapabilityProvider do
   @spec evaluate(Provider.context(), keyword()) :: map()
   def evaluate(_context, opts \\ []) do
     lookup = Keyword.get(opts, :lookup_fun, &Process.whereis/1)
+    conversation = conversation_entry(current_binding(), opts)
 
     %{
       "executor.wakes" => if(lookup.(Aiur.ExecutorWakeInbox), do: %{state: :available}, else: %{state: :unavailable, reason: :not_running}),
-      "executor.conversation" => %{state: :unavailable, reason: :executor_not_managed, route: "/executor"},
+      "executor.conversation" => conversation,
       "executor.background_agents" => background_agents(Keyword.get(opts, :background_agents_fun, &BackgroundAgents.snapshot/0).())
     }
+  end
+
+  defp conversation_entry({:ok, binding}, opts) do
+    capability = Keyword.get(opts, :capability_fun, fn -> Capability.read(binding, ingest_status(), DateTime.utc_now()) end).()
+    snapshot = if binding.state == "attached", do: capability, else: %{capability | status: :unknown, reason: :awaiting_first_hook}
+
+    snapshot
+    |> Capability.identity_entry()
+    |> Map.merge(%{route: "/executor", harness: binding.harness, session_ref: binding.provider_session_id})
+  end
+
+  defp conversation_entry(:none, _opts), do: %{state: :unavailable, reason: :executor_not_managed, route: "/executor"}
+
+  defp current_binding do
+    if Process.whereis(Session), do: Session.current(), else: :none
+  catch
+    :exit, _reason -> :none
+  end
+
+  defp ingest_status do
+    if Process.whereis(TranscriptIngest), do: TranscriptIngest.status(), else: %{}
+  catch
+    :exit, _reason -> %{}
   end
 
   defp background_agents({:ok, _rows, _observed_since}), do: %{state: :available}

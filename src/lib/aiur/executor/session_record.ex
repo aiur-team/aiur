@@ -5,7 +5,7 @@ defmodule Aiur.Executor.SessionRecord do
   alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
 
-  @fields ~w(v binding_id generation harness state provider_session_id transcript_path locator_hash cwd consumer_id attached_at last_hook_at takeover_armed detached_at end_reason transcript_offset pid start_reason transcript_format)a
+  @fields ~w(v binding_id generation harness state provider_session_id transcript_path locator_hash cwd consumer_id attached_at last_hook_at takeover_armed detached_at end_reason transcript_offset pid start_reason transcript_format codex_cli_version)a
 
   @spec path(String.t()) :: Path.t()
   def path(key) do
@@ -34,6 +34,7 @@ defmodule Aiur.Executor.SessionRecord do
       end_reason: nil,
       transcript_offset: 0,
       transcript_format: nil,
+      codex_cli_version: nil,
       pid: nil,
       start_reason: "start"
     }
@@ -69,7 +70,7 @@ defmodule Aiur.Executor.SessionRecord do
 
   defp valid_fields?(data) do
     is_integer(data["transcript_offset"]) and data["transcript_offset"] >= 0 and is_boolean(data["takeover_armed"]) and
-      Enum.all?(~w(provider_session_id transcript_path locator_hash cwd consumer_id pid start_reason detached_at end_reason), &(is_nil(data[&1]) or is_binary(data[&1])))
+      Enum.all?(~w(provider_session_id transcript_path locator_hash cwd consumer_id pid start_reason detached_at end_reason codex_cli_version), &(is_nil(data[&1]) or is_binary(data[&1])))
   end
 
   defp valid_time?(value) when is_binary(value), do: match?({:ok, _, _}, DateTime.from_iso8601(value))
