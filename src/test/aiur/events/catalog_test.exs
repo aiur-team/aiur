@@ -26,6 +26,7 @@ defmodule Aiur.Events.CatalogTest do
     assert %Entry{pattern: "#", class: :live, export?: false, refs: [], attrs: [], owner: "unknown"} = Catalog.default()
     assert Catalog.lookup("foo.bar") == Catalog.default()
     assert Catalog.lookup("ticket.42.future.new") == Catalog.default()
+    assert %Entry{pattern: "ticket.*.progress", class: :live, export?: false} = Catalog.lookup("ticket.42.progress")
     assert %Entry{class: :live, export?: false} = Catalog.lookup("system.main.branch.push")
   end
 

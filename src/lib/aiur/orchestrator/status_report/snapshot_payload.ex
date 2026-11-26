@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     only: [idle_evidence: 6, idle_evidence_waiting_reason: 2]
 
   import Aiur.Orchestrator.StatusReport.Progress,
-    only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2]
+    only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2, ticket_progress: 3]
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
@@ -237,6 +237,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
       activity_stage: activity_stage(Issue.tracker_identity(metadata.issue), activity_by_identity),
+      progress: ticket_progress(Issue.tracker_identity(metadata.issue), activity_by_identity, phase_for_state(metadata.issue.state)),
       ci_result: cached_ci_result(state, metadata.identifier),
       capacity_reason: capacity_choice(metadata)
     }
@@ -244,6 +245,12 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     |> Map.merge(running_execution_facts(metadata))
     |> WaitingReason.attach(state, metadata)
   end
+
+  defp phase_for_state(state) when state in ["ci-wait"], do: "ci"
+  defp phase_for_state(state) when state in ["human-review"], do: "review"
+  defp phase_for_state(state) when state in ["merging"], do: "merge"
+  defp phase_for_state(state) when state in ["todo"], do: "plan"
+  defp phase_for_state(_state), do: "work"
 
   defp listener_view(metadata, capabilities, now) do
     case Map.get(metadata, :listener_effective) do

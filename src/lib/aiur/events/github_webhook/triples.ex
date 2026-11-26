@@ -11,6 +11,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   `Aiur.Events.GithubWebhook.Normalizer` for why one shape has two producers.
   """
 
+  alias Aiur.AgentWorkpadProgress
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, PostDeployChecks}
   alias Aiur.Events.GithubWebhook.Identity
   alias Aiur.GitHub.{Access, PullRequests}
@@ -48,6 +49,40 @@ defmodule Aiur.Events.GithubWebhook.Triples do
              Access.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
            )
          ]}
+    end
+  end
+
+  @doc false
+  @spec workpad_progress_triple(map(), map(), String.t()) :: result()
+  def workpad_progress_triple(issue, comment, repo) do
+    pull_request? = is_map(Map.get(issue, "pull_request"))
+    number = Identity.ticket_identifier(Map.get(issue, "number"))
+    target = if pull_request?, do: Identity.ticket_from_pr_body(Map.get(issue, "body")), else: number
+
+    case {target, AgentWorkpadProgress.parse(Map.get(comment, "body"))} do
+      {target, progress} when is_binary(target) and is_map(progress) ->
+        payload = Map.merge(progress, %{message: progress.step, label: progress.step})
+        id = GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id"))
+        resource = Access.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
+        actor = get_in(comment, ["user", "login"])
+
+        {:publish,
+         [
+           {"ticket.#{target}.agent.progress", payload,
+            [
+              issue_number: target,
+              identity: trusted_identity(target),
+              dedup_key: id,
+              resource: resource,
+              resource_version: Map.get(comment, "updated_at"),
+              resource_source: :webhook,
+              actor: actor,
+              bypass_contamination: true
+            ]}
+         ]}
+
+      _ ->
+        {:drop, :not_a_ticket_workpad}
     end
   end
 

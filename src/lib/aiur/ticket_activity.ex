@@ -11,6 +11,7 @@ defmodule Aiur.TicketActivity do
 
   alias Aiur.{CurrentRunMembership, ProgressRetention, TicketObservation, TrackerIdentity}
   alias Aiur.Events
+  alias Aiur.TicketActivity.ProgressPublisher
   alias Aiur.TicketActivity.Projection
 
   @pubsub Aiur.PubSub
@@ -120,6 +121,7 @@ defmodule Aiur.TicketActivity do
         state = %{state | projection: projection}
         retain_progress(state, observation.tracker_identity)
         broadcast_changed(observation.tracker_identity, projection, state.now_fun.())
+        publish_progress(state, observation.tracker_identity, projection)
         {:noreply, state}
 
       {:ignored, _reason, projection} ->
@@ -177,6 +179,39 @@ defmodule Aiur.TicketActivity do
         :ok
     end
   end
+
+  defp publish_progress(_state, identity, projection) do
+    key = TrackerIdentity.github_key(identity)
+    entry = Map.get(projection.entries, key)
+
+    case entry do
+      %{progress: %{percent: percent} = progress} ->
+        phase = get_in(entry, [:stage, :value])
+        phase = if phase in [:plan, :work, :review], do: phase, else: :work
+        source = if progress[:progress_source] == :worker, do: :worker, else: :phase
+        phase_base = %{plan: 0, work: 15, review: 70} |> Map.fetch!(phase)
+
+        payload = %{
+          percent: max(percent, phase_base),
+          step: progress[:step] || phase_step(phase),
+          phase: Atom.to_string(phase),
+          source: Atom.to_string(source),
+          updated_at: DateTime.to_iso8601(progress.observed_at)
+        }
+
+        _ = ProgressPublisher.publish(identity.identifier, payload)
+        :ok
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp phase_step(:plan), do: "Planning the work"
+  defp phase_step(:review), do: "Reviewing the changes"
+  defp phase_step(_phase), do: "Working through the plan"
 
   defp refresh_membership_snapshot(state) do
     members = current_members(state.membership_snapshot_fun, state.current_members)

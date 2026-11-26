@@ -267,6 +267,7 @@ defmodule Aiur.Application.Children do
       Aiur.ProgressRetention,
       # Remote-write replay ledger; must be up before the endpoint takes control calls.
       Aiur.ControlCall.ReplayStore,
+      Aiur.TicketActivity.ProgressPublisher,
       Aiur.TicketActivity,
       # Harness children (today: Claude launch telemetry) must start before the Orchestrator.
       Aiur.CodingAgent.child_specs(),

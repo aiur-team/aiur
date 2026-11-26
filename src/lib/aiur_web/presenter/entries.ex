@@ -37,11 +37,15 @@ defmodule AiurWeb.Presenter.Entries do
       open_decision_count: Map.get(entry, :open_decision_count, 0),
       open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
-      review: review_status(entry.state)
+      review: review_status(entry.state),
+      progress: public_progress(Map.get(entry, :progress))
     }
     |> Map.merge(public_execution_facts(entry))
     |> maybe_put_tracker_identity(entry)
   end
+
+  defp public_progress(nil), do: nil
+  defp public_progress(progress) when is_map(progress), do: Map.update(progress, :updated_at, nil, &iso8601/1)
 
   @spec retry_entry_payload(map()) :: map()
   def retry_entry_payload(entry) do
@@ -171,6 +175,7 @@ defmodule AiurWeb.Presenter.Entries do
       last_event_at: iso8601(running.last_codex_timestamp),
       stale_for_seconds: Map.get(running, :stale_for_seconds),
       waiting_reason: Map.get(running, :waiting_reason, :active),
+      progress: public_progress(Map.get(running, :progress)),
       open_decision_count: Map.get(running, :open_decision_count, 0),
       open_decision_count_health: Map.get(running, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(running, :ci_result)),

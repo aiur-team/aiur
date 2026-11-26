@@ -139,8 +139,22 @@ defmodule Aiur.TicketObservation do
 
   defp safe_attributes(%{kind: :agent_event, name: name}, payload) when name in @progress_names do
     case percent(payload_value(payload, "percent")) do
-      nil -> %{}
-      value -> %{percent: value}
+      nil ->
+        %{}
+
+      value ->
+        step = payload_value(payload, "step")
+        source = payload_value(payload, "source") || if(name == "progress.checkin", do: "worker")
+        done = payload_value(payload, "done")
+        total = payload_value(payload, "total")
+        phase = payload_value(payload, "phase")
+
+        %{percent: value}
+        |> optional_attribute(:step, safe_step(step))
+        |> optional_attribute(:progress_source, safe_progress_source(source))
+        |> optional_attribute(:done, safe_non_negative(done))
+        |> optional_attribute(:total, safe_positive(total))
+        |> optional_attribute(:phase, safe_phase(phase))
     end
   end
 
@@ -168,6 +182,27 @@ defmodule Aiur.TicketObservation do
   defp maybe_put(attributes, key, value, predicate) when is_function(predicate, 1) do
     if predicate.(value), do: Map.put(attributes, key, value), else: attributes
   end
+
+  defp safe_step(value) when is_binary(value) do
+    value = value |> String.replace(~r/[\r\n\t]+/u, " ") |> String.trim() |> String.slice(0, 120)
+    if value == "", do: nil, else: value
+  end
+
+  defp safe_step(_value), do: nil
+  defp safe_progress_source("worker"), do: :worker
+  defp safe_progress_source("checklist"), do: :checklist
+  defp safe_progress_source("phase"), do: :phase
+  defp safe_progress_source(_value), do: nil
+
+  defp safe_non_negative(value) when is_integer(value) and value >= 0, do: value
+  defp safe_non_negative(_value), do: nil
+  defp safe_positive(value) when is_integer(value) and value > 0, do: value
+  defp safe_positive(_value), do: nil
+  defp safe_phase(value) when value in ["plan", "work", "review", "pr", "ci", "merge"], do: String.to_existing_atom(value)
+  defp safe_phase(_value), do: nil
+
+  defp optional_attribute(attributes, _key, nil), do: attributes
+  defp optional_attribute(attributes, key, value), do: Map.put(attributes, key, value)
 
   defp parse_stage("phase." <> rest) do
     case String.split(rest, ".", parts: 2) do
