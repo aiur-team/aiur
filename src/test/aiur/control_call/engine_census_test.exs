@@ -36,8 +36,6 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"unset runtime setting", "cmd_set --unset agent.max_concurrent_builds", :write, []},
     {"list runtime settings", "cmd_set --list", :read, []},
     {"list runtime settings as JSON", "cmd_set --list --json", :read, []},
-    {"feature show", "cmd_feature show demo --json", :read, []},
-    {"feature edit", "cmd_feature edit demo --label Demo --add-epic lane=Lane", :write, []},
     {"epic list", "cmd_epic list --json", :read, []},
     {"epic set", "cmd_epic set lane 123 --as operator", :write, []},
     {"queue show", "cmd_queue show --json", :read, []},
@@ -82,6 +80,17 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"listen validation", "cmd_listen --ticket 123", :read, []},
     {"pause all", "cmd_pause_resume pause --all", :write, []}
   ]
+
+  @feature_cases %{
+    "create" => {"demo --label Demo --lane lane=Lane --lane-icon lane=command-line", :write},
+    "add" => {"demo 123 --lane lane --move", :write},
+    "remove" => {"demo 123", :write},
+    "also" => {"demo 123 --remove", :write},
+    "baseline" => {"demo --replace", :write},
+    "edit" => {"demo --label Demo --add-lane lane=Lane", :write},
+    "confirm" => {"demo 123", :write},
+    "show" => {"demo --json", :read}
+  }
 
   @guarded_queue_commands [
     {"add", "add 123"},
@@ -136,6 +145,20 @@ defmodule Aiur.ControlCall.EngineCensusTest do
 
       assert {:ok, %{scope: ^expected_scope}} = result,
              "#{name} emitted #{expression}, parsed as #{inspect(result)}"
+    end
+  end
+
+  test "every feature verb emitted by the engine has its expected allowlist scope" do
+    source = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-feature.sh", __DIR__))
+    [_, arms] = Regex.run(~r/case "\$op" in\n(.*?)\n\s+\*\)/s, source)
+    verbs = for [_, patterns] <- Regex.scan(~r/^\s{4}([a-z|]+)\)/m, arms), verb <- String.split(patterns, "|"), do: verb
+    assert Enum.sort(verbs) == Enum.sort(Map.keys(@feature_cases))
+
+    for {verb, {args, scope}} <- @feature_cases do
+      expression = capture_rpc("cmd_feature #{verb} #{args}")
+      result = ControlCall.parse(expression, remote: false)
+      category = if scope == :read, do: :read, else: :tickets
+      assert {:ok, %{scope: ^scope, category: ^category}} = result, "feature #{verb} emitted #{expression}, parsed as #{inspect(result)}"
     end
   end
 
