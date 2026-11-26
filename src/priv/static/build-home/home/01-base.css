@@ -1,0 +1,40 @@
+:where(.bd-root, .tk-backdrop, .ax-pop) textarea {
+  font: revert;
+}
+
+/* H:141 */ :where(.bd-root, .tk-backdrop, .ax-pop) .mono {
+  font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* H:144 */ :where(.bd-root, .tk-backdrop, .ax-pop) .num {
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* H:146 */ :where(.bd-root, .tk-backdrop, .ax-pop) a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 140ms ease;
+  -webkit-tap-highlight-color: initial;
+}
+
+/* H:147 */ :where(.bd-root, .tk-backdrop, .ax-pop) a:hover {
+  color: var(--accent-ink);
+}
+
+/* H:149 */ :where(.bd-root, .tk-backdrop, .ax-pop) button {
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: initial;
+}
+
+/* H:160 */ :where(.bd-root, .tk-backdrop, .ax-pop) .panel > * {
+  min-width: 0;
+}
+
+@keyframes khSpin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+

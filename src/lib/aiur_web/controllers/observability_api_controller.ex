@@ -5,22 +5,19 @@ defmodule AiurWeb.ObservabilityApiController do
 
   use Phoenix.Controller, formats: [:json]
 
-  alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
+  alias Aiur.Conversation.History
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
+  alias AiurWeb.{EndpointConfig, Presenter}
   alias Plug.Conn
+
+  # The handlers that read an Orchestrator answer "pick a project" when projects mode has none for this request.
+  plug(AiurWeb.ProjectScope, :required when action in [:state, :issue, :refresh, :send_message, :pause, :resume])
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
-    conn
-    |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
-  end
-
-  @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
-  def streamdeck_grid(conn, _params) do
-    json(conn, StreamDeckGrid.payload(orchestrator(), snapshot_timeout_ms()))
+    json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
   end
 
   @spec issue(Conn.t(), map()) :: Conn.t()
@@ -36,7 +33,7 @@ defmodule AiurWeb.ObservabilityApiController do
 
   @spec events(Conn.t(), map()) :: Conn.t()
   def events(conn, %{"issue_identifier" => issue_identifier} = params) do
-    case AgentEventFeed.list(issue_identifier, Map.drop(params, ["issue_identifier"])) do
+    case History.transcript(issue_identifier, Map.drop(params, ["issue_identifier"])) do
       {:ok, payload} -> json(conn, payload)
       {:error, :invalid_limit} -> error_response(conn, 422, "invalid_limit", "limit must be an integer from 1 to 50")
       {:error, :invalid_cursor} -> error_response(conn, 422, "invalid_cursor", "cursor must be a non-negative integer")
@@ -62,7 +59,7 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
 
     issue_identifier
-    |> send_operator_message(text, Map.get(params, "message_id"))
+    |> send_operator_message(text, Map.get(params, "message_id"), conn.assigns[:auth_actor])
     |> render_send_message_response(conn, issue_identifier)
   end
 
@@ -157,14 +154,14 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp orchestrator do
-    Endpoint.config(:orchestrator) || Aiur.Orchestrator
+    EndpointConfig.get(:orchestrator) || Aiur.Orchestrator.server()
   end
 
   # The configured value is the floor, not the tolerance: a fixed 15s window
   # against a 120s poll marks a healthy fleet stale for most of every cycle.
   # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
   defp snapshot_timeout_ms do
-    PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
+    PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch)
   end
 
   # The dashboard distinguishes a stopped Orchestrator from an empty read model,
@@ -183,8 +180,14 @@ defmodule AiurWeb.ObservabilityApiController do
   # `message_id` is optional (#2717). A client that sends one gets its retry
   # deduplicated: the same id, target and text return the first item. Without
   # one, every request is a new message.
-  defp send_operator_message(issue_identifier, text, message_id) do
-    payload = %{kind: :text, body: text}
+  defp send_operator_message(issue_identifier, text, message_id, auth_actor) do
+    payload = %{kind: :text, body: text, delivery_policy: :listener, origin: :http}
+
+    payload =
+      case auth_actor do
+        {:device, id} when is_binary(id) -> Map.put(payload, :actor, "device:" <> id)
+        _ -> payload
+      end
 
     payload =
       if is_binary(message_id) and message_id != "", do: Map.put(payload, :message_id, message_id), else: payload
@@ -277,7 +280,7 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp render_control_response({:error, {tag, _detail} = reason}, conn, _issue_identifier, _action)
-       when tag in [:worker_startup_failed, :not_resumable_control_status] do
+       when tag in [:worker_startup_failed, :not_resumable_control_status, :max_concurrent_agents_reached] do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end
 

@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   # `:persistent_term`, which is process-global.
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.Cadence
+  alias Aiur.BuildOrder.{Cadence, Settings}
   alias Aiur.Config.Schema
   alias Aiur.PollCadence
 
@@ -119,10 +119,10 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   describe "ticket_detail_freshness_ms stays on the base interval" do
     test "it does not move when the fleet goes idle" do
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
-      busy = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      busy = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
-      idle = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      idle = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       assert idle == busy
     end
@@ -133,7 +133,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     test "the boot path derives the base value, not the 300000 ceiling" do
       PollCadence.forget_effective_interval_ms()
 
-      freshness = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      freshness = Settings.build_order_ticket_detail_coordinator_options()[:freshness_ms]
 
       assert freshness == Cadence.derive_ms(PollCadence.base_interval_ms()).ticket_detail_freshness_ms
       refute freshness == 300_000
@@ -145,23 +145,23 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     test "the projection's catalog option follows the published effective interval" do
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
 
-      idle_options = Aiur.Config.build_order_graph_projection_options()
+      idle_options = Settings.build_order_graph_projection_options()
       assert idle_options[:catalog_refresh_ms] == @idle_interval_ms
 
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
 
-      busy_options = Aiur.Config.build_order_graph_projection_options()
+      busy_options = Settings.build_order_graph_projection_options()
       assert busy_options[:catalog_refresh_ms] == @base_interval_ms
     end
 
     test "the labelled catalog option follows it too" do
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
 
-      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 3_000_000
+      assert Settings.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 3_000_000
 
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
 
-      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 600_000
+      assert Settings.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 600_000
     end
   end
 
@@ -195,7 +195,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   # The reference's idle column has to agree with what the code does, or an
   # operator reads a number that is not the one being spent.
   describe "the configuration reference's idle column" do
-    @doc_path Path.expand("../../../../website/docs-app/reference/configuration.md", __DIR__)
+    @doc_glob Path.expand("../../../../website/docs-app/reference/configuration*.md", __DIR__)
 
     # Both idle columns. The second is the default webhook-backed case, where
     # `webhooks.poll_widen_factor` doubles the interval again to 1200s — the
@@ -204,7 +204,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     @webhook_idle_interval_ms 1_200_000
 
     test "documents the values derived at 600s and at 1200s effective" do
-      reference = File.read!(@doc_path)
+      reference = @doc_glob |> Path.wildcard() |> Enum.sort() |> Enum.map_join("\n", &File.read!/1)
 
       for {column, interval_ms} <- [{:polling, @idle_interval_ms}, {:webhook, @webhook_idle_interval_ms}] do
         PollCadence.publish_effective_interval_ms(interval_ms)
@@ -219,7 +219,7 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
     # `ticket_detail_freshness_ms` is documented as the same number in all three
     # columns, because it deliberately does not follow the effective interval.
     test "documents ticket_detail_freshness_ms as not moving" do
-      reference = File.read!(@doc_path)
+      reference = @doc_glob |> Path.wildcard() |> Enum.sort() |> Enum.map_join("\n", &File.read!/1)
       # The table is stated "at a 120s base interval", which is the shipped
       # default rather than whatever this test VM's config happens to carry.
       base = Cadence.derive(120).ticket_detail_freshness_ms

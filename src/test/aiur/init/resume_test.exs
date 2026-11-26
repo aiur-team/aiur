@@ -95,6 +95,13 @@ defmodule Aiur.Init.ResumeTest do
     assert Resume.agents_from_config(config) == ["claude", "codex"]
   end
 
+  test "list routing values (#3960) provision every route's backend and render every route" do
+    config = %{"agent" => %{"kind" => "claude", "routing" => %{"3" => ["claude:sonnet", "codex:gpt-5.5:high"]}}}
+
+    assert Resume.agents_from_config(config) == ["claude", "codex"]
+    assert Resume.format_routing(%{3 => ["claude:sonnet", "codex:gpt-5.5:high"], 4 => "claude:opus"}) == "3:claude:sonnet|codex:gpt-5.5:high, 4:claude:opus"
+  end
+
   test "routing_backend recovers backend from routing strings" do
     assert Resume.routing_backend("claude:sonnet:high") == "claude"
     assert Resume.routing_backend("codex") == "codex"
@@ -103,6 +110,16 @@ defmodule Aiur.Init.ResumeTest do
   test "alerts_summary_line reports enabled state only when present" do
     assert Resume.alerts_summary_line(%{"alerts" => %{"enabled" => false}}) == "alerts: false"
     assert Resume.alerts_summary_line(%{}) == nil
+  end
+
+  test "saved_summary_lines reports persisted optional-section choices" do
+    base = %{"tracker" => %{}, "agent" => %{}}
+
+    assert "prewarm: enabled" in Resume.saved_summary_lines(Map.put(base, "prewarm", %{"enabled" => true}))
+    assert "prewarm: declined" in Resume.saved_summary_lines(Map.put(base, "prewarm", %{"enabled" => false}))
+    assert "prewarm: declined" in Resume.saved_summary_lines(Map.put(base, "prewarm", %{"poll_seconds" => 0}))
+
+    assert "elevenlabs_voice_input: declined" in Resume.saved_summary_lines(Map.put(base, "elevenlabs", %{"enabled" => false, "api_key" => "secret"}))
   end
 
   describe "elevenlabs voice input" do
@@ -115,10 +132,10 @@ defmodule Aiur.Init.ResumeTest do
 
       lines = Resume.saved_summary_lines(config)
 
-      assert "elevenlabs_voice_input: api_key set" in lines
+      assert "elevenlabs_voice_input: enabled (api_key set)" in lines
       refute Enum.any?(lines, &(&1 =~ "sk-super-secret"))
 
-      assert "elevenlabs_voice_input: api_key not set" in Resume.saved_summary_lines(%{"tracker" => %{}, "agent" => %{}, "elevenlabs" => %{"language_code" => "eng"}})
+      assert "elevenlabs_voice_input: enabled (api_key not set)" in Resume.saved_summary_lines(%{"tracker" => %{}, "agent" => %{}, "elevenlabs" => %{"language_code" => "eng"}})
 
       refute Enum.any?(
                Resume.saved_summary_lines(%{"tracker" => %{}, "agent" => %{}}),
@@ -170,7 +187,7 @@ defmodule Aiur.Init.ResumeTest do
       assert yaml =~ "voice_id: null"
     end
 
-    test "declining the offer appends nothing" do
+    test "declining the offer appends the disabled rendering" do
       test_pid = self()
 
       io = %{
@@ -190,11 +207,8 @@ defmodule Aiur.Init.ResumeTest do
 
       Resume.offer_section(io, deps, :repo_local, %{}, "/tmp/aiur-config", section)
 
-      refute_received {:appended, _target, _yaml}
-
-      # The declined answer also renders nothing, so a config written by fresh
-      # setup stays free of the section and stays offerable.
-      assert IO.iodata_to_binary(section.to_yaml.(%{enabled: false, api_key: nil})) == ""
+      assert_received {:appended, "/tmp/aiur-config", yaml}
+      assert {:ok, %{"elevenlabs" => %{"enabled" => false}}} = YamlElixir.read_from_string(yaml)
     end
   end
 end

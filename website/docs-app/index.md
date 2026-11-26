@@ -38,8 +38,9 @@ On trackers that support labels, Aiur runs a label-based state machine.
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | Accepted PR entering merge. |
 | `agent:done` | Work complete. |
+| `agent:budget-exhausted` | The ticket reached its configured spend cap and stopped. |
 
-The terminal error and cancellation states are `agent:error` and `agent:cancelled` (also spelled `agent:canceled`). `agent:watch` labels a PR for monitoring; it is deliberately not a dispatch state. Agents keep the Agent Workpad current, move tickets to human review when the PR is ready, and never self-merge.
+The non-dispatching outcome states are `agent:error`, terminal `agent:cancelled` (also spelled `agent:canceled`), and terminal `agent:budget-exhausted`. `agent:watch` labels a PR for monitoring; it is deliberately not a dispatch state. Agents keep the Agent Workpad current, move tickets to human review when the PR is ready, and never self-merge.
 
 ## Complexity routing
 
@@ -79,6 +80,7 @@ The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_K
 | Configure a workflow | [Configuration](/reference/configuration) |
 | Run and control Aiur | [CLI](/reference/cli) |
 | Understand the driver | [Executor](/concepts/executor) |
+| Read the build | [Continuous build history](/concepts/build-history) |
 | Read fleet work | [Units](/concepts/units) |
 | Resolve agent issues | [Commands](/concepts/commands) |
 | Follow large features | [Build Orders](/concepts/build-orders) |

@@ -1,0 +1,304 @@
+defmodule AiurWeb.Build.Usage do
+  @moduledoc "Protected, per-connection quota facts for the build home usage strip."
+  alias Aiur.{Accounts, CodingAgent, ModelAvailability}
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
+  alias Aiur.GitHub.Access
+  alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
+  alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
+  alias AiurWeb.ProviderMeterWindows
+  alias AiurWeb.RemainingMeter
+  import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
+
+  @order [:claude, :codex, :kimi, :deepseek]
+  @logos [:claude, :codex, :kimi, :deepseek]
+  @api_key_envs [openrouter: "OPENROUTER_API_KEY", openrouter_management: "OPENROUTER_MANAGEMENT_KEY", deepseek: "DEEPSEEK_API_KEY", openai: "OPENAI_API_KEY"]
+
+  @spec read({:ok, term()} | :locked, keyword()) :: map()
+  def read(financial, opts \\ [])
+  def read(:locked, _opts), do: block(:locked, nil, nil)
+
+  def read({:ok, context} = financial, opts) do
+    block(financial, load(context, opts), Keyword.get(opts, :now, DateTime.utc_now()))
+  rescue
+    _ -> block(financial, :error, nil)
+  catch
+    _, _ -> block(financial, :error, nil)
+  end
+
+  @spec subscribe({:ok, term()} | :locked) :: term()
+  def subscribe(:locked), do: :ok
+  def subscribe({:ok, context}), do: ProviderMeterSource.subscribe(context)
+
+  @spec load(term(), keyword()) :: map()
+  def load(context, opts \\ []) do
+    families = Enum.filter(CodingAgent.provider_families(), &keyed?/1)
+    source = Keyword.get(opts, :meter_source, ProviderMeterSource)
+    meters = isolated(fn -> meter_read(source, context, opts) end, %{})
+    accounts = isolated(Keyword.get(opts, :accounts_fun, &account_readings/0), %{})
+    durable = isolated(fn -> Map.new(families, &{&1, durable(&1, Keyword.get(opts, :durable_path, ModelAvailability.path()))}) end, %{})
+    # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
+    {github, github_snapshot_observed_at} = github_snapshot(opts)
+    elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
+    routed = isolated(Keyword.get(opts, :configured_fun, &ModelProviders.configured_families/0), [])
+    # A keyed OpenAI-compatible family is configured by its key; a session-login family by routing.
+    configured = Enum.filter(families, &(&1 in routed or compat(&1) != nil))
+    api_keys = for {key, env} <- @api_key_envs, System.get_env(env) not in [nil, ""], do: key
+
+    %{
+      families: families,
+      configured: configured,
+      api_keys: api_keys,
+      meters: meters,
+      accounts: accounts,
+      durable: durable,
+      github: github,
+      github_snapshot_observed_at: github_snapshot_observed_at,
+      elevenlabs: elevenlabs
+    }
+  end
+
+  defp github_snapshot(opts) do
+    server = Keyword.get(opts, :github_server, Access.quota_server())
+    now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
+
+    case Access.quota_cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+      {:ok, snapshot, _age_ms, observed_at_ms} ->
+        {{:ok, snapshot}, observed_at_ms}
+
+      :miss ->
+        github = isolated(fn -> {:ok, Access.cost_report(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
+    end
+  end
+
+  defp meter_read(source, context, opts) do
+    case opts[:reload] do
+      nil -> source.load(context, opts)
+      message -> source.reload(context, message, opts)
+    end
+  end
+
+  defp account_readings do
+    names =
+      case Accounts.configured_names() do
+        [] -> ["default"]
+        names -> names
+      end
+
+    UsageReadings.snapshot("claude", names)
+  end
+
+  defp isolated(fun, fallback) do
+    fun.()
+  rescue
+    _ -> fallback
+  catch
+    _, _ -> fallback
+  end
+
+  @doc false
+  @spec keyed?(atom()) :: boolean()
+  def keyed?(provider) do
+    case compat(provider) do
+      %{} = compat -> ModelProviders.keyed?(compat)
+      _ -> true
+    end
+  end
+
+  defp compat(provider), do: get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat])
+
+  @doc false
+  @spec durable(atom(), Path.t()) :: map() | nil
+  defdelegate durable(provider, path \\ ModelAvailability.path()), to: UsageFacts
+  @doc false
+  @spec elevenlabs_failure(term()) :: String.t()
+  defdelegate elevenlabs_failure(failure), to: UsageFacts
+  @doc false
+  @spec compact_number(integer()) :: String.t()
+  defdelegate compact_number(number), to: UsageFacts
+
+  @doc false
+  @spec order_families([atom()]) :: [atom()]
+  def order_families(families), do: Enum.filter(@order, &(&1 in families)) ++ (families -- @order)
+
+  @spec block({:ok, term()} | :locked, map() | :error | nil, DateTime.t() | nil) :: map()
+  def block(:locked, _inputs, _now), do: Read.locked_usage()
+  def block({:ok, _}, :error, _now), do: %{state: "unavailable", observed_at: nil, reason: "usage_source_failed"}
+
+  def block({:ok, _}, inputs, now) do
+    cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
+
+    providers =
+      for family <- order_families(inputs.families),
+          card = Enum.find(cards, &(&1.provider == family)),
+          card != nil and (family in Map.get(inputs, :configured, []) or observed?(card, inputs)),
+          do: provider(card, inputs, ms(now))
+
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at)) ++ key_rows(cards, inputs, ms(now))
+    %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
+  end
+
+  # Neither a configured account nor any observation: a registry placeholder, not a row.
+  defp observed?(card, inputs) do
+    card.windows != [] or Map.get(inputs.durable, card.provider) != nil or
+      (card.provider == :claude and Enum.any?(Map.values(inputs.accounts), &(Map.get(&1, :reading) != nil)))
+  end
+
+  # APIs the daemon holds a key for; balances come from the same provider meter cards as MODELS.
+  defp key_rows(cards, inputs, now) do
+    keys = Map.get(inputs, :api_keys, [])
+    card = fn provider -> Enum.find(cards, &(&1.provider == provider)) end
+
+    openrouter =
+      cond do
+        :openrouter_management in keys -> [provider(card.(:openrouter), inputs, now)]
+        :openrouter in keys -> [%{row("OpenRouter") | mono: "O", none: true, note: "Credits need OPENROUTER_MANAGEMENT_KEY"}]
+        true -> []
+      end
+
+    deepseek = if :deepseek in keys, do: [provider(card.(:deepseek), inputs, now)], else: []
+    # ponytail: a project key cannot read billing and nothing records OpenAI rate-limit headers; add the admin-key cost API when one is set.
+    openai = if :openai in keys, do: [%{row("OpenAI") | mono: "O", none: true, note: "Configured · a project key cannot read billing"}], else: []
+    openrouter ++ deepseek ++ openai
+  end
+
+  @doc false
+  @spec row(String.t()) :: map()
+  def row(name),
+    do: %{
+      name: name,
+      logo: nil,
+      mono: nil,
+      hue: nil,
+      tag: nil,
+      accounts: nil,
+      session: nil,
+      weekly: nil,
+      credits: nil,
+      none: false,
+      lines: nil,
+      icon: nil,
+      stale: false,
+      observed_at: nil,
+      snapshot_observed_at: nil,
+      note: nil
+    }
+
+  defp provider(card, inputs, now) do
+    logo = if card.provider in @logos, do: Atom.to_string(card.provider)
+
+    base =
+      Map.merge(row(card.provider_label), %{
+        logo: logo,
+        mono: if(logo == nil, do: card.provider_label |> String.first() |> String.upcase()),
+        observed_at: ms(card.observed_at),
+        stale: card.state == :stale
+      })
+
+    case card.state do
+      state when state in [:healthy, :partial, :stale] -> provider_windows(base, card, inputs.accounts, now)
+      :unknown -> unknown(base, Map.get(inputs.durable, card.provider))
+      :loading -> %{base | none: true, note: "Awaiting first observation"}
+      :signed_out -> %{base | none: true, note: "Not signed in"}
+      # A failed read keeps its row and is marked stale so the strip shows the reading's age.
+      _ -> %{base | none: true, stale: true, note: card.health.failure_label || "Unavailable"}
+    end
+  end
+
+  defp unknown(base, %{percent: percent, observed_at: at}) do
+    remaining = RemainingMeter.percent(percent)
+    %{base | none: true, note: "Last known #{remaining}% left (previous boot)", observed_at: ms(at), stale: true}
+  end
+
+  defp unknown(base, _), do: %{base | none: true, note: "Awaiting first observation"}
+
+  defp provider_windows(base, %{provider: :claude}, accounts, now) when map_size(accounts) >= 2 do
+    names = Enum.sort(Map.keys(accounts))
+    session = account_window(accounts, names, "five_hour", "5h")
+    weekly = account_window(accounts, names, "seven_day", "7d")
+
+    %{
+      base
+      | accounts: names,
+        session: session,
+        weekly: weekly,
+        observed_at: latest(Enum.map(Map.values(accounts), &ms(&1.observed_at))),
+        stale: base.stale or ended?(session, now) or ended?(weekly, now)
+    }
+  end
+
+  defp provider_windows(base, card, _accounts, now) do
+    rates = card.windows |> Enum.filter(&(&1.kind == :rate_limit and &1.limit_id != "local-concurrency")) |> Map.new(&{&1.limit_id, &1})
+    slots = rates |> ProviderMeterWindows.semantic(card.provider) |> Map.new(fn {slot, {id, value}} -> {slot, window(id, value)} end)
+    credit = Enum.find(card.windows, &(&1.kind == :credit and card.provider != :codex))
+
+    cond do
+      map_size(slots) > 0 ->
+        session = slots["session"]
+        weekly = slots["weekly"]
+        %{base | session: session, weekly: weekly, stale: base.stale or ended?(session, now) or ended?(weekly, now)}
+
+      credit != nil ->
+        %{base | credits: credits(credit)}
+
+      true ->
+        %{base | none: true, note: "Limits not reported by provider"}
+    end
+  end
+
+  defp window(id, value), do: %{acc: [meter_percent(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
+
+  defp meter_percent(%{kind: :exact, now: remaining_percent}) when is_number(remaining_percent), do: percent(remaining_percent)
+  defp meter_percent(_), do: nil
+
+  defp credits(value) do
+    amount = get_in(value, [:credits, :amount])
+    left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
+    remaining = meter_percent(value.meter)
+    # A prepaid credit figure is meaningless without its ceiling: "$77.50 left"
+    # reads as plenty until it says "of $100.00". The limit is the same fact a
+    # usage floor measures the remaining credit against.
+    balance = left <> limit_suffix(Map.get(value, :limit))
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{balance} left · #{percent(remaining)}% left", else: "#{balance} left")]]}
+  end
+
+  defp limit_suffix(limit) when is_number(limit), do: " of $" <> Money.format_amount(to_string(limit))
+  defp limit_suffix(_limit), do: ""
+
+  defp account_window(accounts, names, key, label) do
+    values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
+
+    %{
+      resets: Enum.map(values, &ms(Map.get(&1, :resets_at))),
+      acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())),
+      reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))),
+      win: label
+    }
+  end
+
+  defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do
+    cond do
+      rem(minutes, 1440) == 0 -> "#{div(minutes, 1440)}d"
+      rem(minutes, 60) == 0 -> "#{div(minutes, 60)}h"
+      true -> "#{minutes}m"
+    end
+  end
+
+  defp duration(_minutes, id) do
+    cond do
+      String.contains?(id, "five_hour") -> "5h"
+      String.contains?(id, "seven_day") -> "7d"
+      true -> nil
+    end
+  end
+
+  @doc false
+  @spec percent(term()) :: integer() | nil
+  def percent(value) when is_number(value), do: value |> round() |> max(0) |> min(100)
+  def percent(_), do: nil
+  defp ended?(%{reset_at: at}, now) when is_integer(at), do: at < now
+  defp ended?(_, _), do: false
+  defp earliest(values), do: values |> Enum.reject(&is_nil/1) |> Enum.min(fn -> nil end)
+  defp latest(values), do: values |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+end

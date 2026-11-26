@@ -33,7 +33,6 @@ function findVendor(aiurApplication) {
 function readStaticAssets(aiurApplication) {
   const staticRoot = path.join(aiurApplication, 'priv', 'static')
   const modules = [
-    ['/dashboard.css', 'dashboard.css', 'text/css'],
     ['/aiur-dom-svg-layout-loader.js', 'aiur-dom-svg-layout-loader.js', 'application/javascript'],
     ['/aiur-dom-svg-layout-adapter.js', 'aiur-dom-svg-layout-adapter.js', 'application/javascript'],
     ['/aiur-dom-svg-layout/lifecycle.js', 'aiur-dom-svg-layout/lifecycle.js', 'application/javascript'],
@@ -45,6 +44,14 @@ function readStaticAssets(aiurApplication) {
   ]
 
   const assets = new Map()
+  const cssRoot = path.join(staticRoot, 'css')
+  if (!existsSync(cssRoot)) fail('release does not contain the css partials directory')
+  const parts = readdirSync(cssRoot).filter((entry) => entry.endsWith('.css')).sort()
+  if (parts.length === 0) fail('release does not contain any css partials')
+  assets.set('/dashboard.css', {
+    body: Buffer.concat(parts.map((part) => readFileSync(path.join(cssRoot, part)))),
+    contentType: 'text/css'
+  })
   for (const [url, file, contentType] of modules) {
     const source = path.join(staticRoot, file)
     if (!existsSync(source)) fail(`release does not contain ${file}`)

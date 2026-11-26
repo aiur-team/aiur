@@ -2,6 +2,7 @@ defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
   alias Aiur.Codex.{AccountGeneration.Context, ExhaustedReset, RateLimitAdapter, RateLimits}
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.{ProviderAccountGeneration, ProviderMeters}
 
   @account_updated "account/updated"
@@ -18,58 +19,104 @@ defmodule Aiur.Codex.AccountGeneration do
   @spec new_binding(GenServer.server()) :: map()
   def new_binding(server \\ ProviderAccountGeneration), do: Context.new_binding(server)
 
-  @spec handle_notification(map(), String.t(), map()) :: :ignore | {:redacted, map()}
+  @spec handle_notification(map(), String.t(), map()) ::
+          :ignore | {:redacted, map()} | {:refused, HostedAuthPolicy.refusal(), map()}
   def handle_notification(session, @account_updated, payload) when is_map(session) and is_map(payload) do
-    case account_updated_auth_mode(payload) do
-      {:ok, auth_mode} -> bind_account(session, auth_mode)
-      :logout -> lose_continuity(session, :logout)
-      :error -> lose_continuity(session, :unsupported_auth_mode)
-    end
+    details = redacted_message(@account_updated)
 
-    {:redacted, redacted_message(@account_updated)}
+    case account_updated_auth_mode(payload) do
+      {:ok, auth_mode} ->
+        case authorize_observation(session, auth_mode) do
+          :ok ->
+            bind_account(session, auth_mode)
+            {:redacted, details}
+
+          {:error, reason} ->
+            refuse_observation(session, reason, details)
+        end
+
+      :logout ->
+        handle_unknown_observation(session, :logout, details)
+
+      :error ->
+        handle_unknown_observation(session, :unsupported_auth_mode, details)
+    end
   end
 
   def handle_notification(session, @token_refresh, payload) when is_map(session) and is_map(payload) do
-    confirm_account_binding(session)
-    {:redacted, redacted_message(@token_refresh)}
+    details = redacted_message(@token_refresh)
+
+    case authorize_current(session) do
+      :ok ->
+        confirm_account_binding(session)
+        {:redacted, details}
+
+      {:error, reason} ->
+        refuse_observation(session, reason, details)
+    end
   end
 
   def handle_notification(session, @rate_limits_updated, payload) when is_map(session) and is_map(payload) do
-    # The exhausted window's numeric reset is kept even when the meter rejects
-    # the patch: a usage-limit pause needs it, not the account generation.
-    ExhaustedReset.observe(session, raw_rate_limits(payload))
+    case authorize_current(session) do
+      :ok ->
+        # The exhausted window's numeric reset is kept even when the meter rejects
+        # the patch: a usage-limit pause needs it, not the account generation.
+        ExhaustedReset.observe(session, raw_rate_limits(payload))
 
-    case submit_rate_limit_patch(session, raw_rate_limits(payload)) do
-      result when result in [:ok, :ignore] ->
-        rate_limits = RateLimits.from_notification(payload)
-        observe_rate_limits(session, rate_limits)
-        {:redacted, redacted_message(@rate_limits_updated, rate_limits)}
+        case submit_rate_limit_patch(session, raw_rate_limits(payload)) do
+          result when result in [:ok, :ignore] ->
+            rate_limits = RateLimits.from_notification(payload)
+            observe_rate_limits(session, rate_limits)
+            {:redacted, redacted_message(@rate_limits_updated, rate_limits)}
 
-      :error ->
-        {:redacted, redacted_message(@rate_limits_updated)}
+          :error ->
+            {:redacted, redacted_message(@rate_limits_updated)}
+        end
+
+      {:error, reason} ->
+        refuse_observation(session, reason, redacted_message(@rate_limits_updated))
     end
   end
 
   def handle_notification(session, <<"account/", _rest::binary>> = method, _payload) when is_map(session) do
-    lose_continuity(session, :untrusted_lifecycle)
-    {:redacted, redacted_message(method)}
+    handle_unknown_observation(session, :untrusted_lifecycle, redacted_message(method))
   end
 
   def handle_notification(_session, _method, _payload), do: :ignore
 
   @doc "Seeds the binding from Handshake's privacy-reduced account/read result."
-  @spec seed_from_account_read(map(), map()) :: :ok
+  @spec seed_from_account_read(map(), map()) :: :ok | {:error, HostedAuthPolicy.refusal()}
   def seed_from_account_read(session, %{auth_mode: auth_mode}) when auth_mode in @account_updated_auth_modes do
-    bind_account(session, auth_mode)
-    :ok
+    case authorize_observation(session, auth_mode) do
+      :ok ->
+        bind_account(session, auth_mode)
+        :ok
+
+      {:error, reason} ->
+        lose_continuity(session, :untrusted_lifecycle)
+        {:error, reason}
+    end
   end
 
   def seed_from_account_read(session, _response) when is_map(session) do
-    lose_continuity(session, :no_authenticated_account)
-    :ok
+    case authorize_observation(session, :unknown) do
+      :ok ->
+        lose_continuity(session, :no_authenticated_account)
+        :ok
+
+      {:error, reason} ->
+        lose_continuity(session, :untrusted_lifecycle)
+        {:error, reason}
+    end
   end
 
   def seed_from_account_read(_session, _response), do: :ok
+
+  @doc false
+  @spec authorize_current(map()) :: :ok | {:error, HostedAuthPolicy.refusal()}
+  def authorize_current(session) when is_map(session) do
+    authorize_observation(session, Context.auth_mode(session) || :unknown)
+  end
 
   @spec observe_rate_limit_snapshot(map(), map(), keyword()) :: map() | nil
   def observe_rate_limit_snapshot(session, response, opts \\ [])
@@ -142,6 +189,35 @@ defmodule Aiur.Codex.AccountGeneration do
 
     Context.clear_auth_mode(session)
   end
+
+  defp handle_unknown_observation(session, local_reason, details) do
+    case authorize_observation(session, :unknown) do
+      :ok ->
+        lose_continuity(session, local_reason)
+        {:redacted, details}
+
+      {:error, reason} ->
+        refuse_observation(session, reason, details)
+    end
+  end
+
+  defp refuse_observation(session, reason, details) do
+    lose_continuity(session, :untrusted_lifecycle)
+    {:refused, reason, details}
+  end
+
+  defp authorize_observation(session, auth_mode) do
+    HostedAuthPolicy.authorize(Map.get(session, :instance_mode, "local"), "codex", auth_class(auth_mode))
+  end
+
+  defp auth_class("apikey"), do: :api_key
+  defp auth_class("chatgpt"), do: :subscription
+  defp auth_class("chatgptAuthTokens"), do: :oauth
+  defp auth_class("personalAccessToken"), do: :personal_token
+  defp auth_class("headers"), do: :headers
+  defp auth_class("agentIdentity"), do: :agent_identity
+  defp auth_class("bedrockApiKey"), do: :bedrock
+  defp auth_class(_auth_mode), do: :unknown
 
   defp with_recovered_binding(session, transition) when is_function(transition, 3) do
     with {:ok, server, binding, authority, topic} <- Context.fetch(session),

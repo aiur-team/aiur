@@ -77,8 +77,14 @@ defmodule Aiur.Init.PrewarmTest do
     assert puts_log() =~ "Warm base build failed"
   end
 
-  test "prewarm_section_yaml renders base_build_file" do
-    assert IO.iodata_to_binary(Prewarm.prewarm_section_yaml(%{enabled: true})) =~ "base_build_file: prewarm"
+  test "prewarm_section_yaml renders accepted and declined answers as valid YAML" do
+    accepted = Prewarm.prewarm_section_yaml(%{enabled: true}) |> IO.iodata_to_binary()
+    declined = Prewarm.prewarm_section_yaml(%{enabled: false}) |> IO.iodata_to_binary()
+
+    assert {:ok, %{"prewarm" => %{"enabled" => true, "base_build_file" => "prewarm", "poll_seconds" => 0}}} =
+             YamlElixir.read_from_string(accepted)
+
+    assert {:ok, %{"prewarm" => %{"enabled" => false}}} = YamlElixir.read_from_string(declined)
   end
 
   defp io(parent, answers \\ []) do

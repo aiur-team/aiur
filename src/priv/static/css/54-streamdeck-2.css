@@ -1,0 +1,10 @@
+.sd-screen {
+  position: relative;
+  flex: none;
+  width: 800px;
+  height: 100px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #101318;
+}
+.sd-screen svg { display: block; }

@@ -104,22 +104,52 @@ directly and the requesting agent resumes without an operator:
 Because omission now defaults to Executor-answerable, the burden is inverted:
 a Command that is genuinely irreversible, involves spend or external
 publication, or changes product direction **must** explicitly declare
-`authority: human_required` (and the matching `reversibility`), or it will be
-within the Executor floor.
+`authority: human_required` (and the matching `reversibility`) and include
+`context.authority_basis` with one of `product`, `spend`,
+`external_publication`, or `security`. Requests without that explicit basis are
+rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
+about the specific boundary; the category alone is not a rationale. Legacy
+attention projections remain human-required without this worker-supplied field.
+
+**Name the audience when you know it.** The app's creator answers product
+questions; engineering and operations questions belong to the Executor.
+
+- `audience: "executor"`: an engineering or operations question the creator
+  cannot answer (an index choice, a flaky check, a rebase target). It never
+  appears in a creator inbox (app, phone, watch) and never escalates to the
+  creator on a deadline. With no live Executor it waits and alerts the operator;
+  the Executor dashboard and CLI still show it. It cannot be combined with
+  `authority: human_required`.
+- `audience: "creator"`: a question only the creator can answer. It appears in
+  creator inboxes at once, even when the Executor could also answer it.
+- Omit it to keep routing by `authority`.
+
+An Executor may reclassify an open historical Command only when it has no
+human-only basis. Product, spend, publication, or security decisions and legacy
+attentions remain human-only. Reclassification increments the version; answer
+with that version. Both mutations are Executor actions, not human answers.
 
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared
 authority: correct it with a newer request version. The Executor floor remains
 unchanged and still refuses human-required or non-reversible Commands.
+When the ticket's acceptance criteria settle a purely engineering question, keep
+it within the Executor floor; reserve human authority for an explicit boundary.
 
-If the question has two to five bounded alternatives, you **must** encode them
-as `options` before emitting an `attention.*` or `pause.request` event. If you
-can phrase the question as “A or B?”, A and B belong in `options` so the
-Executor can answer with one click. An attention or operator-decision pause
-does not replace `decision.requested`; never leave the alternatives only in an
-attention message, pause question, workpad, or recommendation payload. Use a
-free-text-only Decision only when predefined choices would genuinely be
-misleading.
+Author `decision.requested` Commands with **2–3 suggested responses** in
+`options`, putting the recommended option first and pointing
+`recommendation.option_id` at its `id`. Keep labels short and describe each
+choice's consequence so phone and watch users can answer with one tap. Group
+larger choice sets into meaningful alternatives; do not add dummy choices.
+
+Encode bounded alternatives before emitting an `attention.*` or `pause.request`.
+Neither event replaces `decision.requested`; never leave choices only in prose.
+Use free text alone only when predefined choices would genuinely mislead. The
+current default `decisions.require_suggested_responses: false` accepts a
+nonconforming request with an informational warning. When enabled, it rejects
+that request with `{:decision_invalid, {:suggested_responses, reason}}`; revise
+the options and retry. Native questions and legacy attention projections are
+exempt from this rule and retain their own option constraints.
 
 ```jsonc
 {
@@ -240,6 +270,33 @@ Or, on failure:
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
 
+#### Attaching media (images, clips)
+
+Put typed media on the prompt (`media`) or on an option (`options[].media`) in
+the same `decision.requested` payload. Every harness, including the
+OpenAI-compatible (OpenRouter, DeepSeek) worker, calls it as the `emit_event`
+tool:
+
+```jsonc
+emit_event({
+  "name": "decision.requested",
+  "message": "Which prototype should ship?",
+  "payload": {
+    "blocking": false,
+    "media": [{"kind": "image", "mime_type": "image/png", "locator": "/abs/path/in/workspace/shot.png", "alt_text": "Prototype A title screen"}],
+    "options": [
+      {"id": "a", "label": "Keep A"},
+      {"id": "b", "label": "Use B", "media": [{"kind": "video", "mime_type": "video/mp4", "locator": "https://github.com/…/b.mp4", "caption": "B gameplay"}]}
+    ]
+  }
+})
+```
+
+Use an absolute local path under the workspace, or an allowlisted `https` URL;
+expiring (signed) URLs are refused. Images need `alt_text`. Do not shell out to
+`aiur command request`: that is the Executor's CLI and a worker sandbox cannot
+reach the daemon. See [Media on a Command](../../../website/docs-app/concepts/commands.md#media-on-a-command).
+
 ### Acknowledging a delivered Decision answer
 
 A durable answer message includes a Decision ID, the request version it
@@ -322,14 +379,21 @@ directions of the dependency, idempotently:
 | You (blocked) watch the blocker | `ticket.N.branch.push`, `.branch.force-push`, `.pr.opened`, `.pr.merged`, `.agent.decision.*`, `.agent.blocked`, `.agent.unblocked`, `.agent.attention.*`, `.issue.commented` |
 | Blocker watches you | `ticket.<self>.agent.blocked`, `.agent.unblocked` |
 
+Dispatch also creates these `blocker:auto` bindings for known blockers; do not
+declare an existing edge again just to subscribe. For an **Optimistic start**
+prompt block, `branch.push` is an integration signal: follow [the canonical
+loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker).
+
 Removing the dependency edge removes those automatic bindings; a manually-added
 binding on the same topic survives because removal is scoped by the reason it
 was created with.
 
-> Note: `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible,
-> but no publisher currently emits it — a force-push surfaces as a normal
-> `branch.push` (the ref SHA changes). Wait on `branch.push`, never on
-> `branch.force-push`.
+> `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible.
+> After `branch.push`, subscribed rewrites detected by GitHub compare emit it
+> with `ref`, `sha`, `previous_sha`, and `compare_status`; a 404 sets
+> `previous_missing: true`. Compare errors or budget holds emit nothing:
+> always check ancestry locally. A delayed verdict carries `superseded: true`
+> if a newer SHA was observed. Neither branch event signals readiness.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
 resumes a parked consumer through the mid-turn checkpoint drain, and

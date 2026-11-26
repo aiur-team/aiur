@@ -10,8 +10,19 @@ defmodule Aiur.ProviderMeterProjectionTest do
     name = :"projection_#{System.unique_integer([:positive])}"
     # No PubSub subscription: the tests deliver observations directly so they
     # do not need the app's PubSub running.
-    {:ok, pid} = ProviderMeterProjection.start_link(name: name, subscribe?: false, clock: fn -> @now end)
+    pid =
+      start_supervised!(
+        {ProviderMeterProjection, name: name, subscribe?: false, clock: fn -> @now end},
+        id: name
+      )
+
     %{projection: name, pid: pid}
+  end
+
+  test "the projection is not linked to the test process", %{pid: pid} do
+    {:links, links} = Process.info(self(), :links)
+
+    refute pid in links
   end
 
   test "a provider with no observation reads as unknown, not as zero", %{projection: projection} do
@@ -135,6 +146,20 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert ProviderMeterProjection.provider_view(projection, :claude).observed_at == ~U[2026-07-27 11:59:00Z]
   end
 
+  test "a later account poll can select an older constrained reading without session subject drift", %{projection: projection, pid: pid} do
+    first = %{snapshot(:claude, ~U[2026-07-27 11:59:00Z], %{"seven_day" => %{used_percent: 33}}) | source: :usage_api, ingested_at: ~U[2026-07-27 11:59:00Z], summary_label: "worst of 2 accounts"}
+    worst = %{first | observed_at: ~U[2026-07-27 11:58:00Z], ingested_at: @now, windows: %{"seven_day" => %{used_percent: 94}}}
+    send(pid, {:provider_meter_changed, snapshot(:claude, @now, %{"rate-limit" => %{used_percent: 10}})})
+    send(pid, {:provider_meter_changed, first})
+    send(pid, {:provider_meter_changed, worst})
+    send(pid, {:provider_meter_changed, first})
+    send(pid, {:provider_meter_changed, snapshot(:claude, @now, %{"rate-limit" => %{used_percent: 10}})})
+    view = ProviderMeterProjection.provider_view(projection, :claude)
+    assert view.windows["seven_day"].used_percent == 94
+    assert view.summary_label == "worst of 2 accounts"
+    assert view.age_seconds == 120
+  end
+
   test "provider-wide patches retain independently observed meter windows", %{projection: projection, pid: pid} do
     first = %{snapshot(:deepseek, ~U[2026-07-27 11:58:00Z], %{"balance" => %{kind: :credit}}) | update_kind: :patch}
     second = %{snapshot(:deepseek, ~U[2026-07-27 11:59:00Z], %{"concurrency" => %{kind: :rate_limit}}) | update_kind: :patch}
@@ -155,8 +180,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
 
     refute Map.has_key?(view, :provider_account_generation)
 
-    assert view |> inspect() |> String.contains?("gen-secret-1") == false,
-           "the opaque account generation must not reach a consumer view"
+    Aiur.TestSupport.refute_leak(view, "gen-secret-1")
   end
 
   test "the redacted snapshot strips the account generation but keeps the facts", %{projection: projection, pid: pid} do

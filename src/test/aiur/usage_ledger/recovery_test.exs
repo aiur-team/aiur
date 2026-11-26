@@ -1,20 +1,21 @@
 defmodule Aiur.UsageLedger.RecoveryTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
   alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, Recovery}
   import Aiur.TestSupport.UsageLedger, only: [envelope: 1]
+  import Aiur.TestSupport.UsageLedgerRecovery
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-usage-ledger-recovery")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, persistence: Recovery.options(filesystem_sync_fun: fn -> :ok end)}
   end
 
   test "rebuilds missing checkpoints from canonical records without changing pinned evidence", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
 
     assert {:ok, state} = Recovery.boot(root, persistence)
     assert state.health == :healthy
@@ -32,7 +33,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   test "quarantines a torn tail while retaining the validated prefix", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
     :ok = File.write(paths.segment_path, "{\"partial\"", [:append])
 
     assert {:ok, state} = Recovery.boot(root, persistence)
@@ -50,14 +51,14 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   test "quarantines malformed complete segments and reports degraded health without resetting the prefix", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
     :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
 
     assert {:ok, state} = Recovery.boot(root, persistence)
     assert state.health == {:degraded, :segment_corrupt}
     refute state.writable?
     assert [%{position: 1}] = state.records
-    assert {:ok, [%{position: 1}], nil} = DecisionLog.replay(paths.segment_path, &Record.decode/1)
+    assert {:ok, [%{position: 1}], nil} = Journal.replay(paths.segment_path, &Record.decode/1)
     assert {:ok, [_entry]} = File.ls(paths.quarantine_dir)
 
     assert {:ok, restarted} = Recovery.boot(root, persistence)
@@ -69,7 +70,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   test "quarantines a bad checkpoint but safely rebuilds its canonical prefix", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
     :ok = File.write(paths.checkpoint_path, "{\"version\":99}")
 
     assert {:ok, state} = Recovery.boot(root, persistence)
@@ -87,7 +88,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     first_envelope = envelope(%{})
     {:ok, %{state: first_policy, delta: first_delta}} = CounterPolicy.apply(CounterPolicy.new(), first_envelope)
     {:ok, first_record} = Record.new(1, first_envelope, first_delta)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(first_record))
+    :ok = Journal.append(paths.segment_path, Record.encode(first_record))
 
     checkpoint = Checkpoint.record(1, 1, first_policy)
     :ok = Checkpoint.write(paths.checkpoint_path, checkpoint)
@@ -112,7 +113,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     assert state.generation == 1
     assert [%{position: 1}] = state.records
     assert CounterPolicy.dump(state.policy) == CounterPolicy.dump(first_policy)
-    assert {:ok, [%{position: 1}], nil} = DecisionLog.replay(paths.segment_path, &Record.decode/1)
+    assert {:ok, [%{position: 1}], nil} = Journal.replay(paths.segment_path, &Record.decode/1)
     assert {:ok, [_entry]} = File.ls(paths.quarantine_dir)
 
     assert {:ok, restarted} = Recovery.boot(root, persistence)
@@ -129,15 +130,15 @@ defmodule Aiur.UsageLedger.RecoveryTest do
       case_root = Path.join(root, "position-#{invalid_position}")
       {:ok, paths} = Paths.prepare(case_root, persistence.sync_fun)
       {first, second, _first_policy} = two_records()
-      :ok = DecisionLog.append(paths.segment_path, Record.encode(first))
-      :ok = DecisionLog.append(paths.segment_path, Record.encode(%{second | position: invalid_position}))
+      :ok = Journal.append(paths.segment_path, Record.encode(first))
+      :ok = Journal.append(paths.segment_path, Record.encode(%{second | position: invalid_position}))
 
       assert {:ok, state} = Recovery.boot(case_root, persistence)
       assert state.health == {:degraded, :segment_corrupt}
       refute state.writable?
       assert state.position == 1
       assert [%{position: 1}] = state.records
-      assert {:ok, [%{position: 1}], nil} = DecisionLog.replay(paths.segment_path, &Record.decode/1)
+      assert {:ok, [%{position: 1}], nil} = Journal.replay(paths.segment_path, &Record.decode/1)
     end)
   end
 
@@ -147,7 +148,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
     original_segment = File.read!(paths.segment_path)
     :ok = File.write(paths.degraded_path, "not-a-marker")
 
@@ -166,7 +167,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   } do
     checkpoint_root = Path.join(root, "checkpoint")
     {:ok, checkpoint_paths} = Paths.prepare(checkpoint_root, persistence.sync_fun)
-    :ok = DecisionLog.append(checkpoint_paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(checkpoint_paths.segment_path, Record.encode(canonical_record(1)))
     :ok = File.write(checkpoint_paths.checkpoint_path, "{\"version\":99}")
     checkpoint_persistence = instrument_recovery(persistence, self())
 
@@ -181,7 +182,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
 
     segment_root = Path.join(root, "segment")
     {:ok, segment_paths} = Paths.prepare(segment_root, persistence.sync_fun)
-    :ok = DecisionLog.append(segment_paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(segment_paths.segment_path, Record.encode(canonical_record(1)))
     :ok = File.write(segment_paths.segment_path, "{\"forged\":true}\n", [:append])
     segment_persistence = instrument_recovery(persistence, self())
 
@@ -197,7 +198,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
 
     torn_root = Path.join(root, "torn")
     {:ok, torn_paths} = Paths.prepare(torn_root, persistence.sync_fun)
-    :ok = DecisionLog.append(torn_paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(torn_paths.segment_path, Record.encode(canonical_record(1)))
     :ok = File.write(torn_paths.segment_path, "{\"partial\"", [:append])
     torn_persistence = instrument_recovery(persistence, self())
 
@@ -218,7 +219,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     Enum.each([:marker, :quarantine, :rewrite, :checkpoint_rewrite], fn failed_stage ->
       case_root = Path.join(root, Atom.to_string(failed_stage))
       {:ok, paths} = Paths.prepare(case_root, persistence.sync_fun)
-      :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+      :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
       :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
       original_segment = File.read!(paths.segment_path)
       faulted = faulted_recovery(persistence, failed_stage)
@@ -230,7 +231,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
 
       if failed_stage == :checkpoint_rewrite do
         assert {:ok, [%{position: 1}], nil} =
-                 DecisionLog.replay(paths.segment_path, &Record.decode/1)
+                 Journal.replay(paths.segment_path, &Record.decode/1)
       else
         assert File.read!(paths.segment_path) == original_segment
       end
@@ -245,7 +246,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
       assert {:ok, repaired} = Recovery.boot(case_root, persistence)
       assert repaired.health == {:degraded, :segment_corrupt}
       assert repaired.position == 1
-      assert {:ok, [%{position: 1}], nil} = DecisionLog.replay(paths.segment_path, &Record.decode/1)
+      assert {:ok, [%{position: 1}], nil} = Journal.replay(paths.segment_path, &Record.decode/1)
     end)
   end
 
@@ -254,7 +255,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     persistence: persistence
   } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
     :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
     parent = self()
     marker_fun = persistence.degraded_marker_fun
@@ -289,7 +290,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     Enum.each([:marker, :quarantine, :rewrite, :checkpoint_rewrite], fn failed_stage ->
       case_root = Path.join(root, "after-#{failed_stage}")
       {:ok, paths} = Paths.prepare(case_root, persistence.sync_fun)
-      :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+      :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
       :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
 
       assert {:ok, failed} = Recovery.boot(case_root, fault_after_recovery(persistence, failed_stage))
@@ -302,7 +303,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
       assert repaired.health == {:degraded, :segment_corrupt}
       assert repaired.position == 1
       assert [%{position: 1}] = repaired.records
-      assert {:ok, [%{position: 1}], nil} = DecisionLog.replay(paths.segment_path, &Record.decode/1)
+      assert {:ok, [%{position: 1}], nil} = Journal.replay(paths.segment_path, &Record.decode/1)
     end)
   end
 
@@ -311,7 +312,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     persistence: persistence
   } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
     :ok = File.write(paths.segment_path, "{\"forged\":true}\n", [:append])
     :ok = File.write(paths.checkpoint_path, "{\"version\":99}")
 
@@ -344,7 +345,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     persistence: persistence
   } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
     expected_entry = content_addressed_quarantine_entry(paths.segment_path)
 
     assert :ok = Paths.quarantine(paths.segment_path, paths.quarantine_dir, persistence.sync_fun)
@@ -365,8 +366,8 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     persistence: persistence
   } do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(canonical_record(1)))
-    :ok = DecisionLog.ensure_directory(paths.quarantine_dir)
+    :ok = Journal.append(paths.segment_path, Record.encode(canonical_record(1)))
+    :ok = Journal.ensure_directory(paths.quarantine_dir)
 
     external = Path.join(root, "external")
     :ok = File.write(external, "do not overwrite")
@@ -385,7 +386,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   test "quarantines a rechecksummed checkpoint with an impossible generation", %{root: root, persistence: persistence} do
     {:ok, paths} = Paths.prepare(root, persistence.sync_fun)
     record = canonical_record(1)
-    :ok = DecisionLog.append(paths.segment_path, Record.encode(record))
+    :ok = Journal.append(paths.segment_path, Record.encode(record))
 
     checkpoint = Checkpoint.record(1, 9, CounterPolicy.new())
     :ok = Checkpoint.write(paths.checkpoint_path, checkpoint)
@@ -420,124 +421,6 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     {first_record, second_record, first_policy}
   end
 
-  defp instrument_recovery(persistence, recipient) do
-    marker_fun = persistence.degraded_marker_fun
-    quarantine_fun = persistence.quarantine_fun
-    rewrite_fun = persistence.rewrite_segment_fun
-    checkpoint_fun = persistence.checkpoint_write_fun
-
-    %{
-      persistence
-      | degraded_marker_fun: fn path, reason, sync_fun ->
-          send(recipient, {:recovery_stage, :marker})
-          marker_fun.(path, reason, sync_fun)
-        end,
-        quarantine_fun: fn path, quarantine_dir, sync_fun ->
-          send(recipient, {:recovery_stage, {:quarantine, Path.basename(path)}})
-          quarantine_fun.(path, quarantine_dir, sync_fun)
-        end,
-        rewrite_segment_fun: fn path, records, sync_fun ->
-          send(recipient, {:recovery_stage, :segment_rewrite})
-          rewrite_fun.(path, records, sync_fun)
-        end,
-        checkpoint_write_fun: fn path, checkpoint, max_bytes ->
-          send(recipient, {:recovery_stage, :checkpoint_rewrite})
-          checkpoint_fun.(path, checkpoint, max_bytes)
-        end
-    }
-  end
-
-  defp recovery_stages(count) do
-    Enum.map(1..count, fn _index ->
-      assert_receive {:recovery_stage, stage}, 2_000
-      stage
-    end)
-  end
-
-  defp faulted_recovery(persistence, :marker) do
-    %{persistence | degraded_marker_fun: fn _path, _reason, _sync_fun -> {:error, :injected_marker_failure} end}
-  end
-
-  defp faulted_recovery(persistence, :quarantine) do
-    %{persistence | quarantine_fun: fn _path, _quarantine_dir, _sync_fun -> {:error, :injected_quarantine_failure} end}
-  end
-
-  defp faulted_recovery(persistence, :rewrite) do
-    %{persistence | rewrite_segment_fun: fn _path, _records, _sync_fun -> {:error, :injected_rewrite_failure} end}
-  end
-
-  defp faulted_recovery(persistence, :checkpoint_rewrite) do
-    %{
-      persistence
-      | checkpoint_write_fun: fn _path, _checkpoint, _max_bytes ->
-          {:error, :injected_checkpoint_failure}
-        end
-    }
-  end
-
-  defp fault_after_recovery(persistence, :marker) do
-    marker_fun = persistence.degraded_marker_fun
-
-    %{
-      persistence
-      | degraded_marker_fun: fn path, reason, sync_fun ->
-          :ok = marker_fun.(path, reason, sync_fun)
-          {:error, :injected_marker_failure}
-        end
-    }
-  end
-
-  defp fault_after_recovery(persistence, :quarantine) do
-    quarantine_fun = persistence.quarantine_fun
-
-    %{
-      persistence
-      | quarantine_fun: fn path, quarantine_dir, sync_fun ->
-          :ok = quarantine_fun.(path, quarantine_dir, sync_fun)
-          {:error, :injected_quarantine_failure}
-        end
-    }
-  end
-
-  defp fault_after_recovery(persistence, :rewrite) do
-    rewrite_fun = persistence.rewrite_segment_fun
-
-    %{
-      persistence
-      | rewrite_segment_fun: fn path, records, sync_fun ->
-          :ok = rewrite_fun.(path, records, sync_fun)
-          {:error, :injected_rewrite_failure}
-        end
-    }
-  end
-
-  defp fault_after_recovery(persistence, :checkpoint_rewrite) do
-    checkpoint_fun = persistence.checkpoint_write_fun
-
-    %{
-      persistence
-      | checkpoint_write_fun: fn path, checkpoint, max_bytes ->
-          :ok = checkpoint_fun.(path, checkpoint, max_bytes)
-          {:error, :injected_checkpoint_failure}
-        end
-    }
-  end
-
-  defp fault_after_checkpoint_quarantine(persistence) do
-    quarantine_fun = persistence.quarantine_fun
-
-    %{
-      persistence
-      | quarantine_fun: fn path, quarantine_dir, sync_fun ->
-          with :ok <- quarantine_fun.(path, quarantine_dir, sync_fun) do
-            if Path.basename(path) == "checkpoint.json",
-              do: {:error, :injected_checkpoint_quarantine_failure},
-              else: :ok
-          end
-        end
-    }
-  end
-
   defp quarantine_snapshot(quarantine_dir) do
     entries = quarantine_dir |> File.ls!() |> Enum.sort()
 
@@ -553,9 +436,4 @@ defmodule Aiur.UsageLedger.RecoveryTest do
     digest = path |> File.read!() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
     "#{Path.basename(path)}.sha256-#{digest}.quarantine"
   end
-
-  defp fault_health(:marker), do: {:unavailable, :degraded_marker_failed}
-  defp fault_health(:quarantine), do: {:unavailable, :quarantine_failed}
-  defp fault_health(:rewrite), do: {:unavailable, :repair_failed}
-  defp fault_health(:checkpoint_rewrite), do: {:unavailable, :repair_failed}
 end

@@ -6,7 +6,7 @@ defmodule Aiur.ProgressCheckin.Worker do
 
   Delivery rides the standard event bus:
 
-      Aiur.Events.Publisher.publish(
+      Aiur.Events.publish(
         "ticket.<id>.operator.progress_request",
         %{...}
       )
@@ -26,7 +26,7 @@ defmodule Aiur.ProgressCheckin.Worker do
 
   require Logger
 
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.Orchestrator
 
   @default_interval_ms 5 * 60 * 1_000
@@ -39,7 +39,7 @@ defmodule Aiur.ProgressCheckin.Worker do
       (default `Aiur.Orchestrator`).
     * `:publisher` — module/function tuple for tests to capture the
       publish call instead of going through the real Exchange. When
-      omitted, publishes via `Aiur.Events.Publisher.publish/3`.
+      omitted, publishes via `Aiur.Events.publish/3`.
     * `:start_paused?` — when `true`, the worker does not schedule
       the first tick automatically. Tests drive it via `:tick`.
   """
@@ -53,7 +53,7 @@ defmodule Aiur.ProgressCheckin.Worker do
   def init(opts) do
     state = %{
       interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
-      orchestrator: Keyword.get(opts, :orchestrator, Aiur.Orchestrator),
+      orchestrator: Keyword.get(opts, :orchestrator, Aiur.Project.whereis(Aiur.Orchestrator)),
       publisher: Keyword.get(opts, :publisher),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
@@ -99,7 +99,7 @@ defmodule Aiur.ProgressCheckin.Worker do
 
     case state.publisher do
       nil ->
-        Publisher.publish(topic, payload)
+        Events.publish(topic, payload)
 
       {mod, fun} when is_atom(mod) and is_atom(fun) ->
         apply(mod, fun, [topic, payload])

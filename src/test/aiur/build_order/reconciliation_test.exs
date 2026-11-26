@@ -56,6 +56,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert {:ok, %{data: issue}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 100))
     assert issue["number"] == 100
     assert issue["title"] == "Build Order 100"
+    assert issue["body"] == "Build Order id: `4242`"
     assert issue["state"] == "OPEN"
     assert issue["labels"] == []
 
@@ -66,11 +67,29 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert {:ok, %{data: member}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 101))
     assert member["state"] == "CLOSED"
     assert member["state_reason"] == "completed"
+    assert member["body"] == "Build Order member: `U0-T01` (4242, completed)"
 
     assert {:ok, %{data: edge}} = ResourceStore.fetch(ResourceStore.key_for_repo(:sub_issue, @repo, "100:101"))
     assert edge["present"] == true
     assert edge["parent_issue_number"] == 100
     assert edge["sub_issue_number"] == 101
+  end
+
+  test "a stale catalog read cannot overwrite a newer webhook issue and label set" do
+    issue_key = ResourceStore.key_for_repo(:issue, @repo, 100)
+    label_key = ResourceStore.key_for_repo(:issue_labels, @repo, 100)
+    newer = %{"number" => 100, "state" => "closed", "updated_at" => "2026-06-24T12:00:00Z"}
+    labels = [%{"name" => "agent:done"}]
+
+    request = fn query ->
+      ResourceStore.put_resource(issue_key, newer, version: newer["updated_at"], source: :webhook)
+      ResourceStore.put_resource(label_key, labels, version: newer["updated_at"], source: :webhook)
+      catalog_fun([root_node(100, [])]).(query)
+    end
+
+    assert {:ok, :reconciled, %{roots: 1}} = Reconciliation.run(repository: @repository, request_fun: request)
+    assert {:ok, %{data: ^newer, version: "2026-06-24T12:00:00Z"}} = ResourceStore.fetch(issue_key)
+    assert {:ok, %{data: ^labels, version: "2026-06-24T12:00:00Z"}} = ResourceStore.fetch(label_key)
   end
 
   # The dropped-delivery path this reconciliation exists for: an edge whose
@@ -167,6 +186,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
       "databaseId" => number,
       "number" => number,
       "title" => "Build Order #{number}",
+      "body" => "Build Order id: `4242`",
       "url" => "https://github.com/owner/repo/issues/#{number}",
       "state" => "OPEN",
       "stateReason" => nil,
@@ -185,6 +205,7 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
       "databaseId" => number,
       "number" => number,
       "title" => "Member #{number}",
+      "body" => "Build Order member: `U0-T01` (4242, completed)",
       "url" => "https://github.com/owner/repo/issues/#{number}",
       "state" => "CLOSED",
       "stateReason" => "completed",

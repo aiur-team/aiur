@@ -31,7 +31,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, State}
   alias Aiur.BuildOrder.TicketDetailCoordinator.{Configuration, Options, Policy, TaskLifecycle}
-  alias Aiur.GitHub.RequestOrigin
+  alias Aiur.GitHub.Access
 
   @reset_topic "build_order:ticket_detail_coordinator:reset"
 
@@ -45,7 +45,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
 
   @spec request(GenServer.server(), Aiur.TrackerIdentity.t()) :: {:ok, State.t()} | {:error, Failure.t()}
   def request(server \\ __MODULE__, identity),
-    do: GenServer.call(server, {:request, identity, RequestOrigin.view_originated?()})
+    do: GenServer.call(server, {:request, identity, Access.view_originated?()})
 
   @spec current(GenServer.server(), Aiur.TrackerIdentity.t()) :: {:ok, State.t()} | {:error, Failure.t()}
   def current(server \\ __MODULE__, identity), do: GenServer.call(server, {:current, identity})

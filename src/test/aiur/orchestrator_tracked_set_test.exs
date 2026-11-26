@@ -3,6 +3,51 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.TrackedSet
+  alias Aiur.Orchestrator.TrackerIdentityStore
+
+  test "tracked snapshot retains the validated issue identity for publishers" do
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "NODE-681", "number" => 681}, {"acme", "repo"}, {"acme", "repo"})
+    issue = %Aiur.Issue{id: "issue-681", identifier: "681", tracker_identity: identity}
+    state = %Aiur.Orchestrator.State{running: %{"issue-681" => %{identifier: "681", issue: issue}}}
+    on_exit(fn -> TrackedSet.reset([]) end)
+
+    assert state == TrackedSet.refresh(state)
+    assert Orchestrator.issue_tracked?(681)
+    assert TrackedSet.tracker_identity("681") == identity
+    assert TrackedSet.tracker_identity("682") == nil
+  end
+
+  test "validated identity survives deactivation and is durably reloadable" do
+    root = Aiur.TestSupport.tmp_root!("tracker-identities")
+    path = Path.join(root, "identities.json")
+    previous_path = Application.get_env(:aiur, :tracker_identity_store_path)
+    Application.put_env(:aiur, :tracker_identity_store_path, path)
+
+    on_exit(fn ->
+      TrackedSet.reset([])
+      if previous_path, do: Application.put_env(:aiur, :tracker_identity_store_path, previous_path), else: Application.delete_env(:aiur, :tracker_identity_store_path)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "NODE-7142", "number" => 7142}, {"acme", "repo"}, {"acme", "repo"})
+    issue = %Aiur.Issue{id: "issue-7142", identifier: "7142", tracker_identity: identity}
+    running = %Aiur.Orchestrator.State{running: %{"issue-7142" => %{identifier: "7142", issue: issue}}}
+
+    assert running == TrackedSet.refresh(running)
+    deactivated = %Aiur.Orchestrator.State{running: %{"issue-7142" => %{identifier: "7142", issue: issue, control: %{status: :deactivated}}}}
+    assert deactivated == TrackedSet.refresh(deactivated)
+
+    refute Orchestrator.issue_tracked?(7142)
+    assert TrackedSet.tracker_identity(7142) == identity
+    assert TrackerIdentityStore.load()["7142"] == identity
+
+    previous_owner = Process.whereis(TrackedSet)
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, TrackedSet)
+    assert {:ok, restarted_owner} = Supervisor.restart_child(Aiur.Supervisor, TrackedSet)
+    refute restarted_owner == previous_owner
+    assert TrackedSet.tracker_identity(7142) == identity
+    refute Orchestrator.issue_tracked?(7142)
+  end
 
   test "tracked set table is owned outside the orchestrator process" do
     tracked_set_owner = Process.whereis(TrackedSet)
@@ -20,15 +65,6 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
     on_exit(&ensure_orchestrator_running/0)
 
-    # The live orchestrator's scheduled poll rebuilds the table from
-    # `state.running` via `TrackedSet.refresh/1`. Between this test's
-    # `TrackedSet.reset/1` fixture and `terminate_orchestrator/0`, a poll can
-    # land and overwrite "681" with the (empty) running set — the #1647 flake.
-    # Freeze the poll so the fixture survives to the persistence assert below;
-    # the point under test is that a restart leaves the table intact, not that
-    # a concurrent poll happens to stay out of the way.
-    freeze_poll_cycle(orchestrator_pid)
-
     assert :ok = TrackedSet.reset(["681"])
     assert Orchestrator.issue_tracked?("681")
     refute Orchestrator.issue_tracked?("682")
@@ -41,25 +77,6 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
     assert {:ok, restarted_pid} = restart_orchestrator()
     assert is_pid(restarted_pid)
-  end
-
-  # Cancels the orchestrator's tick timer and fences the one-shot
-  # `:run_poll_cycle` (a 20ms render delay that is not token-fenced), so no
-  # scheduled poll can mutate the shared TrackedSet mid-test. Mirrors the
-  # freeze used by `OrchestratorStatusTest`.
-  defp freeze_poll_cycle(pid) do
-    :sys.replace_state(pid, fn state ->
-      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
-
-      %{
-        state
-        | tick_timer_ref: nil,
-          tick_token: make_ref(),
-          next_poll_due_at_ms: nil,
-          poll_check_in_progress: false,
-          poll_frozen: true
-      }
-    end)
   end
 
   defp terminate_orchestrator do

@@ -3,9 +3,15 @@ defmodule Aiur.Opencode.Slot.Sessions do
   Session ensure and replay for a slot.
   """
 
-  alias Aiur.Opencode.{SessionWriter, SessionWriterRegistry}
+  alias Aiur.Opencode.{SessionWriter, SessionWriterRegistry, TokenRegistry}
 
   @replay_timeout_ms 10_000
+
+  @doc "Grant the slot token access before ensuring the session."
+  @spec ensure(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def ensure(identifier, base_url, token) do
+    with :ok <- TokenRegistry.allow_identifier(token, identifier), do: ensure(identifier, base_url)
+  end
 
   @doc "Ensure a session exists for `identifier` against `base_url`."
   @spec ensure(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
@@ -19,6 +25,16 @@ defmodule Aiur.Opencode.Slot.Sessions do
 
       {:error, _} = err ->
         err
+    end
+  end
+
+  @doc "Grant the slot token access before ensuring the session and replay span."
+  @spec ensure_with_replay_span(String.t(), String.t(), integer(), String.t()) ::
+          {:ok, String.t()} | {:replay_failed, term()} | {:writer_failed, term()}
+  def ensure_with_replay_span(identifier, base_url, slot_index, token) do
+    case TokenRegistry.allow_identifier(token, identifier) do
+      :ok -> ensure_with_replay_span(identifier, base_url, slot_index)
+      {:error, _} = err -> {:writer_failed, err}
     end
   end
 

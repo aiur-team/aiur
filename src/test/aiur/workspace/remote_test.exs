@@ -23,7 +23,7 @@ defmodule Aiur.Workspace.RemoteTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     File.mkdir_p!(test_root)

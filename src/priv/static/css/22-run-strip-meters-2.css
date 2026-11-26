@@ -1,0 +1,38 @@
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+
+/* Unknown values remain visibly inert without resembling a measured 0%. */
+
+/* ---- MODELS pane: the Claude design's usage lines (ax-r2 / ax-ln) ----
+   One row per provider: a logo column, then one line per meter reading
+   [tag] percent · bar · reset↻. Every cell owns a grid track and clips its own
+   text, so a label and a value can never overlap at any width (#3751). */
+
+/* The logo names the provider; the name stays for assistive technology. */
+
+/* A reading past its freshness keeps its tone but reads as dimmed (#5747). */
+
+/* Provider cards stay side by side down to phone widths: the set is read
+   together, and stacking them pushed the cards below the fold on exactly the
+   screens where headroom matters most. The cards carry a name, one stat and a
+   meter, so they survive a ~110px column; the head row already wraps its
+   stats. Only below 380px is there genuinely not enough room, and they stack. */
+@media (max-width: 720px) {
+  .run-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+}
+
+/* Tablets, split views and phones keep full-width stacked sections. The API
+   pane's compact provider lines are deliberately single-line reference data;
+   below this point a one-third column cannot hold them without clipping. */
+@media (max-width: 1024px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+
+  /* The two-column models pane degrades to the single stacked column. */
+
+}

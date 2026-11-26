@@ -54,11 +54,12 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified(body, conn, identifier) do
-    with {:ok, conn} <- Caller.authorize(conn),
+    with {:ok, conn} <- Caller.authorize(conn, identifier),
          {:ok, body} <- InputIdentity.unwrap(body, conn),
          {:ok, text} <- TurnRequest.last_user_text(body) do
       handle_identified_text(body, conn, identifier, text)
     else
+      {:error, :forbidden} -> Sse.json(conn, 403, Caller.forbidden_body())
       {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
       {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
     end

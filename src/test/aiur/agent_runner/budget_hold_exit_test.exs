@@ -8,7 +8,8 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
     root = Aiur.TestSupport.tmp_root!("runner-budget-hold")
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", workspace_root: root, hook_after_create: "git -C \"$PWD\" init -q")
     hold = %{reason: :actor_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
-    diagnostic = {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{hold: hold}}}
+    # This classified hold was accepted by retry scheduling but missed by the runner.
+    diagnostic = {:github, :local_hold, %{hold: hold}}
     parent = self()
     previous = for key <- [:workspace_github_preflight_enabled, :workspace_github_preflight_fun], do: {key, Application.get_env(:aiur, key)}
 
@@ -53,8 +54,8 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
   end
 
   test "permanent failure retains the ordinary exception contract" do
-    assert_raise RuntimeError, "permission denied", fn ->
-      AgentRunner.fail_run({:github, :permission, %{}}, "permission denied")
+    assert_raise RuntimeError, ~r/Agent run failed.*permission/, fn ->
+      AgentRunner.handle_run_error(%Issue{id: "permanent", identifier: "MT-PERMANENT", labels: []}, {:github, :permission, %{}})
     end
   end
 end

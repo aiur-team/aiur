@@ -8,13 +8,19 @@ defmodule Aiur.Config.Schema.PrWatch do
     # Opt-in. When false, aiur ignores comments on PRs it did not create
     # (no `agent:watch` polling, no per-comment command handling). Strict
     # opt-in keeps human-directed PR comments untouched.
+    # @config-reference config-configuration-09 pr_watch.enabled
+    # @config-detail pr_watch.enabled | boolean | false | Enables trusted PR comment watching. |
     field(:enabled, :boolean, default: false)
     # Label suffix that enrolls a PR for persistent comment watching; combined
     # with the github `label_prefix` (e.g. "agent" + "watch" -> "agent:watch").
+    # @config-reference config-configuration-09 pr_watch.watch_label
+    # @config-detail pr_watch.watch_label | string | `watch` | Label suffix enrolling a PR for watching. |
     field(:watch_label, :string, default: "watch")
     # One-off per-comment command prefix. A trusted comment beginning with this
     # (or mentioning the configured `daemon_account`) wakes an agent for that one
     # comment, no label required.
+    # @config-reference config-configuration-09 pr_watch.command_prefix
+    # @config-detail pr_watch.command_prefix | string | `/aiur` | One-off trusted comment command prefix. |
     field(:command_prefix, :string, default: "/aiur")
   end
 

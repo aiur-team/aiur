@@ -83,7 +83,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
     on_exit(fn ->
       restore_env(:log_file, previous_log_file)
       restore_env(:decision_state_dir, previous_state_dir)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     Application.put_env(:aiur, :decision_state_dir, state_dir)
@@ -114,7 +114,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
       restore_env(:decision_state_dir, previous_state_dir)
       restore_system_env("AIUR_INSTANCE_KEY", previous_instance_key)
       restore_system_env("AIUR_BG_STATE_DIR", previous_bg_state_dir)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     Application.delete_env(:aiur, :decision_state_dir)
@@ -148,7 +148,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
       restore_system_env("AIUR_INSTANCE_KEY", previous_instance_key)
       restore_system_env("AIUR_BG_STATE_DIR", previous_bg_state_dir)
       Process.flag(:trap_exit, previous_trap_exit)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     Application.delete_env(:aiur, :decision_state_dir)
@@ -177,7 +177,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
 
     File.mkdir_p!(root)
     File.mkdir_p!(blocker)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {:ok, store} = BranchRefStore.start_link(name: nil, path: path)
     File.rm_rf!(blocker)
@@ -213,7 +213,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
 
     File.mkdir_p!(root)
     File.mkdir_p!(blocker)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {:ok, store} = BranchRefStore.start_link(name: nil, path: path)
     File.rm_rf!(blocker)
@@ -253,7 +253,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
     :sys.replace_state(BranchRefStore, &Map.put(&1, :path, path))
 
     on_exit(fn ->
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
       :sys.replace_state(BranchRefStore, &Map.put(&1, :path, original_path))
       :ok = BranchRefStore.reset()
     end)
@@ -282,7 +282,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
 
     on_exit(fn ->
       Process.flag(:trap_exit, previous_trap_exit)
-      File.rm_rf(path)
+      Aiur.TestCleanup.rm_rf!(path)
     end)
 
     assert {:error, {:state_load_failed, _reason}} = BranchRefStore.start_link(name: nil, path: path)

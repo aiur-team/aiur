@@ -3,7 +3,7 @@
 **Date:** 2026-05-21
 **Branch:** `aiur/60-opencode-pane-chat`
 **Origin:** `elixir/docs/brainstorms/2026-05-21-pane-attach-queue-and-on-demand-models-requirements.md`
-**Plan:** `elixir/docs/plans/2026-05-21-003-refactor-pane-attach-queue-and-on-demand-models-plan.md`
+**Plan:** `src/docs/plans/2026-05-21-003-refactor-pane-attach-queue-and-on-demand-models-plan.md`
 
 ## Summary
 

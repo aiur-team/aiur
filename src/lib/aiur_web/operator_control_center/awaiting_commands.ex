@@ -3,18 +3,16 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   Canonical awaiting-Command counts for the routes that are not the Commands
   page.
 
-  A blocking Command is the one thing that stops the fleet, so every route
-  carries the banner. Each route reads the same canonical retained counts the
-  Commands page reads, and refreshes them from the Decision PubSub signal, so no
+  Commands routed to the human count in the banner on every route. Each route
+  reads the same canonical retained counts as the Commands page, and refreshes them from the Decision PubSub signal, so no
   page can sit on a number the Commands page has already moved past. When the
-  store cannot be read the counts are `nil` and the banner renders nothing
-  rather than a zero.
+  store cannot be read the counts are `nil` and the banner renders an unavailable notice.
   """
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.DecisionPubSub
-  alias AiurWeb.Endpoint
+  alias Aiur.Commands
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionProvider
   alias Phoenix.LiveView.Socket
 
@@ -33,11 +31,8 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   @doc "Subscribes to Command changes (when connected) and assigns the first counts."
   @spec mount(Socket.t(), boolean()) :: Socket.t()
   def mount(socket, connected?) do
-    if connected? do
-      DecisionPubSub.subscribe()
-      schedule_tick()
-    end
-
+    socket = AiurWeb.RefreshRelay.mount(socket, &Commands.subscribe/0, [:decision_changed])
+    if connected?, do: schedule_tick()
     refresh(socket)
   end
 
@@ -63,12 +58,12 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
     socket
     |> assign(:retained_counts, counts)
-    |> assign(:nav_counts, nav_counts(counts))
+    |> assign(:nav_counts, Map.merge(Map.take(socket.assigns[:nav_counts] || %{}, [:build]), nav_counts(counts)))
   end
 
   @doc "Nav badge counts derived from the same read, and the same field, as the banner."
   @spec nav_counts(map()) :: map()
-  def nav_counts(%{awaiting: awaiting}) when is_integer(awaiting) and awaiting > 0,
+  def nav_counts(%{needs_you: awaiting}) when is_integer(awaiting) and awaiting > 0,
     do: %{commands: awaiting}
 
   def nav_counts(_counts), do: %{}
@@ -85,5 +80,5 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     :exit, _reason -> @unavailable
   end
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Aiur.DecisionStore
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
 end

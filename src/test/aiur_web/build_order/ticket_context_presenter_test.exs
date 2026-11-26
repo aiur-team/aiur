@@ -113,8 +113,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     assert context.history.state == :unavailable
     assert context.logs.entries == []
     assert context.capabilities == []
-    refute inspect(context) =~ "retry_after"
-    refute inspect(context) =~ "example.test/raw"
+    Aiur.TestSupport.refute_leak(context, "retry_after")
+    Aiur.TestSupport.refute_leak(context, "example.test/raw")
   end
 
   test "does not render arbitrary Log labels or details from a normalized-history lookalike" do
@@ -142,8 +142,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
              }
            ] = context.logs.entries
 
-    refute inspect(context) =~ "/home/private"
-    refute inspect(context) =~ "agent.ndjson"
+    Aiur.TestSupport.refute_leak(context, "/home/private")
+    Aiur.TestSupport.refute_leak(context, "agent.ndjson")
   end
 
   test "does not retain unsafe evidence or provenance from a malformed cached snapshot" do
@@ -161,10 +161,10 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
 
     assert context.progress.provenance == %{}
     assert context.latest_evidence.source == nil
-    refute inspect(context) =~ "/home/private"
+    Aiur.TestSupport.refute_leak(context, "/home/private")
   end
 
-  test "fails closed on oversized descriptions and makes unsafe or incomplete CTAs unavailable" do
+  test "previews oversized descriptions and makes unsafe or incomplete CTAs unavailable" do
     identity = identity()
     oversized = String.duplicate("description ", 1_000)
     detail = detail_state(identity, description: oversized)
@@ -176,7 +176,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
         %{kind: :commands, available?: true, href: "/\\evil.example/commands"}
       ])
 
-    assert context.description == nil
+    assert byte_size(context.description) == 4_000
+    assert context.description == binary_part(oversized, 0, 4_000)
+    assert context.description_truncated?
     assert Enum.map(context.capabilities, & &1.label) == ["Issue", "Chat", "Commands"]
     assert Enum.all?(context.capabilities, &(!&1.available? and is_nil(&1.href)))
     assert Enum.all?(context.capabilities, &(is_binary(&1.reason) and &1.reason != ""))
@@ -198,8 +200,8 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     refute context.title =~ "raw-title-secret"
     refute context.description =~ "/home/private"
     refute context.description =~ "raw-description-secret"
-    refute inspect(context) =~ "raw-title-secret"
-    refute inspect(context) =~ "raw-description-secret"
+    Aiur.TestSupport.refute_leak(context, "raw-title-secret")
+    Aiur.TestSupport.refute_leak(context, "raw-description-secret")
   end
 
   test "fails closed before joining an unbounded typed tracker identity" do
@@ -227,7 +229,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     assert normalized.repository == "Configured repository"
     assert normalized.identifier == nil
     assert normalized.title == "Ticket context unavailable"
-    refute inspect(normalized) =~ unbounded_identifier
+    Aiur.TestSupport.refute_leak(normalized, unbounded_identifier)
   end
 
   test "only keeps GitHub destinations for the configured repository and destination type" do

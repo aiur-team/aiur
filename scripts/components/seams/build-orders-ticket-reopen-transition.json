@@ -1,0 +1,8 @@
+{
+  "from": "build-orders",
+  "to_module": "Aiur.Orchestrator.TicketTransition",
+  "kind": "reference",
+  "only_paths": ["src/lib/aiur/ticket_reopen.ex"],
+  "allow_forbidden": true,
+  "reason": "#7876 ticket reopen writes its state label and queue marker through the label-write owner with writer attribution"
+}

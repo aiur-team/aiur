@@ -1,0 +1,223 @@
+{
+  "schema_version": "report.v1",
+  "header": {
+    "experiment_id": "report-example",
+    "title": "Feature latency: confounded before/after",
+    "report_version": 1,
+    "analysis_type": "confirmatory",
+    "generated_at": "2026-10-15T18:00:00Z",
+    "analyst": {
+      "role": "analyst",
+      "agent": "codex",
+      "model": "fixture",
+      "ticket": 3799
+    },
+    "stats_snapshot_hash": "stats-fixture",
+    "events_snapshot_hash": "events-fixture",
+    "preregistration_hash": "9eb7c03545f17a417d303f7c16526fbae45e2c97645b459686770463b85ec925"
+  },
+  "summary": "Both windows contain 40 tickets. The median difference is -2 ms with 95% CI [-5, 1], p=0.2. The result remains inconclusive and confounded by cap-1, a capacity drop from 8 to 4. No exclusion rerun is available for the 6-hour main-red interval.",
+  "preregistration": {
+    "record": {
+      "schema_version": "preregistration.v1",
+      "experiment_id": "report-example",
+      "registered_at": "2026-10-09T18:00:00Z",
+      "registered_by": {
+        "role": "analyst",
+        "agent": "codex",
+        "model": "fixture",
+        "ticket": 3801
+      },
+      "hypothesis": "Latency decreases by 20 percent.",
+      "primary_metrics": [
+        {
+          "id": "delivery/start",
+          "expected": "decrease"
+        }
+      ],
+      "secondary_metrics": [],
+      "guardrail_metrics": [],
+      "alpha": 0.05,
+      "secondary_correction": "benjamini-hochberg",
+      "fdr_q": 0.1,
+      "mde": {
+        "metric": "delivery/start",
+        "relative": -0.2
+      },
+      "power_target": 0.8,
+      "planned_n_per_cohort": 40,
+      "projected_ready_at": "2026-10-23",
+      "stratify_by": [
+        "complexity"
+      ],
+      "exclusions": [],
+      "stopping_rule": "One confirmatory analysis at planned n.",
+      "baseline_snapshot_hash": "baseline-fixture",
+      "post_hoc": false,
+      "amendments": []
+    },
+    "deviations": []
+  },
+  "design": {
+    "kind": "line",
+    "windows": {
+      "before": {
+        "start": "2026-10-01",
+        "end": "2026-10-08"
+      },
+      "after": {
+        "start": "2026-10-09",
+        "end": "2026-10-15"
+      }
+    },
+    "cohorts": [],
+    "unit_of_analysis": "ticket",
+    "inclusions": {
+      "before": 40,
+      "after": 40
+    },
+    "exclusions": {},
+    "strata": [
+      "complexity"
+    ]
+  },
+  "sample": {
+    "cohorts": [
+      {
+        "cohort": "before",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      },
+      {
+        "cohort": "after",
+        "stratum": "pooled",
+        "n": 40,
+        "excluded": {}
+      }
+    ],
+    "balance": "Complexity standardized difference 0.01; backend/model and ticket-size balance unavailable in the golden snapshot.",
+    "srm_p": null
+  },
+  "results": [
+    {
+      "metric": "delivery/start",
+      "role": "primary",
+      "unit": "ms",
+      "n": {
+        "before": 40,
+        "after": 40
+      },
+      "median": {
+        "before": 12,
+        "after": 10
+      },
+      "iqr": {
+        "before": [
+          8,
+          16
+        ],
+        "after": [
+          7,
+          13
+        ]
+      },
+      "effect": {
+        "kind": "median_difference",
+        "value": -2
+      },
+      "ci95": [
+        -5,
+        1
+      ],
+      "p": 0.2,
+      "p_adjusted": 0.2,
+      "family": "holm-primary",
+      "power_at_mde": 0.65,
+      "mde_at_n": 0.3,
+      "n_needed_per_cohort": 60,
+      "engine_label": "inconclusive",
+      "label": "inconclusive",
+      "label_reason": "",
+      "modifiers": [
+        "confounded"
+      ],
+      "direction": "none"
+    }
+  ],
+  "confounders": [
+    {
+      "event_id": "cap-1",
+      "kind": "capacity",
+      "at": "2026-10-10T00:00:00Z",
+      "ref": "capacity:1",
+      "title": "Cap halved inside the after-window",
+      "classification": "capacity",
+      "affects": [
+        "delivery/start"
+      ],
+      "bias": "inflates",
+      "severity": "high",
+      "handling": "noted",
+      "note": "Cap 8 to 4 can delay starts. Exclusion reruns unavailable; no robustness claim."
+    },
+    {
+      "event_id": "red-1",
+      "kind": "main-red",
+      "at": [
+        "2026-10-11T14:00:00Z",
+        "2026-10-11T20:00:00Z"
+      ],
+      "ref": "ci:red-1",
+      "title": "Base branch red for 6 hours",
+      "classification": "main-red",
+      "affects": [],
+      "bias": "unknown",
+      "severity": "none",
+      "handling": "noted",
+      "note": "Fixture metric measures start latency, not merging; no direct mechanism shown. Throughput and merge-time metrics are absent from this fixture pack."
+    }
+  ],
+  "sensitivity": [],
+  "threats": {
+    "internal": [
+      "cap-1: cap 8 to 4 inside the after-window can inflate start latency.",
+      "red-1: 6-hour main-red interval reviewed; no direct effect established on this start-latency metric.",
+      "Backend/model and ticket-size balance unavailable; selection threat unresolved."
+    ],
+    "construct": [
+      "Latency excludes review time."
+    ],
+    "external": [
+      "One repository, 80 tickets."
+    ],
+    "statistical_conclusion": [
+      "Power 0.65 below target 0.8."
+    ]
+  },
+  "labels": [
+    "inconclusive",
+    "confounded"
+  ],
+  "recommendation": {
+    "action": "redesign",
+    "why": "40 tickets per window with a 50 percent capacity drop cannot isolate the feature",
+    "condition": "A new registered comparison holds capacity constant",
+    "next_analysis": {
+      "kind": "none",
+      "value": null
+    }
+  },
+  "reproduce": {
+    "commands": [
+      "aiur experiments show report-example --json",
+      "aiur experiments stats report-example --json",
+      "aiur experiments events report-example --json"
+    ],
+    "snapshot_hashes": {
+      "stats": "stats-fixture",
+      "events": "events-fixture"
+    },
+    "analyst_computed": []
+  }
+}

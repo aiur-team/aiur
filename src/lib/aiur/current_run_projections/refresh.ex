@@ -91,7 +91,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   def schedule(%{refresh_pending?: true} = state, _owner), do: state
 
   def schedule(state, owner) do
-    send(owner, :refresh_sources)
+    Process.send_after(owner, :refresh_sources, 100)
     %{state | refresh_pending?: true}
   end
 
@@ -103,7 +103,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp project(state, %{mode: :full} = refresh) do
     {projected, race_signature, changes} = Projector.full(state, refresh.results)
 
-    if changes.persist? do
+    if changes.persist? and not CheckpointPersistence.unchanged?(state, projected) do
       {:persist, projected, race_signature, false, changes}
     else
       {:complete, projected, race_signature, false}
@@ -113,7 +113,7 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp project(state, %{mode: :clock} = refresh) do
     {projected, force_full?, changes} = Projector.clock(state, refresh.results)
 
-    if changes.persist? do
+    if changes.persist? and not CheckpointPersistence.unchanged?(state, projected) do
       {:persist, projected, nil, force_full?, changes}
     else
       {:complete, projected, nil, force_full?}
@@ -123,8 +123,14 @@ defmodule Aiur.CurrentRunProjections.Refresh do
   defp complete_checkpoint({:ok, state, write, result}, owner) do
     next =
       case result do
-        :ok -> Projector.commit(state, write.candidate, write.changes)
-        _error -> Projector.checkpoint_failed(state)
+        :ok ->
+          state
+          |> Projector.commit(write.candidate, write.changes)
+          |> Map.put(:checkpoint_hash, write.content_hash)
+          |> Map.put(:checkpoint_content, CheckpointPersistence.content(write.candidate))
+
+        _error ->
+          Projector.checkpoint_failed(state)
       end
 
     SourceCollector.reply_waiters(write.waiters)
@@ -152,9 +158,12 @@ defmodule Aiur.CurrentRunProjections.Refresh do
 
       state
       |> Map.merge(%{refresh_again?: false, queued_waiters: [], refresh_pending?: false})
-      |> start(:full, waiters, owner)
+      |> continue_with_waiters(waiters, owner)
     else
       state
     end
   end
+
+  defp continue_with_waiters(state, [], owner), do: schedule(state, owner)
+  defp continue_with_waiters(state, waiters, owner), do: start(state, :full, waiters, owner)
 end

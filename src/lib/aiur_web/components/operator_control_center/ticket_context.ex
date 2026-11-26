@@ -115,16 +115,17 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
       <div :if={available_capabilities(@capabilities) != []} class="ticket-context-ctas">
         <a
           :for={capability <- available_capabilities(@capabilities)}
-          class="btn sm ticket-context-cta"
+          class="aiur-button aiur-button--dashboard btn sm ticket-context-cta"
           href={capability.href}
           target={if(capability.external?, do: "_blank")}
           rel={if(capability.external?, do: "noopener noreferrer")}
           data-ticket-context-focus={capability_focus_key(capability)}
-        >{cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
+        >{if @context.description_truncated? and (capability.kind == :document or (capability.kind == :github and capability.variant == :issue)), do: "Full document", else: cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
       </div>
 
       <section :if={@context.description} class="ticket-context-description" aria-labelledby={"#{@heading_id}-description"}>
         <h3 id={"#{@heading_id}-description"}>Description</h3>
+        <p :if={@context.description_truncated?} class="ticket-context-status">Description truncated to a preview.</p>
         <div class="ticket-context-markdown">{Markdown.render(@context.description)}</div>
       </section>
 

@@ -10,13 +10,7 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
   @now ~U[2026-07-15 12:00:00Z]
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   test "one malformed catalog root remains isolated from valid siblings" do

@@ -3,12 +3,142 @@ defmodule Aiur.GitHub.Tracker do
   GitHub-backed tracker implementation.
   """
 
-  @behaviour Aiur.Tracker
+  @behaviour Aiur.Tracker.IssueTracker
 
+  alias Aiur.GitHub.{Access, BoundedBlockedBy}
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.IssueCreation
+  alias Aiur.GitHub.IssueLookup
+  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.StateLabels
+  alias Aiur.GitHub.TicketPullRequest
   alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.TestTicketScope
+
+  @impl Aiur.Tracker.IssueTracker
+  def config_module, do: Aiur.GitHub.Config
+
+  @impl Aiur.Tracker.IssueTracker
+  def code_host, do: __MODULE__
+  @behaviour Aiur.Tracker.CodeHost
+
+  @impl Aiur.Tracker.CodeHost
+  def ci_readiness, do: Aiur.GitHub.CiReadiness
+
+  @impl Aiur.Tracker.IssueTracker
+  def with_poll_cycle(fun) do
+    Access.start_cycle()
+
+    try do
+      fun.()
+    after
+      Access.end_cycle()
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  defdelegate format_preflight_error(reason), to: Aiur.GitHub.Access, as: :format_auth_preflight_error
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_issue(attrs, opts), do: IssueCreation.create(attrs, opts)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec find_issue(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def find_issue(marker, opts), do: IssueLookup.find(marker, opts)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, blockers} <- BoundedBlockedBy.fetch(issue_id, caller: "build_queue_blocked_by") do
+      native_ids(blockers, owner, repo)
+    end
+  end
+
+  defp native_ids(blockers, owner, repo) do
+    Enum.reduce_while(blockers, {:ok, []}, fn blocker, {:ok, ids} ->
+      case native_id(blocker, owner, repo) do
+        {:ok, id} -> {:cont, {:ok, ids ++ [id]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp native_id(%{"number" => number, "repository_url" => url}, owner, repo) when is_integer(number) and number > 0 and is_binary(url) do
+    if String.downcase(URI.parse(url).path || "") == String.downcase("/repos/#{owner}/#{repo}"),
+      do: {:ok, to_string(number)},
+      else: {:error, :external_edge}
+  end
+
+  defp native_id(_blocker, _owner, _repo), do: {:error, :invalid_native_edge}
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(issue_id), do: TicketPullRequest.read(issue_id)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec resolve_ticket_pull_request(String.t(), keyword()) :: Aiur.Tracker.ticket_pull_request_result()
+  defdelegate resolve_ticket_pull_request(issue_id, opts), to: Aiur.GitHub.ClosedTicketPullRequest, as: :read
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms), do: issue_closure(issue_id, max_age_ms, "build_queue_observe")
+
+  @doc "Reads closure evidence attributed to `caller` in the GitHub cost ledger."
+  @spec issue_closure(String.t(), pos_integer(), String.t()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(issue_id, max_age_ms, caller) do
+    case client_module().fetch_issue_raw_conditional(issue_id, freshness_ms: max_age_ms, caller: caller) do
+      {:ok, %{"state" => state, "state_reason" => reason}, _source} when state in ["open", "closed"] and (is_binary(reason) or is_nil(reason)) ->
+        {:ok, %{open?: state == "open", state_reason: reason}}
+
+      {:ok, _body, _source} ->
+        {:error, :invalid_issue_closure}
+
+      {:error, {:github, _class, %{status: status}}} when status in [404, 410] ->
+        {:error, :not_found}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(max_age_ms) do
+    case Access.parse_repo() do
+      {:ok, {owner, repo}} -> OpenIssueSnapshot.fetch_labels(owner, repo, max_age_ms)
+      {:error, _reason} -> :none
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec refresh_open_issue_labels(keyword()) :: :ok | {:error, term()}
+  # The queue keeps its own page cache so it and the dispatch poll cannot clobber each other's validators.
+  def refresh_open_issue_labels(opts \\ []) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, cache} <- Issues.refresh_open_issues(OpenIssueSnapshot.refresh_cache(owner, repo), opts) do
+      OpenIssueSnapshot.put_refresh_cache(owner, repo, cache)
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
+  def workspace_repo_segment, do: Config.repo()
+
+  @impl Aiur.Tracker.IssueTracker
+  def clone_url do
+    case Config.repo() do
+      repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
+      _ -> nil
+    end
+  end
+
+  @spec daemon_account() :: String.t() | nil
+  def daemon_account, do: Config.daemon_account()
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
@@ -30,9 +160,11 @@ defmodule Aiur.GitHub.Tracker do
     """
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_candidate_issues_conditional(map()) ::
           {:ok, [term()], map()} | {:error, term()}
   def fetch_candidate_issues_conditional(cache) when is_map(cache) do
@@ -47,6 +179,10 @@ defmodule Aiur.GitHub.Tracker do
 
     TestTicketScope.filter_result(result)
   end
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec with_transient_retry((-> term()), keyword()) :: term()
+  def with_transient_retry(fun, opts), do: Access.with_transient_retry(fun, Access.transient_retry_opts(opts))
 
   @spec auth_preflight() :: :ok | {:error, term()}
   def auth_preflight do
@@ -79,9 +215,11 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states), do: client_module().fetch_issues_by_states(states)
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts), do: client_module().fetch_issues_by_states(states, opts)
 
@@ -101,9 +239,17 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
+
+  @impl Aiur.Tracker.IssueTracker
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    active_states = Aiur.Config.active_states() |> MapSet.new()
+    StateLabels.foreign_candidate_state_label?(labels, Config.label_prefix(), active_states)
+  end
 
   @doc """
   Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
@@ -112,9 +258,19 @@ defmodule Aiur.GitHub.Tracker do
   than by tracker size. A failed dependency read returns `{:error, reason}` and
   the dispatcher holds dispatch (fail-closed).
   """
+  @impl Aiur.Tracker.IssueTracker
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
 
+  @doc "Reads bounded dependency evidence without fetching missing or stale resources."
+  @spec cached_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached)
+
+  @doc "Reads the last-known dependency evidence, whatever its age. For ordering only, never for a dispatch decision."
+  @spec last_known_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def last_known_blocked_by(%Issue{} = issue), do: Issues.hydrate_blocked_by(issue, revalidate: :cached, record_max_age_ms: :infinity)
+
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
@@ -127,74 +283,135 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     client_module().create_comment(issue_id, body)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_classified_pr_review_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number) do
     client_module().fetch_classified_pr_review_comments(pr_number)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_reviews(pr_number) do
     client_module().fetch_classified_pr_reviews(pr_number)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_unaddressed_pr_review_thread_comments(pr_number) do
     client_module().fetch_unaddressed_pr_review_thread_comments(pr_number)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec fetch_classified_issue_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_id) do
     client_module().fetch_classified_issue_comments(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_id) do
     client_module().fetch_open_pull_request_for_branch(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
   @spec fetch_open_pull_requests_for_branch(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_for_branch(issue_id) do
     client_module().fetch_open_pull_requests_for_branch(issue_id)
   end
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate optimistic_blocker(value, number), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate optimistic_blocker(value, number, opts), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate park_pull_request(value), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate comment_optimistic_park(dependent, blocker, cause), to: Aiur.GitHub.OptimisticFailure
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate withdraw_landing(number), to: Aiur.GitHub.LandingWithdrawal, as: :withdraw
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate pull_request_body_edited_at(number), to: Aiur.GitHub.PullRequestBodyEdit, as: :last_edited_at
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate update_pull_request_body(number, body), to: Aiur.GitHub.PullRequests, as: :update_body
+
+  @impl Aiur.Tracker.IssueTracker
+  defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen
+
+  @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
-    client_module().update_issue_state(issue_id, state_name)
+    note_in_progress(client_module().update_issue_state(issue_id, state_name), issue_id, state_name)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts)
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     client = client_module()
 
-    cond do
-      Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
-        client.update_issue_state(issue_id, state_name, opts)
+    result =
+      cond do
+        Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
+          client.update_issue_state(issue_id, state_name, opts)
 
-      opts == [] ->
-        client.update_issue_state(issue_id, state_name)
+        opts == [] ->
+          client.update_issue_state(issue_id, state_name)
 
-      true ->
-        {:error, :expected_state_unsupported}
+        true ->
+          {:error, :expected_state_unsupported}
+      end
+
+    note_in_progress(result, issue_id, state_name)
+  end
+
+  defp note_in_progress(result, issue_id, state_name) do
+    if result == :ok and DispatchPolicy.state_slug(state_name) == "in-progress",
+      do: record_start(issue_id)
+
+    result
+  end
+
+  defp record_start(issue_id) do
+    case Application.get_env(:aiur, :github_state_start_recorder) do
+      {module, function} -> apply(module, function, [issue_id, :label, DateTime.utc_now()])
+      nil -> :ok
     end
   end
 
+  @impl Aiur.Tracker.IssueTracker
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      Labels.ensure(owner, repo, token, labels)
+    end
+  end
+
+  @impl Aiur.Tracker.IssueTracker
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
     client_module().add_label(issue_id, label)
   end
 
+  @impl Aiur.Tracker.IssueTracker
   @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
   def remove_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
     client_module().remove_label(issue_id, label)
@@ -203,4 +420,13 @@ defmodule Aiur.GitHub.Tracker do
   defp client_module do
     Application.get_env(:aiur, :github_client_module, Client)
   end
+
+  @spec override_merge_head(map()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_merge_head(pr), to: Aiur.GitHub.OverrideMergeEvidence, as: :read
+
+  @spec override_pull_request(pos_integer()) :: {:ok, map()} | {:error, term()}
+  defdelegate override_pull_request(number), to: Aiur.GitHub.OverrideRecovery, as: :pull_request
+
+  @spec close_superseded_pull_request(pos_integer(), String.t()) :: :ok | {:error, term()}
+  defdelegate close_superseded_pull_request(number, successor), to: Aiur.GitHub.OverrideRecovery, as: :close
 end

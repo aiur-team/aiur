@@ -1,0 +1,161 @@
+{
+  "authority": {
+    "aggregate_generation": 1,
+    "price_table_revision": "multi-provider-standard-global-2026-08-16",
+    "schema_version": 1,
+    "source_generation": 1,
+    "source_position": 1
+  },
+  "by_model": [
+    {
+      "api_equivalent": {
+        "amount": {
+          "USD": "0.00081"
+        },
+        "coverage": {
+          "known": 2,
+          "reasons": [],
+          "status": "known",
+          "unknown": 0
+        }
+      },
+      "model": "claude-sonnet-4-6",
+      "provider_reported": {
+        "USD": "0.42"
+      },
+      "tokens": {
+        "input": 120,
+        "output": 30
+      }
+    }
+  ],
+  "by_provider": [
+    {
+      "api_equivalent": {
+        "amount": {
+          "USD": "0.00081"
+        },
+        "coverage": {
+          "known": 2,
+          "reasons": [],
+          "status": "known",
+          "unknown": 0
+        }
+      },
+      "provider": "claude",
+      "provider_reported": {
+        "USD": "0.42"
+      },
+      "tokens": {
+        "input": 120,
+        "output": 30
+      },
+      "upstream_provider": null
+    }
+  ],
+  "contract": "aiur.ticket_usage",
+  "contract_version": 1,
+  "currency": "USD",
+  "freshness": {
+    "ledger_position": 1,
+    "projected_position": 1,
+    "status": "fresh"
+  },
+  "schema_version": 1,
+  "sessions": [
+    {
+      "api_equivalent": {
+        "amount": {
+          "USD": "0.00081"
+        },
+        "coverage": {
+          "known": 2,
+          "reasons": [],
+          "status": "known",
+          "unknown": 0
+        }
+      },
+      "by_model": [
+        {
+          "api_equivalent": {
+            "amount": {
+              "USD": "0.00081"
+            },
+            "coverage": {
+              "known": 2,
+              "reasons": [],
+              "status": "known",
+              "unknown": 0
+            }
+          },
+          "model": "claude-sonnet-4-6",
+          "provider_reported": {
+            "USD": "0.42"
+          },
+          "tokens": {
+            "input": 120,
+            "output": 30
+          }
+        }
+      ],
+      "by_provider": [
+        {
+          "api_equivalent": {
+            "amount": {
+              "USD": "0.00081"
+            },
+            "coverage": {
+              "known": 2,
+              "reasons": [],
+              "status": "known",
+              "unknown": 0
+            }
+          },
+          "provider": "claude",
+          "provider_reported": {
+            "USD": "0.42"
+          },
+          "tokens": {
+            "input": 120,
+            "output": 30
+          },
+          "upstream_provider": null
+        }
+      ],
+      "provider_reported": {
+        "USD": "0.42"
+      },
+      "run_id": "run-5698",
+      "tokens": {
+        "input": 120,
+        "output": 30
+      }
+    }
+  ],
+  "state": "ok",
+  "ticket": {
+    "identifier": "5698",
+    "owner": "aiur-team",
+    "repository": "aiur"
+  },
+  "totals": {
+    "api_equivalent": {
+      "amount": {
+        "USD": "0.00081"
+      },
+      "coverage": {
+        "known": 2,
+        "reasons": [],
+        "status": "known",
+        "unknown": 0
+      }
+    },
+    "provider_reported": {
+      "USD": "0.42"
+    },
+    "tokens": {
+      "input": 120,
+      "output": 30
+    }
+  }
+}

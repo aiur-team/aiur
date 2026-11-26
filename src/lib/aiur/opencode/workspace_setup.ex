@@ -12,7 +12,8 @@ defmodule Aiur.Opencode.WorkspaceSetup do
   @doc """
   Materialize a per-slot workspace with `opencode.json` declaring the
   agent identifiers passed in `agent_identifiers`. The slot worker
-  registers the returned token against `slot_index` + `generation` in
+  registers the returned token against `slot_index` + `generation` and
+  the selected or previously attached identifiers in
   `Aiur.Opencode.TokenRegistry` so the bridge can authorize chat
   completions originating from this slot's opencode-serve.
 
@@ -86,7 +87,7 @@ defmodule Aiur.Opencode.WorkspaceSetup do
              Path.join(workspace, ".opencode/themes/aiur.json"),
              Jason.encode!(theme, pretty: true)
            ) do
-      TokenRegistry.put(token, slot_index, generation)
+      TokenRegistry.put(token, slot_index, generation, Enum.uniq([primary_identifier, sentinel] ++ Keyword.get(opts, :attached_identifiers, [])))
       {:ok, token}
     end
   end

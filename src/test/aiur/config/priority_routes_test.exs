@@ -1,4 +1,6 @@
 defmodule Aiur.Config.PriorityRoutesTest do
+  # Cohesion: route classification and disposition are tested together because
+  # their combined result determines retry and alert behavior.
   @moduledoc """
   `agent.priority` as an ordered list of routes (#1923).
 
@@ -68,6 +70,21 @@ defmodule Aiur.Config.PriorityRoutesTest do
   end
 
   describe "odd aggregator identifiers" do
+    test "a model set route is accepted and keeps its models" do
+      assert priority_errors(["openrouter:{deepseek/deepseek-v4.1-flash-1017, deepseek/deepseek-v4-flash}"]) == []
+
+      assert RoutingValue.model_set(RoutingValue.routing_model("openrouter:{vendor/a, vendor/b}")) ==
+               {:ok, ["vendor/a", "vendor/b"]}
+    end
+
+    test "a malformed model set is a config error rather than a literal model name" do
+      assert [message] = priority_errors(["openrouter:{deepseek/deepseek-v4-flash,}"])
+      assert message =~ "must list at least one model"
+
+      assert [message] = priority_errors(["openrouter:{}"])
+      assert message =~ "must list at least one model"
+    end
+
     test "a ~-prefixed model is rejected explicitly rather than parsing into something surprising" do
       assert [message] = priority_errors(["openrouter:~moonshotai/kimi-latest"])
       assert message =~ "starts with `~`"
@@ -195,6 +212,11 @@ defmodule Aiur.Config.PriorityRoutesTest do
 
     test "401 does NOT advance: a broken credential must surface, not reroute spend" do
       assert RouteFailure.classify(:unauthorized) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"provider_error" => %{"api_error_status" => 401}}}) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"message" => "request failed with status 401 in unrelated text"}}) == :fatal
+      assert RouteFailure.classify({:turn_failed, %{"error" => "Error: listen EINVAL: invalid argument /tmp/aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "ENAMETOOLONG aiur-mcp-123-1.sock"}}) == :launch_failed
+      assert RouteFailure.classify({:turn_failed, %{"error" => "listen EINVAL unrelated.sock"}}) == :fatal
       refute RouteFailure.advance?(:auth_rejected)
       refute RouteFailure.record_limit?(:auth_rejected)
     end

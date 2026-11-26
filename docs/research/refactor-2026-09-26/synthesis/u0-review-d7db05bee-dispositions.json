@@ -1,0 +1,192 @@
+{
+  "schema": "aiur-u0-review-dispositions/v1",
+  "implementation_sha": "d7db05bee6ef712100340c2fd1b3c57d82d79621",
+  "source_commit": "6732f5f9f448b1857a9643993849635f85321e19",
+  "findings_sha256": "d41c9ad45408edd1a61c3b3042fac292b049770353569e661e1329e857898b8b",
+  "comparison_sha": "465aca643527ea94a4d0d6d7c178c5d23d2aaf57",
+  "method": "Static semantic recheck of all P0/P1 and cited-path-changed P2/P3. Unchanged lower-priority rows retain inherited verdict/action; present means a source mechanism, never measured live incidence. Stale rows retain IDs for retired citations.",
+  "record_count": 986,
+  "source_id_count": 1033,
+  "shards": [
+    {
+      "path": "u0-review-d7db05bee-dispositions-01.json",
+      "records": 34,
+      "first_id": "agent-backends-cc-01",
+      "last_id": "agent-backends-cc-35"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-02.json",
+      "records": 33,
+      "first_id": "agent-backends-cc-36",
+      "last_id": "agent-backends-oc-25"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-03.json",
+      "records": 33,
+      "first_id": "agent-backends-oc-26",
+      "last_id": "agent-runtime-20"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-04.json",
+      "records": 33,
+      "first_id": "agent-runtime-21",
+      "last_id": "build-order-15"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-05.json",
+      "records": 34,
+      "first_id": "build-order-16",
+      "last_id": "dup-by-body-10"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-06.json",
+      "records": 34,
+      "first_id": "dup-by-body-11",
+      "last_id": "dup-by-body-50"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-07.json",
+      "records": 34,
+      "first_id": "dup-by-body-51",
+      "last_id": "events-webhooks-executor-15"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-08.json",
+      "records": 33,
+      "first_id": "events-webhooks-executor-16",
+      "last_id": "github-a-11"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-09.json",
+      "records": 33,
+      "first_id": "github-a-12",
+      "last_id": "github-b-08"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-10.json",
+      "records": 34,
+      "first_id": "github-b-09",
+      "last_id": "loose-1-06"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-11.json",
+      "records": 33,
+      "first_id": "loose-1-07",
+      "last_id": "loose-1-45"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-12.json",
+      "records": 33,
+      "first_id": "loose-2-01",
+      "last_id": "loose-2-35"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-13.json",
+      "records": 34,
+      "first_id": "loose-2-36",
+      "last_id": "loose-3-33"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-14.json",
+      "records": 33,
+      "first_id": "loose-3-34",
+      "last_id": "loose-4-26"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-15.json",
+      "records": 34,
+      "first_id": "loose-4-27",
+      "last_id": "nonelixir-shell-30"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-16.json",
+      "records": 33,
+      "first_id": "nonelixir-shell-31",
+      "last_id": "orch-a-14"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-17.json",
+      "records": 34,
+      "first_id": "orch-a-15",
+      "last_id": "orch-b-10"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-18.json",
+      "records": 33,
+      "first_id": "orch-b-11",
+      "last_id": "platform-misc-05"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-19.json",
+      "records": 33,
+      "first_id": "platform-misc-06",
+      "last_id": "platform-misc-39"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-20.json",
+      "records": 34,
+      "first_id": "platform-misc-40",
+      "last_id": "skills-prompts-cont-33"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-21.json",
+      "records": 34,
+      "first_id": "skills-prompts-cont-34",
+      "last_id": "skills-prompts-cont-67"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-22.json",
+      "records": 34,
+      "first_id": "skills-prompts-cont-68",
+      "last_id": "telemetry-usage-28"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-23.json",
+      "records": 33,
+      "first_id": "telemetry-usage-29",
+      "last_id": "tests-1c-15"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-24.json",
+      "records": 34,
+      "first_id": "tests-1c-16",
+      "last_id": "tests-2-14"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-25.json",
+      "records": 34,
+      "first_id": "tests-2-15",
+      "last_id": "tests-3-11"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-26.json",
+      "records": 33,
+      "first_id": "tests-3-12",
+      "last_id": "tests-5-13"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-27.json",
+      "records": 33,
+      "first_id": "tests-5-14",
+      "last_id": "tests-6-13"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-28.json",
+      "records": 33,
+      "first_id": "tests-6-15",
+      "last_id": "web-occ-16"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-29.json",
+      "records": 33,
+      "first_id": "web-occ-17",
+      "last_id": "web-rest-20"
+    },
+    {
+      "path": "u0-review-d7db05bee-dispositions-30.json",
+      "records": 16,
+      "first_id": "web-rest-21",
+      "last_id": "web-rest-36"
+    }
+  ]
+}

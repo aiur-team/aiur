@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aiur flow field</title>
+  <link rel="stylesheet" href="../dist/aiur-style.css">
+  <link rel="stylesheet" href="../dist/fonts.css">
+  <link rel="stylesheet" href="field.css">
+  <script type="module" src="field.js"></script>
+</head>
+<body>
+  <section class="hero aiur-hero">
+    <canvas id="field" class="aiur-field" data-aiur-debug></canvas>
+    <main>
+      <img class="logo keepout aiur-lockup__logo" src="../dist/assets/aiur-logo-512.png" width="110" height="110" alt="Aiur">
+      <h1 class="keepout">aiur</h1>
+      <p class="keepout tagline">A team of agents. One shared direction.</p>
+      <div id="command" class="keepout field-command-fixture">
+        <div role="tablist" aria-label="Install command">
+          <button role="tab" aria-selected="true" aria-controls="install" id="install-tab">Install</button>
+          <button role="tab" aria-selected="false" aria-controls="prompt" id="prompt-tab">Prompt</button>
+        </div>
+        <pre id="install" role="tabpanel" aria-labelledby="install-tab">npm install -g aiur-cli</pre>
+        <pre id="prompt" role="tabpanel" aria-labelledby="prompt-tab" hidden>Read the project plan.
+Start the next ready ticket.
+Run its checks and open a pull request.</pre>
+      </div>
+      <p class="hug">Keep your agents moving in one direction, with <strong>shared context</strong> and room for the work to grow.</p>
+    </main>
+  </section>
+</body>
+</html>

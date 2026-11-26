@@ -42,6 +42,8 @@ defmodule Aiur.AgentList.Renderer.EventPhrases do
 
   def publish_event_phrase("ci.failed", body), do: {"CI failed:", inline_summary(body)}
 
+  def publish_event_phrase("branch.force-push", _body), do: {"force-pushed", ""}
+
   def publish_event_phrase("branch.push", body), do: branch_push_phrase(body)
 
   def publish_event_phrase("issue.commented", body),

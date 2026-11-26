@@ -29,9 +29,10 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   require Logger
 
-  alias Aiur.Events.{BranchRefStore, GithubKeys, Publisher}
+  alias Aiur.Events
+  alias Aiur.Events.{BranchRefStore, BranchRewriteClassifier, GithubKeys}
   alias Aiur.Git
-  alias Aiur.GitHub.Connectivity
+  alias Aiur.GitHub.Access
 
   @default_interval_ms 30_000
   @default_remote "origin"
@@ -47,10 +48,12 @@ defmodule Aiur.Events.LsRemoteTicker do
       for tests that want to bypass `git`.
     * `:publisher` — `(topic, payload, opts) -> term` for tests that
       want to capture publishes instead of going through Exchange.
+    * `:request_fun`, `:token`, `:task_supervisor` — compare transport and supervision overrides for tests.
     * `:repo` — `"owner/repo"` used for the dedup key. When `nil` (the
       production default), the ticker resolves it via
       `Aiur.Tracker.project_identity/0` on every tick so config edits
       are picked up without a restart.
+    * `:identity_fun` — optional identity lookup override for tests.
     * `:start_paused?` — when `true`, the first tick is not scheduled.
       Tests drive `:tick` manually.
   """
@@ -68,6 +71,8 @@ defmodule Aiur.Events.LsRemoteTicker do
       ref_pattern: Keyword.get(opts, :ref_pattern, @default_ref_pattern),
       ls_remote_fun: Keyword.get(opts, :ls_remote_fun, &default_ls_remote/2),
       publisher: Keyword.get(opts, :publisher),
+      identity_fun: Keyword.get(opts, :identity_fun, &trusted_identity/1),
+      compare_opts: Keyword.take(opts, [:request_fun, :token, :task_supervisor]),
       repo: Keyword.get(opts, :repo),
       refs: %{},
       bootstrapped?: false,
@@ -82,7 +87,7 @@ defmodule Aiur.Events.LsRemoteTicker do
     {:ok, Aiur.PeriodicWorker.schedule_first_tick(state)}
   end
 
-  # The shell-out and Publisher.publish are wrapped to keep the
+  # The shell-out and Events.publish are wrapped to keep the
   # GenServer alive across transport hiccups and rare upstream raises.
   # Error paths intentionally leave `bootstrapped?` untouched: until a
   # successful poll records a real ref baseline, the ticker stays in
@@ -103,7 +108,7 @@ defmodule Aiur.Events.LsRemoteTicker do
 
       {:error, reason} ->
         Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-        note_connectivity_failure(state, Connectivity.classify_ls_remote(reason))
+        note_connectivity_failure(state, Access.connectivity_classify_ls_remote(reason))
 
       other ->
         Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
@@ -114,7 +119,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   defp note_connectivity_success(state) do
     %{
       state
-      | connectivity: Connectivity.note_success(state.connectivity, :ls_remote),
+      | connectivity: Access.connectivity_note_success(state.connectivity, :ls_remote),
         next_delay_ms: state.interval_ms
     }
   end
@@ -123,7 +128,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   # blocker once a sustained DNS/auth streak crosses the escalation threshold.
   defp note_connectivity_failure(state, classification) do
     {streaks, delay_ms} =
-      Connectivity.record_failure(
+      Access.connectivity_record_failure(
         state.connectivity,
         :ls_remote,
         classification,
@@ -175,12 +180,14 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo
         }
 
-        do_publish(state, topic, payload, issue_number: id)
+        do_publish(state, topic, payload, issue_number: id, identity: state.identity_fun.(id))
+        BranchRewriteClassifier.maybe_publish(id, payload, &do_publish(state, &1, &2, &3), state.compare_opts)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
@@ -189,6 +196,7 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo
@@ -202,7 +210,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp do_publish(%{publisher: nil}, topic, payload, opts) do
-    Publisher.publish(topic, payload, opts)
+    Events.publish(topic, payload, opts)
   end
 
   defp do_publish(%{publisher: fun}, topic, payload, opts) when is_function(fun, 3) do
@@ -217,4 +225,10 @@ defmodule Aiur.Events.LsRemoteTicker do
   # and returns `nil` cleanly when no adapter is loaded. `nil` still
   # publishes; the payload just has no repo identity for renderers.
   defp resolve_repo, do: Aiur.Tracker.project_identity()
+
+  defp trusted_identity(id) do
+    Aiur.Orchestrator.tracker_identity(id)
+  catch
+    :exit, _ -> nil
+  end
 end

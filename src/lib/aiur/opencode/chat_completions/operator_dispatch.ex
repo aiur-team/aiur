@@ -16,19 +16,17 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   @spec dispatch_user_text(map(), Plug.Conn.t(), String.t(), String.t()) :: Plug.Conn.t()
   def dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- TurnRequest.validate_body(raw_text),
-         {:ok, conn} <- Caller.authorize(conn) do
+         {:ok, conn} <- Caller.authorize(conn, identifier) do
       route_turn(conn, identifier, sanitized, Map.get(body, "stream", true), TurnRequest.last_user_message_id(body))
     else
+      {:error, :forbidden} -> Sse.json(conn, 403, Caller.forbidden_body())
       {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
       {:error, :body_too_large} -> Sse.json(conn, 400, %{error: "body too large"})
       {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
     end
   end
 
-  # `:auto` lets the backend decide: the persistent-REPL backend takes the
-  # message immediately mid-turn, while codex/headless-claude hold it at the
-  # next safe checkpoint (native CLI UX). Wait time is captured by
-  # `Aiur.OperatorWaitLog`.
+  # Conversation sends follow the effective listener mode.
   @spec send_operator(String.t(), String.t(), String.t()) :: {:ok, term()} | {:error, term()}
   @spec send_operator(String.t(), String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def send_operator(identifier, text, turn_id, message_id \\ nil) do
@@ -44,7 +42,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
 
       operator_text ->
         AgentChat.send(identifier, operator_text,
-          delivery_policy: :auto,
+          delivery_policy: :listener,
+          origin: :tui,
           turn_id: turn_id,
           message_id: message_id
         )

@@ -3,7 +3,7 @@ import path from 'path';
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,8 +14,12 @@ const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 
 describe('dist/ validation', () => {
   test('all export targets exist', () => {
+    // A fresh Node resolver verifies the installed-package boundary, not physical dist paths.
+    execFileSync(process.execPath, ['--input-type=module', '-e',
+      "import { initBanner, createFlowField } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; import { createFlowField as field } from 'aiur-style/field'; if (typeof initBanner !== 'function' || initBanner !== subpath || typeof field !== 'function' || field !== createFlowField) process.exit(1);",
+    ], { cwd: packageRoot });
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './aiur-style.css', './css/*', './package.json'].sort());
+      ['.', './field', './react', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css', './fonts.css', './fonts/*', './assets/*'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {
@@ -65,7 +69,7 @@ describe('dist/ validation', () => {
     };
     walk(distDir);
 
-    const licenseFiles = files.filter(f => f.toLowerCase().includes('license'));
+    const licenseFiles = files.filter(f => f.toLowerCase().includes('license') || f.endsWith('-OFL.txt') || f.endsWith('SOURCES.md'));
     const otherFiles = files.filter(f => !licenseFiles.includes(f));
 
     otherFiles.forEach(filePath => {
@@ -85,27 +89,37 @@ describe('dist/ validation', () => {
 
       // Modify dist/aiur-style.css
       const cssPath = path.join(tempDir, 'dist', 'aiur-style.css');
+      const scratchDir = path.join(tempDir, 'scratch');
+      fs.mkdirSync(scratchDir);
       const originalContent = fs.readFileSync(cssPath, 'utf8');
       fs.writeFileSync(cssPath, originalContent + ' ', 'utf8');
 
       // Run check-dist from temp directory
       try {
-        execSync(`cd "${tempDir}" && npm run check-dist`, { stdio: 'pipe' });
+        execSync('npm run check-dist', { cwd: tempDir, stdio: 'pipe', env: { ...process.env, TMPDIR: scratchDir } });
         assert.fail('check-dist should have exited with code 1');
       } catch (error) {
         // Expected: check-dist should fail
         assert.strictEqual(error.status, 1, 'check-dist should exit with code 1 on mismatch');
+        assert.match(error.stderr.toString(), /Mismatch: aiur-style\.css/);
+        assert.deepStrictEqual(fs.readdirSync(scratchDir).filter(name => name.startsWith('aiur-style-check-')), [], 'check-dist must clean temporary output on mismatch');
       }
     } finally {
       execSync(`rm -rf "${tempDir}"`, { stdio: 'pipe' });
     }
   });
 
-  test('check-dist passes with clean dist/', () => {
+  test('check-dist passes with clean dist/ and removes temporary output', () => {
+    const scratchDir = fs.mkdtempSync(path.join(tmpdir(), 'aiur-style-clean-'));
     try {
-      execSync(`cd "${packageRoot}" && npm run check-dist`, { stdio: 'pipe' });
-    } catch (error) {
-      assert.fail(`check-dist failed on clean dist/: ${error.message}`);
+      execSync('npm run check-dist', {
+        cwd: packageRoot,
+        stdio: 'pipe',
+        env: { ...process.env, TMPDIR: scratchDir }
+      });
+      assert.deepStrictEqual(fs.readdirSync(scratchDir).filter(name => name.startsWith('aiur-style-check-')), [], 'check-dist must clean temporary output on success');
+    } finally {
+      fs.rmSync(scratchDir, { recursive: true, force: true });
     }
   });
 });

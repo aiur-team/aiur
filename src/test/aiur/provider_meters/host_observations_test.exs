@@ -28,7 +28,7 @@ defmodule Aiur.ProviderMeters.HostObservationsTest do
     assert snapshot.auth_mode == :unknown
   end
 
-  test "concurrent hosts select one whole newest snapshot and retire independently", %{server: server} do
+  test "concurrent hosts select one whole constrained snapshot and retire independently", %{server: server} do
     owner =
       spawn(fn ->
         receive do
@@ -55,6 +55,14 @@ defmodule Aiur.ProviderMeters.HostObservationsTest do
     assert :ok = HostObservations.retire(server, first)
     assert_receive {:host_meter_changed, :codex}, 1000
     assert HostObservations.provider_view(server, :codex).state == :unknown
+  end
+
+  test "the most constrained host wins even when the lower reading was observed later", %{server: server} do
+    {:ok, first} = HostObservations.attach(server, :codex, :app_server, self())
+    {:ok, second} = HostObservations.attach(server, :codex, :app_server, self())
+    assert :ok = HostObservations.observe(server, first, observation(first, ~U[2026-09-27 12:03:00Z], 94))
+    assert :ok = HostObservations.observe(server, second, observation(second, ~U[2026-09-27 12:07:00Z], 33))
+    assert HostObservations.provider_view(server, :codex).windows["window.current"].used_percent == 94
   end
 
   test "stale and wrong-scope writes cannot replace the active observation", %{server: server} do

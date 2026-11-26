@@ -23,6 +23,8 @@ defmodule Aiur.ProviderMeterProjection do
 
   use GenServer
 
+  alias Aiur.Instance.LeaseStore
+  alias Aiur.ProviderMeterProjection.SharedRefresh
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
@@ -136,14 +138,18 @@ defmodule Aiur.ProviderMeterProjection do
   def init(opts) do
     _ = if Keyword.get(opts, :subscribe?, true), do: Events.subscribe_observed()
 
-    {:ok,
-     %{
-       observations: %{},
-       host_observations: Keyword.get(opts, :host_observations, Aiur.ProviderMeters.HostObservations),
-       probe_statuses: %{},
-       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-       probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds())
-     }}
+    state = %{
+      observations: %{},
+      host_observations: Keyword.get(opts, :host_observations, Aiur.ProviderMeters.HostObservations),
+      probe_statuses: %{},
+      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+      probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds()),
+      shared_refresh_interval_ms: Keyword.get(opts, :shared_refresh_interval_ms, 15_000),
+      shared_refresh_fun: Keyword.get(opts, :shared_refresh_fun, &SharedRefresh.fetch/0),
+      shared_refresh_pending?: false
+    }
+
+    {:ok, schedule_shared_refresh(state)}
   end
 
   @impl true
@@ -204,6 +210,10 @@ defmodule Aiur.ProviderMeterProjection do
   @impl true
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{provider: provider} = snapshot}, state)
       when provider in @providers do
+    if snapshot.identity_scope == :account do
+      _ = Task.start(fn -> LeaseStore.publish_provider_meter(snapshot) end)
+    end
+
     {:noreply,
      %{
        state
@@ -212,7 +222,35 @@ defmodule Aiur.ProviderMeterProjection do
      }}
   end
 
+  def handle_info(:refresh_shared_observations, state) do
+    state = schedule_shared_refresh(state)
+
+    if state.shared_refresh_pending? do
+      {:noreply, state}
+    else
+      projection = self()
+      refresh_fun = state.shared_refresh_fun
+      _ = Task.start(fn -> send(projection, {:shared_observations, refresh_fun.()}) end)
+      {:noreply, %{state | shared_refresh_pending?: true}}
+    end
+  end
+
+  def handle_info({:shared_observations, snapshots}, state) when is_map(snapshots) do
+    observations =
+      Enum.reduce(snapshots, state.observations, fn
+        {provider, {:ok, %ProviderMeterSnapshot{} = shared}}, acc -> retain(acc, provider, shared)
+        _unavailable, acc -> acc
+      end)
+
+    {:noreply, %{state | observations: observations, shared_refresh_pending?: false}}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp schedule_shared_refresh(state) do
+    Process.send_after(self(), :refresh_shared_observations, state.shared_refresh_interval_ms)
+    state
+  end
 
   # An observation with no observed_at cannot be aged, and an older observation
   # must never displace a newer one — broadcast order is not guaranteed.
@@ -223,6 +261,15 @@ defmodule Aiur.ProviderMeterProjection do
       {previous, observed_at} -> put_if_newer(observations, provider, previous, snapshot, observed_at)
     end
   end
+
+  # Session standings cannot change the subject of the account-wide usage summary.
+  defp put_if_newer(observations, :claude, %{source: :usage_api}, %{source: source}, _observed_at) when source != :usage_api, do: observations
+
+  defp put_if_newer(observations, :claude, %{source: :usage_api} = previous, %{source: :usage_api} = snapshot, _observed_at) do
+    if DateTime.compare(snapshot.ingested_at || snapshot.observed_at, previous.ingested_at || previous.observed_at) == :lt, do: observations, else: Map.put(observations, :claude, snapshot)
+  end
+
+  defp put_if_newer(observations, :claude, _previous, %{source: :usage_api} = snapshot, _observed_at), do: Map.put(observations, :claude, snapshot)
 
   defp put_if_newer(observations, provider, previous, snapshot, observed_at) do
     case previous.observed_at do
@@ -263,7 +310,9 @@ defmodule Aiur.ProviderMeterProjection do
         plan: snapshot.plan,
         freshness: snapshot.freshness,
         health: snapshot.health,
-        windows: snapshot.windows
+        windows: snapshot.windows,
+        summary_label: snapshot.summary_label,
+        ingested_at: snapshot.ingested_at
       },
       snapshot,
       provider,

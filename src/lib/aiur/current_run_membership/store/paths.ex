@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunMembership.Store.Paths do
   @moduledoc false
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
 
   @spec prepare(String.t(), String.t(), (-> term())) :: {:ok, map()} | {:error, term()}
   def prepare(root, run_id, sync_fun) do
@@ -9,9 +9,9 @@ defmodule Aiur.CurrentRunMembership.Store.Paths do
     run_dir = Path.join(runs_dir, run_leaf(run_id))
     journal_path = Path.join(run_dir, "membership.ndjson")
 
-    with :ok <- DecisionLog.ensure_directory(root),
-         :ok <- DecisionLog.ensure_directory(runs_dir),
-         :ok <- DecisionLog.prepare(run_dir, journal_path, sync_fun) do
+    with :ok <- Journal.ensure_directory(root),
+         :ok <- Journal.ensure_directory(runs_dir),
+         :ok <- Journal.prepare(run_dir, journal_path, sync_fun) do
       {:ok,
        %{
          root: root,

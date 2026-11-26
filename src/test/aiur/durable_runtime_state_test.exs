@@ -21,7 +21,6 @@ defmodule Aiur.DurableRuntimeStateTest do
     File.mkdir_p!(logs_parent)
 
     previous = Map.new([:log_file, :runtime_state_dir], &{&1, Application.get_env(:aiur, &1)})
-    Application.put_env(:aiur, :runtime_state_dir, state_dir)
     previous_identity = Map.new(["AIUR_INSTANCE_KEY", "AIUR_RELEASE_NODE"], &{&1, System.get_env(&1)})
     set_instance("instance-a")
 
@@ -36,11 +35,13 @@ defmodule Aiur.DurableRuntimeStateTest do
         {key, value} -> System.put_env(key, value)
       end)
 
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{logs_parent: logs_parent, state_dir: state_dir}
   end
+
+  defp use_runtime_state_dir(state_dir), do: Application.put_env(:aiur, :runtime_state_dir, state_dir)
 
   # Points the daemon at a launcher-shaped launch log directory, as a restart
   # does, and returns that directory.
@@ -98,6 +99,7 @@ defmodule Aiur.DurableRuntimeStateTest do
 
   describe "IdGenerator across a restart" do
     test "the counter lives in the runtime state dir, not the launch log dir", %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       log_dir = launch(logs_parent, "20260101T000000Z-100")
 
       assert IdGenerator.default_path() == Path.join(state_dir, "event-id.json")
@@ -105,7 +107,8 @@ defmodule Aiur.DurableRuntimeStateTest do
     end
 
     test "the first id after a restart is greater than every earlier id, even when the clock steps back",
-         %{logs_parent: logs_parent} do
+         %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       launch(logs_parent, "20260101T000000Z-100")
       first_boot = start_generator([])
       issued = for _ <- 1..12, do: IdGenerator.next_id(first_boot)
@@ -121,7 +124,8 @@ defmodule Aiur.DurableRuntimeStateTest do
     end
 
     test "a crash (no terminate) still never re-issues an id after a restart with a stepped-back clock",
-         %{logs_parent: logs_parent} do
+         %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       Process.flag(:trap_exit, true)
 
       launch(logs_parent, "20260101T000000Z-100")
@@ -140,6 +144,7 @@ defmodule Aiur.DurableRuntimeStateTest do
 
     test "migration seeds above every earlier launch's counter, not only the newest file, under a stepped-back clock",
          %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       legacy_name = "#{Paths.repo_name()}.event_id"
       high = 9_000_000_000_000_000
 
@@ -153,7 +158,7 @@ defmodule Aiur.DurableRuntimeStateTest do
       launch(logs_parent, "20260101T020000Z-300")
       refute File.exists?(Path.join(state_dir, "event-id.json"))
 
-      pid = start_generator(clock: fn -> 1 end)
+      pid = start_generator(clock: fn -> 1 end, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0)
       first = IdGenerator.next_id(pid)
       GenServer.stop(pid)
 
@@ -163,7 +168,8 @@ defmodule Aiur.DurableRuntimeStateTest do
     end
 
     test "after migration, a later restart resumes from the durable file and ignores legacy counters",
-         %{logs_parent: logs_parent} do
+         %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       launch(logs_parent, "20260101T000000Z-100")
       first_boot = start_generator([])
       issued = IdGenerator.next_id(first_boot)
@@ -190,6 +196,7 @@ defmodule Aiur.DurableRuntimeStateTest do
 
   describe "SubscriptionStore across a restart" do
     test "subscriptions and cursor survive a new launch log dir", %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       identifier = "durable-subs-#{System.unique_integer([:positive])}"
       launch(logs_parent, "20260101T000000Z-100")
 
@@ -214,6 +221,7 @@ defmodule Aiur.DurableRuntimeStateTest do
 
   describe "SessionHandle across a restart" do
     test "a saved handle survives a new launch log dir", %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       launch(logs_parent, "20260101T000000Z-100")
       :ok = SessionHandle.save("2722", %{backend: "codex", thread_id: "thread-1"}, hostname: @host)
       assert String.starts_with?(SessionHandle.path_for("2722"), state_dir)
@@ -226,6 +234,7 @@ defmodule Aiur.DurableRuntimeStateTest do
 
   describe "AlertLedger across a restart" do
     test "the alert feed keeps alerts from before a restart", %{logs_parent: logs_parent, state_dir: state_dir} do
+      use_runtime_state_dir(state_dir)
       launch(logs_parent, "20260101T000000Z-100")
 
       :ok =
@@ -239,11 +248,11 @@ defmodule Aiur.DurableRuntimeStateTest do
 
       launch(logs_parent, "20260101T010000Z-200")
 
-      assert Enum.any?(AlertFeed.list(roots: []), &(&1["topic"] == "system.durable.check"))
-      assert AlertFeed.condition_state("system.durable.check", roots: []) == :firing
+      assert Enum.any?(AlertFeed.list(), &(&1["topic"] == "system.durable.check"))
+      assert AlertFeed.condition_state("system.durable.check") == :firing
     end
 
-    test "adopts the newest legacy ledger and its backfill marker once", %{logs_parent: logs_parent} do
+    test "adopts the newest legacy ledger and its backfill marker once", %{logs_parent: logs_parent, state_dir: state_dir} do
       name = Paths.project_name() <> ".alerts.ndjson"
       line = fn topic -> Jason.encode!(%{"event" => "alert", "topic" => topic, "timestamp" => "2026-01-01T00:00:00Z"}) <> "\n" end
 
@@ -254,8 +263,13 @@ defmodule Aiur.DurableRuntimeStateTest do
       write_legacy!(newer, name, line.("system.newest"), 2_000)
       write_legacy!(newer, name <> ".alerts.backfill", "complete\n", 2_000)
 
+      use_runtime_state_dir(state_dir)
       launch(logs_parent, "20260101T020000Z-300")
-      topics = Enum.map(AlertFeed.list(roots: []), & &1["topic"])
+
+      topics =
+        AlertFeed.list()
+        |> Enum.map(& &1["topic"])
+        |> Enum.filter(&(&1 in ["system.old", "system.newest", "system.after"]))
 
       assert topics == ["system.newest"]
       assert AlertLedger.backfilled?()
@@ -263,16 +277,27 @@ defmodule Aiur.DurableRuntimeStateTest do
       # Once: a newer legacy ledger that appears later is not adopted.
       write_legacy!(newer, name, line.("system.after"), 3_000)
       launch(logs_parent, "20260101T030000Z-400")
-      assert Enum.map(AlertFeed.list(roots: []), & &1["topic"]) == ["system.newest"]
+
+      topics =
+        AlertFeed.list()
+        |> Enum.map(& &1["topic"])
+        |> Enum.filter(&(&1 in ["system.old", "system.newest", "system.after"]))
+
+      assert topics == ["system.newest"]
     end
   end
 
-  test "fresh durable stores ignore legacy sessions and subscriptions", %{logs_parent: logs_parent, state_dir: state_dir} do
+  test "fresh session and subscription stores ignore legacy snapshots alongside an alert ledger", %{logs_parent: logs_parent, state_dir: state_dir} do
+    use_runtime_state_dir(state_dir)
     legacy = launch(logs_parent, "20260101T000000Z-100")
     write_snapshot!(legacy, "stale-thread", "ticket.2722.stale")
     record_owner!(legacy)
     launch(logs_parent, "20260101T010000Z-200")
-    refute File.exists?(state_dir)
+    # Background alerts may initialize the shared root before either store is used.
+    _ = AlertLedger.paths()
+    assert File.dir?(state_dir)
+    refute File.exists?(SessionHandle.path_for("2722"))
+    refute File.exists?(SubscriptionStore.path_for("2722"))
 
     assert SessionHandle.load("2722", "codex", hostname: @host) == :none
     :ok = SubscriptionStore.attach("2722")

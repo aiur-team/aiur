@@ -1,0 +1,4 @@
+/* Focus-only entry point for hosts that already own their reset. */
+@layer aiur.base {
+  :where(a, button, textarea, [tabindex]):focus-visible { outline: 2px solid var(--aiur-color-focus); outline-offset: 3px; }
+}

@@ -1,0 +1,308 @@
+import type { DeckDevices, DeckSettings } from "./deck-settings.js";
+import type { DeckFrame } from "./frame.js";
+import type { RawInput } from "./frame-input.js";
+interface BuildProgressInput {
+  readonly completed?: number | null;
+  readonly percent?: number | null;
+  readonly eta_seconds?: number | null;
+  readonly total?: number;
+  readonly etaSeconds?: number | null;
+}
+
+/** Wire types of the `streamdeck:fleet` channel contract; re-exported from `channel.ts`. */
+
+export interface StreamDeckAgentState {
+  readonly identifier: string;
+  readonly status?: string;
+  readonly title?: string;
+  readonly priority?: boolean;
+  readonly work_state?: string;
+  readonly pause_reason?: string;
+  readonly tracker_paused?: boolean;
+}
+
+/**
+ * Whether Aiur can transcribe, and why not when it cannot.
+ *
+ * The API key lives in Aiur, so the sidecar cannot know this by inspecting its
+ * own configuration — there is deliberately nothing in it to inspect. The
+ * answer arrives with the snapshot, and the deck shows the reason while its
+ * meters keep working.
+ */
+export interface StreamDeckVoiceState {
+  readonly available: boolean;
+  readonly reason: string | null;
+}
+
+export interface StreamDeckSnapshot {
+  readonly version: number;
+  readonly fleet: { readonly agents: readonly StreamDeckAgentState[] };
+  readonly usage: Readonly<Record<string, unknown>>;
+  readonly decisions: Readonly<Record<string, unknown>>;
+  readonly grid?: StreamDeckGrid;
+  readonly voice?: StreamDeckVoiceState;
+}
+
+/** Build ticket projection; unknown evidence remains null. */
+/** Allowlisted entry from the shared desktop conversation source. */
+export interface StreamDeckChat {
+  readonly v: 1;
+  readonly kind: "chat";
+  readonly id: string;
+  readonly state: "live" | "ended" | "known_empty" | "stale" | "unavailable" | "restart_unknown" | "not_retained";
+  readonly observed_at: number | null;
+  readonly latest: { readonly id: string; readonly at: number | null; readonly k: "say" | "op" | "sys" | "tool"; readonly text?: string; readonly name?: string; readonly arg?: string; readonly res?: string; readonly bad?: boolean } | null;
+}
+
+export interface StreamDeckTicket {
+  readonly v: 1;
+  readonly kind: "ticket";
+  readonly id: string;
+  readonly title: string | null;
+  readonly sec: string | null;
+  readonly status: { readonly label: string; readonly tone: string; readonly agent_state: string | null };
+  readonly agent: { readonly model: string | null; readonly name: string | null; readonly effort: string | null; readonly pct: number | null; readonly start: number | null } | null;
+  readonly pr: { readonly num: number; readonly state: string; readonly ci?: string | null } | null;
+  readonly control: { readonly action: string | null; readonly state: string; readonly title: string | null } | null;
+  readonly links?: { readonly modal: string | null; readonly pr: string | null };
+  readonly actions?: { readonly pause: string; readonly priority_up: string; readonly priority_down: string; readonly mic?: string };
+  readonly qpos: number | null;
+  readonly observed_at: number | null;
+}
+
+export interface StreamDeckCounts {
+  readonly status: "ok" | "stale" | "unavailable";
+  readonly observed_at: number | null;
+  readonly agents: number | null;
+  readonly live: number | null;
+  readonly queued: number | null;
+  readonly not_queued: number | null;
+  readonly by_state: Readonly<Record<string, number>> | null;
+}
+
+export interface StreamDeckGrid {
+  readonly tickets_status?: string;
+  readonly counts?: StreamDeckCounts;
+  readonly build?: BuildProgressInput | null;
+  readonly build_status?: "ok" | "none" | "unavailable";
+  readonly agents: readonly Record<string, unknown>[];
+  readonly total: number;
+  readonly windows: number;
+  readonly max_column_offset: number;
+}
+
+/** One live transcript message from the daemon. */
+export interface TranscriptRow {
+  readonly kind: "message";
+  readonly role: string;
+  readonly body: string;
+  readonly tool: string | null;
+}
+
+/**
+ * One option of a Command, in the daemon's allowlisted shape.
+ *
+ * The server projects only the option fields the device renders (id, label,
+ * description and the cost/benefit detail), never internal store fields.
+ */
+export interface StreamDeckCommandOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly benefits?: string;
+  readonly drawbacks?: string;
+  readonly risk?: string;
+}
+
+/** The recorded outcome of a Command, when it has one. */
+export interface StreamDeckCommandAnswer {
+  /** The chosen option id, when the answer selected a listed option. */
+  readonly selected_option_id?: string | null;
+  /** The free-text response, when the operator spoke instead of choosing. */
+  readonly custom_response?: string | null;
+  readonly actor?: { readonly kind?: string; readonly id?: string } | null;
+}
+
+/**
+ * One Command in the focused agent's history, in the daemon's allowlisted
+ * shape. `status` is the durable lifecycle (`open`, `deferred`, `expired`,
+ * `decided`, `acknowledged`, ...). An expired unanswered blocker remains
+ * answerable; `answer` lets a completed Command be read back.
+ */
+export interface StreamDeckCommand {
+  readonly decision_id: string;
+  /** The exact version the device read — the version it must answer. */
+  readonly version: number;
+  readonly ticket?: { readonly identifier?: string } | null;
+  readonly question: string;
+  readonly short_label?: string | null;
+  readonly answerable_on_deck?: boolean;
+  readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
+  readonly options: readonly StreamDeckCommandOption[];
+  readonly status: string;
+  readonly blocking?: boolean;
+  readonly answer?: StreamDeckCommandAnswer | null;
+  readonly created_at?: string;
+}
+
+/**
+ * One page of the focused agent's Command history.
+ *
+ * History is newest-first and cursor-paged: the server pushes the first page on
+ * focus and the client requests more with `commands_page` when it scrolls past
+ * the end. `unavailable` is explicit — the store could not be read — so the
+ * device says so instead of showing an empty history that could mean "no
+ * Commands".
+ */
+export interface StreamDeckCommandsPage {
+  readonly identifier?: string;
+  readonly items: readonly StreamDeckCommand[];
+  readonly next_cursor?: string | null;
+  readonly has_next?: boolean;
+  readonly total?: number;
+  readonly partial?: boolean;
+  readonly unavailable?: boolean;
+}
+
+/** The channel's reply to `answer_command`. */
+export interface StreamDeckCommandAnswerResult {
+  readonly status: string;
+  readonly decision: StreamDeckCommand;
+}
+
+export type StreamDeckCommandAnswerError =
+  | { readonly reason: "already_answered"; readonly winner: { readonly actor_kind: string; readonly summary: string | null; readonly accepted_at: string } | null }
+  | { readonly reason: "withdrawn"; readonly status: string }
+  | { readonly reason: "stale" };
+
+export interface StreamDeckChannelEvents {
+  alert?(payload: Readonly<Record<string, unknown>>): void;
+  settings?(settings: DeckSettings): void;
+  frame?(frame: DeckFrame): void;
+  snapshot(snapshot: StreamDeckSnapshot): void;
+  fleet(agents: readonly StreamDeckAgentState[]): void;
+  grid(grid: StreamDeckGrid): void;
+  chat?(chat: StreamDeckChat): void;
+  ticket?(ticket: StreamDeckTicket): void;
+  usage(usage: Readonly<Record<string, unknown>>): void;
+  transcript(row: TranscriptRow): void;
+  control(payload: Readonly<Record<string, unknown>>): void;
+  /**
+   * The reply to a {@link StreamDeckChannel.voiceStart}. Exactly one of the two
+   * arguments is set: a server-minted session id, or the reason it was refused.
+   */
+  voiceStarted(session: string | null, reason: string | null): void;
+  /** A `voice` push: one partial or final transcript for an open session. */
+  voice(session: string, kind: "partial" | "final", text: string): void;
+  voiceError(session: string, reason: string): void;
+  voiceClosed(session: string): void;
+  /** The snapshot's view of whether Aiur can transcribe at all. */
+  voiceAvailability(state: StreamDeckVoiceState): void;
+  /**
+   * A `commands` push: the focused agent's Command history page. Sent on focus
+   * and again whenever a decision for the focused agent changes.
+   */
+  commands(page: StreamDeckCommandsPage): void;
+  /** The reply to `answer_command`: the recorded result and the refreshed Command. */
+  commandAnswered(result: StreamDeckCommandAnswerResult): void;
+  /** An error reply to `commands_page` or `answer_command`. */
+  commandsError(reason: string, outcome?: StreamDeckCommandAnswerError, requestKey?: string): void;
+  closed(error: unknown): void;
+}
+
+export interface WebSocketLike {
+  binaryType: string;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: string }) => void) | null;
+  onerror: ((error: unknown) => void) | null;
+  onclose: (() => void) | null;
+  send(data: string): void;
+  close(): void;
+}
+
+export type WebSocketFactory = (url: string) => WebSocketLike;
+export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
+  ok: boolean;
+  status?: number;
+  json(): Promise<unknown>;
+}>;
+
+export interface StreamDeckChannelOptions {
+  readonly baseUrl: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly token?: string;
+  readonly fetch: FetchLike;
+  readonly websocket: WebSocketFactory;
+  readonly events: StreamDeckChannelEvents;
+}
+
+export interface StreamDeckChannel {
+  voiceStatus(text: string): void;
+  devices(devices: DeckDevices): void;
+  settingsSet(patch: Partial<DeckSettings>): void;
+  input(input: RawInput): void;
+  priority(identifier: string, direction: "up" | "down"): void;
+  focus(identifier: string): void;
+  /**
+   * The two fleet verbs the deck can perform.
+   *
+   * `prioritize`/`deprioritize` are gone with the key that sent them, and
+   * `"mic"` was never a server action at all — the channel rejected it, so the
+   * key had no effect. Voice has its own three events below.
+   *
+   * `implement` is the queue verb for a ticket with no agent: the server applies
+   * the configured lifecycle todo label through the CLI's own `--todo` path, so
+   * the deck asks for a dispatch rather than performing one.
+   */
+  control(identifier: string, action: "pause" | "resume" | "implement"): void;
+  /**
+   * Delivers a transcribed message to an agent.
+   *
+   * This is a separate event from `control` because it carries operator text
+   * rather than a fixed verb: the server validates and length-caps it, then
+   * hands it to the same AgentChat path as the dashboard chat box, so a spoken
+   * message and a typed one are indistinguishable downstream.
+   *
+   * Each call is one press and carries its own `message_id`. A frame queued
+   * before the join is re-sent with the same id, so a re-send cannot queue a
+   * second copy (#2717). Two presses with the same text are two messages.
+   */
+  say(identifier: string, text: string): void;
+  /**
+   * Asks Aiur to open a provider session. The session id comes back in the
+   * `phx_reply`, not in a push, so it is delivered through
+   * {@link StreamDeckChannelEvents.voiceStarted}.
+   */
+  voiceStart(): void;
+  /** One base64-encoded PCM frame. Fire-and-forget: the server does not reply. */
+  voiceAudio(session: string, base64: string): void;
+  /** Asks Aiur to commit the final utterance and close the provider session. */
+  voiceStop(session: string): void;
+  /**
+   * Requests the next page of the focused agent's Command history.
+   *
+   * `cursor` is the opaque `next_cursor` from the previous page; the server
+   * replies through {@link StreamDeckChannelEvents.commands} or
+   * {@link StreamDeckChannelEvents.commandsError}.
+   */
+  commandsPage(cursor: string): void;
+  /**
+   * Records an operator answer given on the device.
+   *
+   * The answer is attributed to the operator (never the Executor), so it may
+   * answer `human_required` Commands. `idempotencyKey` must be stable for the
+   * same intended answer across reconnects: the server deduplicates on it, so
+   * a retry after a dropped reply is a replay, never a second decision.
+   * `version` is the exact Command version the device read.
+   */
+  answerCommand(
+    decisionId: string,
+    version: number,
+    idempotencyKey: string,
+    answer: { option_id?: string; custom_response?: string },
+  ): void;
+  close(): void;
+}
+
+export class InstanceAuthError extends Error {}

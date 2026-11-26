@@ -364,6 +364,22 @@ defmodule Aiur.TicketActivity.ProjectionTest do
            } = Projection.snapshot(state, ticket, @now)
   end
 
+  test "preserves allowlisted compaction state in safe activity evidence" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(observation(ticket, :agent_alert, "compaction.failed", %{compaction_status: :failed}, 1))
+
+    assert %{
+             latest_evidence: %{
+               source: %{kind: :agent_alert, name: "compaction.failed"},
+               attributes: %{compaction_status: :failed}
+             }
+           } = Projection.snapshot(state, ticket, @now)
+  end
+
   test "drops malformed timestamp and event metadata from public evidence" do
     ticket = identity()
 
@@ -378,8 +394,8 @@ defmodule Aiur.TicketActivity.ProjectionTest do
 
     assert %{progress: %{occurred_at: nil, event_id: nil}} = snapshot
     assert %{latest_evidence: %{occurred_at: nil, event_id: nil}} = snapshot
-    refute inspect(snapshot) =~ "secret token"
-    refute inspect(snapshot) =~ "/private/workspace"
+    Aiur.TestSupport.refute_leak(snapshot, "secret token")
+    Aiur.TestSupport.refute_leak(snapshot, "/private/workspace")
   end
 
   defp apply!(state, observation) do

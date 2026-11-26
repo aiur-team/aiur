@@ -4,6 +4,26 @@ defmodule Aiur.Opencode.ServerTest do
   alias Aiur.Opencode.{ApiClient, Server, TokenRegistry, WorkspaceSetup}
   alias Exqlite.Basic
 
+  # The serve resolves `opencode` from PATH. An unpinned wrapper ahead of the
+  # repo's mise pin (e.g. an npx `opencode-ai` shim) runs another version with
+  # another schema, so put the pinned install dir `mise exec` already added to
+  # PATH first (#4516). Asking mise itself fails under the suite's isolated HOME.
+  setup do
+    original_path = System.get_env("PATH", "")
+
+    pinned_dir =
+      original_path
+      |> String.split(":")
+      |> Enum.find(&(&1 =~ "/mise/installs/opencode/" and File.regular?(Path.join(&1, "opencode"))))
+
+    if pinned_dir do
+      System.put_env("PATH", pinned_dir <> ":" <> original_path)
+      on_exit(fn -> System.put_env("PATH", original_path) end)
+    end
+
+    :ok
+  end
+
   test "launch_env clears shell startup hooks" do
     assert {~c"BASH_ENV", false} in Server.launch_env("/workspace")
     assert {~c"ENV", false} in Server.launch_env("/workspace")
@@ -47,7 +67,7 @@ defmodule Aiur.Opencode.ServerTest do
 
     on_exit(fn ->
       restore_env(original_env)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     slot_index = System.unique_integer([:positive])
@@ -79,6 +99,20 @@ defmodule Aiur.Opencode.ServerTest do
     assert System.get_env("OPENCODE_CONFIG") == poison_config_path
     assert System.get_env("OPENCODE_CONFIG_CONTENT") == poison_config
 
+    # The first request for a directory bootstraps its instance, which installs
+    # the slot's plugin deps into a fresh cache. That can outlast ApiClient's
+    # 30s timeout on a loaded host, so pay for it here under a test budget (#4516).
+    assert {:ok, %Req.Response{status: 200, body: %{"all" => providers}}} =
+             Req.get(base_url <> "/provider", params: [directory: ticket_workspace], receive_timeout: 120_000)
+
+    assert %{
+             "name" => "Aiur",
+             "options" => %{"baseURL" => "http://127.0.0.1:1/v1"},
+             "models" => models
+           } = Enum.find(providers, &(&1["id"] == "aiur"))
+
+    assert Map.has_key?(models, "issue-99")
+
     assert {:ok, session} =
              ApiClient.create_session(base_url, "99",
                model: %{providerID: "aiur", id: "issue-99"},
@@ -88,17 +122,6 @@ defmodule Aiur.Opencode.ServerTest do
     try do
       assert session["directory"] == ticket_workspace
       refute File.exists?(Path.join(ticket_workspace, "opencode.json"))
-
-      assert {:ok, %Req.Response{status: 200, body: %{"all" => providers}}} =
-               Req.get(base_url <> "/provider", params: [directory: ticket_workspace])
-
-      assert %{
-               "name" => "Aiur",
-               "options" => %{"baseURL" => "http://127.0.0.1:1/v1"},
-               "models" => models
-             } = Enum.find(providers, &(&1["id"] == "aiur"))
-
-      assert Map.has_key?(models, "issue-99")
 
       # SessionPrompt persists the user message before it waits for the model
       # stream. Keep that production request in flight and inspect the real
@@ -169,7 +192,7 @@ defmodule Aiur.Opencode.ServerTest do
       release_bin = Path.join(release_root, "bin")
       File.mkdir_p!(release_erts_bin)
       File.mkdir_p!(release_bin)
-      on_exit(fn -> File.rm_rf!(release_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_root) end)
 
       command = Server.serve_command("127.0.0.1")
 

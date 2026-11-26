@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/build-order.v1.schema.json",
+  "title": "BuildOrder",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.build_order" },
+    "contract_version": { "const": 1 },
+    "build_order_id": { "type": "string" },
+    "title": { "type": "string" },
+    "repository": { "type": ["string", "null"] },
+    "root": { "$ref": "#/$defs/root" },
+    "generated_at": { "type": "string" },
+    "sources": { "$ref": "#/$defs/sources" },
+    "epics": { "type": "array", "items": { "$ref": "#/$defs/epic" } },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" } },
+    "lanes": { "type": "array", "items": { "$ref": "#/$defs/lane" } },
+    "tickets": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "gates": { "type": "array", "items": { "$ref": "#/$defs/gate" } },
+    "waves": { "type": "array", "items": { "$ref": "#/$defs/wave" } },
+    "critical_path": { "$ref": "#/$defs/criticalPath" },
+    "progress": { "$ref": "#/$defs/progress" }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "build_order_id",
+    "title",
+    "repository",
+    "root",
+    "generated_at",
+    "sources",
+    "epics",
+    "features",
+    "lanes",
+    "tickets",
+    "edges",
+    "gates",
+    "waves",
+    "critical_path",
+    "progress"
+  ],
+  "$defs": {
+    "sourceStatus": {
+      "title": "BuildOrderSourceStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "stale", "unknown"] },
+        "observed_at": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["status"]
+    },
+    "sources": {
+      "title": "BuildOrderSources",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "pack": { "$ref": "#/$defs/sourceStatus" },
+        "tracker": { "$ref": "#/$defs/sourceStatus" },
+        "progress": { "$ref": "#/$defs/sourceStatus" }
+      },
+      "required": ["pack", "tracker", "progress"]
+    },
+    "progress": {
+      "title": "BuildOrderProgress",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "stale", "unknown"] },
+        "total": { "type": ["integer", "null"], "minimum": 0 },
+        "done": { "type": ["integer", "null"], "minimum": 0 },
+        "open": { "type": ["integer", "null"], "minimum": 0 },
+        "failed": { "type": ["integer", "null"], "minimum": 0 },
+        "percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "by_status": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "observed_at": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["status"]
+    },
+    "root": {
+      "title": "BuildOrderRoot",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "number": { "type": ["integer", "null"] },
+        "url": { "type": ["string", "null"] },
+        "epic": { "type": ["string", "null"] },
+        "plan_version": { "type": ["integer", "null"] },
+        "researched_at_commit": { "type": ["string", "null"] }
+      },
+      "required": ["id", "title", "number", "url", "epic", "plan_version", "researched_at_commit"]
+    },
+    "epic": {
+      "title": "BuildOrderEpic",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "title": { "type": "string" },
+        "label": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "icon": { "type": ["string", "null"] },
+        "hue": { "type": ["number", "null"] },
+        "features": { "type": "array", "items": { "type": "string" } },
+        "progress": { "$ref": "#/$defs/progress" }
+      },
+      "required": ["key", "title", "label", "url", "icon", "hue", "features", "progress"]
+    },
+    "feature": {
+      "title": "BuildOrderFeature",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "title": { "type": "string" },
+        "label": { "type": ["string", "null"] },
+        "epic": { "type": ["string", "null"] },
+        "icon": { "type": ["string", "null"] },
+        "hue": { "type": ["number", "null"] },
+        "url": { "type": ["string", "null"] },
+        "progress": { "$ref": "#/$defs/progress" }
+      },
+      "required": ["key", "title", "label", "epic", "icon", "hue", "url", "progress"]
+    },
+    "lane": {
+      "title": "BuildOrderLane",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "title": { "type": "string" },
+        "label": { "type": ["string", "null"] },
+        "icon": { "type": ["string", "null"] },
+        "hue": { "type": ["number", "null"] },
+        "order": { "type": ["integer", "null"] },
+        "progress": { "$ref": "#/$defs/progress" }
+      },
+      "required": ["key", "title", "label", "icon", "hue", "order", "progress"]
+    },
+    "ticket": {
+      "title": "BuildOrderTicket",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": ["integer", "null"] },
+        "title": { "type": "string" },
+        "url": { "type": ["string", "null"] },
+        "kind": { "enum": ["executable", "audit", "gate", "umbrella", "capstone", "unknown"] },
+        "provenance": { "enum": ["planned", "discovered", "unknown"] },
+        "epic": { "type": ["string", "null"] },
+        "feature": { "type": ["string", "null"] },
+        "lane": { "type": ["string", "null"] },
+        "phase": { "type": ["integer", "null"] },
+        "wave": { "type": ["integer", "null"] },
+        "complexity": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 },
+        "points": { "type": ["number", "null"], "minimum": 0 },
+        "estimate_hours": { "type": ["number", "null"], "minimum": 0 },
+        "status": {
+          "enum": [
+            "planned",
+            "queued",
+            "running",
+            "open",
+            "closed",
+            "done",
+            "failed",
+            "not_planned",
+            "unknown"
+          ]
+        },
+        "progress_percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "started_at": { "type": ["string", "null"] },
+        "ended_at": { "type": ["string", "null"] }
+      },
+      "required": [
+        "id",
+        "number",
+        "title",
+        "url",
+        "kind",
+        "provenance",
+        "epic",
+        "feature",
+        "lane",
+        "phase",
+        "wave",
+        "complexity",
+        "points",
+        "estimate_hours",
+        "status",
+        "progress_percent",
+        "started_at",
+        "ended_at"
+      ]
+    },
+    "edge": {
+      "title": "BuildOrderEdge",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "kind": {
+          "enum": ["depends_on", "serializes_with", "suggested_after", "contains", "gates"]
+        },
+        "state": {
+          "enum": ["cleared", "blocking", "terminal_unsatisfied", "unknown", null]
+        },
+        "source": { "enum": ["pack", "tracker", "inferred", "unknown"] }
+      },
+      "required": ["from", "to", "kind", "state", "source"]
+    },
+    "gate": {
+      "title": "BuildOrderGate",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": { "type": "string" },
+        "title": { "type": "string" },
+        "owner": { "type": ["string", "null"] },
+        "resolution_criteria": { "type": ["string", "null"] },
+        "status": { "enum": ["open", "approved", "rejected", "unknown"] }
+      },
+      "required": ["key", "title", "owner", "resolution_criteria", "status"]
+    },
+    "wave": {
+      "title": "BuildOrderWave",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "tickets": { "type": "array", "items": { "type": "string" } },
+        "starts_at": { "type": ["string", "null"] },
+        "ends_at": { "type": ["string", "null"] }
+      },
+      "required": ["index", "tickets", "starts_at", "ends_at"]
+    },
+    "criticalPath": {
+      "title": "BuildOrderCriticalPath",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "unknown"] },
+        "tickets": { "type": "array", "items": { "type": "string" } },
+        "hours": { "type": ["number", "null"], "minimum": 0 },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["status", "tickets", "hours", "reason"]
+    }
+  }
+}

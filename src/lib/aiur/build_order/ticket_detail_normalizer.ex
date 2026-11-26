@@ -1,8 +1,9 @@
 defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{Bounded, Lifecycle}
-  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Sanitizer, Snapshot}
+  alias Aiur.{Bounded, DisplaySanitizer}
+  alias Aiur.BuildOrder.Lifecycle
+  alias Aiur.BuildOrder.TicketDetail.{DestinationNormalizer, Failure, Snapshot}
   alias Aiur.TrackerIdentity
 
   @default_max_description_bytes 16_384
@@ -37,6 +38,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
          identity: identity,
          title: title,
          description: description,
+         author_login: author_login(raw_issue["user"]),
          lifecycle: lifecycle,
          url: url,
          destinations: destinations,
@@ -113,7 +115,7 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   defp matching_number?(_identity, _raw_issue), do: :provider_identity_mismatch
 
   defp title(value) when is_binary(value) do
-    with {:ok, sanitized} <- Sanitizer.sanitize(value, 512),
+    with {:ok, sanitized} <- DisplaySanitizer.sanitize(value, 512),
          {:ok, _} <- Bounded.title(sanitized) do
       {:ok, sanitized}
     else
@@ -122,11 +124,17 @@ defmodule Aiur.BuildOrder.TicketDetail.Normalizer do
   end
 
   defp title(_value), do: {:error, %Failure{kind: :validation}}
+
+  defp author_login(%{"login" => login}) when is_binary(login),
+    do: if(Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?\z/, login), do: login)
+
+  defp author_login(_user), do: nil
+
   defp description(nil, _max_bytes), do: {:ok, nil}
   defp description("", _max_bytes), do: {:ok, nil}
 
   defp description(value, max_bytes) when is_binary(value) and is_integer(max_bytes) and max_bytes > 0 do
-    case Sanitizer.sanitize(value, max_bytes) do
+    case DisplaySanitizer.sanitize(value, max_bytes) do
       {:ok, sanitized} -> {:ok, if(sanitized == "", do: nil, else: sanitized)}
       :error -> {:error, %Failure{kind: :validation}}
     end

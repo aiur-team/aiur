@@ -1,0 +1,95 @@
+/* Import after VitePress's default theme and aiur-style/tokens.css + css/base.css.
+   Unlayered mappings override VitePress's unlayered defaults. */
+:root,
+html.dark,
+[data-theme="dark"] {
+  --vp-font-family-base: var(--aiur-font-body);
+  --vp-font-family-mono: var(--aiur-font-mono);
+  --vp-c-bg: var(--aiur-color-bg);
+  --vp-c-bg-alt: var(--aiur-color-bg-2);
+  --vp-c-bg-elv: var(--aiur-color-surface);
+  --vp-c-bg-soft: var(--aiur-color-pill-bg);
+  --vp-c-text-1: var(--aiur-color-fg);
+  --vp-c-text-2: var(--aiur-color-muted);
+  --vp-c-text-3: var(--aiur-color-muted);
+  --vp-c-divider: var(--aiur-color-line);
+  --vp-c-gutter: var(--aiur-color-line);
+  --vp-c-brand-1: var(--aiur-color-accent);
+  --vp-c-brand-2: var(--aiur-color-accent-ink);
+  --vp-c-brand-3: var(--aiur-color-fill);
+  --vp-c-brand-soft: var(--aiur-color-accent-soft);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-bg: var(--aiur-color-fill);
+  --vp-button-brand-text: var(--aiur-color-on-fill);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-bg: var(--aiur-color-fill-hover);
+  --vp-button-brand-hover-text: var(--aiur-color-on-fill);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-bg: var(--aiur-color-fill-pressed);
+  --vp-button-brand-active-text: var(--aiur-color-on-fill);
+  --vp-button-alt-border: transparent;
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: var(--aiur-color-muted);
+  --vp-button-alt-hover-border: transparent;
+  --vp-button-alt-hover-bg: color-mix(in srgb, var(--aiur-color-fg) 8%, transparent);
+  --vp-button-alt-hover-text: var(--aiur-color-fg);
+  --vp-button-alt-active-border: transparent;
+  --vp-button-alt-active-bg: var(--vp-button-alt-hover-bg);
+  --vp-button-alt-active-text: var(--aiur-color-fg);
+  --vp-code-block-bg: var(--aiur-color-bg-2);
+  --vp-code-lang-color: var(--aiur-color-muted);
+  --vp-code-line-highlight-color: var(--aiur-color-accent-soft);
+  --vp-home-hero-name-color: var(--aiur-color-fg);
+  --vp-nav-bg-color: color-mix(in srgb, var(--aiur-color-bg) 86%, transparent);
+  --vp-sidebar-bg-color: var(--aiur-color-bg);
+  --vp-local-search-bg: var(--aiur-color-bg);
+}
+
+/* VitePress's unlayered reset masks base.css's layered ring. */
+.VPButton:focus-visible {
+  outline: 2px solid var(--aiur-color-focus);
+  outline-offset: 3px;
+}
+
+.aiur-lines,
+.VPHomeHero::before {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: min(780px, 92vw);
+  height: min(420px, 60vw);
+  border: 1px solid var(--aiur-color-line);
+  border-radius: 50%;
+  background: repeating-linear-gradient(112deg, transparent 0 28px, var(--aiur-color-field-line) 29px, transparent 30px 58px);
+  content: "";
+  opacity: .65;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  pointer-events: none;
+  mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
+}
+
+.VPButton.brand[aria-pressed="true"] {
+  --vp-button-brand-bg: var(--aiur-color-fill-pressed);
+  --vp-button-brand-hover-bg: var(--aiur-color-fill-pressed);
+}
+
+.VPButton:disabled,
+.VPButton[aria-disabled="true"] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.VPButton.brand:disabled,
+.VPButton.brand[aria-disabled="true"] {
+  --vp-button-brand-bg: var(--aiur-color-fill);
+  --vp-button-brand-hover-bg: var(--aiur-color-fill);
+  --vp-button-brand-active-bg: var(--aiur-color-fill);
+}
+
+.VPButton.alt:disabled,
+.VPButton.alt[aria-disabled="true"] {
+  --vp-button-alt-hover-bg: transparent;
+  --vp-button-alt-active-bg: transparent;
+  --vp-button-alt-hover-text: var(--aiur-color-muted);
+  --vp-button-alt-active-text: var(--aiur-color-muted);
+}

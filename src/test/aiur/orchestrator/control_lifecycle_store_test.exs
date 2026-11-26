@@ -46,6 +46,12 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     refute File.read!(ControlLifecycleStore.path_for()) =~ "workspace"
   end
 
+  test "persists the operator max-agents override across orchestrator restarts" do
+    assert :ok = ControlLifecycleStore.update(&%{&1 | max_agents: 4})
+
+    assert ControlLifecycleStore.load().max_agents == 4
+  end
+
   test "a stale control projection preserves another daemon's lifecycle event" do
     stale =
       ControlLifecycle.new(now: @now)
@@ -219,7 +225,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
       restore_env(:log_file, previous_log_file)
       restore_env(:control_lifecycle_store_path, previous_store_path)
       restore_env(:executor_state_dir, previous_state_dir)
-      File.rm_rf!(state_dir)
+      Aiur.TestCleanup.rm_rf!(state_dir)
     end)
 
     # A pre-PR daemon left its control-request audit journal under the boot log

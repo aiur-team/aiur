@@ -5,7 +5,9 @@ defmodule Aiur.PromptBuilder do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, ExternalContent, Workflow}
+  alias Aiur.AgentRunner.{MergePolicyPrompt, OptimisticPrompt}
+  alias Aiur.AgentSkills.Preload
+  alias Aiur.{CodingAgent, Config, ExternalContent, MergePolicy, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
@@ -14,6 +16,20 @@ defmodule Aiur.PromptBuilder do
 
   @spec build_prompt(Aiur.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
+    {prompt, _preload} = build_prompt_with_skills(issue, opts)
+    prompt
+  end
+
+  @doc """
+  Build the cold-start prompt and the skill preload it was built from.
+
+  The preload is returned so the caller can record it in the ticket's dispatch
+  record without resolving the workspace a second time. It is `nil` when no
+  workspace is known, because "no workspace" is not the same fact as "no skills
+  installed" and must not render as a missing-skill warning.
+  """
+  @spec build_prompt_with_skills(Aiur.Issue.t(), keyword()) :: {String.t(), Aiur.AgentSkills.Preload.t() | nil}
+  def build_prompt_with_skills(issue, opts \\ []) do
     template =
       Workflow.current()
       |> prompt_template!()
@@ -31,9 +47,56 @@ defmodule Aiur.PromptBuilder do
       |> IO.iodata_to_binary()
       |> ensure_utf8()
 
-    shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue)
+    preload = skill_preload(issue, opts)
+
+    prompt =
+      shared_prompt_prefix() <>
+        skills_block(preload) <>
+        integration_branch_prompt(issue) <>
+        OptimisticPrompt.render(issue.optimistic_start) <>
+        merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
+
+    {prompt, preload}
   end
+
+  # The skill block sits right after the shared instructions and before the
+  # workflow template, so the worker reads which skills fit its ticket first.
+  @doc false
+  @spec skills_block(Preload.t() | nil) :: String.t()
+  def skills_block(nil), do: ""
+
+  def skills_block(%Preload{} = preload) do
+    case Preload.prompt_block(preload) do
+      "" -> ""
+      block -> block <> "\n"
+    end
+  end
+
+  defp skill_preload(issue, opts) do
+    case Keyword.get(opts, :skill_preload) do
+      %Preload{} = preload ->
+        preload
+
+      _unset ->
+        case Keyword.get(opts, :workspace) do
+          workspace when is_binary(workspace) -> Preload.resolve(issue, workspace)
+          _no_workspace -> nil
+        end
+    end
+  end
+
+  @doc false
+  @spec answered_decisions_prompt([map()]) :: String.t()
+  def answered_decisions_prompt(decisions) when is_list(decisions) and decisions != [] do
+    entries =
+      Enum.map_join(decisions, "\n\n", fn decision ->
+        "Question: #{decision.question}\nAnswer: #{decision.answer}\nAnswered by: #{decision.actor}\nAnswered at: #{DateTime.to_iso8601(decision.accepted_at)}"
+      end)
+
+    "## Answered decisions\n\nThese durable answers are provided for this session. Apply them as the ticket's recorded decisions.\n\n#{entries}\n"
+  end
+
+  def answered_decisions_prompt(_decisions), do: ""
 
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
   #
@@ -80,6 +143,10 @@ defmodule Aiur.PromptBuilder do
     `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
     handoff.
 
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
+
     """
   end
 
@@ -105,6 +172,10 @@ defmodule Aiur.PromptBuilder do
     agent run is live. If a long-lived session's `AIUR_BASE_BRANCH` process-environment value differs from this,
     treat this stated value as authoritative: create or retarget pull requests with `--base "#{base_branch}"`, never
     from `origin/HEAD`, and verify an existing pull request's base before CI handoff.
+
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
 
     """
   end
@@ -133,6 +204,14 @@ defmodule Aiur.PromptBuilder do
 
     """
   end
+
+  @doc "Current local-test policy, rebuilt for cold and continuation turns."
+  @spec merge_policy_prompt() :: String.t()
+  def merge_policy_prompt, do: MergePolicyPrompt.build(MergePolicy.current())
+
+  @doc "Restates the current policy for long-lived agents."
+  @spec merge_policy_restatement() :: String.t()
+  def merge_policy_restatement, do: merge_policy_prompt()
 
   # Appends the dev-configured guidance for the issue's complexity level
   # (agent.complexity_prompts) to the end of the rendered prompt. No label

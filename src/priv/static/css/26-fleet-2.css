@@ -1,0 +1,115 @@
+/* Keep the pause/resume control square — it would otherwise inherit the taller
+   min-height from .units-control-action and render as a portrait rectangle. */
+
+.units-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.units-action:hover {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.units-action.primary {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.units-action.unavailable {
+  cursor: not-allowed;
+  color: var(--muted);
+}
+
+.units-control-glyph {
+  font-weight: 700;
+}
+
+.units-control-note,
+.units-control-owner {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.recent-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.recent-section + .recent-section {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.recent-subtitle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.recent-subtitle-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.outcome-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 0.7rem;
+}
+
+.outcome-card {
+  position: relative;
+  overflow: hidden;
+  padding: 0.88rem 0.95rem 0.88rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-2);
+}
+
+.outcome-card h3 {
+  margin: 0.5rem 0 0;
+  font-size: 0.91rem;
+}
+
+.outcome-card > p {
+  margin: 0.36rem 0 0;
+  color: var(--muted);
+  font-size: 0.79rem;
+}
+
+.outcome-card footer {
+  margin-top: 0.65rem;
+}
+
+.pull-request-number {
+  color: var(--good-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+}

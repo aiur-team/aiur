@@ -1,9 +1,14 @@
 ---
 name: aiur-build
-description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes Executor-owned GitHub ticket promotion; it never implements the feature or runs Aiur."
+description: "Plan an Aiur feature: the aiur-specific layer on the shared build-order decomposition skill — planning-pack formats, continuous-build collection, approval freeze, GitHub promotion, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes Executor-owned GitHub ticket promotion; it never implements the feature or runs Aiur."
 ---
 
 # Build an Aiur Planning Pack
+
+This skill is the Aiur layer of feature planning. The general, tool-agnostic
+decomposition rules live in the shared `build-order` skill; this skill adds only
+what Aiur needs on top of them. Do not restate a general rule here — a second
+copy is exactly the drift this layering exists to stop.
 
 Act as the **Feature Planner**: build the system of understanding that a later
 Executor can execute. Reserve “Executor” for the human or agent operating
@@ -11,9 +16,30 @@ Executor can execute. Reserve “Executor” for the human or agent operating
 or merge product work under this skill. The Executor owns any promotion of
 researched ticket drafts into tracker issues.
 
-Read [the decomposition workflow](references/decomposition-workflow.md) before
-starting. Read [the planning contract](references/planning-contract.md) before
-choosing ticket boundaries or writing structured records.
+Read [the workflow](references/decomposition-workflow.md) for where each stage's
+Aiur records go. Read [the planning contract](references/planning-contract.md)
+before writing structured records.
+
+## Layer on the shared `build-order` skill
+
+Run `build-order` first and follow it for the general method:
+
+- ticket boundaries: when work is one executable ticket, an umbrella, or two;
+- the complexity scale and what each point means;
+- the typed ticket graph — `depends_on`, `serializes_with`, `suggested_after`,
+  `contains` and gates — with its phase leveling, wave profile, critical path
+  and phase-depth budget;
+- mechanical and semantic validation plus the adversarial document review;
+- discovery policy: what a plan may promote, return to rework, or defer.
+
+This skill owns the Aiur side of the same pack: the `tickets/<ID>.md` contract
+and its headings, `build-order.json` and `product_features`, the continuous
+build, approval and re-approval, GitHub promotion, and the Executor handoff.
+
+Check that `build-order` is available before starting. When it is absent, tell
+the user it is a required dependency of this skill and point them at the shared
+skills install; do not rebuild its general rules here. A run that proceeds
+without it says so in the handoff.
 
 ## Recommended dependencies
 
@@ -33,25 +59,19 @@ is recommended and walk them through `/ce-setup` in Claude or the corresponding
 only if they decline or installation is unavailable. Read each selected skill's
 complete instructions before using it.
 
-## Start durably
+## Aiur identity before research
 
-1. Read repository instructions, contribution gates, current branch state, and
-   relevant tracker conventions.
-2. Preserve the original request and constraints. If the user requests a
-   persistent run, create a three-to-five-sentence goal covering research,
-   planning artifacts, ticket contracts, review, and the explicit stop before
-   implementation.
-3. Create a dedicated planning branch without disturbing unrelated work.
-4. Create `questions-or-commands.md` immediately. Ask concise questions in chat
-   and record every unanswered item there so asynchronous work can continue.
-5. Record commit/push permission, GitHub ticket-promotion permission, and
-   the planning-only boundary. Never infer permission to create issues or merge.
-6. Allocate a stable `build_order_id`, logical ticket prefix, and `plan_version`
-   before tickets receive GitHub numbers.
-7. Pin the finite feature boundary: acceptance criteria, critical path,
+`build-order` owns intake. Record these Aiur facts alongside it:
+
+1. a stable feature slug, logical ticket prefix, and `plan_version` before any
+   ticket receives a GitHub number;
+2. commit/push permission, GitHub ticket-promotion permission, and the
+   planning-only boundary — never infer permission to create issues or merge;
+3. the planning branch and `questions-or-commands.md`, so an unanswered
+   question never stalls asynchronous work;
+4. the finite feature boundary — acceptance criteria, critical path,
    documentation/cleanup, end-to-end proof, and the condition that ends the
-   later run. Create an empty deferred-findings ledger so discoveries can be
-   preserved without expanding active scope.
+   later run — plus an empty deferred-findings ledger for discoveries.
 
 Commit and push small coherent checkpoints when authorized. Planning branches
 preserve intent and evidence; they are not live fleet databases.
@@ -69,135 +89,61 @@ Declare precedence for the effort and record exceptions. The default is:
 
 Never copy GitHub/Aiur state into prose and continue presenting it as current.
 
-## Execute the ten-stage workflow
+## Stages
 
-Follow the detailed reference. At a glance:
+`build-order` runs the ten stages and sets their exit criteria. [The
+workflow](references/decomposition-workflow.md) records only what the Aiur pack
+adds at each one: its identity, its records, its validation, its promotion and
+its handoff. In short: research and decide with `build-order` and CE, write the
+pack, validate it, freeze an approval, then promote or hand off.
 
-1. intake, identity, scope, and questions;
-2. current repository, design, tracker, and prior-art grounding;
-3. requirements brainstorm and sizing calibration without premature ticketing;
-4. cumulative evidence and explicit decisions;
-5. adversarial verification of load-bearing claims;
-6. `ce-plan` synthesis of implementation units and candidate boundaries;
-7. worker-sized ticket contracts and typed scheduling graph;
-8. mechanical validation plus adversarial document review;
-9. optional Executor-owned GitHub promotion;
-10. durable runtime Executor handoff and stop.
+## Size the work in Aiur
 
-Use parallel researchers for independent evidence tracks, not for fragmented
-writing of one authoritative document. Give each researcher a bounded question,
-shared evidence format, current repository SHA, and instruction not to edit the
-same files. The Feature Planner must reconcile contradictions.
+The complexity scale is `build-order`'s; Aiur maps each point to a planned
+estimate, and only the Executor may move that number.
 
-## Ticket boundary rule
+**Leave the estimate alone unless you have a strong, specific reason for an estimate override.** Planned estimates come from complexity (1, 2, 4, 7, 11 hours for complexities 1–5). For bigger or more uncertain work, fix the complexity label or split the ticket. Override only duration complexity does not capture, such as human review rounds, outside waits, or a long migration: `aiur ticket estimate <id> <hours> --reason "<cause> — from <old>h to <new>h"`. The operator sees the reason word for word on the planned card and in the ticket modal: write one line, at most 500 characters, that they can check. Undo with `aiur ticket estimate <id> --clear --reason "<why>"`. Only the Executor changes estimates; issue workers have no estimate tool.
 
-An executable ticket must have one owning agent, one coherent outcome, one
-review/acceptance boundary, and a PR that can leave the repository green. Split
-work with multiple independently shippable outcomes, bounded contexts, public
-contracts, or internal phase programs. Merge observations that share one root
-cause, owner/write seam, and verification boundary.
+## Land the graph as Aiur records
 
-Every executable ticket carries concrete implementation pointers — exact
-files, module and function names, patterns to copy, one worked data shape —
-verified against the researched commit and marked refreshable. Abstract
-constraint prose alone is not worker-ready for low-tier models, and a named
-reuse target that does not exist at the researched commit is a
-review-blocking defect.
-
-Complexity points measure size and uncertainty only:
-
-- `1`: localized known-pattern change;
-- `2`: one component/subsystem, modest multi-file work;
-- `3`: one bounded context with a new contract or meaningful integration;
-- `4`: cross-context/high-uncertainty; split unless intrinsically indivisible;
-- `5`: irreducible cross-system risk or capstone, with explicit rationale.
-
-Track risk and capability needs separately. A ticket with its own multi-phase
-plan is usually an umbrella, not an executable complexity-5 ticket.
-
-Define discovery policy before handoff: P0/P1 acceptance blockers may be
-promoted, contained review findings return to the owning ticket, and P2/P3 or
-optimization findings stay in the deferred ledger. The later Executor must not
-turn useful observations into an open-ended feature backlog.
-
-## Model the graph correctly
-
-Use hard `depends_on` only for semantic start/merge prerequisites. Represent
-resource or merge conflicts as `serializes_with`, advisory order as
-`suggested_after`, hierarchy as `contains`, and external constraints as gates.
-
-Design the graph for parallel execution, not just correctness: compute the
-wave profile and critical path before approval; dissolve same-wave
-serialization cliques by re-partitioning write surfaces (one module per
-page/section mounted by a shared shell beats many tickets composing one
-file); prefer reviewed-contract dependencies over proven-implementation
-dependencies where an explicitly temporary path is specified; and mark the
-top fan-out spine for first-slot staffing in the Executor handoff.
-Treat phase as a rollout/presentation hint, not a global barrier. Readiness is
-derived from hard dependencies, conflicts, current state, and capacity.
+`build-order` defines the edge types and computes the phases. This skill records
+where a planned edge lands in Aiur: a real start/merge prerequisite becomes a
+native `blocked_by` link on promotion, a write-surface conflict stays in the
+pack as `serializes_with` (Aiur does not enforce it), and an advisory order
+becomes queue position. Mark the top fan-out spine for first-slot staffing in
+the handoff.
 
 Include an audit/ADR gate when ownership is uncertain and an explicit
 integration/feature-acceptance capstone from day one. Preserve planned versus
 discovered ticket provenance as `plan_version` evolves.
 
-## Write one canonical runtime pack
+## Output a collection into the continuous build
 
-The per-repository state node remains the durable runtime authority. Successful
-publication also writes a repository-local discovery mirror at
-`.aiur/build_orders/<slug>.json`; the dashboard discovers both and reconciles
-copies by the precedence documented below. It never reads planning branches or
-arbitrary copies under `docs/`:
+A new feature produces a feature collection appended to the repository's single
+continuous build, never a standalone Build Order root. Keep requirements,
+versioned design captures, evidence, decisions, ticket drafts, typed graph,
+wave/critical-path analysis, validation report, and approved planning SHA in the
+reviewable planning pack. These remain durable intent, not live runtime state.
 
-```text
-~/.aiur/repo/<owner>/<repo>/builds/<slug>/
-  build-order.json
-  status.json
-  tickets/<ID>.md
-```
+Record each product feature group in `product_features` with a stable slug,
+display label, and a complete, non-overlapping `ticket_ids` partition. An epic
+holds the pack's features, a feature holds tickets, and a lane is the technical
+column a ticket belongs to, so each product feature's lanes stay lanes on that
+feature. Also record links to existing build tickets. Keep real prerequisites separate
+from scheduling preferences. On promotion, record tracker-number mappings,
+`feature:<slug>` label verification, queue name and rank, and placement evidence.
+A collection is not a separate run or a new acceptance boundary for the repository.
 
-This state-node path is machine-local runtime storage, not a worktree path.
-Executor-authored findings and retros live in its sibling `meta/` directory;
-do not create build packs or operational notes under `docs/executor/` as a
-substitute for the canonical state node.
+Existing `build-order.json` packs and state-node discovery mirrors remain
+readable history. Do not publish a new legacy runtime pack or create a root to
+make a new feature visible. Use `aiur feature create` and `aiur feature add` when
+promotion is authorized, following the intake procedure below.
 
-The researched ticket document is the draft body, not a second status system.
-Every member in `build-order.json` uses the canonical runtime shape:
-
-```json
-{
-  "id": "AS-101",
-  "title": "Wire the stream",
-  "lane": "runtime",
-  "phase": 1,
-  "complexity": 2,
-  "depends_on": [],
-  "ticket": null,
-  "doc": "tickets/AS-101.md",
-  "icon": "bolt"
-}
-```
-
-`ticket` is the authority pointer: `null` means the member is still a draft;
-an issue number means the tracker is authoritative. `doc` is relative to the
-build directory. A pack may set `icon` to choose its catalog icon; omitted icons
-receive a deterministic generic default, distinct from other build orders in
-the same repository list. Member icons remain presentation hints.
-
-Do not ship converter code. Existing packs are one-time Executor hand-conversion
-work after the reader lands. Canonical planning artifacts under `docs/` remain
-version-control evidence, not discovery inputs. After materialization, the
-publisher writes the matching live discovery mirror to
-`.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
-When the same repository-qualified `build_order_id` appears in more than one
-discovery source, Aiur keeps exactly one copy by source precedence: workspace
-mirror, repository state, `AIUR_BUILD_ORDER_DIRS`, configured list, then the
-singular test/demo override. It logs whether the discarded copy was identical
-or divergent. Different build-order IDs are never reconciled merely because
-their root numbers collide; the catalog keeps both so deep links fail closed.
-
-Verify before declaring planning complete: with the daemon running, open the
-Build Order page and confirm the pack title and members render. This is a
-required verification rung, not a documentation-only check.
+Before handoff, verify promoted members in the continuous Build view; until
+that view ships, use `aiur feature show <slug> --json` and `aiur queue show --json`
+(`aiur build-orders` remains useful for legacy roots). An unpromoted planning
+pack instead records the proposed collection and queue placement for the Executor;
+it must not claim live membership or completed placement verification.
 
 ## Approval freeze and re-approval
 
@@ -218,30 +164,56 @@ applies: make subsequent edits on the ticket, not in the planning document.
 ## Optional GitHub promotion
 
 Only the Executor promotes researched drafts, and only when the user explicitly
-asks to create tickets. Ask whenever the user wants tickets created; encourage
+asks to create tickets or has already granted that authority; encourage
 creating every researched, ready-to-begin ticket together. Per-phase promotion
 is optional user complexity, never a hardcoded Aiur workflow.
 
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give promoted members a home-page lane through their feature collection.** Follow continuous-build intake below, defining the collection's lanes and assigning members with `aiur feature add <slug> <ids…> --lane <lane>` when needed. Choose column names using the lane guidance in [decomposition workflow](references/decomposition-workflow.md); new collections need no Build Order root. New packs label tickets `lane:<lane>`; existing legacy roots keep their sub-issue and `build-lane:<lane>` mapping. Tickets filed outside the collection follow the [Executor home-page lane rule](../aiur-run/references/executor.md).
+
+Publication creates plain GitHub issue titles from the plan title; logical IDs
+remain in the ticket body and publication receipt. It registers one epic for the
+planning pack (`bo-<root number>`, the epic a Build Order root imports as), one
+feature per `product_features` group inside that epic, and each feature's lanes
+with their workstream icons, then assigns every published issue to exactly one
+collection and its planned lane. Re-running publication reconciles the same
+epic, collections and membership, and writes nothing new when they already
+match.
+The publisher runs the product `aiur` command from `PATH`; set
+`AIUR_FEATURE_CLI` to an executable `aiur` or `aiurdev` path when it is not on
+`PATH` or the package's runtime instance must be selected explicitly.
+
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned
-issue number in that member's `ticket` field, and freezes the document. **After
+issue number in the pack's logical-to-tracker mapping, and freezes the document. **After
 promotion, edits go to the ticket, never the doc.** This transfer of authority
 is the anti-duplication rule.
 
-Apply the configured lifecycle todo label (`agent:todo` in the standard
-workflow) in that same creation request for every executable member. The Build
-Order root carries only its `build-order` container label, and any separately
-promoted `Epic:` container remains explicitly undispatched. Never create a
-member and add its dispatch label afterward: publication is incomplete unless
-the create response already represents dispatchable work.
-
+Complete [continuous-build intake](../aiur-run/references/continuous-build-intake.md)
+as part of promotion: create the feature collection, file members with their
+feature and disposition labels, write native prerequisites (including real links
+to existing work), join the registry, and enqueue every executable member.
+Feature ownership and queue membership are separate writes; read both back and
+repair partial intake before declaring success. Never create a Build Order root.
+If the operator says “prioritize”, place the collection before the prior next-up
+using priority labels and queue ordering, and report the displaced work. If the
+operator gave no position, ask before enqueueing. Show the current queue order
+and offer "Before <set>" choices, as the intake reference describes in step 1.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
 
+`scripts/render_build_order_review.py` renders the graph review (waves, typed
+edges, critical path, progress, epics, features, lanes) from one
+`build-order.v1` document, using the daemon when one is running and the pack walk
+when it is not. See [the planning
+contract](references/planning-contract.md#the-review-reads-the-published-document).
+
 ## Handoff and stop
 
-The handoff identifies the Build Order/version, approved planning commit,
+The handoff identifies the feature slug/plan version, approved planning commit,
 GitHub selector, source precedence, decisions/contracts, unresolved human
 gates, integration/acceptance owner, finite feature boundary, deferred-findings
 ledger, backlog-growth circuit breaker, runtime terminal condition, and queries
@@ -251,3 +223,7 @@ three-to-five-sentence goal summarizing its Executor role and authority.
 Stop after the reviewed pack and any separately user-authorized Executor
 promotion.
 Do not start Aiur or implement the first ticket as a convenience.
+
+Add `experiment:feature` to the promoted root to measure it automatically; see `website/docs-app/concepts/experiments.md` (Measuring a feature).
+
+Workstream metadata: choose a unique Heroicons v2 outline icon, a one-line summary of at most 100 characters, and an optional wave in `build-order.json`. A feature's lane icons must differ from the icons of the configured lanes whose label matchers hit the same ticket. See `references/planning-contract.md`.

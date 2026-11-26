@@ -4,7 +4,6 @@ defmodule Aiur.AgentEventFeedTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AgentEventFeed, IssueLog}
-  alias AiurWeb.{StreamdeckLogs, StreamdeckStrip}
 
   # `use Aiur.TestSupport` already points `:log_file` at a per-test root and
   # removes it after the test. Do not add a second root that is removed with
@@ -12,6 +11,19 @@ defmodule Aiur.AgentEventFeedTest do
   # root, and a write during the removal makes `rm_rf!` raise.
   setup do
     %{identifier: "event-feed-#{System.unique_integer([:positive])}"}
+  end
+
+  test "badge vocabulary covers every produced badge" do
+    roles = ~w(command tool user assistant system reasoning alert unknown)
+    kinds = ~w(emit consumed emit_alert self other)
+
+    for role <- roles, input <- [role, String.to_atom(role)] do
+      assert AgentEventFeed.badge(input) in AgentEventFeed.directions()
+    end
+
+    for kind <- kinds, input <- [kind, String.to_atom(kind)] do
+      assert AgentEventFeed.badge_for_kind(input) in AgentEventFeed.directions()
+    end
   end
 
   test "returns durable events newest first with every documented badge", %{identifier: identifier} do
@@ -52,26 +64,6 @@ defmodule Aiur.AgentEventFeedTest do
     assert {:ok, %{events: [message, diff]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", body: "edit lib/replaced.ex"} = message
     assert %{type: "diff", path: "lib/example.ex", additions: 1, deletions: 1, line: "new", signed_line: "+new"} = diff
-  end
-
-  test "preserves the representative line sign through the Stream Deck strip", %{identifier: identifier} do
-    diff = "++x = 1\n-y = 2"
-
-    write_events(identifier, [
-      event("tool", "edit a.ex", %{"tool" => "edit", "changes" => [%{"path" => "a.ex", "diff" => diff}]})
-    ])
-
-    assert {:ok, %{events: [event]}} = AgentEventFeed.list(identifier)
-    assert %{additions: 1, deletions: 1, line: "+x = 1", signed_line: "++x = 1"} = event
-
-    [strip_entry] =
-      %{events: [], transcript: [event]}
-      |> StreamdeckLogs.project()
-      |> Map.fetch!(:transcript)
-      |> Enum.filter(&(&1.kind == :diff))
-      |> StreamdeckStrip.entries()
-
-    assert %{shape: :diff, line: "++x = 1", line_kind: :addition} = strip_entry
   end
 
   test "an agent with no events returns an empty page", %{identifier: identifier} do

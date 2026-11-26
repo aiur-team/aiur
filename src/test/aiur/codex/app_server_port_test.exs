@@ -29,7 +29,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
       on_exit(fn ->
         File.rm(linked)
-        File.rm_rf(outside)
+        Aiur.TestCleanup.rm_rf!(outside)
       end)
 
       assert {:error, {:invalid_workspace_cwd, :outside_workspace_root, _, _}} =
@@ -53,8 +53,8 @@ defmodule Aiur.Codex.AppServerPortTest do
   end
 
   describe "codex command test seam" do
-    test "nil model leaves the configured command untouched" do
-      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command()
+    test "nil model enables native capture on the configured command" do
+      assert AppServerPort.codex_command_for_test(nil) == CodexConfig.command() <> " --config features.default_mode_request_user_input=true"
     end
 
     test "appends model then effort with shell escaping" do
@@ -62,7 +62,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
       assert command ==
                CodexConfig.command() <>
-                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"'"
+                 " --config 'model=\"gpt'\"'\"'5.5\"' --config 'model_reasoning_effort=\"high\"' --config features.default_mode_request_user_input=true"
     end
   end
 
@@ -107,6 +107,28 @@ defmodule Aiur.Codex.AppServerPortTest do
   end
 
   describe "stop_port/1" do
+    test "regression guard: stop kills the child tree before closing the port" do
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+          [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", ~c"sleep 600 & printf '%s\n' $!; wait"], line: 64_000]
+        )
+
+      assert_receive {^port, {:data, {:eol, child}}}, 2_000
+      child_pid = String.to_integer(child)
+      {:os_pid, root_pid} = Port.info(port, :os_pid)
+
+      on_exit(fn ->
+        for pid <- [child_pid, root_pid], do: System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
+      end)
+
+      assert {_, 0} = System.cmd("kill", ["-0", child], stderr_to_stdout: true)
+      assert :ok = AppServerPort.stop_port(port)
+      assert Port.info(port) == nil
+      assert {_, status} = System.cmd("kill", ["-0", child], stderr_to_stdout: true)
+      assert status != 0
+    end
+
     test "returns :ok for an already closed port" do
       port = open_cat_port()
       true = Port.close(port)

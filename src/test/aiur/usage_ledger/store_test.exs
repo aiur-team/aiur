@@ -50,7 +50,7 @@ defmodule Aiur.UsageLedger.StoreTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-usage-ledger")
     name = String.to_atom("usage_ledger_#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, name: name}
   end
 
@@ -158,7 +158,7 @@ defmodule Aiur.UsageLedger.StoreTest do
 
   test "recovers one uncheckpointed canonical append after a checkpoint failure without a second delta", %{root: root, name: name} do
     {:ok, pid} =
-      start_store(root, name, checkpoint_fun: fn _path, _checkpoint -> {:error, :eio} end)
+      start_store(root, name, checkpoint_interval: 1, checkpoint_fun: fn _path, _checkpoint -> {:error, :eio} end)
 
     first = envelope(%{})
     assert {:error, :persistence_failed} = append(name, first)
@@ -236,7 +236,7 @@ defmodule Aiur.UsageLedger.StoreTest do
       end
     end
 
-    {:ok, pid} = start_store(root, name, checkpoint_fun: checkpoint_fun)
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 1, checkpoint_fun: checkpoint_fun)
 
     next =
       envelope(%{
@@ -308,7 +308,7 @@ defmodule Aiur.UsageLedger.StoreTest do
     GenServer.stop(pid)
   end
 
-  test "encodes each candidate checkpoint once and retains records in an append-efficient queue", %{
+  test "writes at most ten checkpoints for one thousand appends", %{
     root: root,
     name: name
   } do
@@ -319,9 +319,9 @@ defmodule Aiur.UsageLedger.StoreTest do
       Checkpoint.encode(checkpoint, max_bytes)
     end
 
-    {:ok, pid} = start_store(root, name, checkpoint_encode_fun: encode_fun)
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 100, checkpoint_encode_fun: encode_fun)
 
-    Enum.each(1..32, fn offset ->
+    Enum.each(1..1_000, fn offset ->
       measurement =
         envelope(%{
           idempotency_key: "codex:scaling-#{offset}",
@@ -335,14 +335,115 @@ defmodule Aiur.UsageLedger.StoreTest do
     end)
 
     encoded_positions =
-      Enum.map(1..32, fn _offset ->
+      Enum.map(1..10, fn _offset ->
         assert_receive({:checkpoint_encoded, position}, 2_000)
         position
       end)
 
-    assert encoded_positions == Enum.to_list(1..32)
-    assert :queue.len(:sys.get_state(name).records) == 32
+    assert encoded_positions == Enum.to_list(100..1_000//100)
+    refute_receive {:checkpoint_encoded, _position}, 100
+    assert :queue.len(:sys.get_state(name).records) == 1_000
     GenServer.stop(pid)
+  end
+
+  test "an oversized checkpoint still lands the append, backs off one interval, and alerts once", %{root: root, name: name} do
+    parent = self()
+
+    encode_fun = fn checkpoint, max_bytes ->
+      send(parent, {:checkpoint_encoded, checkpoint["position"]})
+      if checkpoint["position"] <= 4, do: {:error, :record_too_large}, else: Checkpoint.encode(checkpoint, max_bytes)
+    end
+
+    alert_fun = fn topic, opts -> send(parent, {:alert, topic, opts}) end
+
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 2, checkpoint_encode_fun: encode_fun, alert_fun: alert_fun)
+
+    for position <- 1..3, do: assert({:ok, %{position: ^position}} = append(name, scaling_envelope(position)))
+    assert_received {:checkpoint_encoded, 2}
+    refute_received {:checkpoint_encoded, 3}
+    assert_received {:alert, "system.usage_ledger.degraded", alert}
+    assert alert[:needs_attention] == true
+    assert {:degraded, :checkpoint_too_large} = health(name)
+
+    assert {:ok, %{position: 4}} = append(name, scaling_envelope(4))
+    assert_received {:checkpoint_encoded, 4}
+    refute_received {:alert, _topic, _opts}
+
+    for position <- 5..6, do: assert({:ok, %{position: ^position}} = append(name, scaling_envelope(position)))
+    assert_received {:checkpoint_encoded, 6}
+    assert_received {:alert, "system.usage_ledger.degraded.resolved", _resolved}
+    assert health(name) == :healthy
+    GenServer.stop(pid)
+
+    {:ok, restarted} = start_store(root, name)
+    assert {:ok, records} = scan(name)
+    assert Enum.map(records, & &1.position) == Enum.to_list(1..6)
+    GenServer.stop(restarted)
+  end
+
+  test "sheds appends instead of queueing behind a backed-up ledger", %{root: root, name: name} do
+    parent = self()
+
+    # Only the first checkpoint blocks, so the queue drains once it is released.
+    checkpoint_fun = fn path, checkpoint ->
+      unless Process.get(:checkpoint_released) do
+        send(parent, {:checkpoint_waiting, self()})
+
+        receive do
+          :continue_checkpoint -> Process.put(:checkpoint_released, true)
+        end
+      end
+
+      Checkpoint.overwrite_encoded(path, checkpoint)
+    end
+
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 1, checkpoint_fun: checkpoint_fun)
+    blocked = Task.async(fn -> Store.append(name, scaling_envelope(1)) end)
+    assert_receive {:checkpoint_waiting, checkpoint_owner}, 2_000
+
+    # Enqueue the waiting calls directly so the queue length is exact on return.
+    queued =
+      for offset <- 2..(Store.max_queued_appends() + 1) do
+        reference = make_ref()
+        send(pid, {:"$gen_call", {self(), reference}, {:append, scaling_envelope(offset)}})
+        reference
+      end
+
+    assert {:error, :overloaded} = Store.append(name, scaling_envelope(10_000))
+
+    send(checkpoint_owner, :continue_checkpoint)
+    assert {:ok, %{position: 1}} = Task.await(blocked)
+
+    for reference <- queued do
+      assert_receive {^reference, {:ok, _acknowledgement}}, 10_000
+    end
+
+    GenServer.stop(pid)
+  end
+
+  defp scaling_envelope(offset) do
+    envelope(%{
+      idempotency_key: "codex:scaling-#{offset}",
+      source_event_id: "scaling-#{offset}",
+      source_sequence: 17 + offset,
+      tokens: token_values(10 + offset),
+      cost: nil
+    })
+  end
+
+  test "recovers journal records after the checkpoint interval", %{root: root, name: name} do
+    {:ok, pid} = start_store(root, name)
+    first = envelope(%{})
+
+    assert {:ok, %{position: 1}} = append(name, first)
+    assert {:ok, checkpoint} = Checkpoint.load(Path.join(root, "checkpoint.json"))
+    assert checkpoint.position == 0
+    GenServer.stop(pid)
+
+    {:ok, restarted} = start_store(root, name)
+    assert {:ok, [%{position: 1}]} = scan(name)
+    assert {:duplicate, %{position: 1}} = append(name, first)
+    GenServer.stop(restarted)
   end
 
   defp start_store(root, name, opts \\ []) do

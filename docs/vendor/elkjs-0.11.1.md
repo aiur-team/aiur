@@ -11,14 +11,20 @@ Aiur vendors the ELK.js `0.11.1` layout runtime for the graph geometry worker. I
 
 ## Reproducing and upgrading
 
-From `src/browser`, after an approved package update:
+The U0 offline asset/hash decision is build-time npm (Executor decision on #3417).
+
+The engine, worker and client in `priv/static/vendor/elk/0.11.1/` are gitignored build outputs. Release builds and `aiurdev build` install the pinned package with `npm ci --ignore-scripts`, generate the three files, verify them against the tracked manifest, and log the engine SHA-256. Generation failure aborts the build. A first build needs network access or a populated npm cache; the resulting dashboard works offline.
+
+To reproduce the approved bytes from `src/browser`:
 
 ```sh
 npm ci --ignore-scripts
-npm run vendor:elk
+npm run vendor:elk -- --check
 npm run check:elk
 ```
 
-`vendor:elk` copies only the approved engine, license, authored worker, and DOM-free client. `check:elk` compares the committed engine/license to the exact lockfile package, checks hashes and size bounds, rejects source maps, and verifies each public URL changes with its bytes.
+`vendor:elk` copies only the approved engine, license, authored worker, and DOM-free client. The authored worker is kept as ordered parts in `src/browser/layout/worker/NN-*.js` (each at most 500 lines) and `vendor:elk` joins them byte-for-byte into the single `aiur-layout-worker.js`, so its hash and URL do not change; add a part with the next numeric prefix. `check:elk` compares the generated engine/license to the exact lockfile package, checks hashes and size bounds, rejects source maps, and verifies each public URL changes with its bytes.
+
+An approved source or dependency update uses `npm run vendor:elk` without `--check` to update the tracked manifest and provenance; review those changes before building.
 
 An ELK upgrade must be reviewed as a protocol/runtime change: verify the release, license, integrity, size, browser-worker fixtures, and packaged-release check before changing the pin. PR CI builds an actual production OTP release, validates both its and the copied platform package's asset records, then loads the packaged Worker offline under a self-only CSP. The release workflow repeats the asset validation for every publishable target.

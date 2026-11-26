@@ -2,6 +2,7 @@ defmodule Aiur.DecisionQuery.StoreReader do
   @moduledoc false
 
   alias Aiur.{Decision, DecisionStore}
+  alias Aiur.DecisionStore.ProjectionRecovery
 
   @type health :: %{
           status: :available | :partial | :unavailable,
@@ -53,7 +54,8 @@ defmodule Aiur.DecisionQuery.StoreReader do
     case safe_store_call(fn -> DecisionStore.retained_counts(store) end) do
       {:ok, %{counts: %{open: open, blocking: blocking} = counts, health: store_health}}
       when is_integer(open) and is_integer(blocking) ->
-        {:ok, Map.take(counts, [:open, :blocking, :total, :awaiting, :awaiting_blocking, :deferred]), health(store_health)}
+        {:ok, Map.take(counts, [:open, :blocking, :total, :awaiting, :awaiting_blocking, :deferred, :needs_you, :needs_you_blocking, :with_executor, :from_executor, :needs_you_by_ticket]),
+         health(store_health)}
 
       _unavailable ->
         {:error, :store_unavailable}
@@ -83,6 +85,10 @@ defmodule Aiur.DecisionQuery.StoreReader do
 
   defp missing_decision(%{status: :partial} = health), do: {:error, {:indeterminate, health}}
   defp missing_decision(_health), do: {:error, :not_found}
+
+  defp health({:projection_stale, _since} = health) do
+    Map.merge(available_health(), %{stale: true, label: ProjectionRecovery.label(health)})
+  end
 
   defp health(:writable), do: available_health()
   defp health({:corrupt, _line, _reason}), do: partial_health()

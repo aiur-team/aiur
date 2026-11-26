@@ -24,13 +24,14 @@ defmodule Aiur.SystemCpuTest do
     assert %{idle_percent: 80.0, runnable: 2} = SystemCpu.headroom(previous, current)
   end
 
-  test "reports niced CPU time as reclaimable headroom" do
-    previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
-    current = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+  test "reports CPU niced above the daemon as reclaimable headroom" do
+    previous = %{total: 1_000, idle: 600, nice: 100, background: %{epoch: :e, daemon_nice: 0, ticks: 100, cpu_total: 1_000}, runnable: 20}
+    current = %{total: 1_200, idle: 620, nice: 240, background: %{epoch: :e, daemon_nice: 0, ticks: 240, cpu_total: 1_200}, runnable: 74}
 
     assert %{
              idle_percent: 10.0,
              nice_percent: 70.0,
+             background_percent: 70.0,
              reclaimable_percent: 80.0,
              runnable: 74
            } = SystemCpu.headroom(previous, current)

@@ -116,7 +116,14 @@ defmodule Aiur.PollCadence do
   """
 
   alias Aiur.Config
-  alias Aiur.Webhooks.IntervalPolicy
+
+  @doc "Widens an interval by a factor while preserving the original as a floor."
+  @spec widen(pos_integer(), number()) :: pos_integer()
+  defdelegate widen(base_ms, factor), to: Aiur.PollCadence.Widen
+
+  @doc "The configured widen factor, floored at 1.0."
+  @spec widen_factor(keyword()) :: float()
+  defdelegate widen_factor(opts \\ []), to: Aiur.PollCadence.Widen
 
   # The classes that resolve their own cadence. The schema mirrors this list
   # (as strings) for `polling.intervals` validation; a test keeps the two in
@@ -304,8 +311,8 @@ defmodule Aiur.PollCadence do
 
       base_ms ->
         base_ms
-        |> IntervalPolicy.widen(webhook_widen_factor(opts))
-        |> IntervalPolicy.widen(idle_widen_factor(opts))
+        |> widen(webhook_widen_factor(opts))
+        |> widen(idle_widen_factor(opts))
     end
   end
 
@@ -462,13 +469,13 @@ defmodule Aiur.PollCadence do
   defp webhook_widen_factor(opts) do
     opts
     |> Keyword.get_lazy(:webhook_widen_factor, fn -> configured_factor(:webhooks, :poll_widen_factor) end)
-    |> then(&IntervalPolicy.widen_factor(widen_factor: &1))
+    |> then(&widen_factor(widen_factor: &1))
   end
 
   defp idle_widen_factor(opts) do
     opts
     |> Keyword.get_lazy(:idle_widen_factor, fn -> configured_factor(:polling, :idle_widen_factor) end)
-    |> then(&IntervalPolicy.widen_factor(widen_factor: &1))
+    |> then(&widen_factor(widen_factor: &1))
   end
 
   defp configured_factor(section, key) do

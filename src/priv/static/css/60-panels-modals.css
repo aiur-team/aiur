@@ -1,0 +1,69 @@
+/* ---- Agents panel header ----
+   The same title/count pair the APIs and Models panels use, so the three panel
+   headers read as one system. It sits above the filter row, not inside it. */
+
+
+/* ---- Tickets panel ----
+   Every open ticket on the repository, including the ones no agent has been
+   routed to yet. Shares the Units table's full-bleed geometry and row tones. */
+
+/* The search sits between the panel title and the table because that is the
+   order the operator reads in: what this list is, how to narrow it, then the
+   list. It spans the panel so the input is the widest thing under the header
+   and cannot be mistaken for one more filter pill. */
+
+/* Borrows the tokens `.field-select` established rather than forking a second
+   field look: the border, radius, surfaces, and state colours are the ones the
+   add-agent selects use, so the dashboard's form controls read as one family.
+   This is not a `.field-select` itself — that control wraps a `<select>` and
+   draws a chevron for a popup this field does not have. The height stays at the
+   44px target the Units page holds its controls to. */
+
+/* The page-wide focus ring covers buttons, links, and textareas but not inputs.
+   Drawn with `--accent` rather than the page-wide `--accent-line` for the
+   reason the select control documents: `--accent-line` is too transparent to
+   clear 3:1 against a filled field in either theme. */
+
+/* WebKit draws its own clear "×" inside type="search", which no keyboard can
+   reach — two clear controls where only one is operable. The explicit Clear
+   button is the single affordance. */
+
+/* Same box as the field it clears, so the pair reads as one control row. */
+
+/* A search that found nothing is a smaller statement than an empty backlog:
+   the panel still has tickets, just none under this query. */
+
+/* The reveal control sits outside the table so it is never mistaken for a row
+   and never intercepts a row's click. Centred, matching the History "Load more". */
+
+/* ---- Ticket detail modal ---- */
+
+/* ---- Add-agent modal ---- */
+/* Header, then the scrolling form, then the optional read-only footnote — the
+   routing explainer that used to sit between the first two rows is gone. */
+
+/* ---- Select control ----
+   Written as a shared control rather than an add-agent one-off — the modal's
+   four selects are the dashboard's only ones today, so the next select to
+   arrive should join `.field-select` instead of forking this.
+
+   Geometry matches `.btn`: same 2.25rem height and 10px radius, so the Confirm
+   row and the fields above it sit on one vertical rhythm.
+
+   Native option rows cannot be given breathing room. Chromium and WebKit hand
+   the popup to the OS and drop `padding` on `<option>` outright; only Gecko
+   renders it in-page and honours it. The `option` rule below is therefore a
+   Firefox-only gain, kept because it costs nothing where it is ignored. Buying
+   the spacing everywhere would mean a bespoke JS listbox, and this dashboard
+   has no combobox pattern to build on — a half-built one would be worse for a
+   keyboard or screen-reader operator than the native control it replaced. */
+
+/* Chevron drawn from two borders rather than a background SVG: a data-URI icon
+   would have to hard-code its stroke, while a border tracks the theme's
+   `--muted` and follows the control's own hover and focus states. */
+
+/* `:focus` covers the open popup, which no pseudo-class reports portably. */
+
+/* The page-wide ring is `--accent-line`, which is too transparent to clear 3:1
+   against `--surface-2` in either theme. `--accent` clears it at 4.1:1 dark and
+   6.3:1 light, so the ring is solid on a control the operator tabs into. */

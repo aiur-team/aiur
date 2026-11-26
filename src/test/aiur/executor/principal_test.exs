@@ -6,7 +6,7 @@ defmodule Aiur.Executor.PrincipalTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-executor-principal")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{path: Path.join(root, "claims.json")}
   end
 

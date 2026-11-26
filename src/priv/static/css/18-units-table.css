@@ -1,0 +1,17 @@
+/* ---- compact units table (Claude design) ----
+   ID / Unit / Command are squeezed to just what they need; Ticket and Latest
+   have no fixed width, so (with table-layout: fixed) they split the remaining
+   space and get the most room. */
+
+/* The legacy medium-priority ink needs a small lift on Gruvbox surfaces to clear AA. */
+
+/* Medium widths: keep ID / Unit / Command as inline columns, but merge Ticket
+   and Latest into one column — title on top, progress/latest at the bottom — so
+   neither gets crushed into a narrow strip. */
+
+/* Compact table stacks simply on narrow screens (overrides the old grid map). */
+/* Keep the compact single-row table down to true phone widths; only reflow the
+   cells into stacked sub-rows on the smallest screens. Even then, keep it short:
+   ID + Unit pills + Command share the top line, then Ticket, then Latest. */
+
+/* Units page heading (icon tile + title), matching the design's page-head. */

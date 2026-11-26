@@ -3,6 +3,9 @@ defmodule Aiur.OpenAICompat.Config do
 
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.Schema.OpenRouterBackend
+  alias Aiur.Init.Dotenv
+  alias Aiur.OpenAICompat.OutputTokens
 
   @required ~w(base_url api_key_env transport)a
 
@@ -15,15 +18,28 @@ defmodule Aiur.OpenAICompat.Config do
          {:ok, runtime_config} <- backend_config(backend, opts),
          config <- merge_runtime_config(instance, runtime_config),
          {:ok, config} <- validate(config),
-         {:ok, api_key} <- fetch_api_key(config.api_key_env, opts),
+         account_name = Keyword.get(opts, :account_name),
+         {:ok, api_key} <- fetch_api_key(config.api_key_env, account_name, opts),
          {:ok, model} <- resolve_model(config, opts) do
       {:ok,
        config
        |> Map.put(:backend, backend)
+       |> Map.put(:account_name, account_name)
        |> Map.put(:api_key, api_key)
        |> Map.put(:model, model)
+       |> Map.put(:max_output_tokens, OutputTokens.resolve(Map.get(config, :max_output_tokens)))
+       |> put_route_preferences(model)
        |> Map.put(:request_fun, Keyword.get(opts, :request_fun, &request/1))}
     end
+  end
+
+  # OpenRouter's provider preferences and model sets are shaped from the route
+  # that actually won dispatch: the model segment names either one model, an
+  # inline set, or a named set in `backend_configs.openrouter.routes`.
+  defp put_route_preferences(config, model) do
+    if Map.get(config, :provider_preferences) == true,
+      do: OpenRouterBackend.apply_route(config, model),
+      else: config
   end
 
   defp instance_config(_backend, opts) do
@@ -85,12 +101,37 @@ defmodule Aiur.OpenAICompat.Config do
   defp valid_required?(config, :transport), do: Map.get(config, :transport) in [:chat_completions, :responses]
   defp valid_required?(config, key), do: is_binary(Map.get(config, key)) and String.trim(Map.fetch!(config, key)) != ""
 
-  defp fetch_api_key(env_name, opts) do
-    fetcher = Keyword.get(opts, :api_key_fetcher, &System.get_env/1)
+  defp fetch_api_key(env_name, account_name, opts) do
+    fetcher =
+      Keyword.get(opts, :api_key_fetcher, fn key ->
+        account_api_key(env_name, opts) ||
+          unless(Aiur.Secrets.secrets_from_env?(), do: account_api_key_from_file(env_name, account_name)) || System.get_env(key)
+      end)
 
     case fetcher.(env_name) do
       value when is_binary(value) and value != "" -> {:ok, value}
       _ -> {:error, {:missing_api_key, env_name}}
+    end
+  end
+
+  defp account_api_key(env_name, opts) do
+    case Keyword.get(opts, :env, []) |> Enum.find(fn {name, _} -> name == env_name end) do
+      {_name, value} when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp account_api_key_from_file(env_name, selected_name) do
+    selected_key = if is_binary(selected_name), do: env_name <> "__" <> String.upcase(selected_name), else: env_name
+    path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
+
+    case File.read(path) do
+      {:ok, contents} ->
+        env = Map.new(Dotenv.parse(contents))
+        if selected_key == env_name, do: Map.get(env, env_name), else: Map.get(env, selected_key)
+
+      _ ->
+        nil
     end
   end
 
@@ -115,8 +156,10 @@ defmodule Aiur.OpenAICompat.Config do
   # attacker-supplied config key cannot exhaust the atom table.
   @known_keys Map.new(
                 ~w(base_url api_key_env model default_model transport quirks management_api_key_env
-                   model_discovery reasoning_content_replay text_tool_fallback openrouter_metadata
-                   local_concurrency_limit provider order ignore allow_fallbacks sort),
+                   model_discovery reasoning_content_replay text_tool_fallback image_input openrouter_metadata
+                   local_concurrency_limit provider provider_preferences routes models order only ignore
+                   allow_fallbacks sort max_price quantizations data_collection require_parameters
+                   prompt completion max_output_tokens),
                 &{&1, String.to_atom(&1)}
               )
 

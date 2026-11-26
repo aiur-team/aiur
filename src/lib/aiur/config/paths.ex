@@ -1,33 +1,27 @@
 defmodule Aiur.Config.Paths do
   @moduledoc """
-  Canonical path-resolution helpers shared across modules that persist
-  per-issue or repo-scoped state.
-
-  Single source of truth for:
-
-    * `log_root_dir/0` — the per-launch directory under which
-      `<repo>.<id>.log` and other run logs live. Respects
-      `Application.get_env(:aiur, :log_file)` (set by the `--logs-root` CLI
-      flag), falls back to `<cwd>/log`. The launcher makes a new one on every
-      daemon launch, so state that must survive a restart belongs in
-      `runtime_state_dir/0` or `decision_state_dir/0` instead.
-    * `repo_name/0` — the sanitized identifier used to prefix per-issue
-      files. Comes from `Aiur.Tracker.project_identity/0`; failure-safe.
-    * `sanitize/1` — replaces shell/path-unsafe characters with `_` so
-      values from external sources (label slugs, repo names) can't escape
-      filesystem boundaries.
-
-  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and the durable stores that
-  adopt their per-launch files through `Aiur.LaunchStateAdoption`.
+  Canonical path helpers for per-issue and repo-scoped state. Persistent state
+  belongs under runtime_state_dir/0 or decision_state_dir/0; log_root_dir/0
+  belongs to one launch. repo_name/0 and sanitize/1 keep tracker identifiers
+  within filesystem boundaries.
   """
 
-  alias Aiur.PathSafety
-  alias Aiur.Tracker
+  alias Aiur.{Config.VoiceConversationPaths, PathSafety}
+  @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
-  @doc """
-  Returns the per-launch log directory. Defaults to `<cwd>/log` when no
-  `--logs-root` was set. It does not survive a daemon restart.
-  """
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
+  @doc "Per-instance Stream Deck preferences; independent of the current launch."
+  @spec streamdeck_settings_path(String.t()) :: Path.t()
+  def streamdeck_settings_path(instance_key) do
+    Path.join([dashboard_secret_root(), "instances", sanitize(instance_key), "streamdeck-settings.json"])
+  end
+
+  @doc "Returns the per-launch log directory, defaulting to `<cwd>/log`; it does not survive a restart."
   @spec log_root_dir() :: Path.t()
   def log_root_dir do
     case Application.get_env(:aiur, :log_file) do
@@ -59,9 +53,29 @@ defmodule Aiur.Config.Paths do
   """
   @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def decision_state_dir do
-    case Application.get_env(:aiur, :decision_state_dir) do
+    case Aiur.TestRunState.decision_state_override(Application.get_env(:aiur, :decision_state_dir)) do
+      {:ok, path} -> {:ok, path}
+      :resolve -> resolve_decision_state_dir()
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Resolves owner-only conversations beneath the decision state root; :conversation_state_dir overrides it."
+  @spec conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def conversation_state_dir do
+    case Application.get_env(:aiur, :conversation_state_dir) do
       path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> resolve_decision_state_dir()
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "conversations")}
+    end
+  end
+
+  @spec voice_conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def voice_conversation_state_dir, do: VoiceConversationPaths.voice_conversation_state_dir()
+  @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
+  @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_queue_dir do
+    with {:ok, root} <- Aiur.Project.state_dir() do
+      {:ok, Path.join(root, "build-queue")}
     end
   end
 
@@ -86,15 +100,25 @@ defmodule Aiur.Config.Paths do
     end
   end
 
-  @doc """
-  Resolves the daemon-private retained-progress state directory.
+  @doc "Resolves the daemon-private outbound event delivery queue directory."
+  @spec outbound_events_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def outbound_events_state_dir do
+    case Application.get_env(:aiur, :outbound_events_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "outbound-events")}
+    end
+  end
 
-  Retained progress is the durable last-known progress reading per ticket
-  (`Aiur.ProgressRetention`); it survives projection and daemon restarts so the
-  fleet never re-enters `unknown` for a ticket that already reported. It owns
-  its own leaf so it can never be mistaken for, or replayed as, decision or
-  membership state.
-  """
+  @doc "Resolves the daemon-private remote-write replay store directory."
+  @spec control_replay_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def control_replay_state_dir do
+    case Application.get_env(:aiur, :control_replay_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "control-replay")}
+    end
+  end
+
+  @doc "Resolves daemon-private retained-progress state beneath the decision root."
   @spec progress_retention_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def progress_retention_state_dir do
     case Application.get_env(:aiur, :progress_retention_state_dir) do
@@ -104,6 +128,55 @@ defmodule Aiur.Config.Paths do
       _ ->
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
+        end
+    end
+  end
+
+  @spec history_backfill_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def history_backfill_state_dir do
+    case Application.get_env(:aiur, :history_backfill_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "history-backfill")}
+    end
+  end
+
+  @doc "Resolves the durable estimate overrides beneath the decision state root."
+  @spec build_estimates_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_estimates_state_dir do
+    case Application.get_env(:aiur, :build_estimates_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-estimates")}
+    end
+  end
+
+  @doc "Resolves the durable feature registry beneath the decision state root."
+  @spec build_features_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_features_state_dir do
+    case Application.get_env(:aiur, :build_features_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- Aiur.Project.state_dir(), do: {:ok, Path.join(root, "build-features")}
+    end
+  end
+
+  @doc "Resolves the durable local epic override journal directory."
+  @spec epic_overrides_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def epic_overrides_state_dir do
+    case Application.get_env(:aiur, :epic_overrides_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- Aiur.Project.state_dir(), do: {:ok, Path.join(root, "epic-overrides")}
+    end
+  end
+
+  @doc "Resolves the durable history leaf, separate from decision and membership state."
+  @spec build_history_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_history_state_dir do
+    case Application.get_env(:aiur, :build_history_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "build-history")}
         end
     end
   end
@@ -169,6 +242,20 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the daemon-private per-issue native thread-compaction outcome directory."
+  @spec agent_compaction_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def agent_compaction_state_dir do
+    case Application.get_env(:aiur, :agent_compaction_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- runtime_state_dir() do
+          {:ok, Path.join(root, "agent-compaction")}
+        end
+    end
+  end
+
   @doc """
   Resolves the daemon-private Executor takeover-alert state directory.
 
@@ -214,6 +301,20 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon heartbeat file path.
+
+  The heartbeat file is written on daemon startup and refreshed periodically
+  to allow the Executor to detect daemon downtime. It lives in the executor-
+  scoped state directory alongside other per-repository state files.
+  """
+  @spec daemon_heartbeat_path() :: {:ok, Path.t()} | {:error, atom()}
+  def daemon_heartbeat_path do
+    with {:ok, root} <- decision_state_dir() do
+      {:ok, Path.join([root, "executor", "#{repo_name()}.daemon-heartbeat"])}
+    end
+  end
+
+  @doc """
   Resolves the daemon-private runtime state directory.
 
   Runtime state is what the daemon reads back after a restart: the event-ID
@@ -233,11 +334,7 @@ defmodule Aiur.Config.Paths do
     end
   end
 
-  @doc """
-  Returns the sanitized last segment of the tracker's project identity,
-  or `"aiur"` if no identity is available. Safe to use as a filename
-  prefix.
-  """
+  @doc "Returns a filename-safe project identity leaf, or `aiur` if unavailable."
   @spec repo_name() :: String.t()
   def repo_name do
     case safe_project_identity() do
@@ -294,8 +391,60 @@ defmodule Aiur.Config.Paths do
     sanitize(value || default)
   end
 
+  @doc "Absolute root beneath which every per-repository state node lives."
+  @spec repo_state_root() :: Path.t()
+  def repo_state_root do
+    Application.get_env(:aiur, :repo_base_root) || Path.expand("~/.aiur/repo")
+  end
+
+  @doc "Absolute path of the per-repository state node for `repo_url`."
+  @spec repo_state_path(String.t()) :: Path.t()
+  def repo_state_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_state_root(), repo_slug(repo_url))
+
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_state_relative_path(String.t()) :: Path.t()
+  def repo_state_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", repo_slug(repo_url)])
+
+  @doc false
+  @spec repo_cache_sidecars() :: [String.t()]
+  def repo_cache_sidecars, do: @repo_cache_sidecars
+
+  @doc false
+  @spec repo_cache_sidecar_paths(Path.t()) :: [Path.t()]
+  def repo_cache_sidecar_paths(root) when is_binary(root) do
+    Enum.map(@repo_cache_sidecars, &Path.join(root, &1))
+  end
+
+  # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
+  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
+  # path-traversal components (`..`) so a malicious or malformed repo identity
+  # can never resolve outside the state root — defense in depth, since the CLI
+  # already validates the slug at its boundary.
+  @doc false
+  @spec repo_slug(String.t()) :: String.t()
+  def repo_slug(repo_url) when is_binary(repo_url) do
+    slug =
+      repo_url
+      |> String.trim_trailing("/")
+      |> String.replace_suffix(".git", "")
+      |> String.split(~r{[/:]})
+      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
+      |> Enum.take(-2)
+      |> Enum.join("/")
+
+    if Enum.any?(Path.split(slug), &(&1 == "..")) do
+      raise ArgumentError,
+            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
+    end
+
+    slug
+  end
+
   defp safe_project_identity do
-    Tracker.project_identity()
+    source = Application.get_env(:aiur, :project_identity_source, Aiur.Tracker)
+    source.project_identity()
   rescue
     _ -> nil
   catch
@@ -337,10 +486,7 @@ defmodule Aiur.Config.Paths do
   end
 
   defp decision_state_root do
-    case System.get_env("AIUR_BG_STATE_DIR") do
-      root when is_binary(root) and root != "" -> root
-      _ -> Path.join(File.cwd!(), ".aiur-state")
-    end
+    Aiur.TestRunState.decision_state_root(Path.join(File.cwd!(), ".aiur-state"))
   end
 
   defp contain_within_root(root, candidate) do

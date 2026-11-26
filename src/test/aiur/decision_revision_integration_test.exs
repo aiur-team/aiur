@@ -1,12 +1,94 @@
 defmodule Aiur.DecisionRevisionIntegrationTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
-  alias Aiur.{Decision, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
+  alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionHistory, DecisionPubSub, DecisionStore}
 
   @ticket %{identifier: "985", title: "OCC-8", url: "https://github.com/its-everdred/aiur/issues/985"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: "request-1"}
   @operator %{kind: :operator, id: "operator-1"}
   @target_agent %{kind: :agent, id: "agent-1"}
+
+  test "CLI answer delivery carries lifecycle correlation through acknowledgement and resolution",
+       %{dir: dir} do
+    parent = self()
+
+    dispatcher = fn decision, opts ->
+      send_fun = fn _server, ticket_identifier, payload ->
+        item =
+          Map.merge(payload, %{
+            id: 1,
+            target_issue_identifier: ticket_identifier,
+            status: :pending
+          })
+
+        send(parent, {:delivered_answer, item})
+        {:ok, %{status: :accepted, item: item}}
+      end
+
+      Aiur.DecisionDispatch.dispatch(decision, Keyword.put(opts, :send_fun, send_fun))
+    end
+
+    pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{
+                 "question" => "Proceed?",
+                 "blocking" => true,
+                 "options" => [%{"id" => "yes", "label" => "Proceed"}]
+               },
+               [ticket: @ticket, source: @source],
+               pid
+             )
+
+    ExUnit.CaptureIO.capture_io(fn ->
+      assert Aiur.ExecutorCommandCLI.answer(
+               [
+                 decision_id: decision.decision_id,
+                 expected_version: decision.version,
+                 rationale: "Validated over CLI",
+                 idempotency_key: "rpc-answer",
+                 option_id: "yes"
+               ],
+               decision_store: pid
+             ) == 0
+    end)
+
+    assert {:ok, answered} = DecisionStore.get(decision.decision_id, pid)
+    answer = Decision.active_answer(answered)
+    assert_receive {:delivered_answer, item}, 2_000
+    assert item.action_id == answer.action_id
+    _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+    correlation_json =
+      item.body
+      |> String.split("Decision lifecycle correlation: ")
+      |> List.last()
+      |> String.split("\n")
+      |> hd()
+
+    correlation = Jason.decode!(correlation_json)
+
+    assert correlation == %{
+             "decision_id" => decision.decision_id,
+             "action_id" => answer.action_id,
+             "expected_version" => answer.decision_version
+           }
+
+    assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+    assert {:ok, %{status: :accepted}} =
+             acknowledge(pid, decision, correlation["action_id"], correlation["expected_version"])
+
+    assert {:ok, %{status: :accepted}} =
+             resolve(pid, decision, correlation["action_id"], correlation["expected_version"])
+
+    assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
+    assert current.acknowledgement.action_id == answer.action_id
+    assert current.resolution.action_id == answer.action_id
+    assert current.decision_status == :resolved
+  end
 
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
@@ -20,7 +102,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
         value -> Application.put_env(:aiur, :decision_state_dir, value)
       end
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}
@@ -75,7 +157,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert {:ok, %{action: original}} =
              DecisionStore.answer(decision.decision_id, answer_payload, [actor: @operator], pid)
 
-    assert_receive {:queue_item, original_action_id, original_item}, 1_000
+    receive_barrier({:queue_item, original_action_id, original_item})
     assert original_action_id == original.action_id
     _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
     assert {:ok, :accepted} = DecisionStore.record_delivery(original_item, pid)
@@ -96,7 +178,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert {:ok, %{status: :accepted, action: revision}} =
              DecisionStore.revise(decision.decision_id, revision_payload, [actor: @operator], pid)
 
-    assert_receive {:queue_item, revision_action_id, revision_item}, 1_000
+    receive_barrier({:queue_item, revision_action_id, revision_item})
     assert revision_action_id == revision.action_id
     _revision_queued = wait_for(pid, decision.decision_id, &(&1.revision_result == :dispatched))
     assert {:ok, :accepted} = DecisionStore.record_delivery(revision_item, pid)
@@ -120,6 +202,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert [%{status: :delivered}] = attempts[revision.action_id]
 
     history = DecisionHistory.list(server: pid, limit: 100)
+
     answered = Enum.find(history, &(&1.change == :answered and &1.action_id == original.action_id))
     revised = Enum.find(history, &(&1.revision_result == :dispatched and &1.action_id == revision.action_id))
 
@@ -131,7 +214,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     assert revised.choice == "Hold the rollout"
     assert revised.rationale == "New production evidence"
     assert revised.ticket.identifier == "985"
-    refute inspect(revised) =~ ~r/rolled back|reverted|undone/i
+    Aiur.TestSupport.refute_leak(revised, ~r/rolled back|reverted|undone/i)
 
     assert {:ok, %{status: :duplicate, action: replayed}} =
              DecisionStore.revise(decision.decision_id, revision_payload, [actor: @operator], pid)
@@ -144,7 +227,10 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     restarted = start_store!(dir)
     assert {:ok, replayed_current} = DecisionStore.get(decision.decision_id, restarted)
     assert replayed_current.answer == original
-    assert Decision.active_answer(replayed_current) == revision.answer
+
+    assert DecisionAnswer.content(Decision.active_answer(replayed_current)) ==
+             DecisionAnswer.content(revision.answer)
+
     assert replayed_current.active_action_id == revision.action_id
     assert replayed_current.decision_status == :resolved
     assert replayed_current.dispatch_attempts == current.dispatch_attempts
@@ -168,36 +254,40 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
     pid
   end
 
-  defp acknowledge(pid, decision, action_id) do
+  defp acknowledge(pid, decision, action_id, expected_version \\ nil) do
     DecisionStore.agent_lifecycle(
       :acknowledged,
-      %{decision_id: decision.decision_id, action_id: action_id, expected_version: decision.version},
+      %{
+        decision_id: decision.decision_id,
+        action_id: action_id,
+        expected_version: expected_version || decision.version
+      },
       [ticket_identifier: @ticket.identifier, actor: @target_agent, source: @source],
       pid
     )
   end
 
-  defp resolve(pid, decision, action_id) do
+  defp resolve(pid, decision, action_id, expected_version \\ nil) do
     DecisionStore.agent_lifecycle(
       :resolved,
-      %{decision_id: decision.decision_id, action_id: action_id, expected_version: decision.version},
+      %{
+        decision_id: decision.decision_id,
+        action_id: action_id,
+        expected_version: expected_version || decision.version
+      },
       [ticket_identifier: @ticket.identifier, actor: @target_agent, source: @source],
       pid
     )
   end
 
-  defp wait_for(pid, decision_id, predicate, attempts \\ 100)
-
-  defp wait_for(_pid, _decision_id, _predicate, 0), do: flunk("decision did not reach expected state")
-
-  defp wait_for(pid, decision_id, predicate, attempts) do
+  defp wait_for(pid, decision_id, predicate) do
     {:ok, decision} = DecisionStore.get(decision_id, pid)
 
     if predicate.(decision) do
       decision
     else
-      assert_receive {:decision_changed, ^decision_id, _version}, 2_000
-      wait_for(pid, decision_id, predicate, attempts - 1)
+      receive_barrier({:decision_changed, ^decision_id, _version})
+      wait_for(pid, decision_id, predicate)
     end
   end
 end

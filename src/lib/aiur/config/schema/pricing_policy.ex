@@ -4,7 +4,7 @@ defmodule Aiur.Config.Schema.PricingPolicy do
   which `agent.priority` route is chosen.
 
   Landed here as **shape first**, then wired: the fields are validated,
-  defaulted and documented, and `Aiur.CodingAgent`'s peak-pricing route policy
+  defaulted and documented, and the harness's peak-pricing route policy
   now reads `avoid_peak_pricing` at dispatch time (see the policy's failure
   direction below).
 
@@ -61,6 +61,8 @@ defmodule Aiur.Config.Schema.PricingPolicy do
 
   @primary_key false
   embedded_schema do
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.pricing_policy.avoid_peak_pricing | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
     field(:avoid_peak_pricing, :boolean, default: true)
   end
 

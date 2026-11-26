@@ -6,13 +6,14 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
+  alias Aiur.GitHub.{Access, Listeners}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.ToolchainPreflight
   alias Aiur.PollCadence
   alias Aiur.Webhooks
   alias Aiur.Webhooks.IntervalPolicy
@@ -21,16 +22,17 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def note_github_connectivity_success(%State{} = state, source) do
     %{
       state
-      | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
+      | github_connectivity: Access.connectivity_note_success(state.github_connectivity, source),
         github_poll_delays: Map.delete(state.github_poll_delays, source)
     }
+    |> update_comment_backoff()
   end
 
   @doc false
   @spec note_github_connectivity_failure(State.t(), atom(), term()) :: State.t()
   def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
-    detail = Orchestrator.connectivity_detail(reason)
+    detail = connectivity_detail(reason)
 
     if classification == :unclassified do
       # F2 of #2429: a reason this classifier does not recognize is itself a
@@ -41,13 +43,13 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
 
     {streaks, alerts} =
-      GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
+      Access.connectivity_note_failure(state.github_connectivity, source, classification)
 
     Enum.each(alerts, &emit_github_connectivity_alert/1)
 
     backoff_ms =
       classification
-      |> GitHubConnectivity.backoff_ms(connectivity_streak_count(streaks, source), detail)
+      |> Access.connectivity_backoff_ms(connectivity_streak_count(streaks, source), detail)
       |> normalize_github_backoff_ms(state)
 
     %{
@@ -55,6 +57,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       | github_connectivity: streaks,
         github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
     }
+    |> update_comment_backoff()
   end
 
   # A local budget hold is not connectivity: it must not ride the transport
@@ -84,7 +87,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
   end
 
-  defp normalize_github_backoff_ms(:escalate, _state), do: GitHubConnectivity.max_backoff_ms()
+  defp normalize_github_backoff_ms(:escalate, _state), do: Access.connectivity_max_backoff_ms()
 
   defp normalize_github_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
     do: delay_ms
@@ -95,10 +98,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
   def note_github_poll_interval(%State{} = state, source, seconds)
       when is_integer(seconds) and seconds > 0 do
-    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
+    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)} |> update_comment_backoff()
   end
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
+
+  defp update_comment_backoff(state) do
+    Listeners.update_backoff(github_next_poll_delay_ms(state))
+    state
+  end
 
   # GitHub's delays are floors, not targets: `X-Poll-Interval` says "do not poll
   # faster than this" and a connectivity backoff says "wait at least this long".
@@ -244,7 +252,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     State.active_running_count(state.running) == 0 and
       state.poll_cycles_completed > 0 and
       state.candidate_snapshot_fresh? == true and
-      (state.globally_paused == true or not queued_dispatch_demand?(state))
+      (PauseGuard.paused?(state) or not queued_dispatch_demand?(state))
   end
 
   # Reuses the same dispatch-eligibility scan as the capacity snapshot so the
@@ -351,9 +359,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def github_next_poll_delay_ms(_state), do: nil
 
   defp emit_github_connectivity_alert(alert) do
-    message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+    message = Access.connectivity_alert_message(alert, repo: Aiur.GitHub.Config.repo())
 
-    Alerts.emit_custom("system.github.connectivity_lost", message,
+    Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
       needs_attention: true,
       severity: "warning"
@@ -362,34 +370,36 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec ensure_tracker_preflight(State.t()) :: {:ok, State.t()} | {:error, term(), State.t()}
   def ensure_tracker_preflight(%State{} = state) do
-    case Config.validate!() do
-      :ok ->
-        case Config.tracker_kind() do
-          "github" -> ensure_github_auth_preflight(state)
-          _ -> {:ok, state}
-        end
-
-      {:error, reason} ->
-        {:error, reason, state}
+    case tracker_preflight() do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, reason, state}
     end
   end
+
+  @spec tracker_preflight() :: :ok | {:error, term()}
+  def tracker_preflight do
+    with :ok <- Config.validate!(),
+         :ok <- ToolchainPreflight.check() do
+      tracker_auth_preflight(Config.tracker_kind())
+    end
+  end
+
+  defp tracker_auth_preflight("github"), do: GitHubTracker.ensure_auth_preflight()
+  defp tracker_auth_preflight(_kind), do: :ok
 
   # `ensure_auth_preflight/0`, not `auth_preflight/0`: this runs on every poll
   # cycle, and re-proving a credential that has not changed cost 12 billed REST
   # requests an hour at idle. The memo behind it is dropped the moment GitHub
   # answers a call unauthenticated, so a revoked token still lands here as the
   # normal preflight diagnostic on the next cycle.
-  defp ensure_github_auth_preflight(%State{} = state) do
-    case GitHubTracker.ensure_auth_preflight() do
-      :ok -> {:ok, state}
-      {:error, reason} -> {:error, reason, state}
-    end
-  end
 
   @spec log_tracker_preflight_error(term()) :: :ok
   def log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
     Logger.error(GitHubClient.format_auth_preflight_error(reason))
   end
+
+  def log_tracker_preflight_error({:toolchain_missing, detail}),
+    do: Logger.error("Dispatch held: #{detail}")
 
   def log_tracker_preflight_error(:missing_linear_api_token),
     do: Logger.error("Linear API token missing in .aiur/config")
@@ -438,4 +448,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       _ -> "tracker"
     end
   end
+
+  @doc false
+  @spec connectivity_detail(term()) :: map()
+  def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+
+  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
+
+  def connectivity_detail({:github_api_status, status}) when is_integer(status),
+    do: %{status: status}
+
+  def connectivity_detail(_reason), do: %{}
 end

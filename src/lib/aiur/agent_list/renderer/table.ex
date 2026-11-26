@@ -5,7 +5,7 @@ defmodule Aiur.AgentList.Renderer.Table do
   """
 
   alias Aiur.AgentContextPresentation
-  alias Aiur.AgentList.Renderer.{Cells, Layout, Markers, Model, Style, Text}
+  alias Aiur.AgentList.Renderer.{Cells, Layout, Listener, Markers, Model, Style, Text}
 
   # ---------- table ----------------------------------------------------------
 
@@ -34,11 +34,15 @@ defmodule Aiur.AgentList.Renderer.Table do
       Text.cell("LATEST", layout.latest_width),
       progress_header,
       context_header,
-      runtime_header
+      runtime_header,
+      listener_header(layout)
     ]
 
     Text.pad_with_ansi(Style.gray(), IO.iodata_to_binary(body), inner_width)
   end
+
+  defp listener_header(%{listener_width: width}) when width > 0, do: [" ", Text.cell("LISTENER", width)]
+  defp listener_header(_layout), do: []
 
   @spec table_separator_row(term(), term()) :: term()
   def table_separator_row(inner_width, _layout) do
@@ -149,11 +153,13 @@ defmodule Aiur.AgentList.Renderer.Table do
       Style.reset(),
       progress_block,
       context_block,
-      runtime_block
+      runtime_block,
+      Listener.block(summary, layout)
     ]
 
     progress_width = if layout.show_progress?, do: Layout.progress_cell_width() + 1, else: 0
     context_width = if layout.show_context?, do: Layout.context_cell_width() + 1, else: 0
+    listener_width = Listener.block_width(layout)
     runtime_width = Layout.runtime_cell_width() + 1
     model_width = if layout.model_width > 0, do: layout.model_width + 1, else: 0
 
@@ -166,7 +172,7 @@ defmodule Aiur.AgentList.Renderer.Table do
     plain_visual =
       2 + 2 + layout.id_width + Layout.rc_cell_width() + Layout.state_cell_width() + Layout.attention_cell_width() +
         model_width + layout.title_width + 1 + layout.latest_width + progress_width +
-        context_width + runtime_width
+        context_width + runtime_width + listener_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.

@@ -77,7 +77,10 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       # like `mix test` before project code runs.
       "networkAccess" => true,
       "excludeTmpdirEnvVar" => false,
-      "excludeSlashTmp" => false
+      # Agents get a private TMPDIR inside the workspace. Keep direct writes to
+      # the shared host /tmp outside their sandbox while the workspace itself
+      # (including its private scratch directory) remains writable.
+      "excludeSlashTmp" => true
     }
   end
 
@@ -293,10 +296,16 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     [workspace_root]
     |> append_unique(git_root)
     |> append_unique(local_agents_root(workspace_root, git_root))
+    |> append_unique(local_codex_root(workspace_root))
   end
 
   defp remote_workspace_writable_roots(workspace_root) do
-    [workspace_root, Path.join(workspace_root, ".git"), Path.join(workspace_root, ".agents")]
+    [
+      workspace_root,
+      Path.join(workspace_root, ".git"),
+      Path.join(workspace_root, ".agents"),
+      Path.join(workspace_root, ".codex")
+    ]
   end
 
   # Codex protects .agents by default, including the skills symlink Git must
@@ -313,6 +322,18 @@ defmodule Aiur.Config.CodexSandboxPolicy do
   end
 
   defp local_agents_root(_workspace_root, _git_root), do: nil
+
+  # Codex protects both harness skill roots by default. Aiur installs worker
+  # skills under .claude and exposes them through .codex; tracked skill links
+  # added by a base update need Git to replace entries in either directory.
+  defp local_codex_root(workspace_root) do
+    codex_root = Path.join(workspace_root, ".codex")
+
+    case File.lstat(codex_root) do
+      {:ok, %File.Stat{type: :directory}} -> codex_root
+      _ -> nil
+    end
+  end
 
   defp local_git_metadata_root(workspace_root) do
     with git when is_binary(git) <- System.find_executable("git"),

@@ -1,0 +1,105 @@
+.sd-well {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 148px;
+  padding: 1.7rem 1.3rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #131315, #0b0b0c);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.sd-knobs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
+}
+
+.sd-knob-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+}
+
+.sd-knob {
+  --a: 0deg;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, #3a3b3f 0deg 6deg, #232427 6deg 12deg),
+    radial-gradient(circle at 50% 42%, #45464a, #202124 70%);
+  background-blend-mode: soft-light, normal;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.14), inset 0 -4px 8px rgba(0, 0, 0, 0.55);
+  transform: rotate(var(--a));
+  touch-action: none;
+  cursor: grab;
+}
+
+.sd-knob:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-knob:active {
+  cursor: grabbing;
+}
+
+.sd-knob.press {
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.sd-knob::before {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #34353a, #17181b);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  content: "";
+}
+
+html[data-theme="light"] .sd-device {
+  --fg: var(--aiur-color-fg-dark);
+  --muted: #969aa4;
+  --accent: var(--aiur-color-accent-dark);
+  --accent-ink: #8fbcff;
+  --attention: #e3b341;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --good-ink: #74d47f;
+  --super: #c69bff;
+  --ack: #4fd6c4;
+}
+
+/* Gruvbox is the default palette; its dark ink differs from the :root pins above. */
+html[data-palette="gruvbox"][data-theme="light"] .sd-device {
+  --fg: #ebdbb2;
+  --muted: #bdae93;
+  --accent: #83a598;
+  --accent-ink: #a6c4b8;
+  --attention: #fabd2f;
+  --attention-ink: #fad276;
+  --blocking-ink: #fd8b7d;
+  --blocking-soft: rgba(251, 73, 52, 0.14);
+  --good: #b8bb26;
+  --good-ink: #cfd26a;
+  --super: #d3869b;
+}
+
+.sd-dial-hint { display: inline-flex; justify-content: center; gap: 0.08rem; min-width: 5.2em; color: var(--muted); }
+@media (max-width: 560px) {
+  .sd-device { padding: 1.1rem; border-radius: 24px; gap: 1rem; }
+  .sd-well { padding: 0.9rem 0.8rem; }
+  .sd-knob { width: 52px; height: 52px; }
+  .sd-install-modal { max-height: calc(100dvh - 1rem); padding: 0.85rem; }
+}

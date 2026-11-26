@@ -1,0 +1,39 @@
+{
+  "id": "mobile-app",
+  "name": "Mobile app",
+  "layer": 5,
+  "kind": "client",
+  "paths": [
+    "packages/aiur-mobile/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [
+    "aiur-contracts"
+  ],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides the local Expo scaffold for the iOS and Android phone app.",
+  "status": "optional",
+  "install": {
+    "type": "setup",
+    "docs": "guide/mobile.md"
+  },
+  "docs": [
+    "guide/mobile.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-N1",
+  "goal": "hardware"
+}

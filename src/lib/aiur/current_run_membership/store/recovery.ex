@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunMembership.Store.Recovery do
   @moduledoc false
 
-  alias Aiur.{Config, DecisionLog, Fs}
+  alias Aiur.{Config, Fs, Journal}
   alias Aiur.CurrentRunMembership.{Event, Event.Codec, Projection}
   alias Aiur.CurrentRunMembership.Store.{Checkpoint, FileOps, Marker, Paths, Runtime, TerminalVerification}
 
@@ -10,7 +10,8 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
   @spec options(keyword()) :: map()
   def options(opts) do
     %{
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
+      append_many_fun: Keyword.get(opts, :append_many_fun, &Journal.append_many/2),
       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &FileOps.write_checkpoint/2),
       clear_journal_fun: Keyword.get(opts, :clear_journal_fun, &FileOps.clear_journal/1),
       checkpoint_interval: checkpoint_interval(Keyword.get(opts, :checkpoint_interval, @checkpoint_interval)),
@@ -49,6 +50,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       run_id: safe_run_id,
       projection: Projection.new(safe_run_id),
       append_fun: persistence.append_fun,
+      append_many_fun: persistence.append_many_fun,
       checkpoint_fun: persistence.checkpoint_fun,
       clear_journal_fun: persistence.clear_journal_fun,
       checkpoint_interval: persistence.checkpoint_interval,
@@ -93,6 +95,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       degraded_path: paths.degraded_path,
       terminal_verification_path: paths.terminal_verification_path,
       append_fun: persistence.append_fun,
+      append_many_fun: persistence.append_many_fun,
       checkpoint_fun: persistence.checkpoint_fun,
       clear_journal_fun: persistence.clear_journal_fun,
       checkpoint_interval: persistence.checkpoint_interval,
@@ -144,7 +147,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       end
     end
 
-    case DecisionLog.replay(path, validator,
+    case Journal.replay(path, validator,
            max_file_bytes: Codec.max_journal_bytes(),
            max_record_bytes: Codec.max_recovery_record_bytes()
          ) do

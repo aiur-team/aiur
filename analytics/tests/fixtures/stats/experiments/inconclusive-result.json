@@ -1,0 +1,151 @@
+{
+  "defaults": {
+    "alpha": 0.05,
+    "bootstrap_exploratory": 200,
+    "bootstrap_primary": 400,
+    "fdr_q": 0.05,
+    "min_samples": 10,
+    "permutation_resamples": 500,
+    "power_target": 0.8
+  },
+  "engine": {
+    "name": "experiment-stats",
+    "version": "1.1.0"
+  },
+  "exclusions": [],
+  "experiment_id": "inconclusive",
+  "group_order": [
+    "a",
+    "b"
+  ],
+  "inputs": {
+    "annotations_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "snapshot_sha256": "d0b85852c24362a404a35b712bc8a0291b3c8c7aed53bd93d00da4c7837b76f0",
+    "spec_sha256": "0e4601f80f19caa3dd423a165ccab7057d349a9d5cf4f754ee222f57a3653e70"
+  },
+  "metrics": {
+    "latency": {
+      "adjustment": "holm",
+      "analyst_flags": [],
+      "direction": "no_change",
+      "effects": {
+        "cliffs_delta": {
+          "estimate": -0.12125,
+          "hi": 0.1423579818,
+          "lo": -0.3555958412,
+          "magnitude": "negligible",
+          "mc_se": 0.006472002643,
+          "method": "bca",
+          "null": 0,
+          "resamples": 400,
+          "unbounded": []
+        },
+        "hodges_lehmann": {
+          "confidence": 0.95,
+          "hi": 2.88,
+          "lo": -7.66,
+          "method": "moses_exact",
+          "statistic": -2.39,
+          "unbounded": []
+        },
+        "median_difference": {
+          "estimate": -2.39,
+          "hi": 5.50889296,
+          "lo": -10.47209658,
+          "mc_se": 0.2085250487,
+          "method": "bca",
+          "null": 0,
+          "resamples": 400,
+          "unbounded": []
+        },
+        "median_ratio": {
+          "estimate": 0.98,
+          "hi": 1.048054584,
+          "lo": 0.9170669672,
+          "mc_se": 0.001727194423,
+          "method": "bca",
+          "null": 1,
+          "resamples": 400,
+          "unbounded": []
+        }
+      },
+      "excluded_counts": {
+        "a": 0,
+        "b": 0
+      },
+      "flags": [
+        "underpowered"
+      ],
+      "groups": {
+        "a": {
+          "iqr": 19.5,
+          "max": 139.0,
+          "median": 119.5,
+          "min": 100.0,
+          "n": 40,
+          "n_censored": 0,
+          "p90": 135.1,
+          "q1": 109.75,
+          "q3": 129.25
+        },
+        "b": {
+          "iqr": 19.11,
+          "max": 136.22,
+          "median": 117.11,
+          "min": 98.0,
+          "n": 40,
+          "n_censored": 0,
+          "p90": 132.398,
+          "q1": 107.555,
+          "q3": 126.665
+        }
+      },
+      "kind": "duration",
+      "min_achievable_p": 1.860340366e-23,
+      "p_adj": 0.3550681828,
+      "p_raw": 0.3550681828,
+      "power": {
+        "allocation_ratio": 1.0,
+        "baseline_group": "a",
+        "eta_date": null,
+        "mc_se": 0.006826346021,
+        "mde_at_current_n": 0.06416015625,
+        "power_at_current_n": 0.049,
+        "projected_p_if_effect_holds": null,
+        "samples_needed_noether": 8373,
+        "samples_needed_per_group": "> 5000",
+        "simulations": 1000,
+        "status": "estimated"
+      },
+      "primary_effect": "median_ratio",
+      "status": "inconclusive",
+      "summary_text": "Latency: n 40 vs 40, median 4.979166667 days to 4.879583333 days, median_ratio 0.98, 95% CI [0.9170669672, 1.048054584], p 0.3550681828 (holm 0.3550681828); inconclusive, no_change; 0 units excluded; flags: underpowered; need about > 5000 per group to detect 0.1%.",
+      "tests": {
+        "mann_whitney_u": {
+          "method": "exact",
+          "min_achievable_p": 1.860340366e-23,
+          "p_value": 0.3550681828,
+          "statistic": 897.0
+        },
+        "permutation": {
+          "mc_se": 0.02172074927,
+          "method": "permutation_mc",
+          "p_value": 0.381237525,
+          "resamples": 500,
+          "statistic": -2.39
+        }
+      }
+    }
+  },
+  "overall": {
+    "flags": [
+      "underpowered"
+    ],
+    "note": "",
+    "primary_statuses": {
+      "latency": "inconclusive"
+    }
+  },
+  "schema_version": "experiment-result/v1",
+  "warnings": []
+}

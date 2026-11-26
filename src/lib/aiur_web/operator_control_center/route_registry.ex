@@ -3,15 +3,15 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @routes [
     %{
-      id: :units,
-      label: "Units",
-      icon: "◫",
+      id: :build,
+      label: "Build",
+      icon: "",
       description: "",
       path: "/",
       type: :live,
-      owner: :dashboard,
+      owner: :build,
       availability: :available,
-      active_actions: [:index]
+      active_actions: [:build]
     },
     %{
       id: :commands,
@@ -25,15 +25,16 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:decisions, :decision]
     },
     %{
-      id: :build_order,
-      label: "Build Order",
-      icon: "◌",
-      description: "",
-      path: "/build-orders",
+      id: :voice,
+      label: "Voice",
+      icon: "",
+      description: "Executor conversation and worker voice controls.",
+      path: "/voice",
       type: :live,
-      owner: :build_order,
+      owner: :dashboard,
       availability: :available,
-      active_actions: [:build_orders, :build_order]
+      nav?: false,
+      active_actions: [:voice]
     },
     %{
       id: :analytics,
@@ -47,8 +48,56 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :projects,
+      label: "Projects",
+      icon: "▤",
+      description: "Every project across reachable gateways.",
+      path: "/projects",
+      type: :live,
+      owner: :projects,
+      availability: :available,
+      nav?: false,
+      active_actions: [:projects]
+    },
+    %{
+      id: :gateways,
+      label: "Gateways",
+      icon: "▥",
+      description: "Each gateway's agents, projects, capacity and pause controls.",
+      path: "/gateways",
+      type: :live,
+      owner: :gateways,
+      availability: :available,
+      nav?: false,
+      active_actions: [:gateways]
+    },
+    %{
+      id: :instances,
+      label: "Instances",
+      icon: "▦",
+      description: "Shared instance liveness and lease-store details.",
+      path: "/instances",
+      type: :live,
+      owner: :instances,
+      availability: :available,
+      nav?: false,
+      active_actions: [:instances]
+    },
+    %{
+      id: :experiments,
+      label: "Experiments",
+      icon: "⚗",
+      description: "Frozen experiment evidence.",
+      path: "/experiments",
+      type: :live,
+      owner: :experiments,
+      availability: :available,
+      active_actions: [:experiments, :experiment]
+    },
+    %{
       id: :streamdeck,
       label: "Streamdeck+",
+      nav_label: "Streamdeck",
       icon: "◉",
       description: "Stream Deck + control surface",
       path: "/streamdeck",
@@ -61,12 +110,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
-    Enum.map(@routes, &resolve_runtime_availability(&1, analytics))
+    Enum.filter(@routes, &(Map.get(&1, :nav?, true) and resolve_runtime_availability(&1, analytics)))
   end
 
   @spec route(atom(), map()) :: {:ok, map()} | :error
   def route(id, analytics) when is_atom(id) and is_map(analytics) do
-    case Enum.find(routes(analytics), &(&1.id == id)) do
+    case Enum.find(@routes, &(&1.id == id and resolve_runtime_availability(&1, analytics))) do
       nil -> :error
       route -> {:ok, route}
     end
@@ -97,5 +146,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   def navigation_mode(_current_route, _target_route), do: :navigate
 
-  defp resolve_runtime_availability(route, _analytics), do: route
+  defp resolve_runtime_availability(%{id: :experiments}, runtime), do: Map.get(runtime, :experiments_available?, false) == true
+  defp resolve_runtime_availability(_route, _runtime), do: true
 end

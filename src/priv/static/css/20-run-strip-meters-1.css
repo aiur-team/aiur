@@ -1,0 +1,40 @@
+/* ---- run summary / vendor usage strip (Units page top) ---- */
+.run-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+/* The compact run summary lives inside the Units pane (section-card), so it
+   embeds in that pane instead of drawing its own bordered box. */
+
+/* The models pane spans two of the strip's three columns and holds every model
+   provider's progress bars in one place. GitHub keeps its own one-column card,
+   so the pair fills the row without a fourth pane wrapping below it. */
+
+/* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
+   account is configured), stacked with the same rhythm the models pane uses so
+   the two panes read as one strip. */
+/* Provider wrappers disappear into the parent grid so every identity shares
+   one intrinsic-width column and every meter starts at the same x-position.
+   There is intentionally no heading above the identity track: the logos and
+   names explain it, while the rest of each pane belongs to the meters. */
+
+/* Top-aligned, not centred: the stat block on a provider card is taller than
+   the name, and centring pushed the logo and name down so they no longer lined
+   up with Summary's. */
+
+/* The GitHub mark ships as a black glyph; the dashboard's default theme is
+   dark, so invert it to a light glyph. The light theme shows the native mark. */
+
+/* A provider meter is a standard progress bar with its label and meta on the
+   line directly above the bar. The label line and the thin bar share the same
+   fixed row height, so restoring the label-above-bar design does not expand the
+   row: the label rides close above the bar inside the one logo-height line. */
+
+/* This row is intentionally compressed to the same one-line density as Core
+   and GraphQL; the invoice amount lives in the provider head above it. */
+
+/* Low remaining headroom is critical: the fill turns red near an empty window. */
+
+/* Warning stages are selected by the remaining share at the presentation boundary. */

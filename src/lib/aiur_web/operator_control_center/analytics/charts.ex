@@ -6,20 +6,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   colors reference CSS custom properties so light/dark switch without a redraw.
   """
 
-  @w 760
-  @minimum_domain_ms 1_000
+  import AiurWeb.OperatorControlCenter.Analytics.Charts.Svg,
+    only: [area: 2, fmt_bytes: 1, line: 1, now_marker: 6, poly: 1, r2: 1, scolor: 1, stacked_areas: 4, step_area: 2, step_line: 1, svg: 4, text: 4, time_svg: 5, title: 1, x_axis: 7, y_grid: 5]
 
-  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+  @w 760
+  @y_tick_count 4
+
+  alias AiurWeb.OperatorControlCenter.Analytics.{ChartAxis, ConcurrencyCoverage, LifecycleLane, Presenter}
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
   def with_time_domain(%{} = model, domain) do
     case normalize_time_domain(model, domain) do
-      nil ->
-        model
-
-      {t0, t1} ->
-        with_exact_time_domain(model, {t0, t1})
+      nil -> model
+      {t0, t1} -> with_exact_time_domain(model, {t0, t1})
     end
   end
 
@@ -51,26 +51,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @doc "Normalizes hook event values to a non-degenerate chart-axis domain."
   @spec normalize_time_domain(map(), term()) :: {integer(), integer()} | nil
-  def normalize_time_domain(%{window: %{start_ms: start_ms, end_ms: end_ms}}, {left, right}) do
-    with t0 when is_integer(t0) <- integer(left),
-         t1 when is_integer(t1) <- integer(right),
-         lo = max(min(t0, t1), start_ms),
-         hi = min(max(t0, t1), end_ms),
-         true <- hi - lo >= minimum_domain_ms(start_ms, end_ms) do
-      if lo == start_ms and hi == end_ms, do: nil, else: {lo, hi}
-    else
-      _invalid -> nil
-    end
-  end
-
-  def normalize_time_domain(_model, _domain), do: nil
+  defdelegate normalize_time_domain(model, domain), to: ChartAxis
 
   @doc "Formats a selected domain against the model's stable axis origin."
   @spec time_domain_label(map(), {integer(), integer()}) :: String.t()
-  def time_domain_label(%{window: window}, {t0, t1}) do
-    origin = Map.get(window, :axis_origin_ms, window.start_ms)
-    "#{elapsed(t0 - origin)}–#{elapsed(t1 - origin)}"
-  end
+  defdelegate time_domain_label(model, domain), to: ChartAxis
 
   @doc "Stacked per-unit CPU over the run: daemon/executor baseline, selected unit tickets, and an aggregated remainder, under the machine ceiling."
   @spec cpu_stack(map(), MapSet.t()) :: String.t()
@@ -85,7 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     totals =
       Enum.map(series, fn s -> s.exec_cpu + s.other_cpu + Enum.sum(Enum.map(units, &Map.get(s.per, &1.key, 0.0))) end)
 
-    vmax = Enum.max([ceiling | totals]) |> max(1)
+    {vmax, y_ticks} = Enum.max([ceiling | totals]) |> max(1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -101,7 +86,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         text(@w - mr, ceiling_y - 5, "machine ceiling #{round(ceiling)}%", anchor: "end", fill: "var(--blocking)")
 
     inner =
-      y_grid(vmax, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
+      y_grid(y_ticks, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
         stacked_areas(series, layers, xf, yf) <>
         ceiling_mark <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
@@ -116,27 +101,33 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     %{series: series, window: %{start_ms: t0, end_ms: t1} = window, cap: cap, kpis: %{peak_conc: peak}} = model
     h = 220
     {ml, mr, mt, mb} = {30, 14, 16, 26}
-    pw = @w - ml - mr
-    ph = h - mt - mb
-    vmax = max(cap, peak) |> max(1)
+    {pw, ph} = {@w - ml - mr, h - mt - mb}
+    vmax = max(cap || 0, peak) |> max(1)
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
-    pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.conc)} end)
-    cap_y = r2(yf.(cap))
-    band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
-    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc, cap))} end) |> Enum.reverse()
+    runs = for run <- ConcurrencyCoverage.known_runs(series), do: Enum.map(run, fn s -> {xf.(s.t_ms), yf.(s.conc)} end)
 
     inner =
-      ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
-        ~s|<path d="#{step_area(pts, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>| <>
-        ~s|<path d="#{step_line(pts)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>| <>
-        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>
-        text(ml + 2, cap_y - 4, "cap #{cap}", fill: "var(--attention)") <>
+      capacity_band(series, cap, xf, yf, ml, mr) <>
+        Enum.map_join(runs, &~s|<path d="#{step_area(&1, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>|) <>
+        Enum.map_join(runs, &~s|<path d="#{step_line(&1)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>|) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
     time_svg(@w, h, inner, "Concurrency against the cap", {t0, t1, ml, @w - mr, mt, mt + ph})
+  end
+
+  defp capacity_band(_series, nil, _xf, _yf, _ml, _mr), do: ""
+
+  defp capacity_band(series, cap, xf, yf, ml, mr) do
+    cap_y = r2(yf.(cap))
+    band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
+    band_bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(min(s.conc || cap, cap))} end) |> Enum.reverse()
+
+    ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
+      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>
+      text(ml + 2, cap_y - 4, "cap #{cap}", fill: "var(--attention)")
   end
 
   @doc "Fleet-wide occupied-agent and build pressure with an aligned oldest-wait lane."
@@ -161,8 +152,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       |> Enum.filter(&is_number/1)
 
     wait_values = series |> Enum.map(&Map.get(&1, :build_queue_oldest_wait_seconds)) |> Enum.filter(&is_number/1)
-    count_max = Enum.max([1 | count_values])
-    wait_max = Enum.max([1 | wait_values])
+    {count_max, count_ticks} = Enum.max([1 | count_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
+    {wait_max, _wait_ticks} = Enum.max([1 | wait_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
     count_y = fn value -> count_bottom - value / count_max * (count_bottom - top) end
     wait_y = fn value -> wait_bottom - value / wait_max * (wait_bottom - wait_top) end
 
@@ -182,7 +173,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(count_max, count_y, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(count_ticks, count_y, ml, @w - mr, &to_string(round(&1))) <>
         lines <>
         strip <>
         text(ml, 188, "source state", fill: "var(--muted)") <>
@@ -217,7 +208,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {ml, mr, mt, mb} = {46, 14, 16, 26}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)]))
+    {vmax, y_ticks} = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)])) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
     pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.total_mem)} end)
@@ -228,7 +219,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         ~s|<path d="#{line(pts)}" fill="none" stroke="var(--good)" stroke-width="1.8"/>| <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{host_y}" y2="#{host_y}" stroke="var(--blocking)" stroke-width="1" opacity="0.8"/>| <>
         text(@w - mr, host_y + 12, "host #{fmt_bytes(host)}", anchor: "end", fill: "var(--blocking)") <>
-        y_grid(vmax, yf, ml, @w - mr, &fmt_bytes/1) <>
+        y_grid(y_ticks, yf, ml, @w - mr, &fmt_bytes/1) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
@@ -255,31 +246,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + i * rowh
         color = status_color(r.status)
         start_ms = clamp(r.start_ms, t0, t1)
-        work_ms = clamp(r.work_ms, t0, t1)
-        end_ms = clamp(r.end_ms, t0, t1)
         wx = r2(xf.(start_ms))
-        ww = r2(max(xf.(work_ms) - xf.(start_ms), 0))
-
-        work_bar =
-          if r.work_ms < t1 do
-            bx = r2(xf.(work_ms))
-            bw = r2(max(xf.(end_ms) - xf.(work_ms), 2))
-            ~s|<rect x="#{bx}" y="#{r2(y + 3)}" width="#{bw}" height="#{rowh - 8}" rx="3" fill="#{color}" fill-opacity="0.85"/>|
-          else
-            ""
-          end
-
-        end_marker =
-          if r.end_ms >= t0 and r.end_ms <= t1 do
-            ~s|<circle cx="#{r2(xf.(end_ms))}" cy="#{r2(y + rowh / 2)}" r="3" fill="#{color}" stroke="var(--surface)" stroke-width="1"/>|
-          else
-            ""
-          end
+        ww = r2(max(xf.(r.work_ms) - xf.(start_ms), 0))
 
         text(ml - 6, y + rowh / 2 + 3, "##{r.id}", anchor: "end", fill: "var(--muted)") <>
           ~s|<rect x="#{wx}" y="#{r2(y + rowh / 2 - 1.5)}" width="#{ww}" height="3" rx="1.5" fill="var(--faint)" opacity="0.5"/>| <>
-          work_bar <>
-          end_marker
+          LifecycleLane.render(r, {t0, t1}, xf, y, color)
       end)
 
     inner =
@@ -345,12 +317,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @doc "Ticket count and average observed wall-clock by dispatch-time complexity tier."
   @spec complexity_breakdown(map()) :: String.t()
-  def complexity_breakdown(%{complexity_breakdown: tiers}) do
+  def complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks}) do
     h = 250
     {ml, mr, mt, mb} = {40, 18, 20, 62}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 1 end) |> max(1)
+    vmax = List.last(ticks)
     groupw = pw / max(length(tiers), 1)
     barw = min(groupw * 0.48, 64)
 
@@ -363,7 +335,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + ph - bar_h
         color = "var(--an-s#{tier.tier})"
         count_label = if tier.count > 0, do: to_string(tier.count), else: "—"
-        average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms)) || "—"
+        average_label = (tier.average_wall_clock_ms && ChartAxis.elapsed(tier.average_wall_clock_ms, :minutes)) || "—"
         center = x + barw / 2
 
         ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85">#{title("Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}")}</rect>| <>
@@ -372,9 +344,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
           text(center, mt + ph + 34, average_label, anchor: "middle", fill: "var(--muted)")
       end)
 
-    inner =
-      y_grid(vmax, fn value -> mt + ph - value / vmax * ph end, ml, @w - mr, &to_string(round(&1))) <>
-        bars
+    tick_marks =
+      Enum.map_join(ticks, "", fn value ->
+        y = mt + ph - value / vmax * ph
+
+        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(y)}" y2="#{r2(y)}" stroke="var(--hairline)"/>| <>
+          text(ml - 7, y + 3, to_string(value), anchor: "end", fill: "var(--muted)")
+      end)
+
+    inner = tick_marks <> bars
 
     svg(@w, h, inner, "Complexity breakdown")
   end
@@ -394,7 +372,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     ph = h - mt - mb
     n = length(entries)
     total = entries |> Enum.map(& &1.total) |> Enum.sum()
-    maxv = max(total, 1)
+    {maxv, y_ticks} = max(total, 1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
 
     {steps, _} =
       Enum.map_reduce(entries, 0, fn entry, acc ->
@@ -421,7 +399,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(maxv, yf, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(y_ticks, yf, ml, @w - mr, &to_string(round(&1))) <>
         segments <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(mt + ph)}" y2="#{r2(mt + ph)}" stroke="var(--line)"/>|
 
@@ -484,148 +462,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   defp model_label(_label), do: "Unknown"
 
-  # ---- shared builders ----
-
-  defp stacked_areas(series, layers, xf, yf) do
-    zero = Map.new(series, &{&1.idx, 0.0})
-
-    {_cum, out} =
-      Enum.reduce(layers, {zero, []}, fn {color, op, vf}, {cum, acc} ->
-        next = Map.new(series, fn s -> {s.idx, Map.get(cum, s.idx) + vf.(s)} end)
-        top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(Map.get(next, s.idx))} end)
-        bot = series |> Enum.map(fn s -> {xf.(s.t_ms), yf.(Map.get(cum, s.idx))} end) |> Enum.reverse()
-        path = ~s|<path d="#{poly(top ++ bot)}" fill="#{color}" fill-opacity="#{op}" stroke="var(--surface)" stroke-width="0.4"/>|
-        {next, [path | acc]}
-      end)
-
-    out |> Enum.reverse() |> Enum.join()
-  end
-
-  defp poly([{x, y} | rest]) do
-    "M #{r2(x)},#{r2(y)} " <> Enum.map_join(rest, " ", fn {a, b} -> "L #{r2(a)},#{r2(b)}" end) <> " Z"
-  end
-
-  defp poly([]), do: ""
-
-  defp line([{x, y} | rest]) do
-    "M #{r2(x)},#{r2(y)} " <> Enum.map_join(rest, " ", fn {a, b} -> "L #{r2(a)},#{r2(b)}" end)
-  end
-
-  defp line([]), do: ""
-
-  defp area(pts, base) do
-    case pts do
-      [] -> ""
-      _ -> line(pts) <> " L #{r2(elem(List.last(pts), 0))},#{r2(base)} L #{r2(elem(hd(pts), 0))},#{r2(base)} Z"
-    end
-  end
-
-  defp step_line([{x, y} | rest]) do
-    {d, _} =
-      Enum.reduce(rest, {"M #{r2(x)},#{r2(y)}", y}, fn {x2, y2}, {acc, py} ->
-        {acc <> " L #{r2(x2)},#{r2(py)} L #{r2(x2)},#{r2(y2)}", y2}
-      end)
-
-    d
-  end
-
-  defp step_line([]), do: ""
-
-  defp step_area([], _base), do: ""
-
-  defp step_area(pts, base) do
-    step_line(pts) <> " L #{r2(elem(List.last(pts), 0))},#{r2(base)} L #{r2(elem(hd(pts), 0))},#{r2(base)} Z"
-  end
-
-  defp x_axis(t0, t1, xf, x0, x1, baseline, origin_ms) do
-    ticks = for i <- 0..4, do: t0 + (t1 - t0) * i / 4
-
-    base = ~s|<line x1="#{x0}" x2="#{x1}" y1="#{baseline}" y2="#{baseline}" stroke="var(--line)"/>|
-
-    labels =
-      Enum.map_join(ticks, "", fn t ->
-        text(r2(xf.(t)), baseline + 15, fmt_elapsed(t - origin_ms), anchor: "middle", fill: "var(--muted)")
-      end)
-
-    base <> labels
-  end
-
-  defp y_grid(vmax, yf, x0, x1, fmt) do
-    for i <- 0..3, into: "" do
-      v = vmax * i / 3
-      y = r2(yf.(v))
-
-      ~s|<line x1="#{x0}" x2="#{x1}" y1="#{y}" y2="#{y}" stroke="var(--hairline)"/>| <>
-        text(x0 - 6, y + 3, fmt.(v), anchor: "end", fill: "var(--muted)")
-    end
-  end
-
-  defp svg(w, h, inner, label) do
-    ~s|<svg viewBox="0 0 #{w} #{h}" role="img" aria-label="#{label}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;overflow:visible">#{inner}</svg>|
-  end
-
-  defp time_svg(w, h, inner, label, {t0, t1, x0, x1, y0, y1}) do
-    brush =
-      ~s|<rect class="an-time-brush-target" data-time-brush="true" x="#{x0}" y="#{y0}" width="#{x1 - x0}" height="#{y1 - y0}" fill="transparent" style="cursor:crosshair;touch-action:none"/>|
-
-    ~s|<svg viewBox="0 0 #{w} #{h}" role="img" aria-label="#{label}" data-time-brush="true" data-time-start="#{round(t0)}" data-time-end="#{round(t1)}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;overflow:visible">#{inner}#{brush}</svg>|
-  end
-
-  defp now_marker(t0, t1, now_ms, xf, y0, y1) when now_ms >= t0 and now_ms <= t1 do
-    x = r2(xf.(now_ms))
-
-    ~s|<line class="an-now-marker" x1="#{x}" x2="#{x}" y1="#{y0}" y2="#{y1}" stroke="var(--attention)" stroke-width="1"/><text x="#{x}" y="#{y0 + 9}" text-anchor="middle" fill="var(--attention)" font-size="9" font-family="var(--an-mono, monospace)">now</text>|
-  end
-
-  defp now_marker(_t0, _t1, _now_ms, _xf, _y0, _y1), do: ""
-
   defp axis_origin(window), do: Map.get(window, :axis_origin_ms, window.start_ms)
   defp now_ms(window), do: Map.get(window, :now_ms, window.end_ms)
 
-  defp minimum_domain_ms(start_ms, end_ms), do: max(@minimum_domain_ms, div(end_ms - start_ms, 100))
-
-  defp integer(value) when is_integer(value), do: value
-  defp integer(value) when is_float(value), do: round(value)
-
-  defp integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _invalid -> nil
-    end
-  end
-
-  defp integer(_value), do: nil
-
-  defp elapsed(ms) do
-    minutes = ms |> max(0) |> div(60_000)
-    hours = div(minutes, 60)
-    remainder = rem(minutes, 60)
-
-    cond do
-      hours > 0 and remainder > 0 -> "#{hours}h #{remainder}m"
-      hours > 0 -> "#{hours}h"
-      true -> "#{remainder}m"
-    end
-  end
-
-  defp text(x, y, body, opts) do
-    anchor = Keyword.get(opts, :anchor, "start")
-    fill = Keyword.get(opts, :fill, "var(--muted)")
-    ~s|<text x="#{x}" y="#{y}" text-anchor="#{anchor}" fill="#{fill}" font-size="9" font-family="var(--an-mono, monospace)">#{escape_text(body)}</text>|
-  end
-
-  defp title(body), do: "<title>#{escape_text(body)}</title>"
-
-  defp escape_text(body),
-    do: body |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-
-  # ---- formatting / palette ----
-
-  defp scolor(i), do: "var(--an-s#{rem(i - 1, 8) + 1})"
-
   defp status_color(:merged), do: "var(--good)"
   defp status_color(:rework), do: "var(--blocking)"
-  defp status_color(:paused), do: "var(--faint)"
+  defp status_color(:in_review), do: "var(--attention)"
+  defp status_color(status) when status in [:paused, :optimistic_parked], do: "var(--faint)"
   defp status_color(_active), do: "var(--accent)"
 
   defp cost_metric(:peakcpu), do: & &1.peak_cpu
@@ -636,31 +479,5 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp cost_label(a, :mem), do: fmt_bytes(a.peak_mem_bytes)
   defp cost_label(a, _cpu), do: "#{a.cpu_seconds}s"
 
-  defp fmt_elapsed(ms) when ms <= 0, do: "0m"
-
-  defp fmt_elapsed(ms) do
-    total_min = div(round(ms / 1000), 60)
-    h = div(total_min, 60)
-    m = rem(total_min, 60)
-
-    cond do
-      h > 0 and m > 0 -> "#{h}h #{m}m"
-      h > 0 -> "#{h}h"
-      true -> "#{total_min}m"
-    end
-  end
-
-  defp fmt_bytes(b) when is_number(b) do
-    cond do
-      b >= 1_073_741_824 -> "#{Float.round(b / 1_073_741_824, 1)} GB"
-      b >= 1_048_576 -> "#{round(b / 1_048_576)} MB"
-      b >= 1024 -> "#{round(b / 1024)} KB"
-      true -> "#{round(b)} B"
-    end
-  end
-
-  defp fmt_bytes(_b), do: "0 B"
-
-  defp r2(v) when is_number(v), do: Float.round(v * 1.0, 2)
   defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)
 end

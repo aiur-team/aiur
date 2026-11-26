@@ -1,0 +1,63 @@
+{
+  "manifest_version": 1,
+  "components": [
+    {
+      "id": "experiments",
+      "name": "Experiment specifications and evidence",
+      "layer": 3,
+      "kind": "optional",
+      "paths": [
+        "src/lib/aiur/experiments/**"
+      ],
+      "facades": [
+        "Aiur.Experiments",
+        "Aiur.Experiments.Spec",
+        "Aiur.Experiments.Predicate",
+        "Aiur.Experiments.Observation",
+        "Aiur.Experiments.MetricPack",
+        "Aiur.ExperimentsCLI",
+        "Aiur.Experiments.CapabilityProvider"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [
+        "orchestration"
+      ],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": [],
+      "forbid": [
+        "Aiur.Orchestrator",
+        "Aiur.Orchestrator.*",
+        "Aiur.GitHub",
+        "Aiur.GitHub.*"
+      ]
+    },
+    {
+      "id": "orchestration",
+      "name": "orchestration",
+      "layer": 3,
+      "kind": "optional",
+      "paths": [
+        "src/lib/orchestrator.ex"
+      ],
+      "facades": [
+        "Aiur.Orchestrator"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    }
+  ]
+}

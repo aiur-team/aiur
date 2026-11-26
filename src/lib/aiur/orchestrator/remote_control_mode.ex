@@ -8,14 +8,13 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport}
-  alias Aiur.Tracker
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, Redispatch, RetryEngine, State, StatusReport, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.PauseResume.ControlCalls
   require Logger
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
   def set_remote_control(issue_identifier, on?),
-    do: set_remote_control(Aiur.Orchestrator, issue_identifier, on?)
+    do: set_remote_control(Aiur.Project.whereis(Aiur.Orchestrator), issue_identifier, on?)
 
   @spec set_remote_control(GenServer.server(), String.t(), boolean()) ::
           {:ok, :on | :off} | {:error, term()}
@@ -23,9 +22,30 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       when is_binary(issue_identifier) and is_boolean(on?),
       do: control_api_call(server, {:set_remote_control, issue_identifier, on?}, 10_000)
 
+  @doc false
+  @spec redispatch(String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def redispatch(identifier, backend \\ nil), do: redispatch(Aiur.Project.whereis(Aiur.Orchestrator), identifier, backend)
+
+  @spec redispatch(GenServer.server(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def redispatch(server, identifier, backend)
+      when is_binary(identifier) and (is_nil(backend) or is_binary(backend)),
+      do: control_api_call(server, {:redispatch, identifier, backend}, 120_000)
+
+  @doc false
+  @spec redispatch_call(State.t(), String.t(), String.t() | nil) :: {:reply, term(), State.t()}
+  def redispatch_call(%State{} = state, identifier, backend) do
+    ControlCalls.redispatch_call(state, identifier, backend)
+  end
+
+  @doc false
+  @spec redispatch_call_unchecked(State.t(), String.t(), String.t() | nil, keyword()) :: {term(), State.t()}
+  def redispatch_call_unchecked(state, identifier, backend, opts \\ []) do
+    Redispatch.call(state, identifier, backend, opts)
+  end
+
   @spec ensure_remote_control_trust(Path.t()) :: :ok | {:error, term()}
   def ensure_remote_control_trust(workspace),
-    do: ensure_remote_control_trust(Aiur.Orchestrator, workspace)
+    do: ensure_remote_control_trust(Aiur.Project.whereis(Aiur.Orchestrator), workspace)
 
   @spec ensure_remote_control_trust(GenServer.server(), Path.t()) ::
           :ok | {:error, term()}
@@ -34,17 +54,43 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   @spec set_remote_control_call(State.t(), String.t(), boolean()) ::
           {:reply, term(), State.t()}
-  def set_remote_control_call(%State{} = state, issue_identifier, on?) do
-    {reply, state} = set_remote_control_reply(state, issue_identifier, on?)
-    StatusReport.notify_dashboard(state)
-    {:reply, reply, state}
+  @spec set_remote_control_call(State.t(), String.t(), boolean(), keyword()) :: {:reply, term(), State.t()} | {:noreply, State.t()}
+  def set_remote_control_call(%State{} = state, issue_identifier, on?, opts \\ []) do
+    if Keyword.has_key?(opts, :from) and TrackerTasks.running?(state, {:remote_control, issue_identifier}) do
+      {:reply, {:error, :remote_control_change_in_progress}, state}
+    else
+      {reply, state} = set_remote_control_reply(state, issue_identifier, on?, opts)
+      StatusReport.notify_dashboard(state)
+      if reply == :deferred, do: {:noreply, state}, else: {:reply, reply, state}
+    end
   end
 
   @spec ensure_remote_control_trust_call(State.t(), String.t()) ::
           {:reply, term(), State.t()}
-  def ensure_remote_control_trust_call(%State{} = state, workspace)
+  @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil) :: {:reply, term(), State.t()} | {:noreply, State.t()}
+  def ensure_remote_control_trust_call(%State{} = state, workspace, from \\ nil)
       when is_binary(workspace) do
-    {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
+    ensure_remote_control_trust_call(state, workspace, from, &TrackerTasks.start/4)
+  end
+
+  @doc false
+  @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil, (State.t(), term(), (-> term()), (State.t(), term() -> State.t()) -> State.t())) ::
+          {:reply, term(), State.t()} | {:noreply, State.t()}
+  def ensure_remote_control_trust_call(state, workspace, from, start_task)
+      when is_binary(workspace) and is_function(start_task, 4) do
+    trust_opts = remote_control_trust_opts()
+
+    if is_nil(from) do
+      {:reply, RemoteControl.ensure_workspace_trusted(workspace, trust_opts), state}
+    else
+      next =
+        start_task.(state, {:rc_trust, workspace, make_ref()}, fn -> RemoteControl.ensure_workspace_trusted(workspace, trust_opts) end, fn current, result ->
+          GenServer.reply(from, result)
+          current
+        end)
+
+      {:noreply, next}
+    end
   end
 
   @doc false
@@ -106,6 +152,20 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   defp promote_trusted_workspace(state, running_entry, relabeled, label, workspace, opts) do
     trust = Keyword.get(opts, :trust_fun, &RemoteControl.ensure_workspace_trusted/2)
 
+    if from = Keyword.get(opts, :from) do
+      fetch = fn ->
+        trust_remote_workspace({label, opts, running_entry, trust, workspace})
+      end
+
+      defer_remote_change(state, running_entry, from, fetch, fn arg1, arg2 ->
+        apply_remote_promotion(arg1, arg2, {label, opts, relabeled})
+      end)
+    else
+      trust_and_promote(state, running_entry, relabeled, label, workspace, opts, trust)
+    end
+  end
+
+  defp trust_and_promote(state, running_entry, relabeled, label, workspace, opts, trust) do
     case trust.(workspace, remote_control_trust_opts()) do
       :ok ->
         do_promote_to_remote(state, running_entry, relabeled, label, opts)
@@ -118,7 +178,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   defp do_promote_to_remote(state, running_entry, relabeled, label, opts) do
-    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+    add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :remote_control_mode))
 
     case add_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
@@ -165,7 +225,30 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label, opts) do
-    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+    if from = Keyword.get(opts, :from) do
+      fetch = fn -> remove_remote_control_label({label, opts, running_entry}) end
+
+      defer_remote_change(state, running_entry, from, fetch, fn arg1, arg2 ->
+        apply_remote_demotion(arg1, arg2, {label, opts, relabeled})
+      end)
+    else
+      finish_demote(state, running_entry, relabeled, label, opts)
+    end
+  end
+
+  defp defer_remote_change(state, running_entry, from, fetch, complete) do
+    identifier = Map.get(running_entry, :identifier)
+
+    next =
+      TrackerTasks.start(state, {:remote_control, identifier}, fetch, fn arg1, arg2 ->
+        apply_remote_control_change(arg1, arg2, {complete, from, identifier, running_entry})
+      end)
+
+    {:deferred, next}
+  end
+
+  defp finish_demote(state, running_entry, relabeled, label, opts) do
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :remote_control_mode))
 
     case remove_label.(Map.get(running_entry, :identifier), label) do
       :ok ->
@@ -193,7 +276,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     ensure_redispatch_started(state, running_entry, issue, opts)
   end
 
-  defp ensure_redispatch_started(state, running_entry, issue, opts) do
+  defp ensure_redispatch_started(state, running_entry, issue, opts, retry_metadata \\ %{}) do
     if live_running_entry?(Map.get(state.running, issue.id)) or
          Map.has_key?(state.retry_attempts, issue.id) do
       state
@@ -201,14 +284,20 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       schedule_retry = Keyword.get(opts, :schedule_retry_fun, &RetryEngine.schedule_issue_retry/4)
       next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
 
-      schedule_retry.(state, issue.id, next_attempt, %{
-        identifier: issue.identifier,
-        tracker_identity: Issue.tracker_identity(issue),
-        error: "remote-control redispatch did not start",
-        prior_work: Config.agent_prior_work_continuation?(),
-        worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path)
-      })
+      schedule_retry.(
+        state,
+        issue.id,
+        next_attempt,
+        %{
+          identifier: issue.identifier,
+          tracker_identity: Issue.tracker_identity(issue),
+          error: "remote-control redispatch did not start",
+          prior_work: Config.agent_prior_work_continuation?(),
+          worker_host: Map.get(running_entry, :worker_host),
+          workspace_path: Map.get(running_entry, :workspace_path)
+        }
+        |> Map.merge(retry_metadata)
+      )
     end
   end
 
@@ -252,10 +341,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    Orchestrator.kill_repl_session(running_entry)
-    Orchestrator.close_active_chat_streams(identifier, reason)
+    AgentTeardown.kill_repl_session(running_entry)
+    AgentTeardown.close_active_chat_streams(identifier, reason)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
-    if is_pid(pid), do: Orchestrator.terminate_task(pid)
+    if is_pid(pid), do: AgentTeardown.terminate_task(pid)
 
     cleared =
       running_entry
@@ -267,6 +356,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       | running: Map.put(state.running, issue_id, cleared),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   @doc false
@@ -336,5 +426,74 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     ReplAgent.reap_orphaned_panes()
   rescue
     _ -> :ok
+  end
+
+  defp trust_remote_workspace({label, opts, running_entry, trust, workspace}) do
+    case trust.(workspace, remote_control_trust_opts()) do
+      :ok ->
+        add_label = Keyword.get(opts, :add_label_fun, &TicketTransition.write_marker(&1, :add, &2, writer: :remote_control_mode))
+
+        case add_label.(Map.get(running_entry, :identifier), label) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:rc_label_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:rc_trust_failed, reason}}
+    end
+  end
+
+  defp apply_remote_promotion(current, entry, {label, opts, relabeled}) do
+    do_promote_to_remote(
+      current,
+      entry,
+      relabeled,
+      label,
+      Keyword.put(opts, :add_label_fun, fn _, _ -> :ok end)
+    )
+  end
+
+  defp remove_remote_control_label({label, opts, running_entry}) do
+    remove_label = Keyword.get(opts, :remove_label_fun, &TicketTransition.write_marker(&1, :remove, &2, writer: :remote_control_mode))
+
+    case remove_label.(Map.get(running_entry, :identifier), label) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:rc_label_failed, reason}}
+    end
+  end
+
+  defp apply_remote_demotion(current, entry, {label, opts, relabeled}) do
+    finish_demote(
+      current,
+      entry,
+      relabeled,
+      label,
+      Keyword.put(opts, :remove_label_fun, fn _, _ -> :ok end)
+    )
+  end
+
+  defp apply_remote_control_change(
+         current,
+         result,
+         {complete, from, identifier, running_entry}
+       ) do
+    current_entry = State.find_running_by_identifier(current.running, identifier)
+
+    {reply, current} =
+      case result do
+        :ok ->
+          if TrackerTasks.same_runner?(current_entry, running_entry) do
+            complete.(current, current_entry)
+          else
+            {{:error, :stale_runner}, current}
+          end
+
+        {:error, _} = error ->
+          {error, current}
+      end
+
+    GenServer.reply(from, reply)
+    StatusReport.notify_dashboard(current)
+    current
   end
 end

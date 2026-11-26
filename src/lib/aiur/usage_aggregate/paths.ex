@@ -5,7 +5,7 @@ defmodule Aiur.UsageAggregate.Paths do
   # file is pre-created and directory-synced once so the atomic-rename hot path
   # never needs a global filesystem barrier for a brand-new directory entry.
 
-  alias Aiur.{DecisionLog, Fs}
+  alias Aiur.{Fs, Journal}
 
   @digest_chunk_bytes 64 * 1_024
 
@@ -13,8 +13,8 @@ defmodule Aiur.UsageAggregate.Paths do
   def prepare(root, sync_fun) when is_binary(root) and is_function(sync_fun, 0) do
     checkpoint_path = Path.join(root, "checkpoint.json")
 
-    with :ok <- DecisionLog.ensure_directory(root),
-         :ok <- DecisionLog.prepare(root, checkpoint_path, sync_fun) do
+    with :ok <- Journal.ensure_directory(root),
+         :ok <- Journal.prepare(root, checkpoint_path, sync_fun) do
       {:ok,
        %{
          root: root,
@@ -34,7 +34,7 @@ defmodule Aiur.UsageAggregate.Paths do
   @spec quarantine(String.t(), String.t(), (-> :ok | {:error, term()})) :: :ok | {:error, term()}
   def quarantine(path, quarantine_dir, sync_fun)
       when is_binary(path) and is_binary(quarantine_dir) and is_function(sync_fun, 0) do
-    with :ok <- DecisionLog.ensure_directory(quarantine_dir),
+    with :ok <- Journal.ensure_directory(quarantine_dir),
          {:ok, %File.Stat{type: :regular}} <- File.lstat(path),
          {:ok, digest} <- file_digest(path),
          destination = Path.join(quarantine_dir, "checkpoint.json.sha256-#{digest}.quarantine"),

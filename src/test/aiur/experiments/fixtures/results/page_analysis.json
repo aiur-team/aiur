@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-10-09T00:00:00Z",
+  "body": {
+    "schema_version": "experiment-result/v1",
+    "experiment_id": "release-speed",
+    "group_order": [
+      "before",
+      "after"
+    ],
+    "engine": {
+      "name": "experiment-stats",
+      "version": "1.0.0"
+    },
+    "inputs": {
+      "snapshot_sha256": "68ed4437643a2d8067785285bc18c805f4884fb58cb0bc545340ec5b943a8219",
+      "spec_sha256": "832c83217f5c74659a0026dbb98af81ac5cc102c29e0bd16899b10ff83171bf8",
+      "annotations_sha256": "a893b601925d8626bf508fc130f313adbf2a82dff46d6d3a3c27271be1fde176"
+    },
+    "defaults": {
+      "alpha": 0.05,
+      "min_samples": 10,
+      "power_target": 0.8,
+      "bootstrap_primary": 400,
+      "bootstrap_exploratory": 200,
+      "permutation_resamples": 500
+    },
+    "metrics": {
+      "delivery-speed/start_to_merge": {
+        "kind": "duration",
+        "groups": {
+          "before": {
+            "n": 12,
+            "median": 100.055,
+            "q1": 100.0275,
+            "q3": 100.0825,
+            "iqr": 0.055,
+            "p90": 100.099,
+            "min": 100.0,
+            "max": 100.11,
+            "n_censored": 0
+          },
+          "after": {
+            "n": 4,
+            "median": 70.0105,
+            "q1": 70.00525,
+            "q3": 70.01575,
+            "iqr": 0.0105,
+            "p90": 70.0189,
+            "min": 70.0,
+            "max": 70.021,
+            "n_censored": 0
+          }
+        },
+        "min_achievable_p": 0.001098901099,
+        "excluded_counts": {
+          "before": 0,
+          "after": 0
+        },
+        "flags": [
+          "confounded"
+        ],
+        "analyst_flags": [
+          {
+            "metric": "delivery-speed/start_to_merge",
+            "flag": "confounded",
+            "reason": "Release overlap",
+            "author": "fixture-analyst"
+          }
+        ],
+        "status": "insufficient_data",
+        "direction": "no_change",
+        "adjustment": "holm",
+        "summary_text": "Delivery speed: n 12 vs 4, median 0.001667583333 min to 0.001166841667 min; insufficient_data, no_change; 0 units excluded; flags: confounded (analyst: confounded \u2014 Release overlap)."
+      }
+    },
+    "exclusions": [],
+    "warnings": [],
+    "overall": {
+      "primary_statuses": {
+        "delivery-speed/start_to_merge": "insufficient_data"
+      },
+      "note": "",
+      "flags": [
+        "confounded"
+      ]
+    }
+  }
+}

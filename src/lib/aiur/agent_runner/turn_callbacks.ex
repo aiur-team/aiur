@@ -2,11 +2,14 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
   @moduledoc false
 
   alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, SessionLifecycle}
+  alias Aiur.Commands
   alias Aiur.Issue
 
   @type callbacks :: %{
           on_message: (map() -> :ok),
           on_safe_checkpoint: fun(),
+          on_native_reply: fun(),
+          on_steer_claim: fun(),
           on_operator_message: fun(),
           on_operator_response: fun(),
           live_opts: keyword()
@@ -27,6 +30,9 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
     lifecycle_opts =
       live_opts
       |> Keyword.put_new(:attempt_id, Keyword.get(opts, :telemetry_attempt_id))
+      |> Keyword.put(:repeated_command_steerer, fn body ->
+        Aiur.Orchestrator.send_operator_message(orchestrator, issue.identifier, %{kind: :text, body: body})
+      end)
 
     on_message =
       MessageHandler.build(
@@ -41,20 +47,22 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
 
     %{
       on_message: on_message,
+      on_steer_claim: CheckpointDelivery.steer_claim_handler(issue, orchestrator, Commands.default_store(), live_opts),
       on_safe_checkpoint:
         CheckpointDelivery.safe_checkpoint_handler(
           issue,
           orchestrator,
           backend,
-          Aiur.DecisionStore,
+          Commands.default_store(),
           live_opts
         ),
+      on_native_reply: CheckpointDelivery.native_reply_handler(issue, orchestrator, Commands.default_store(), live_opts),
       on_operator_response: CheckpointDelivery.operator_response_handler(issue, orchestrator, live_opts),
       on_operator_message:
         CheckpointDelivery.operator_immediate_handler(
           issue,
           orchestrator,
-          Aiur.DecisionStore,
+          Commands.default_store(),
           live_opts
         ),
       live_opts: live_opts

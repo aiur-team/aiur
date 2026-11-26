@@ -20,7 +20,7 @@ defmodule Aiur.Codex.ExhaustedReset do
 
   @doc "Records the exhausted windows of one rate-limit snapshot (`params.rateLimits`)."
   @spec observe(map(), term()) :: :ok
-  def observe(%{port: port}, %{} = rate_limits) when is_port(port) do
+  def observe(%{port: port}, %{} = rate_limits) when is_port(port) or is_pid(port) do
     case limit_resets(rate_limits) do
       :no_windows -> :ok
       resets -> put(port, limit_key(Map.get(rate_limits, "limitId")), resets)
@@ -45,7 +45,7 @@ defmodule Aiur.Codex.ExhaustedReset do
 
   @doc "The latest future reset of an exhausted window, or nil."
   @spec latest(map(), DateTime.t()) :: DateTime.t() | nil
-  def latest(%{port: port}, %DateTime{} = now) when is_port(port) do
+  def latest(%{port: port}, %DateTime{} = now) when is_port(port) or is_pid(port) do
     port
     |> key()
     |> Process.get(%{})
@@ -58,7 +58,7 @@ defmodule Aiur.Codex.ExhaustedReset do
   def latest(_session, _now), do: nil
 
   @spec clear(map()) :: :ok
-  def clear(%{port: port}) when is_port(port) do
+  def clear(%{port: port}) when is_port(port) or is_pid(port) do
     Process.delete(key(port))
     :ok
   end

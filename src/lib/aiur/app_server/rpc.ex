@@ -6,39 +6,40 @@ defmodule Aiur.AppServer.Rpc do
   require Logger
 
   alias Aiur.AppServer.Rpc.{Await, SensitiveResponses, Stream, StreamDiagnostics}
+  alias Aiur.AppServer.Transport
 
-  @spec send_line(port(), map()) :: true
+  @spec send_line(port() | pid(), map()) :: true
   def send_line(port, message) do
     line = Jason.encode!(message) <> "\n"
-    Port.command(port, line)
+    Transport.command(port, line)
   end
 
-  @type notification_handler :: (map() -> :handled | :ignore)
+  @type notification_handler :: (map() -> :handled | :ignore | {:error, term()})
 
   @doc false
-  @spec retain_late_sensitive_response(port(), integer()) :: :ok
+  @spec retain_late_sensitive_response(port() | pid(), integer()) :: :ok
   defdelegate retain_late_sensitive_response(port, request_id), to: SensitiveResponses, as: :retain
 
   @doc false
-  @spec retain_late_sensitive_response(port(), integer(), boolean()) :: :ok
+  @spec retain_late_sensitive_response(port() | pid(), integer(), boolean()) :: :ok
   defdelegate retain_late_sensitive_response(port, request_id, partial_line?), to: SensitiveResponses, as: :retain
 
   @doc false
-  @spec clear_late_sensitive_responses(port()) :: :ok
+  @spec clear_late_sensitive_responses(port() | pid()) :: :ok
   defdelegate clear_late_sensitive_responses(port), to: SensitiveResponses, as: :clear
 
   @doc false
-  @spec discard_late_sensitive_response?(port(), binary() | map()) :: boolean()
+  @spec discard_late_sensitive_response?(port() | pid(), binary() | map()) :: boolean()
   defdelegate discard_late_sensitive_response?(port, data), to: SensitiveResponses, as: :discard?
 
-  @spec with_timeout_response(port(), integer(), non_neg_integer(), String.t(), String.t()) ::
+  @spec with_timeout_response(port() | pid(), integer(), non_neg_integer(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label) do
     with_timeout_response(port, request_id, timeout_ms, pending_line, backend_label, fn _payload -> :ignore end)
   end
 
   @spec with_timeout_response(
-          port(),
+          port() | pid(),
           integer(),
           non_neg_integer(),
           String.t(),
@@ -52,7 +53,7 @@ defmodule Aiur.AppServer.Rpc do
   end
 
   @spec with_timeout_response(
-          port(),
+          port() | pid(),
           integer(),
           non_neg_integer(),
           String.t(),
@@ -66,20 +67,20 @@ defmodule Aiur.AppServer.Rpc do
     Await.response(port, request_id, timeout_ms, pending_line, backend_label, on_notification, sensitive_response?)
   end
 
-  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t()) ::
+  @spec handle_response(port() | pid(), integer(), binary(), non_neg_integer(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label) do
     handle_response(port, request_id, data, timeout_ms, backend_label, fn _payload -> :ignore end)
   end
 
-  @spec handle_response(port(), integer(), binary(), non_neg_integer(), String.t(), notification_handler()) ::
+  @spec handle_response(port() | pid(), integer(), binary(), non_neg_integer(), String.t(), notification_handler()) ::
           {:ok, map()} | {:error, term()}
   def handle_response(port, request_id, data, timeout_ms, backend_label, on_notification) when is_function(on_notification, 1) do
     handle_response(port, request_id, data, timeout_ms, backend_label, on_notification, false)
   end
 
   @spec handle_response(
-          port(),
+          port() | pid(),
           integer(),
           binary(),
           non_neg_integer(),
@@ -93,30 +94,77 @@ defmodule Aiur.AppServer.Rpc do
     payload = to_string(data)
 
     case Jason.decode(payload) do
-      {:ok, %{"id" => ^request_id, "error" => error}} ->
-        {:error, {:response_error, error}}
-
-      {:ok, %{"id" => ^request_id, "result" => result}} ->
-        {:ok, result}
-
-      {:ok, %{"id" => ^request_id} = response_payload} ->
-        {:error, {:response_error, response_payload}}
-
-      {:ok, %{} = other} ->
-        maybe_route_notification(other, on_notification, backend_label)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+      {:ok, %{} = response} ->
+        handle_json_response(response, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?)
 
       {:error, _} ->
-        unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
-        log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+        handle_non_json_response(payload, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?)
     end
+  end
+
+  defp handle_json_response(
+         %{"id" => response_id, "error" => error},
+         port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:error, {:response_error, error}}
+  end
+
+  defp handle_json_response(
+         %{"id" => response_id, "result" => result},
+         port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:ok, result}
+  end
+
+  defp handle_json_response(
+         %{"id" => response_id} = response,
+         port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:error, {:response_error, response}}
+  end
+
+  defp handle_json_response(response, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
+    routing = maybe_route_notification(response, on_notification, backend_label)
+    :ok = Transport.acknowledge(port)
+
+    with :ok <- routing do
+      with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+    end
+  end
+
+  defp handle_non_json_response(payload, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
+    unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
+    log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
+    :ok = Transport.acknowledge(port)
+    with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
   end
 
   defp maybe_route_notification(payload, on_notification, backend_label) do
     case on_notification.(payload) do
       :handled -> :ok
       :ignore -> Logger.debug("Ignoring #{describe_message(payload)} while waiting for #{backend_label} response")
+      {:error, _reason} = error -> error
       _ -> Logger.debug("Ignoring unrecognized notification handler result while waiting for #{backend_label} response")
     end
   rescue

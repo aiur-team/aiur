@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.FreeProbeBudgetTest do
   use ExUnit.Case, async: true
 
   test "free probe passes a spent core ceiling while paid requests stay held" do
-    broker = Path.expand("../../../priv/github_budget.py", __DIR__)
+    broker = Aiur.GitHub.Budget.broker_path()
 
     script = """
     import importlib.util, sqlite3, sys

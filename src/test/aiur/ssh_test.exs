@@ -10,7 +10,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file)
@@ -31,7 +31,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file)
@@ -53,7 +53,7 @@ defmodule Aiur.SSHTest do
     on_exit(fn ->
       restore_env("PATH", previous_path)
       restore_env("AIUR_SSH_CONFIG", previous_ssh_config)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file)
@@ -75,7 +75,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file)
@@ -94,7 +94,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     File.mkdir_p!(test_root)
@@ -111,7 +111,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file, """
@@ -139,7 +139,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     File.mkdir_p!(test_root)
@@ -159,7 +159,7 @@ defmodule Aiur.SSHTest do
     on_exit(fn ->
       restore_env("PATH", previous_path)
       restore_env("AIUR_SSH_CONFIG", previous_ssh_config)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file, """
@@ -187,7 +187,7 @@ defmodule Aiur.SSHTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     install_fake_ssh!(test_root, trace_file, """

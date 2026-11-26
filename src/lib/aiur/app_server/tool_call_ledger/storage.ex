@@ -1,7 +1,7 @@
 defmodule Aiur.AppServer.ToolCallLedger.Storage do
   @moduledoc false
 
-  alias Aiur.{Config, DecisionLog}
+  alias Aiur.{Config, Journal}
 
   @filename "tool_call_ledger.dets"
 
@@ -13,7 +13,7 @@ defmodule Aiur.AppServer.ToolCallLedger.Storage do
   def open(opts, true) do
     with {:ok, path} <- storage_path(opts),
          {:ok, table_name} <- storage_name(opts),
-         :ok <- DecisionLog.ensure_directory(Path.dirname(path)),
+         :ok <- Journal.ensure_directory(Path.dirname(path)),
          :ok <- prepare_file(path),
          {:ok, ^table_name} <- open_hardened_table(table_name, path) do
       {:ok, {:dets, table_name}}

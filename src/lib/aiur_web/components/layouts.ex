@@ -4,7 +4,6 @@ defmodule AiurWeb.Layouts do
   """
 
   use Phoenix.Component
-
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
     assigns =
@@ -14,118 +13,133 @@ defmodule AiurWeb.Layouts do
 
     ~H"""
     <!DOCTYPE html>
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="dark" data-palette="gruvbox">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <link rel="icon" type="image/png" href="/aiur-logo.png" />
-        <link rel="apple-touch-icon" href="/aiur-logo.png" />
+        <link rel="icon" type="image/png" href="/aiur-style/assets/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-style/assets/aiur-logo.png" />
         <title>{@page_title}</title>
         <script>
           (function () {
+            try { if (window.localStorage.getItem("aiur-nav-collapsed") === "true" && window.matchMedia("(min-width: 961px)").matches) document.documentElement.classList.add("nav-collapsed"); } catch (_error) {}
             try {
-              var stored = window.localStorage.getItem("aiur-theme");
-              if (stored === "light" || stored === "dark") {
-                document.documentElement.dataset.theme = stored;
+              if (window.localStorage.getItem("aiur-palette") === "aiur") {
+                document.documentElement.dataset.palette = "aiur";
               }
             } catch (_error) {}
           })();
         </script>
+        <script src="/aiur-style/init/theme-init.js" data-default="dark"></script>
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+        <script defer src="/nav-toggle-hook.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
-        <script defer src="/conversation-voice-controller.js"></script>
-        <script defer src="/conversation-drawer-hook.js"></script>
-        <script defer src="/build-order-grid-hook.js"></script>
+        <script defer src="/voice-capture.js"></script><script defer src="/voice-transport.js"></script><script defer src="/voice-mode-choice.js"></script><script defer src="/voice-waveform.js"></script><script defer src="/voice-playback.js"></script><script defer src="/conversation-voice-controller.js"></script>
+        <script defer src="/executor-voice-controller.js"></script><script defer src="/executor-voice-hook.js"></script><script defer src="/voice-input-hook.js"></script><script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/conversation-scroll-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>
+        <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/projects-home-hook.js"></script>
+        <script defer src="/gateway-state.js"></script>
+        <script defer src="/gateway-view-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
+        <script defer src="/build-home/loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
               .querySelector("meta[name='csrf-token']")
               ?.getAttribute("content");
 
+            // The loading shell is server-rendered before LiveView joins. Keep
+            // Settings interactive during that gap instead of waiting for its hook.
+            var axMenuOpen = false;
+            var setAxMenuOpen = (open) => {
+              axMenuOpen = open;
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              var menu = settings?.querySelector("#ax-menu");
+              if (!settings || !cog || !menu) return;
+              settings.classList.toggle("open", open);
+              cog.setAttribute("aria-expanded", String(open));
+              menu.inert = !open;
+            };
+            document.addEventListener("click", (e) => {
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              if (!settings || !cog) return;
+              if (cog.contains(e.target)) setAxMenuOpen(!axMenuOpen);
+              else if (!settings.contains(e.target)) setAxMenuOpen(false);
+            });
+            document.addEventListener("keydown", (e) => {
+              var settings = document.getElementById("ax-set");
+              var cog = settings?.querySelector("#ax-cog");
+              var menu = settings?.querySelector("#ax-menu");
+              if (!settings || !cog || !menu || !settings.contains(e.target)) return;
+              var items = Array.from(menu.querySelectorAll("button:not(:disabled)"));
+              var index = items.indexOf(document.activeElement);
+              var onCog = cog.contains(e.target);
+              if (e.key === "Escape") { e.preventDefault(); setAxMenuOpen(false); cog.focus(); return; }
+              if (e.key === "Tab") { setAxMenuOpen(false); return; }
+              if (onCog && ["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
+                e.preventDefault(); setAxMenuOpen(true);
+                items[e.key === "ArrowUp" ? items.length - 1 : 0]?.focus();
+              } else if (!onCog && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+                e.preventDefault();
+                var next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 :
+                  (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                items[next]?.focus();
+              }
+            });
+
             if (!window.Phoenix || !window.LiveView) return;
 
-            var Hooks = {};
+            var Hooks = {ConversationScroll: window.AiurConversationScrollHook};
 
-            Hooks.AgentLogPanel = {
+            Hooks.NavToggle = window.AiurNavToggleHook;
+            Hooks.ProjectsHome = window.AiurProjectsHomeHook;
+            Hooks.GatewayView = window.AiurGatewayViewHook;
+            Hooks.AxMenu = {
               mounted: function () {
-                this.threshold = 24;
-                this.liveButton = this.el
-                  .closest(".modal-panel")
-                  ?.querySelector("[data-agent-log-live]");
-
-                this.onScroll = this.updateLiveButton.bind(this);
-                this.onLiveClick = () => {
-                  this.scrollToBottom();
-                  this.updateLiveButton();
+                this.cog = this.el.querySelector("#ax-cog");
+                this.menu = this.el.querySelector("#ax-menu");
+                this.open = axMenuOpen || this.el.classList.contains("open");
+                this.fitMenu = () => {
+                  if (window.innerWidth <= 480) {
+                    var available = Math.max(0, window.innerWidth - 32), minimum = Math.min(210, available);
+                    this.menu.style.minWidth = minimum + "px";
+                    this.menu.style.maxWidth = available + "px";
+                    var rect = this.menu.getBoundingClientRect();
+                    if (getComputedStyle(this.menu).position === "absolute") {
+                      var left = Math.max(16, Math.min(rect.left, window.innerWidth - 16 - rect.width));
+                      this.menu.style.left = left - this.el.getBoundingClientRect().left + "px";
+                    }
+                  } else ["min-width", "max-width", "left"].forEach(key => this.menu.style.removeProperty(key));
                 };
-
-                this.el.addEventListener("scroll", this.onScroll);
-                this.liveButton?.addEventListener("click", this.onLiveClick);
-
-                requestAnimationFrame(() => {
-                  this.scrollToBottom();
-                  this.updateLiveButton();
-                });
+                this.fitMenu(); this.onResize = () => this.fitMenu();
+                window.addEventListener("resize", this.onResize);
+                this.brandObserver = new ResizeObserver(this.fitMenu);
+                this.brandObserver.observe(this.el.closest(".ax-brand"));
+                this.setOpen(this.open);
               },
-              beforeUpdate: function () {
-                this.wasAtBottom = this.isAtBottom();
-              },
-              updated: function () {
-                if (this.wasAtBottom) this.scrollToBottom();
-                this.updateLiveButton();
+              updated: function () { this.setOpen(axMenuOpen); },
+              setOpen: function (open) {
+                this.open = open;
+                setAxMenuOpen(open);
+                this.el.classList.toggle("open", open);
+                this.cog.setAttribute("aria-expanded", String(open));
+                this.menu.inert = !open;
               },
               destroyed: function () {
-                this.el.removeEventListener("scroll", this.onScroll);
-                this.liveButton?.removeEventListener("click", this.onLiveClick);
-              },
-              isAtBottom: function () {
-                return this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight <= this.threshold;
-              },
-              scrollToBottom: function () {
-                this.el.scrollTop = this.el.scrollHeight;
-              },
-              updateLiveButton: function () {
-                var live = this.isAtBottom();
-                if (!this.liveButton) return;
-
-                this.liveButton.dataset.live = live ? "true" : "false";
-                this.liveButton.setAttribute("aria-pressed", live ? "true" : "false");
+                window.removeEventListener("resize", this.onResize);
+                this.brandObserver.disconnect();
               }
             };
-
-            // The server owns the collapsed state (assigns -> data-nav-collapsed on
-            // the shell). This hook only mirrors it to localStorage and replays the
-            // stored value once on mount, so cross-navigation persistence survives
-            // without any client-written attribute for LiveView to strip.
-            Hooks.NavToggle = {
-              mounted: function () {
-                try {
-                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
-                  if (stored === "true" || stored === "false") {
-                    var collapsed = stored === "true";
-                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
-                      this.pushEvent("restore-nav", { collapsed: collapsed });
-                    }
-                  }
-                } catch (_error) {}
-              },
-              updated: function () {
-                try {
-                  window.localStorage.setItem(
-                    "aiur-nav-collapsed",
-                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
-                  );
-                } catch (_error) {}
-              }
-            };
-
             // Provider usage is polled from a rate-limited endpoint, so it is
             // polled only while someone is actually looking. Report focus to
             // the server; it keeps polling for a grace period after the last
@@ -155,25 +169,62 @@ defmodule AiurWeb.Layouts do
                 window.removeEventListener("blur", this.onBlur);
               }
             };
-
             Hooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
-                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-                  var next = current === "light" ? "dark" : "light";
-                  document.documentElement.dataset.theme = next;
-                  this.el.setAttribute("aria-label", "Switch to " + current + " theme");
-
-                  try {
-                    window.localStorage.setItem("aiur-theme", next);
-                  } catch (_error) {}
+                  if (this.theme) this.theme.setTheme(this.theme.getTheme() === "dark" ? "light" : "dark");
                 };
 
                 this.el.addEventListener("click", this.onClick);
+                import("/aiur-style/js/theme.js").then((theme) => { this.theme = theme; });
               },
               destroyed: function () {
                 this.el.removeEventListener("click", this.onClick);
               }
+            };
+            Hooks.PaletteToggle = {
+              mounted: function () {
+                this.sync();
+                this.onClick = () => {
+                  var next = document.documentElement.dataset.palette === "gruvbox" ? "aiur" : "gruvbox";
+                  document.documentElement.dataset.palette = next;
+                  try { window.localStorage.setItem("aiur-palette", next); } catch (_error) {}
+                  this.sync();
+                };
+                this.el.addEventListener("click", this.onClick);
+              },
+              updated: function () { this.sync(); },
+              destroyed: function () { this.el.removeEventListener("click", this.onClick); },
+              sync: function () {
+                var state = this.el.getAttribute("role") === "menuitemcheckbox" ? "aria-checked" : "aria-pressed";
+                this.el.setAttribute(state, String(document.documentElement.dataset.palette === "gruvbox"));
+              }
+            };
+
+            // Open/closed is per viewer: localStorage, or #executor from the retired /executor page (a fragment survives Build's query canonicalization).
+            Hooks.ExecutorFooter = {
+              mounted: function () {
+                this.toggle = this.el.querySelector("[data-executor-footer-toggle]");
+                this.panel = this.el.querySelector("#executor-footer-panel");
+                var stored = null;
+                try { stored = window.localStorage.getItem("aiur-executor-footer"); } catch (_error) {}
+                var linked = window.location.hash === "#executor";
+                if (linked) window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+                this.setOpen(linked || stored === "open", false);
+                this.onClick = () => this.setOpen(!this.open, true);
+                this.onKey = (e) => { if (e.key === "Escape" && this.open) { this.setOpen(false, true); this.toggle.focus(); } };
+                this.toggle.addEventListener("click", this.onClick);
+                document.addEventListener("keydown", this.onKey);
+              },
+              setOpen: function (open, remember) {
+                this.open = open;
+                this.el.dataset.open = String(open);
+                this.toggle.setAttribute("aria-expanded", String(open));
+                this.toggle.setAttribute("aria-label", open ? "Collapse Executor panel" : "Expand Executor panel");
+                this.panel.hidden = !open;
+                if (remember) { try { window.localStorage.setItem("aiur-executor-footer", open ? "open" : "closed"); } catch (_error) {} }
+              },
+              destroyed: function () { document.removeEventListener("keydown", this.onKey); }
             };
 
             Hooks.CopyToClipboard = {
@@ -245,16 +296,11 @@ defmodule AiurWeb.Layouts do
               Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
 
-            if (window.AiurConversationDrawerHook) {
-              Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
-            }
-
+            if (window.AiurVoiceInputHook) Hooks.VoiceInput = window.AiurVoiceInputHook;
+            if (window.AiurExecutorVoiceHook) Hooks.ExecutorVoice = window.AiurExecutorVoiceHook;
+            if (window.AiurConversationDrawerHook) Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
             if (window.AiurDomSvgLayout) {
               Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
-            }
-
-            if (window.AiurBuildOrderGridHook) {
-              Hooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
             }
 
             if (window.AiurTimeBrushHook) {
@@ -269,8 +315,30 @@ defmodule AiurWeb.Layouts do
               Hooks.SortableTable = window.AiurSortableTableHook;
             }
 
+            if (window.AiurBuildHome) {
+              Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook();
+            }
+
+            // LiveView also uses storage during boot; denied storage must not prevent hooks mounting.
+            function availableStorage(name) {
+              try {
+                var storage = window[name];
+                storage.getItem("aiur-storage-probe");
+                return storage;
+              } catch (_error) {
+                var values = {};
+                return {
+                  getItem: key => values[key] ?? null,
+                  setItem: (key, value) => { values[key] = String(value); },
+                  removeItem: key => { delete values[key]; }
+                };
+              }
+            }
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
+              dom: { onBeforeElUpdated: window.AiurVoiceInputBeforeUpdate },
+              localStorage: availableStorage("localStorage"),
+              sessionStorage: availableStorage("sessionStorage"),
               params: {
                 _csrf_token: csrfToken,
                 time_zone: (function () {
@@ -282,12 +350,37 @@ defmodule AiurWeb.Layouts do
                 })()
               }
             });
-
+            var socketStatus = document.documentElement;
+            var socket = liveSocket.getSocket();
+            socket.onOpen(() => socketStatus.classList.add("live-socket-connected"));
+            var markSocketDown = () => socketStatus.classList.remove("live-socket-connected");
+            socket.onClose(markSocketDown);
+            socket.onError(markSocketDown);
+            var recovery = document.querySelector("[data-dashboard-recovery]");
+            recovery?.querySelector("[data-recovery-reload]")?.addEventListener("click", () => window.location.reload());
+            var syncRecovery = () => {
+              var main = document.querySelector("[data-phx-main]");
+              var standalone = window.matchMedia("(display-mode: standalone)").matches;
+              var failed = main && (main.classList.contains("phx-error") || !liveSocket.isConnected());
+              if (recovery) recovery.hidden = !standalone && !failed;
+            };
+            new MutationObserver(syncRecovery).observe(document.documentElement, {subtree: true, attributes: true, attributeFilter: ["class"]});
+            socket.onOpen(syncRecovery);
+            socket.onClose(syncRecovery);
+            socket.onError(syncRecovery);
+            window.addEventListener("error", syncRecovery);
+            window.addEventListener("unhandledrejection", syncRecovery);
+            syncRecovery();
             liveSocket.connect();
             window.liveSocket = liveSocket;
           });
         </script>
+        <link rel="stylesheet" href="/aiur-style/tokens.css" /><link rel="stylesheet" href="/aiur-style/css/focus.css" />
+        <link rel="stylesheet" href="/aiur-style/css/button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-button.css" />
+        <link rel="stylesheet" href="/aiur-style/css/dashboard-shell.css" />
         <link rel="stylesheet" href="/dashboard.css" />
+        <link rel="stylesheet" href="/build-home/home.css" />
       </head>
       <body>
         {@inner_content}
@@ -302,6 +395,7 @@ defmodule AiurWeb.Layouts do
     <main class="app-shell">
       {@inner_content}
     </main>
+    {if @socket.view != AiurWeb.ConversationLive, do: live_render(@socket, AiurWeb.ExecutorLive, id: "executor-footer-live", sticky: true)}
     """
   end
 

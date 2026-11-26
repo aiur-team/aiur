@@ -1,0 +1,8 @@
+{
+  "name": "aiur-component-checker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "typescript": "5.7.2"
+  }
+}

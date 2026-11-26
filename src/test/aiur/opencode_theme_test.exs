@@ -63,7 +63,7 @@ defmodule Aiur.OpencodeThemeTest do
       kv_path = Path.join(tmp, "kv.json")
       File.mkdir_p!(themes_dir)
 
-      on_exit(fn -> File.rm_rf!(tmp) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
 
       %{tmp: tmp, themes_dir: themes_dir, kv_path: kv_path}
     end

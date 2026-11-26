@@ -5,6 +5,10 @@ defmodule Aiur.WorkflowTest do
 
   setup do
     previous = Application.get_env(:aiur, :workflow_file_path)
+    dir = Aiur.TestSupport.tmp_root!("aiur-workflow-test")
+    File.mkdir_p!(dir)
+    # Registered first so it runs last, after the env below stops naming `dir`.
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -13,10 +17,6 @@ defmodule Aiur.WorkflowTest do
         Application.put_env(:aiur, :workflow_file_path, previous)
       end
     end)
-
-    dir = Aiur.TestSupport.tmp_root!("aiur-workflow-test")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
 
     {:ok, dir: dir}
   end
@@ -266,6 +266,33 @@ defmodule Aiur.WorkflowTest do
 
       resolved = Path.expand("missing", dir)
       assert {:error, {:missing_prewarm_file, ^resolved, :enoent}} = Workflow.load(path)
+    end
+
+    test "a missing base_build_file is ignored when prewarm is disabled", %{dir: dir} do
+      path = Path.join(dir, "config.yaml")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: false\n  base_build_file: missing\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["prewarm"]["enabled"] == false
+      refute Map.has_key?(loaded.config["prewarm"], "base_build")
+    end
+
+    test "a missing base_build_file is ignored when enabled is absent", %{dir: dir} do
+      path = Path.join(dir, "config.yaml")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  base_build_file: missing\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      refute Map.has_key?(loaded.config["prewarm"], "base_build")
+    end
+
+    test "an existing base_build_file is ignored when prewarm is disabled", %{dir: dir} do
+      File.write!(Path.join(dir, "prewarm"), "echo hi\n")
+      path = Path.join(dir, "config.yaml")
+      File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: false\n  base_build_file: prewarm\n")
+
+      assert {:ok, loaded} = Workflow.load(path)
+      assert loaded.config["prewarm"]["enabled"] == false
+      refute Map.has_key?(loaded.config["prewarm"], "base_build")
     end
 
     test "an inline base_build is left unchanged when no base_build_file is set", %{dir: dir} do

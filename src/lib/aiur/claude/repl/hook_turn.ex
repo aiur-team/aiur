@@ -10,6 +10,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
   require Logger
 
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.Claude.HookEvents
   alias Aiur.Claude.NotificationPolicy
   alias Aiur.Claude.Repl.OperatorInject
@@ -45,7 +46,12 @@ defmodule Aiur.Claude.Repl.HookTurn do
     # a terminal hook, pane death, or a generous no-event backstop ends the wait —
     # so a turn that works silently for minutes is never failed.
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
-    on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+
+    on_operator = %{
+      true => Keyword.get(opts, :on_operator_message, fn -> :noop end),
+      :steer => Keyword.get(opts, :on_steer_claim, fn -> :noop end)
+    }
+
     on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
@@ -89,11 +95,41 @@ defmodule Aiur.Claude.Repl.HookTurn do
     end
   end
 
+  @doc "Reattach to a live hook turn, replaying durable events without submitting input."
+  @spec adopt(map(), map(), non_neg_integer(), keyword()) :: term()
+  def adopt(session, %{repl_acc: acc}, offset, opts) do
+    on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
+    timeout = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
+
+    loop = %{
+      session: session,
+      identifier: session.identifier,
+      on_message: on_message,
+      on_operator: %{
+        true => Keyword.get(opts, :on_operator_message, fn -> :noop end),
+        :steer => Keyword.get(opts, :on_steer_claim, fn -> :noop end)
+      },
+      on_provider_delivery: Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end),
+      poll_ms: Keyword.get(opts, :poll_interval_ms, @turn_poll_ms),
+      pause_confirm_ms: Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms),
+      timeout_ms: timeout
+    }
+
+    :ok = HookEvents.subscribe(session.identifier)
+
+    try do
+      HookEvents.replay(session.identifier, offset || 0)
+      loop |> await_hook_turn(reset_deadline(loop), acc) |> finish_hook_turn(on_message)
+    after
+      HookEvents.unsubscribe(session.identifier)
+    end
+  end
+
   # Receive loop driven by claude lifecycle hooks. Returns `:ok` (with the captured
   # response/session in `acc`), `{:paused, _}`, or `{:error, reason}`.
   defp await_hook_turn(loop, deadline, acc) do
     cond do
-      not Reaper.pane_alive?(loop.session) ->
+      Reaper.pane_liveness(loop.session) == :gone ->
         {:error, :repl_gone}
 
       System.monotonic_time(:millisecond) >= deadline ->
@@ -104,6 +140,22 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
       true ->
         receive do
+          :handoff_abort ->
+            Process.delete(:handoff_hold)
+            await_hook_turn(loop, deadline, acc)
+
+          :handoff_hold ->
+            Process.put(:handoff_hold, true)
+            await_hook_turn(loop, deadline, acc)
+
+          {:handoff_snapshot, from, ref} ->
+            session = Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+            await_hook_turn(%{loop | session: session}, deadline, acc)
+
+          {:claude_hook_available, _identifier} ->
+            replay_hooks(loop.identifier)
+            await_hook_turn(loop, deadline, acc)
+
           {:claude_hook, _id, %{event: :stop} = event} ->
             delivered_acc =
               acc
@@ -145,9 +197,9 @@ defmodule Aiur.Claude.Repl.HookTurn do
 
           # An Executor message landed mid-turn. The REPL accepts input while the
           # agent works; type it straight in so claude's native queue folds it.
-          {:agent_queue_updated, _identifier, _item_id, true} ->
+          {:agent_queue_updated, _identifier, _item_id, deliver_now} when deliver_now in [true, :steer] ->
             Logger.info("repl_hook_turn operator_immediate identifier=#{loop.identifier}")
-            OperatorInject.deliver_immediate_operator_message(loop.session, loop.on_operator)
+            OperatorInject.deliver_immediate_operator_message(loop.session, Map.fetch!(loop.on_operator, deliver_now))
             await_hook_turn(loop, deadline, acc)
 
           {:agent_queue_updated, _identifier, _item_id, _deliver_now} ->
@@ -167,8 +219,17 @@ defmodule Aiur.Claude.Repl.HookTurn do
             interrupt_for_pause(loop.session, %{request_id: request_id})
         after
           loop.poll_ms ->
+            replay_hooks(loop.identifier)
+
             await_hook_turn(loop, deadline, acc)
         end
+    end
+  end
+
+  defp replay_hooks(identifier) do
+    case HookEvents.replay(identifier, 0) do
+      {:ok, _offset} -> :ok
+      {:error, reason} -> Logger.warning("repl_hook_turn replay_failed identifier=#{identifier} reason=#{inspect(reason)}")
     end
   end
 

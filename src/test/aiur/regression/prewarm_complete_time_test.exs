@@ -28,14 +28,14 @@ defmodule Aiur.Regression.PrewarmCompleteTimeTest do
 
   use ExUnit.Case, async: true
 
-  @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
+  @attach_pool_source Enum.flat_map(~w(attach_pool.ex attach_pool/*.ex), &Path.wildcard(Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__)))
   @log_path Path.expand("../../../log/aiur.log", __DIR__)
   @max_prewarm_ms 18_000
 
   describe "source-level wiring (always runs)" do
     @describetag :skip
     test "AttachPool tracks claimed slots to avoid acquire_slot race" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       assert source =~ ~r/claimed_slots/,
              """
@@ -55,7 +55,7 @@ defmodule Aiur.Regression.PrewarmCompleteTimeTest do
     end
 
     test "AttachPool releases claimed slot when the warm Task finishes" do
-      source = File.read!(@attach_pool_source)
+      source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
       # Whether the Task succeeded or failed, the claim must be released
       # so the slot can be re-warmed for a different agent later

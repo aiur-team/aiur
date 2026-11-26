@@ -1,0 +1,40 @@
+{
+  "id": "streamdeck-sidecar",
+  "name": "Stream Deck client",
+  "layer": 5,
+  "kind": "client",
+  "paths": [
+    "packages/streamdeck/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [
+      "AIUR_CLIENT_TOKEN"
+    ],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Displays daemon-rendered frames, reports audio devices, applies settings and idle dimming, and forwards physical input.",
+  "status": "optional",
+  "install": {
+    "type": "setup",
+    "docs": "guide/stream-deck.md"
+  },
+  "docs": [
+    "guide/stream-deck.md"
+  ],
+  "config": [],
+  "env": [
+    "AIUR_CLIENT_TOKEN"
+  ],
+  "capabilities": [],
+  "goal": "hardware"
+}

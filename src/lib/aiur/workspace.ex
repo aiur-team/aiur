@@ -4,7 +4,7 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.{Checkout, Context, GitMetadata, Hooks, Layout, Provisioner, Reconstruction, Refresh, Remove}
 
   @type worker_host :: String.t() | nil
@@ -49,11 +49,17 @@ defmodule Aiur.Workspace do
   @spec remove(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   defdelegate remove(workspace, worker_host), to: Remove
 
+  @spec remove(Path.t(), worker_host(), keyword()) :: {:ok, [String.t()]} | {:error, term(), String.t()} | {:skipped, term()}
+  defdelegate remove(workspace, worker_host, opts), to: Remove
+
   @spec remove_issue_workspaces(term()) :: :ok
   defdelegate remove_issue_workspaces(identifier), to: Remove
 
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
   defdelegate remove_issue_workspaces(identifier, worker_host), to: Remove
+
+  @spec remove_issue_workspaces(term(), worker_host(), keyword()) :: :ok | {:skipped, term()}
+  defdelegate remove_issue_workspaces(identifier, worker_host, opts), to: Remove
 
   defp provision_workspace(workspace, worker_host, issue_context, lifecycle) do
     issue_context = %{
@@ -73,7 +79,8 @@ defmodule Aiur.Workspace do
              worker_host,
              issue_context.pr_head_ref,
              issue_context.branch_name,
-             lifecycle
+             lifecycle,
+             issue_context.start_point
            ),
          :ok <- Provisioner.ensure_workspace_usable(workspace, worker_host, created?),
          bootstrap? <- Provisioner.bootstrap_required?(workspace, worker_host, created?),
@@ -202,7 +209,7 @@ defmodule Aiur.Workspace do
     issue_context = Context.build(issue_or_identifier)
     identifier = issue_context.issue_identifier
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.workspace.#{kind}",
       message,
       issue: identifier,

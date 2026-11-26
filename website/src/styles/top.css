@@ -1,0 +1,179 @@
+  /* ---------- sibling-project announcement strip ----------
+     A quiet full-width band at the very top of the page, in normal flow, so it
+     pushes nothing around and can never overlap the top bar or the hero. It
+     mirrors the strip on the sibling Archon site: centred monospace copy with
+     the dismiss control tucked against the right edge. */
+  .announce {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 12px;
+    /* right padding clears the absolutely placed dismiss control */
+    padding: 10px 44px 10px 16px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--pill-bg);
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(11px, 1.5vw, 13px);
+    letter-spacing: 0.02em;
+    /* keeps the copy centred once it wraps onto a second line on narrow screens */
+    text-align: center;
+    color: var(--muted);
+    transition: background-color 0.5s ease, border-color 0.5s ease;
+  }
+  html[data-archon-banner="dismissed"] .announce { display: none; }
+  .announce-copy {
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  .announce-copy strong {
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .announce-link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    white-space: nowrap;
+    transition: text-decoration-thickness 0.2s ease;
+  }
+  .announce-link:hover { text-decoration-thickness: 2px; }
+  .announce-dismiss {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  .announce-dismiss svg { width: 14px; height: 14px; display: block; }
+  .announce-dismiss:hover {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+  }
+  .announce-link:focus-visible,
+  .announce-dismiss:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .announce, .announce-link, .announce-dismiss { transition: none; }
+  }
+
+  /* ---------- first screen ----------
+     The announcement strip takes its own row in normal flow; the top bar and
+     the hero share the second row, stacked, so the bar keeps floating over the
+     hero without claiming any of its height. The row is what is left of the
+     viewport after the strip, so the first screen is still exactly 100svh
+     however tall the strip wraps — no magic numbers, and nothing to measure. */
+  .fold {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 100svh;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    /* sticky, not fixed: at rest it sits below the announcement strip instead
+       of on top of it, and it pins to the viewport the moment the strip
+       scrolls away. `pinned` (set once the strip is fully scrolled past) hands
+       it over to fixed so it stays for the rest of the page, as it always did;
+       the two agree exactly at the hand-over point, so nothing jumps. */
+    position: sticky;
+    top: 0;
+    grid-row: 2;
+    grid-column: 1;
+    align-self: start;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 22px 26px;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .topbar.pinned {
+    position: fixed;
+    inset: 0 0 auto 0;
+  }
+  .brand-mini {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .brand-mini-logo {
+    width: auto;
+    height: 28px;
+    display: block;
+  }
+  /* while the splash (which carries the big logo) is in view the nav brand is
+     tucked up out of sight; it slides down once the splash scrolls past.
+     main.ts drives `logo-tucked` from an IntersectionObserver on the splash;
+     without JS, or on a page with no splash, the class is never set. */
+  .brand-mini {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .topbar.logo-tucked .brand-mini {
+    transform: translateY(-160%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand-mini { transition: none; }
+  }
+  .topbar-actions {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .topbar-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+  .topbar-link:hover { color: var(--fg); }
+
+  .toggle {
+    pointer-events: auto;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--pill-bd);
+    background: var(--pill-bg);
+    color: var(--fg);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.5s cubic-bezier(.2,.9,.25,1);
+  }
+  .toggle:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .toggle svg { width: 19px; height: 19px; display: block; }
+  .toggle .icon-moon { display: none; }
+  html[data-theme="light"] .toggle .icon-sun { display: none; }
+  html[data-theme="light"] .toggle .icon-moon { display: block; }
+  html[data-theme="light"] .toggle { transform: rotate(360deg); }
+  .brand-mini:focus-visible,
+  .topbar-link:focus-visible,
+  .toggle:focus-visible,
+  .foot-links a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+

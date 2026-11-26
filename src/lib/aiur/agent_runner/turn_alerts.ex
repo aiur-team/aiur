@@ -8,24 +8,55 @@ defmodule Aiur.AgentRunner.TurnAlerts do
 
   require Logger
 
-  alias Aiur.{Alerts, CodingAgent, Issue}
+  alias Aiur.{CodingAgent, Issue, Signal}
   alias Aiur.CodingAgent.RouteFailure
 
-  @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
+  @doc "Emits the quota alert, forwarding ledger options such as `:now` for clock-consistent incident replay."
+  @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: :ok
+  def maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload, ledger_opts \\ [])
+
+  # A credit-limited pause is the same *state* as a spent quota — the backend is
+  # recorded in `model-usage.json` so the next claim falls through to the next
+  # `agent.priority` route — but it is a different, actionable cause: adding
+  # credits fixes it, waiting for a reset does not. It therefore gets its own
+  # alert, which names the fix, instead of the quota wording (#7514).
   def maybe_emit_usage_limit_alert(
         issue,
         workspace,
         worker_host,
-        %{kind: :usage_limit_exhausted} = pause_payload
+        %{kind: :usage_limit_exhausted, credit_limited: true} = pause_payload,
+        ledger_opts
+      ) do
+    backend = mark_limited!(issue, pause_payload, ledger_opts)
+
+    Signal.alert(
+      "system.provider.credit_limited.#{backend}",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: "Agent paused: the #{backend} account is out of provider credit (HTTP 402). Add credits or raise the key limit.",
+      reason:
+        "Agent paused: the #{backend} account cannot cover this request's output-token reservation " <>
+          "(HTTP 402: more credits or fewer max_tokens required), even after retrying with a smaller " <>
+          "max_tokens. This is a provider credit condition, not an agent failure: the claim is kept and " <>
+          "the next claim takes the next agent.priority route. Add credits to the #{backend} account or " <>
+          "raise its key credit limit to clear it.",
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
+  def maybe_emit_usage_limit_alert(
+        issue,
+        workspace,
+        worker_host,
+        %{kind: :usage_limit_exhausted} = pause_payload,
+        ledger_opts
       ) do
     reset_hint = pause_payload[:reset_hint]
-    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
-
-    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || reset_hint) do
-      :ok -> :ok
-      {:error, reason} -> Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
-    end
-
+    backend = mark_limited!(issue, pause_payload, ledger_opts)
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
     backend_suffix = " Backend detail: #{backend}."
 
@@ -33,7 +64,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       "Agent paused: the #{backend} account usage quota is exhausted; retrying cannot help " <>
         "until it resets#{reset_suffix}. Resume the agent after the quota resets.#{backend_suffix}"
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.usage_limit_exhausted",
       issue: issue,
       workspace: workspace,
@@ -46,7 +77,21 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     :ok
   end
 
-  def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
+  def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload, _ledger_opts), do: :ok
+
+  defp mark_limited!(issue, pause_payload, ledger_opts) do
+    backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
+
+    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || pause_payload[:reset_hint], ledger_opts) do
+      :ok ->
+        backend
+
+      {:error, reason} ->
+        Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
+
+        backend
+    end
+  end
 
   @doc """
   Applies #1923's route-failure disposition to a failed turn: a rejected
@@ -61,9 +106,17 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   """
   @spec maybe_emit_route_failure_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_route_failure_alert(%Issue{} = issue, workspace, worker_host, reason) do
-    route = CodingAgent.backend_for(issue)
+    case reason do
+      {:turn_failed, details} when is_map(details) ->
+        unless RouteFailure.mcp_socket_path_error?(details) do
+          route = CodingAgent.backend_for(issue)
+          RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+        end
 
-    RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+      _other ->
+        route = CodingAgent.backend_for(issue)
+        RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+    end
 
     :ok
   end
@@ -71,7 +124,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   @spec maybe_emit_more_tokens_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
-      Alerts.emit_system(
+      Signal.alert(
         "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
         issue: issue,
         workspace: workspace,
@@ -92,8 +145,9 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   eleven wasted turns went unnoticed on khala #198, and #2797 is open on
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
-  `alerts.ndjson` and shows on the Executor's alert feed, naming the ticket,
-  the state label that kept the loop alive, and what was unchanged.
+  `alerts.ndjson` and shows on the Executor's alert feed. A run that reaches
+  the no-op bound without another handoff moves to `human-review` with a reason
+  comment; verified rework with no push still uses its existing failure state.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do
@@ -105,13 +159,71 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     message =
       "Stopped the agent continuation loop on #{issue.identifier} after #{consecutive} consecutive turn(s) " <>
         "that changed nothing (cap #{cap}, last turn ##{turn_number}). Unchanged across those turns: #{unchanged}. " <>
-        "The ticket is still in state #{inspect(issue.state)}, which `tracker.active_states` treats as active, " <>
-        "so the loop would otherwise have kept re-prompting an agent with nothing to do. " <>
-        "Check the state label: if the work is finished, move the ticket out of the active states " <>
-        "(e.g. to human-review); if work remains, say what is left in a comment and redispatch."
+        "No new PR head was detected. Current state: agent:#{issue.state}. " <>
+        "Review the agent's result before redispatching."
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.noop_turns_bounded",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "info"
+    )
+
+    :ok
+  end
+
+  @doc false
+  @spec emit_rework_handoff_alert(Issue.t(), Path.t() | nil, String.t() | nil, String.t()) :: :ok
+  def emit_rework_handoff_alert(%Issue{} = issue, workspace, worker_host, state) do
+    message =
+      "Agent stopped after pushing work for #{issue.identifier}; moved the ticket to agent:#{state}."
+
+    Signal.alert(
+      "ticket.#{issue.identifier}.agent.rework_handoff",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "info"
+    )
+
+    :ok
+  end
+
+  @doc "Tells the reviewer why a ticket reached human review with its pull request still a draft."
+  @spec emit_draft_handoff_alert(String.t(), integer(), String.t(), Path.t() | nil, String.t() | nil) :: :ok
+  def emit_draft_handoff_alert(identifier, pr_number, reason, workspace, worker_host) do
+    message = "#{identifier} moved to agent:human-review with draft PR ##{pr_number}, blocked outside the ticket: #{reason}"
+
+    Signal.alert(
+      "ticket.#{identifier}.agent.draft_handoff",
+      issue: identifier,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
+  @doc "Records a stopped rework run kept in rework because review findings are still unanswered (#5746)."
+  @spec emit_rework_findings_open_alert(Issue.t(), Path.t() | nil, String.t() | nil, [map()]) :: :ok
+  def emit_rework_findings_open_alert(%Issue{} = issue, workspace, worker_host, findings) do
+    message =
+      "Agent stopped after pushing work for #{issue.identifier} without answering the latest review's findings; the ticket stays in agent:#{issue.state}. Remaining: " <>
+        Enum.map_join(findings, "; ", &"#{&1.id}. #{&1.ask}")
+
+    Signal.alert(
+      "ticket.#{issue.identifier}.agent.rework_findings_open",
       issue: issue,
       workspace: workspace,
       worker_host: worker_host,

@@ -1,0 +1,9 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.Executor.HarnessSession",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/harness_session_cli.ex"
+  ],
+  "reason": "MP-E6-C12-T01: executor-session reads the live Executor handle"
+}

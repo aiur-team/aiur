@@ -2,7 +2,7 @@ defmodule Aiur.CurrentRunSummary.Facts do
   @moduledoc false
 
   alias Aiur.CurrentRunProjection.Value
-  alias AiurWeb.OperatorControlCenter.UnitsPolicy
+  alias Aiur.Projections.UnitsPolicy
 
   @nonterminal_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
   @cancelled_states ~w(cancelled canceled not_planned notplanned)

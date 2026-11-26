@@ -11,8 +11,7 @@ defmodule Aiur.Git do
   payload shape, ls-remote just races the firehose for latency.
   """
 
-  alias Aiur.Claude.RemoteControl
-
+  alias Aiur.ProcessTree
   require Logger
 
   @default_ls_remote_timeout_ms 10_000
@@ -68,7 +67,7 @@ defmodule Aiur.Git do
 
   defp default_cmd_fun(opts) do
     timeout_ms = normalize_timeout_ms(Keyword.get(opts, :timeout_ms, @default_ls_remote_timeout_ms))
-    kill_tree_fun = Keyword.get(opts, :kill_tree_fun, &RemoteControl.graceful_kill_tree/1)
+    kill_tree_fun = Keyword.get(opts, :kill_tree_fun, &ProcessTree.graceful_kill_tree/1)
 
     fn {git_path, args} ->
       run_bounded_cmd(git_path, args, timeout_ms, kill_tree_fun)

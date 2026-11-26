@@ -1,0 +1,13 @@
+2026-10-15T13:51:10.4225934Z [36;1mtail_pid=$![0m
+2026-10-15T13:51:10.4226167Z [36;1mstatus=0[0m
+2026-10-15T13:51:10.4226438Z [36;1mtimeout --signal=TERM --kill-after=60s 20m \[0m
+2026-10-15T13:51:10.4226828Z [36;1m  make coverage-partition > "$log" 2>&1 || status=$?[0m
+2026-10-15T13:51:10.4227174Z [36;1msleep 2[0m
+2026-10-15T13:51:10.4227422Z [36;1mkill "$tail_pid" 2>/dev/null || true[0m
+2026-10-15T13:51:10.4227746Z [36;1mwait "$tail_pid" 2>/dev/null || true[0m
+2026-10-15T13:51:10.4228099Z [36;1mif [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then[0m
+2026-10-15T13:51:10.4228729Z [36;1m  echo "::error::coverage partition 2 exceeded its 20m bound and was terminated; partial log follows in the next step"[0m
+2026-10-15T13:51:10.4229344Z [36;1melif [ "$status" -ne 0 ]; then[0m
+2026-10-15T13:51:10.4229857Z [36;1m  echo "::error::coverage partition 2 failed with status $status; full log follows in the next step"[0m
+2026-10-15T13:51:10.4230334Z [36;1mfi[0m
+2026-10-15T13:51:10.4230761Z [36;1mexit "$status"[0m

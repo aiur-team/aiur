@@ -29,6 +29,9 @@ defmodule Aiur.RunTelemetry.Summaries do
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.AnalyticsTools
+  alias Aiur.RunTelemetry.RetainedCache
+  alias Aiur.RunTelemetry.SummaryReader
 
   @reduce_tool "reduce"
   @materialize_timeout_ms 30_000
@@ -67,6 +70,10 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc "`<state-node>/analytics/runs` — one run-summary per boot."
   @spec runs_dir() :: Path.t()
   def runs_dir, do: Path.join(analytics_dir(), "runs")
+
+  @doc "`<state-node>/analytics/tickets` — durable records across launches."
+  @spec ledger_dir() :: Path.t()
+  def ledger_dir, do: Path.join(analytics_dir(), "tickets")
 
   @doc "`<state-node>/builds` — `RepoBase.builds_path/1`, the real writer target for build rollups."
   @spec builds_dir() :: Path.t()
@@ -115,9 +122,17 @@ defmodule Aiur.RunTelemetry.Summaries do
     :ok
   end
 
+  @doc false
+  @spec materialize_if_facts([{atom() | String.t(), map(), DateTime.t()}]) :: :ok
+  def materialize_if_facts(records) do
+    if Enum.any?(records, fn {_kind, attrs, _at} -> Map.get(attrs, :event, Map.get(attrs, "event")) in ["pr_facts", :pr_facts] end), do: materialize_async()
+    :ok
+  end
+
   defp run_reduce_background(script, args) do
     case System.cmd(script, args, stderr_to_stdout: true) do
       {_output, 0} ->
+        RetainedCache.invalidate_identity()
         :ok
 
       {output, status} ->
@@ -146,8 +161,12 @@ defmodule Aiur.RunTelemetry.Summaries do
     case reduce_command(opts) do
       {:ok, {script, args}} ->
         case System.cmd(script, args, stderr_to_stdout: true) do
-          {output, 0} -> {:ok, output}
-          {output, status} -> {:error, {:reduce_failed, status, truncate(output)}}
+          {output, 0} ->
+            RetainedCache.invalidate_identity()
+            {:ok, output}
+
+          {output, status} ->
+            {:error, {:reduce_failed, status, truncate(output)}}
         end
 
       :unavailable ->
@@ -158,16 +177,24 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc false
   @spec reduce_command(keyword()) :: {:ok, {Path.t(), [String.t()]}} | :unavailable
   def reduce_command(opts \\ []) do
-    with {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
+    with true <- RunTelemetry.telemetry_enabled?(),
+         {:ok, dir} <- reduce_dir(Keyword.get(opts, :reduce_dir)),
          script when is_binary(script) and script != "" <- Path.join(dir, @reduce_tool),
          true <- File.regular?(script),
          telemetry when is_binary(telemetry) and telemetry != "" <- telemetry_file(opts),
          state when is_binary(state) and state != "" <- state_node() do
-      args = ["--all", "--all-builds", "--telemetry", telemetry, "--state-node", state]
+      logs_root = Keyword.get(opts, :logs_root, retained_logs_root(telemetry))
+      glob = Path.join([logs_root, "*", "log", "telemetry.ndjson*"])
+      args = ["--all", "--all-builds", "--ledger", "--telemetry-glob", glob, "--telemetry", telemetry, "--state-node", state, "--repo", repo_url()]
       {:ok, {script, args}}
     else
       _other -> :unavailable
     end
+  end
+
+  defp retained_logs_root(telemetry) do
+    directory = telemetry |> Path.expand() |> Path.dirname()
+    if Path.basename(directory) == "log", do: directory |> Path.dirname() |> Path.dirname(), else: directory
   end
 
   defp telemetry_file(opts) do
@@ -178,20 +205,7 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   @doc false
   @spec reduce_dir(term()) :: {:ok, Path.t()} | {:error, term()}
-  def reduce_dir(override) when is_binary(override), do: {:ok, Path.expand(override)}
-
-  def reduce_dir(_override) do
-    candidates =
-      [Path.join(RepoBase.base_path(repo_url()), "analytics"), Path.expand("analytics")]
-      |> Enum.reject(&is_nil/1)
-
-    case Enum.find(candidates, &File.dir?/1) do
-      nil -> {:error, :reduce_dir_not_found}
-      dir -> {:ok, dir}
-    end
-  rescue
-    _error -> {:error, :reduce_dir_not_found}
-  end
+  def reduce_dir(override), do: AnalyticsTools.resolve(override)
 
   ## ---- reading ----
 
@@ -202,10 +216,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   """
   @spec load_dataset(String.t()) :: {:ok, map()} | {:error, atom()}
   def load_dataset(boot_id) when is_binary(boot_id) do
-    case File.read(run_summary_path(boot_id)) do
-      {:ok, body} -> decode_summary(body)
-      {:error, _reason} -> {:error, :missing}
-    end
+    with {:ok, decoded} <- SummaryReader.read(run_summary_path(boot_id)), do: decode_summary_map(decoded)
   end
 
   @doc "Loads every materialized prior boot (excluding the live boot) as datasets."
@@ -247,8 +258,16 @@ defmodule Aiur.RunTelemetry.Summaries do
   """
   @spec decode_summary(String.t()) :: {:ok, map()} | {:error, atom()}
   def decode_summary(body) when is_binary(body) do
-    with {:ok, decoded} <- Jason.decode(body),
-         true <- is_map(decoded),
+    case Jason.decode(body) do
+      {:ok, decoded} -> decode_summary_map(decoded)
+      {:error, _reason} -> {:error, :invalid_summary}
+    end
+  end
+
+  def decode_summary(_body), do: {:error, :invalid_summary}
+
+  defp decode_summary_map(decoded) do
+    with true <- is_map(decoded),
          {:ok, records} <- decode_records(Map.get(decoded, "records", [])),
          {:ok, restarts} <- decode_records(Map.get(decoded, "restarts", [])),
          {:ok, actors} <- decode_actors(Map.get(decoded, "actors", %{})),
@@ -257,6 +276,7 @@ defmodule Aiur.RunTelemetry.Summaries do
        %{
          records: records,
          restarts: restarts,
+         run_contexts: Enum.filter(records, &(&1.kind == "run_context")),
          actors: actors,
          tickets: tickets,
          findings: Map.get(decoded, "findings", []),
@@ -267,8 +287,6 @@ defmodule Aiur.RunTelemetry.Summaries do
       _other -> {:error, :invalid_summary}
     end
   end
-
-  def decode_summary(_body), do: {:error, :invalid_summary}
 
   ## ---- decoders ----
 
@@ -282,7 +300,7 @@ defmodule Aiur.RunTelemetry.Summaries do
   )
   @resource_evidence ~w(
     fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
-    fleet_admission_signal
+    fleet_admission_signal fleet_binding_kind
     build_gate_enabled build_gate_status build_gate_observed_at_ms
   )a
 
@@ -340,6 +358,8 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   defp decode_actor(map) when is_map(map) do
     %{
+      sampled?: Map.get(map, "sampled", false),
+      covered_until_ms: Map.get(map, "covered_until_ms"),
       actor: Map.get(map, "actor"),
       actor_type: Map.get(map, "actor_type"),
       samples: Enum.map(Map.get(map, "samples", []), &decode_sample/1),
@@ -358,6 +378,8 @@ defmodule Aiur.RunTelemetry.Summaries do
     metrics
     |> Map.merge(evidence)
     |> Map.merge(%{
+      sampled?: Map.get(map, "sampled", false),
+      covered_until_ms: Map.get(map, "covered_until_ms"),
       actor: Map.get(map, "actor"),
       actor_type: Map.get(map, "actor_type"),
       ticket: Map.get(map, "ticket"),

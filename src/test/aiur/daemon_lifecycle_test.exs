@@ -66,7 +66,7 @@ defmodule Aiur.DaemonLifecycleTest do
       on_exit(fn ->
         restore_env(:control_lifecycle_store_path, previous_store_path)
         restore_env(:executor_state_dir, previous_state_dir)
-        File.rm_rf!(state_dir)
+        Aiur.TestCleanup.rm_rf!(state_dir)
       end)
 
       code_paths = test_code_paths()
@@ -85,7 +85,10 @@ defmodule Aiur.DaemonLifecycleTest do
           end)
         end
 
-      results = Task.await_many(tasks, 5_000)
+      # Each task starts a separate BEAM before it can exercise the shared file
+      # journal. Allow cold VM startup under broad concurrent coverage; this is
+      # an integration check, not a five-second boot-time assertion.
+      results = Task.await_many(tasks, 30_000)
       assert Enum.all?(results, &match?({_output, 0}, &1))
       assert DaemonLifecycle.daemon_events() |> Enum.map(& &1.run_id) |> Enum.sort() == ["run-first", "run-second"]
     end
@@ -102,7 +105,7 @@ defmodule Aiur.DaemonLifecycleTest do
         restore_env(:control_lifecycle_store_path, previous_store_path)
         restore_env(:executor_state_dir, previous_state_dir)
         restore_env(:log_file, previous_log_file)
-        File.rm_rf!(state_dir)
+        Aiur.TestCleanup.rm_rf!(state_dir)
       end)
 
       Application.put_env(:aiur, :log_file, Path.join(state_dir, "run-first/log/aiur.log"))

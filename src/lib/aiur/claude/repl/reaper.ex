@@ -11,8 +11,10 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   require Logger
 
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.Claude.HookEvents
+  alias Aiur.ProcessTree
   alias Aiur.Tmux
+  alias Aiur.Tmux.Socket
 
   # REPL panes live in their own tmux window named `aiur-repl-<beam_os_pid>-<n>`.
   # Embedding the owning BEAM's os pid lets the boot reaper kill only panes
@@ -22,7 +24,7 @@ defmodule Aiur.Claude.Repl.Reaper do
 
   # Teardown steps that touch the host process table, and so are injectable
   # from `stop_session/2` opts. Tests pass stubs; production passes none.
-  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun]
+  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun, :unregister_fun]
 
   @doc false
   @spec host_seam_opts() :: [atom()]
@@ -47,10 +49,11 @@ defmodule Aiur.Claude.Repl.Reaper do
     # teardown decision table without signalling or probing real processes.
     # No production caller passes any of these; the real host helpers stay
     # the defaults.
-    group_alive_fun = Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1)
+    group_alive_fun = Keyword.get(opts, :group_alive_fun, &ProcessTree.process_group_alive?/1)
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
-    tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &RemoteControl.graceful_kill_tree/1)
+    tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &ProcessTree.graceful_kill_tree/1)
     pid_alive_fun = Keyword.get(opts, :pid_alive_fun, &os_pid_alive?/1)
+    unregister_fun = Keyword.get(opts, :unregister_fun, &Aiur.ProcessReaper.unregister/1)
 
     group_result =
       cleanup_process_group(
@@ -71,8 +74,9 @@ defmodule Aiur.Claude.Repl.Reaper do
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
 
     if result == {:ok, :cleanup_proven} do
-      Aiur.ProcessReaper.unregister({:pane, pane_id})
-      Aiur.ProcessReaper.unregister({:os_pid, os_pid})
+      unregister_fun.(Socket.pane_ref(tmux, pane_id))
+      unregister_fun.({:os_pid, os_pid})
+      clear_spool(session[:identifier])
     end
 
     Aiur.Perf.event(:repl_agent_teardown,
@@ -99,7 +103,7 @@ defmodule Aiur.Claude.Repl.Reaper do
   `Aiur.Claude.RemoteControl.reap_orphaned_servers/0`.
   """
   @spec reap_orphaned_panes(GenServer.server()) :: :ok
-  def reap_orphaned_panes(tmux \\ Tmux) do
+  def reap_orphaned_panes(tmux \\ Socket.agents()) do
     sweep_repl_panes(tmux, fn owner_pid -> not os_pid_alive?(owner_pid) end)
   end
 
@@ -112,9 +116,16 @@ defmodule Aiur.Claude.Repl.Reaper do
   this BEAM's os pid so a side-by-side aiur instance is never touched.
   """
   @spec sweep_own_panes(GenServer.server()) :: :ok
-  def sweep_own_panes(tmux \\ Tmux) do
+  def sweep_own_panes(tmux \\ Socket.agents()), do: sweep_own_panes(tmux, [])
+
+  @doc false
+  @spec sweep_own_panes(GenServer.server() | nil, keyword()) :: :ok
+  def sweep_own_panes(nil, opts), do: sweep_own_panes(Socket.agents(), opts)
+
+  def sweep_own_panes(tmux, opts) do
     self_pid = beam_os_pid()
-    sweep_repl_panes(tmux, fn owner_pid -> owner_pid == self_pid end)
+    protected_refs = Keyword.get(opts, :protected_refs, [])
+    sweep_repl_panes(tmux, fn owner_pid -> owner_pid == self_pid end, protected_refs)
   end
 
   @doc "Generate the default REPL window name embedding this BEAM's os pid."
@@ -122,17 +133,66 @@ defmodule Aiur.Claude.Repl.Reaper do
   def default_repl_name,
     do: "#{@repl_window_prefix}#{beam_os_pid()}-#{System.unique_integer([:positive])}"
 
+  @doc "Classify pane liveness, retrying transient tmux failures before returning unknown."
+  @spec pane_liveness(map(), non_neg_integer()) :: :alive | :gone | :unknown
+  def pane_liveness(session, retries \\ 2)
+
+  def pane_liveness(%{tmux: tmux, pane_id: pane_id} = session, retries) when retries > 0 do
+    case classify_pane_reply(Tmux.pane_pid(tmux, pane_id)) do
+      :unknown ->
+        Process.sleep(25)
+        pane_liveness(session, retries - 1)
+
+      result ->
+        result
+    end
+  end
+
+  def pane_liveness(%{tmux: tmux, pane_id: pane_id}, 0) do
+    classify_pane_reply(Tmux.pane_pid(tmux, pane_id))
+  end
+
+  defp classify_pane_reply({:ok, _pid}), do: :alive
+  defp classify_pane_reply({:error, reason}) when reason in [:no_tmux, :timeout, :no_mock_response], do: :unknown
+
+  defp classify_pane_reply({:error, reason}) when is_binary(reason),
+    do: if(missing_pane_error?(reason), do: :gone, else: :unknown)
+
+  defp classify_pane_reply({:error, [message | _]}) when is_binary(message),
+    do: if(missing_pane_error?(message), do: :gone, else: :unknown)
+
+  defp classify_pane_reply({:error, _reason}), do: :unknown
+
   @doc "Return true if the pane is still alive."
   @spec pane_alive?(map()) :: boolean()
   def pane_alive?(%{tmux: tmux, pane_id: pane_id}) do
     match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
   end
 
-  defp sweep_repl_panes(tmux, owner_match?) do
+  defp missing_pane_error?(message) do
+    String.contains?(message, "can't find pane") or
+      String.contains?(message, "no such pane") or
+      String.contains?(message, "no server running")
+  end
+
+  defp clear_spool(nil), do: :ok
+
+  defp clear_spool(identifier) do
+    case HookEvents.clear_spool(identifier) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("claude hook spool cleanup failed: #{inspect(reason)}")
+    end
+  end
+
+  @spec sweep_repl_panes(Socket.server(), (integer() -> boolean()), [tuple()]) :: :ok
+  defp sweep_repl_panes(tmux, owner_match?, protected_refs \\ []) do
+    protected = MapSet.new(protected_refs)
+
     case Tmux.list_windows(tmux) do
       {:ok, windows} ->
         windows
         |> Enum.filter(fn {name, _pane} -> String.starts_with?(name, @repl_window_prefix) end)
+        |> Enum.reject(fn {_name, pane_id} -> MapSet.member?(protected, Socket.pane_ref(tmux, pane_id)) end)
         |> Enum.each(fn {name, pane_id} ->
           maybe_kill_repl_pane(tmux, name, pane_id, owner_match?)
         end)
@@ -161,7 +221,7 @@ defmodule Aiur.Claude.Repl.Reaper do
       end
 
     Tmux.kill_pane(tmux, pane_id)
-    RemoteControl.graceful_kill_tree(os_pid)
+    ProcessTree.graceful_kill_tree(os_pid)
     :ok
   end
 
@@ -206,10 +266,10 @@ defmodule Aiur.Claude.Repl.Reaper do
     do: {:error, :containment_unavailable}
 
   defp cleanup_process_group(process_group_id, _identity, true),
-    do: RemoteControl.graceful_kill_process_group(process_group_id)
+    do: ProcessTree.graceful_kill_process_group(process_group_id)
 
   defp cleanup_process_group(process_group_id, identity, false),
-    do: RemoteControl.reap_process_group(process_group_id, identity)
+    do: ProcessTree.reap_process_group(process_group_id, identity)
 
   defp safely_group_alive?(group_alive_fun, process_group_id) do
     group_alive_fun.(process_group_id)

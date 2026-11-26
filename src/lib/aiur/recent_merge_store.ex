@@ -13,8 +13,7 @@ defmodule Aiur.RecentMergeStore do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DecisionLog, Fs, RecentMerge}
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.{Config, Fs, Journal, RecentMerge, Signal}
 
   @filename "recent_merges.ndjson"
   @retention_limit 100
@@ -36,6 +35,16 @@ defmodule Aiur.RecentMergeStore do
 
   @spec history(String.t(), GenServer.server()) :: {:ok, [RecentMerge.t()]} | {:error, :not_found}
   def history(id, server \\ __MODULE__) when is_binary(id), do: GenServer.call(server, {:history, id})
+
+  @spec ticket_reconciled?(String.t(), String.t(), GenServer.server()) :: boolean()
+  def ticket_reconciled?(merge_id, ticket_id, server \\ __MODULE__)
+      when is_binary(merge_id) and is_binary(ticket_id),
+      do: GenServer.call(server, {:ticket_reconciled?, merge_id, ticket_id})
+
+  @spec mark_ticket_reconciled(String.t(), String.t(), GenServer.server()) :: :ok | {:error, term()}
+  def mark_ticket_reconciled(merge_id, ticket_id, server \\ __MODULE__)
+      when is_binary(merge_id) and is_binary(ticket_id),
+      do: GenServer.call(server, {:mark_ticket_reconciled, merge_id, ticket_id}, 60_000)
 
   @spec health(GenServer.server()) :: :writable | tuple()
   def health(server \\ __MODULE__), do: GenServer.call(server, :health)
@@ -66,10 +75,10 @@ defmodule Aiur.RecentMergeStore do
     retention_limit = positive_limit(opts, :retention_limit, @retention_limit)
 
     %{
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       compact_fun: Keyword.get(opts, :compact_fun, &compact_log/2),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
-      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.agent_alert/3),
       retention_limit: retention_limit,
       compaction_record_limit:
         max(
@@ -96,14 +105,14 @@ defmodule Aiur.RecentMergeStore do
   defp boot(dir, persistence) do
     path = Path.join(dir, @filename)
 
-    case DecisionLog.prepare(dir, path, persistence.sync_fun) do
+    case Journal.prepare(dir, path, persistence.sync_fun) do
       :ok -> replay(path, persistence)
       {:error, reason} -> unavailable_state(path, persistence, {:directory_unavailable, reason})
     end
   end
 
   defp replay(path, persistence) do
-    case DecisionLog.replay(path, &RecentMerge.decode_record/1) do
+    case Journal.replay(path, &RecentMerge.decode_record/1) do
       {:ok, records, corruption} ->
         state =
           records
@@ -242,6 +251,34 @@ defmodule Aiur.RecentMergeStore do
     end
   end
 
+  def handle_call({:ticket_reconciled?, merge_id, ticket_id}, _from, state) do
+    reconciled? =
+      case Map.get(state.current, merge_id) do
+        %RecentMerge{reconciled_ticket_ids: ids} -> ticket_id in ids
+        _ -> false
+      end
+
+    {:reply, reconciled?, state}
+  end
+
+  def handle_call({:mark_ticket_reconciled, _merge_id, _ticket_id}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:mark_ticket_reconciled, merge_id, ticket_id}, _from, state) do
+    case Map.get(state.current, merge_id) do
+      nil ->
+        {:reply, {:error, :merge_not_found}, state}
+
+      %RecentMerge{} = merge ->
+        if ticket_id in merge.reconciled_ticket_ids do
+          {:reply, :ok, state}
+        else
+          persist_ticket_reconciliation(merge, ticket_id, state)
+        end
+    end
+  end
+
   def handle_call(:health, _from, state), do: {:reply, state.health, state}
   def handle_call(:reconciliation, _from, state), do: {:reply, state.reconciliation, state}
 
@@ -254,6 +291,15 @@ defmodule Aiur.RecentMergeStore do
 
     if reconciliation != state.reconciliation, do: notify()
     {:reply, :ok, %{state | reconciliation: reconciliation}}
+  end
+
+  defp persist_ticket_reconciliation(merge, ticket_id, state) do
+    updated_merge = %{merge | reconciled_ticket_ids: [ticket_id | merge.reconciled_ticket_ids]}
+
+    case persist(updated_merge, state) do
+      {:reply, {:ok, _result}, updated} -> {:reply, :ok, updated}
+      {:reply, {:error, reason}, updated} -> {:reply, {:error, reason}, updated}
+    end
   end
 
   defp reconciliation_status(%{partial?: true} = current, _partial?, pages_fetched) do
@@ -380,7 +426,7 @@ defmodule Aiur.RecentMergeStore do
   end
 
   defp notify do
-    ObservabilityPubSub.broadcast_update()
+    Signal.refresh()
   rescue
     error -> Logger.warning("aiur_recent_merge_store phase=notify_failed error=#{Exception.message(error)}")
   end

@@ -1,10 +1,10 @@
 defmodule Aiur.BuildOrder.GraphProjection.Options do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{CatalogStore, GitHubGraph}
+  alias Aiur.BuildOrder.{CatalogStore, GitHubGraph, Settings}
   alias Aiur.BuildOrder.GitHubGraph.Reconciliation
   alias Aiur.BuildOrder.GraphProjection.Policy
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.Webhooks.DeliveryModeEvents
 
   @defaults [
@@ -110,7 +110,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       configuration_generation: Keyword.get(opts, :configuration_generation, 1),
       configuration_snapshot: Keyword.get(opts, :configuration_snapshot),
       authority_snapshot: Keyword.get(opts, :authority_snapshot),
-      runtime_options: Keyword.get(opts, :runtime_options, &Aiur.Config.build_order_graph_projection_options/0),
+      runtime_options: Keyword.get(opts, :runtime_options, &Settings.build_order_graph_projection_options/0),
       root_limit: positive(opts, :root_limit, 100, 100),
       page_budget: positive(opts, :page_budget, 4, 4),
       call_budget: positive(opts, :call_budget, 4, 4),
@@ -190,10 +190,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   # Subscribes the projection to the resource types the catalog is projected
   # from, so a delivery or mutation that changes one wakes a rebuild. Runs in
-  # the projection's own process, so `ResourceStore.subscribe_type/1` delivers
+  # the projection's own process, so `Access.subscribe_type/1` delivers
   # `{:github_resource_changed, change}` to its mailbox.
   defp default_resource_subscription(_pid) do
-    Enum.each([:issue, :issue_labels, :sub_issue, :issue_dependency], &ResourceStore.subscribe_type/1)
+    Enum.each([:issue, :issue_labels, :sub_issue, :issue_dependency], &Access.subscribe_type/1)
   rescue
     _error -> :ok
   catch
@@ -211,7 +211,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   defp runtime_options(opts) do
     case Keyword.pop(opts, :runtime_config?, false) do
-      {true, opts} -> Keyword.merge(Aiur.Config.build_order_graph_projection_options(), opts)
+      {true, opts} -> Keyword.merge(Settings.build_order_graph_projection_options(), opts)
       {_runtime_config, opts} -> opts
     end
   end

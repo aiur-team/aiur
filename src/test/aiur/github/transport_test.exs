@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.TransportTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{CIRecovery, Transport}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -46,15 +46,23 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.parse_repo() == {:error, {:invalid_github_repo, "owner/repo/extra"}}
   end
 
-  test "resolves token from opts, request_fun seam, then config" do
+  test "resolves token from opts, then config" do
     assert Transport.require_token(token: "opts-token") == {:ok, "opts-token"}
-    assert Transport.require_token(request_fun: fn _ -> :ok end) == {:ok, "test-gh-token"}
     assert Transport.require_token([]) == {:ok, "config-token"}
 
     System.delete_env("GITHUB_TOKEN")
     :persistent_term.erase(@token_cache_key)
 
     assert Transport.require_token([]) == {:error, :missing_github_token}
+  end
+
+  # #4556: production wrappers such as `MainWatch.bounded_requests/1` add a
+  # request_fun without a token; that must still send the configured token.
+  test "production-shaped opts with a request_fun resolve the configured token" do
+    :persistent_term.put(@token_cache_key, "runtime-pat")
+    opts = [request_fun: &Transport.default_request_fun/1, caller: "main_watch_commits"]
+
+    assert Transport.require_token(opts) == {:ok, "runtime-pat"}
   end
 
   test "builds default and versioned GitHub headers" do
@@ -252,6 +260,14 @@ defmodule Aiur.GitHub.TransportTest do
     end
   end
 
+  test "fetch_json_list refuses a next link" do
+    request_fun = fn _ ->
+      {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"Link", ~s(<https://api.github.com/x?page=2>; rel="next")}]}}
+    end
+
+    assert {:error, :pagination_unexpected} = Transport.fetch_json_list(request_fun, "token", "https://api.github.com/x")
+  end
+
   test "fetches JSON lists and classifies failures" do
     ok = fn %{method: :get, url: "https://example.test", token: "token"} ->
       {:ok, %{status: 200, body: [%{"name" => "file"}]}}
@@ -337,6 +353,37 @@ defmodule Aiur.GitHub.TransportTest do
                })
 
       assert_receive {:if_none_match, ["W/\"abc123\""]}, 1000
+    end
+
+    # #6154: ConflictUpdate's update-branch is a PUT; without a :put clause it crashed the landing-watch poll.
+    test "CIRecovery.update_branch sends a PUT through the real transport" do
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:update_branch, conn.method, conn.request_path, Jason.decode!(body)})
+        conn |> Plug.Conn.put_status(202) |> Req.Test.json(%{"message" => "Updating pull request branch."})
+      end)
+
+      assert {:ok, %{"message" => "Updating pull request branch."}} =
+               CIRecovery.update_branch(5506, "head-sha", token: "token", caller: "landing_watch_conflict_update")
+
+      assert_receive {:update_branch, "PUT", "/repos/owner/repo/pulls/5506/update-branch", %{"expected_head_sha" => "head-sha"}}, 1000
+    end
+
+    test "a crash inside default_request_fun does not carry the request credential" do
+      log =
+        capture_log(fn ->
+          task = start_supervised!({Task, fn -> Transport.default_request_fun(%{method: :head, url: "https://api.github.com/repos/owner/repo", token: "secret-credential"}) end})
+          ref = Process.monitor(task)
+
+          assert_receive {:DOWN, ^ref, :process, ^task, {:function_clause, [{Transport, :do_request, [request], _location} | _]} = reason}, 1000
+          assert request.url == "https://api.github.com/repos/owner/repo"
+          Aiur.TestSupport.refute_leak(reason, "secret-credential")
+        end)
+
+      assert log =~ "do_request"
+      refute log =~ "secret-credential"
     end
 
     test "default_request_fun omits If-None-Match when no etag is cached" do

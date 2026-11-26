@@ -17,10 +17,10 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   use GenServer
 
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Project.Table
 
   @table __MODULE__
   @table_opts [
-    :named_table,
     :public,
     :set,
     read_concurrency: true,
@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    GenServer.start_link(__MODULE__, Aiur.Project.carry(opts), name: Aiur.Project.via(__MODULE__))
   end
 
   @doc """
@@ -44,13 +44,13 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   """
   @spec write(GenServer.server(), reference() | nil, map()) :: :ok
   def write(orchestrator, generation, snapshot_input) when is_map(snapshot_input) do
-    case :ets.whereis(@table) do
-      :undefined ->
+    case Table.ref(@table) do
+      nil ->
         :ok
 
-      _table ->
+      table ->
         version = System.unique_integer([:monotonic, :positive])
-        :ets.insert(@table, {orchestrator, generation, version, snapshot_input})
+        :ets.insert(table, {orchestrator, generation, version, snapshot_input})
         :ok
     end
   end
@@ -64,9 +64,9 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   """
   @spec clear(GenServer.server()) :: :ok
   def clear(orchestrator) do
-    case :ets.whereis(@table) do
-      :undefined -> :ok
-      _table -> :ets.delete(@table, orchestrator)
+    case Table.ref(@table) do
+      nil -> :ok
+      table -> :ets.delete(table, orchestrator)
     end
 
     clear_published_marker(orchestrator)
@@ -75,7 +75,8 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    Aiur.Project.adopt(opts)
     ensure_table()
     schedule_publish()
     {:ok, %{}}
@@ -96,7 +97,7 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   def handle_info(_message, published), do: {:noreply, published}
 
   defp clear_published_marker(orchestrator) do
-    case Process.whereis(__MODULE__) do
+    case GenServer.whereis(Aiur.Project.via(__MODULE__)) do
       nil ->
         :ok
 
@@ -110,7 +111,7 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   end
 
   defp publish_pending(published) do
-    :ets.tab2list(@table)
+    :ets.tab2list(Table.ref(@table))
     |> Enum.reduce(published, fn {orchestrator, generation, version, snapshot_input}, acc ->
       case Map.get(acc, orchestrator) do
         {^generation, ^version} ->
@@ -131,10 +132,5 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
     Application.get_env(:aiur, :snapshot_publish_interval_ms, @default_publish_interval_ms)
   end
 
-  defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined -> :ets.new(@table, @table_opts)
-      table -> table
-    end
-  end
+  defp ensure_table, do: Table.new(@table, @table_opts)
 end

@@ -6,16 +6,17 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
-  alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
+  alias Aiur.AgentEnvironment.ProviderAuth
+  alias Aiur.AgentTools.Dispatch
+  alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Claude.RemoteControl
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576
 
   @callback backend_label() :: String.t()
-  @callback send_frame(port(), map()) :: :ok | {:error, :port_closed}
-  @callback metadata_from_message(port(), term()) :: map()
+  @callback send_frame(port() | pid(), map()) :: :ok | {:error, :port_closed}
+  @callback metadata_from_message(port() | pid(), term()) :: map()
   @callback start_turn(session :: map(), prompt :: String.t(), issue :: map()) ::
               {:ok, String.t()} | {:error, term()}
   @callback loop_state_extras(session :: map()) :: map()
@@ -28,7 +29,7 @@ defmodule Aiur.AppServer.Adapter do
               payload_string :: String.t(),
               method :: String.t()
             ) :: term()
-  @callback handle_malformed(state :: map(), payload_string :: String.t(), port()) ::
+  @callback handle_malformed(state :: map(), payload_string :: String.t(), port() | pid()) ::
               {:continue, map()}
 
   @doc """
@@ -54,13 +55,15 @@ defmodule Aiur.AppServer.Adapter do
 
     callbacks = %{
       on_message: on_message,
+      on_steer_claim: Keyword.get(opts, :on_steer_claim, fn -> :noop end),
       on_provider_delivery: on_provider_delivery,
-      on_safe_checkpoint: on_safe_checkpoint
+      on_safe_checkpoint: on_safe_checkpoint,
+      on_native_reply: Keyword.get(opts, :on_native_reply, fn _refs -> :none end)
     }
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments)
+        Dispatch.execute(tool, arguments)
       end)
 
     case pause_latched?(session) do
@@ -81,6 +84,8 @@ defmodule Aiur.AppServer.Adapter do
     # settled, and letting it survive would let a stale banner mislabel an
     # unrelated later failure as a quota pause.
     StreamDiagnostics.clear(session.port)
+    # Each turn starts and ends without load an earlier tool command left behind.
+    Transport.reap_orphans(session.port)
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
@@ -109,11 +114,15 @@ defmodule Aiur.AppServer.Adapter do
               backend: backend,
               on_message: callbacks.on_message,
               on_safe_checkpoint: callbacks.on_safe_checkpoint,
+              on_native_reply: callbacks.on_native_reply,
+              on_steer_claim: callbacks.on_steer_claim,
               tool_executor: tool_executor,
               timeout_ms: Config.agent_turn_timeout_ms(),
               pending_line: "",
               outstanding_turns: 1,
               pending_operator_requests: %{},
+              held_native_questions: %{},
+              issue: issue,
               current_turn_id: turn_id,
               issue_identifier: Messages.issue_identifier(issue),
               pause_request_id: nil,
@@ -125,6 +134,8 @@ defmodule Aiur.AppServer.Adapter do
           |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
+        cancel_turn_liveness_probe(loop_result)
+        Transport.reap_orphans(session.port)
 
         handle_turn_result(
           backend,
@@ -150,6 +161,21 @@ defmodule Aiur.AppServer.Adapter do
     end
   end
 
+  defp cancel_turn_liveness_probe({:continue, state}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:ok, state}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:error, {:response_timeout, :codex_liveness_probe, state}}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe({:error, {:liveness_probe_failed, _reason, state}}), do: cancel_probe_timer(state)
+  defp cancel_turn_liveness_probe(_result), do: :ok
+
+  defp cancel_probe_timer(state) when is_map(state) do
+    case Map.get(state, :liveness_probe_timer) do
+      timer when is_reference(timer) -> Process.cancel_timer(timer)
+      _ -> :ok
+    end
+  end
+
+  defp cancel_probe_timer(_state), do: :ok
+
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
 
   @doc """
@@ -167,12 +193,42 @@ defmodule Aiur.AppServer.Adapter do
 
   def classify_stream_failure(_backend, _diagnostics), do: :unclassified
 
-  @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t()) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
 
   @doc false
-  @spec start_port(Path.t(), String.t(), (port() -> term()), keyword()) :: {:ok, port()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t(), (port() | pid() -> term()), keyword()) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
+    case ProviderAuth.stage(workspace, Keyword.get(opts, :env, [])) do
+      {:ok, provider_env, auth_file} ->
+        opts = opts |> Keyword.put(:env, provider_env) |> Keyword.put(:provider_auth_file, auth_file)
+        result = start_staged_port(workspace, command, on_port_started, opts, provider_env)
+        if match?({:error, _}, result), do: ProviderAuth.cleanup(auth_file)
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp start_staged_port(workspace, command, on_port_started, opts, provider_env) do
+    if Config.settings!().agent.relay and Keyword.get(opts, :relay, true) do
+      env = AgentEnvironment.workspace_env(workspace) ++ port_env(provider_env)
+
+      case RelayPort.start(workspace, command, env, opts) do
+        {:ok, relay} ->
+          contain_port(relay, on_port_started)
+
+        {:error, reason} ->
+          Logger.warning("Relay unavailable, starting direct app-server: #{inspect(reason)}")
+          start_direct_port(workspace, command, on_port_started, opts)
+      end
+    else
+      start_direct_port(workspace, command, on_port_started, opts)
+    end
+  end
+
+  defp start_direct_port(workspace, command, on_port_started, opts) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -195,7 +251,12 @@ defmodule Aiur.AppServer.Adapter do
               ~c"-c",
               # workspace_env/1 has already removed the operator's BASH_ENV or
               # replaced it with Aiur's immutable build-admission hook.
-              String.to_charlist(AgentEnvironment.scrub_shell_command(command, trusted_bash_env: true))
+              String.to_charlist(
+                AgentEnvironment.scrub_shell_command(
+                  ProviderAuth.shell_command(Keyword.get(opts, :provider_auth_file), command),
+                  trusted_bash_env: true
+                )
+              )
             ],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
@@ -203,21 +264,31 @@ defmodule Aiur.AppServer.Adapter do
           ]
         )
 
+      # A write to a provider that already closed its stdin ends the port with
+      # reason `:epipe`. Through the link that kills this runner before it can
+      # restore a claimed queue item, so observe the port by monitor instead.
+      Process.unlink(port)
+      Port.monitor(port)
+
       # Invoke this while the spawn primitive still owns control. Callers use
       # it to record the local process-group lease before any handshake or
       # session setup can expose a live descendant to an abrupt runner death.
-      case on_port_started.(port) do
-        :ok ->
-          {:ok, port}
+      contain_port(port, on_port_started)
+    end
+  end
 
-        {:error, _reason} = error ->
-          terminate_uncontained_port(port)
-          error
+  defp contain_port(port, on_port_started) do
+    case on_port_started.(port) do
+      :ok ->
+        {:ok, port}
 
-        _other ->
-          terminate_uncontained_port(port)
-          {:error, :workspace_ownership_lost}
-      end
+      {:error, _reason} = error ->
+        terminate_uncontained_port(port)
+        error
+
+      _other ->
+        terminate_uncontained_port(port)
+        {:error, :workspace_ownership_lost}
     end
   end
 
@@ -249,13 +320,13 @@ defmodule Aiur.AppServer.Adapter do
   defp normalize_port_env(_other), do: []
 
   defp terminate_uncontained_port(port) do
-    case :erlang.port_info(port, :os_pid) do
-      {:os_pid, os_pid} -> RemoteControl.graceful_kill_tree(os_pid)
+    case Transport.os_pid(port) do
+      {:os_pid, os_pid} -> ProcessTree.graceful_kill_tree(os_pid)
       _ -> :ok
     end
 
     try do
-      Port.close(port)
+      Transport.close(port)
     rescue
       ArgumentError -> :ok
     end

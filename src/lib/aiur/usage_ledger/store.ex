@@ -5,10 +5,23 @@ defmodule Aiur.UsageLedger.Store do
 
   @behaviour Aiur.UsageLedger
 
-  alias Aiur.{Config, DecisionLog, Fs, UsageEnvelope}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor}
+  alias Aiur.{Config, Fs, Journal, Signal, UsageEnvelope}
+
+  alias Aiur.UsageLedger.{
+    Checkpoint,
+    CounterPolicy,
+    OutboundEvents,
+    Record,
+    Recovery,
+    RetiredFloor,
+    RetiredKeys
+  }
 
   @max_scan_limit 10_000
+  @checkpoint_every_appends 100
+  @max_queued_appends 100
+  @alert "system.usage_ledger.degraded"
+  @checkpoint_failures [:checkpoint_too_large, :checkpoint_encode_failed]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -24,7 +37,24 @@ defmodule Aiur.UsageLedger.Store do
           | {:duplicate, Aiur.UsageLedger.acknowledgement()}
           | {:error, atom()}
   def append(server, %UsageEnvelope{} = envelope) do
-    GenServer.call(server, {:append, envelope}, durability_timeout())
+    if overloaded?(server),
+      do: {:error, :overloaded},
+      else: GenServer.call(server, {:append, envelope}, durability_timeout())
+  end
+
+  @doc false
+  @spec max_queued_appends() :: pos_integer()
+  def max_queued_appends, do: @max_queued_appends
+
+  # Callers wait on the durability timeout (infinite by default), so behind a
+  # stalled ledger they only pile up. Shed instead of joining a full queue.
+  defp overloaded?(server) do
+    with pid when is_pid(pid) <- GenServer.whereis(server),
+         {:message_queue_len, queued} <- Process.info(pid, :message_queue_len) do
+      queued >= @max_queued_appends
+    else
+      _unavailable -> false
+    end
   end
 
   @doc false
@@ -72,13 +102,17 @@ defmodule Aiur.UsageLedger.Store do
     {:ok,
      Map.merge(state, %{
        records: :queue.from_list(state.records),
-       append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+       append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
        checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.overwrite_encoded/2),
        checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),
+       event_publish_fun: Keyword.get(opts, :event_publish_fun, &OutboundEvents.publish/2),
+       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
        retired_floor_write_fun: Keyword.get(opts, :retired_floor_write_fun, &RetiredFloor.write/3),
        retire_sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
        retired_through: Map.get(state, :retired_through, 0),
+       checkpoint_interval: max(Keyword.get(opts, :checkpoint_interval, @checkpoint_every_appends), 1),
+       checkpoint_position: Map.get(state, :checkpoint_position, state.position),
        subscribers: %{}
      })}
   end
@@ -170,17 +204,24 @@ defmodule Aiur.UsageLedger.Store do
   end
 
   defp commit_retirement(state, watermark) do
-    case state.retired_floor_write_fun.(state.paths.retired_path, watermark, state.retire_sync_fun) do
-      :ok ->
-        retained = state.records |> :queue.to_list() |> Enum.filter(&(&1.position > watermark))
-        _ = rewrite_segment(state.paths.segment_path, retained)
-        retired_count = watermark - state.retired_through
+    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
 
-        next_state = %{state | records: :queue.from_list(retained), retired_through: watermark}
-        {:reply, {:ok, %{retired_through: watermark, retired_count: retired_count}}, next_state}
+    with :ok <- RetiredKeys.write(state.paths.retired_keys_path, state.position, state.policy.idempotency),
+         {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
+         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint),
+         :ok <- state.retired_floor_write_fun.(state.paths.retired_path, watermark, state.retire_sync_fun) do
+      retained = state.records |> :queue.to_list() |> Enum.filter(&(&1.position > watermark))
+      _ = rewrite_segment(state.paths.segment_path, retained)
+      retired_count = watermark - state.retired_through
+
+      next_state = %{state | records: :queue.from_list(retained), retired_through: watermark, checkpoint_position: state.position}
+      {:reply, {:ok, %{retired_through: watermark, retired_count: retired_count}}, next_state}
+    else
+      {:error, :capacity_exhausted} ->
+        {:reply, {:error, :capacity_exhausted}, state}
 
       {:error, _reason} ->
-        {:reply, {:error, :retired_floor_write_failed}, state}
+        {:reply, {:error, :retirement_persistence_failed}, state}
     end
   end
 
@@ -192,36 +233,93 @@ defmodule Aiur.UsageLedger.Store do
   defp persist(envelope, policy, delta, state) do
     position = state.position + 1
     generation = state.generation + 1
-    checkpoint = Checkpoint.record(position, generation, policy)
+    checkpoint_due? = position - state.checkpoint_position >= state.checkpoint_interval
 
     with {:ok, record} <- Record.new(position, envelope, delta),
-         {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
-         :ok <- capacity(record, encoded_checkpoint, policy, state),
+         :ok <- capacity(record, policy, state),
+         checkpoint = checkpoint(checkpoint_due?, position, generation, policy, state),
          :ok <- state.append_fun.(state.paths.segment_path, Record.encode(record)),
-         :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint) do
-      next_state = %{
-        state
-        | records: :queue.in(record, state.records),
-          policy: policy,
-          position: position,
-          generation: generation,
-          coverage: policy.coverage,
-          health: :healthy
-      }
+         :ok <- maybe_write_checkpoint(checkpoint, state) do
+      next_state =
+        put_health(
+          %{
+            state
+            | records: :queue.in(record, state.records),
+              policy: policy,
+              position: position,
+              generation: generation,
+              coverage: policy.coverage,
+              checkpoint_position: if(checkpoint_due?, do: position, else: state.checkpoint_position)
+          },
+          checkpoint_health(checkpoint, state.health)
+        )
 
       acknowledgement = %{position: position, generation: generation, delta: record.delta}
-      publish(next_state, acknowledgement)
+      publish(next_state, envelope, acknowledgement)
       {:reply, {:ok, acknowledgement}, next_state}
     else
       {:error, :capacity_exhausted} ->
-        next_state = %{state | health: {:degraded, :capacity_exhausted}}
-        {:reply, {:error, :capacity_exhausted}, next_state}
+        {:reply, {:error, :capacity_exhausted}, put_health(state, {:degraded, :capacity_exhausted})}
 
       {:error, _reason} ->
-        next_state = %{state | health: {:degraded, :persistence_failed}, writable?: false}
-        {:reply, {:error, :persistence_failed}, next_state}
+        next_state = put_health(state, {:degraded, :persistence_failed})
+        {:reply, {:error, :persistence_failed}, %{next_state | writable?: false}}
     end
   end
+
+  # Checkpoints stay compact: once a prefix is retired its idempotency keys
+  # live in retired-idempotency.json, and recovery rebuilds the rest from the
+  # retained segment. A checkpoint that still cannot be encoded must not cost
+  # the record: the append lands, the next attempt waits a full interval, and
+  # health stays degraded until a later checkpoint is written.
+  defp checkpoint(false, _position, _generation, _policy, _state), do: :not_due
+
+  defp checkpoint(true, position, generation, policy, state) do
+    case encode_checkpoint(Checkpoint.record(position, generation, policy), state) do
+      {:ok, encoded} -> {:encoded, encoded}
+      {:error, :capacity_exhausted} -> {:failed, :checkpoint_too_large}
+      {:error, _reason} -> {:failed, :checkpoint_encode_failed}
+    end
+  end
+
+  defp maybe_write_checkpoint({:encoded, encoded}, state), do: state.checkpoint_fun.(state.paths.checkpoint_path, encoded)
+  defp maybe_write_checkpoint(_checkpoint, _state), do: :ok
+
+  defp checkpoint_health({:encoded, _encoded}, _health), do: :healthy
+  defp checkpoint_health({:failed, reason}, _health), do: {:degraded, reason}
+  defp checkpoint_health(:not_due, {:degraded, reason} = health) when reason in @checkpoint_failures, do: health
+  defp checkpoint_health(:not_due, _health), do: :healthy
+
+  defp put_health(%{health: health} = state, health), do: state
+
+  defp put_health(state, :healthy) do
+    alert(state, @alert <> ".resolved",
+      message: "Usage ledger is storing usage normally again.",
+      needs_attention: false,
+      severity: "info"
+    )
+
+    %{state | health: :healthy}
+  end
+
+  defp put_health(state, {:degraded, reason} = health) do
+    alert(state, @alert,
+      message: "Usage ledger degraded: #{reason}",
+      reason: degraded_reason(reason, state),
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | health: health}
+  end
+
+  defp degraded_reason(reason, state) when reason in @checkpoint_failures,
+    do: "Usage ledger checkpoint failed (#{reason}); records are still stored and the checkpoint retries every #{state.checkpoint_interval} appends."
+
+  defp degraded_reason(:capacity_exhausted, _state), do: "Usage ledger reached a storage cap and is rejecting usage records."
+  defp degraded_reason(reason, _state), do: "Usage ledger stopped accepting usage records (#{reason})."
+
+  defp alert(state, topic, opts), do: safe_publish(fn -> state.alert_fun.(topic, opts) end)
 
   defp encode_checkpoint(checkpoint, state) do
     case state.checkpoint_encode_fun.(checkpoint, state.limits.max_checkpoint_bytes) do
@@ -231,13 +329,12 @@ defmodule Aiur.UsageLedger.Store do
     end
   end
 
-  defp capacity(record, encoded_checkpoint, policy, state) do
+  defp capacity(record, policy, state) do
     encoded_record = Jason.encode!(Record.encode(record))
     segment_size = file_size(state.paths.segment_path)
 
     if byte_size(encoded_record) > state.limits.max_record_bytes or
          segment_size + byte_size(encoded_record) + 1 > state.limits.max_segment_bytes or
-         byte_size(encoded_checkpoint) > state.limits.max_checkpoint_bytes or
          MapSet.size(policy.idempotency) > state.limits.max_idempotency_entries do
       {:error, :capacity_exhausted}
     else
@@ -273,12 +370,20 @@ defmodule Aiur.UsageLedger.Store do
     }
   end
 
-  defp publish(state, acknowledgement) do
+  defp publish(state, envelope, acknowledgement) do
     Enum.each(state.subscribers, fn {pid, _reference} -> send(pid, {:usage_ledger_delta, acknowledgement}) end)
-    _ = state.publish_fun.(acknowledgement)
+    safe_publish(fn -> state.publish_fun.(acknowledgement) end)
+    safe_publish(fn -> state.event_publish_fun.(envelope, acknowledgement) end)
+    :ok
+  end
+
+  defp safe_publish(fun) do
+    _ = fun.()
     :ok
   rescue
     _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp scan_limit(value) when is_integer(value) and value > 0, do: min(value, @max_scan_limit)

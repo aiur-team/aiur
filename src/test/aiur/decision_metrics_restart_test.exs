@@ -54,7 +54,8 @@ defmodule Aiur.DecisionMetricsRestartTest do
       end)
 
     assert_receive {:replay_started, writer}, 2_000
-    assert Exchange.publish("ticket.42.agent.decision.requested", request_event(35)) >= 1
+    event = request_event(35, Integer.to_string(System.unique_integer([:positive])))
+    assert Exchange.publish(event.topic, event) >= 1
     send(writer, :continue_replay)
     assert {:ok, metrics} = Task.await(starter)
     on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
@@ -110,7 +111,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
-    ticket = %{identifier: "42", title: "Metrics backfill", url: nil}
+    ticket = %{identifier: Integer.to_string(System.unique_integer([:positive])), title: "Metrics backfill", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
 
     assert {:ok, %{decision: decision}} =
@@ -151,12 +152,12 @@ defmodule Aiur.DecisionMetricsRestartTest do
     pid
   end
 
-  defp request_event(id) do
+  defp request_event(id, ticket \\ "42") do
     %{
       id: "canonical:test:#{id}",
-      topic: "ticket.42.agent.decision.requested",
+      topic: "ticket.#{ticket}.agent.decision.requested",
       decision_id: "dec-42",
-      ticket: %{identifier: "42"},
+      ticket: %{identifier: ticket},
       blocking: true,
       created_at: DateTime.to_iso8601(@requested_at)
     }

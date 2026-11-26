@@ -1,0 +1,51 @@
+{
+  "manifest_version": 1,
+  "components": [
+    {
+      "id": "github-access",
+      "name": "GitHub access",
+      "layer": 2,
+      "kind": "optional",
+      "paths": [
+        "src/lib/a.ex"
+      ],
+      "facades": [
+        "A"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    },
+    {
+      "id": "github",
+      "name": "GitHub domain",
+      "layer": 2,
+      "kind": "optional",
+      "paths": [
+        "src/lib/b.ex"
+      ],
+      "facades": [
+        "B.Facade"
+      ],
+      "facade_pending": null,
+      "requires": [
+        "github-access"
+      ],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    }
+  ]
+}

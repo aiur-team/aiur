@@ -5,11 +5,13 @@ defmodule Aiur.Init.TemplatesTest do
 
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
-    assert Templates.config_example() =~ "host omitted = authenticated Tailscale IP"
-    assert Templates.config_example() =~ "add host: 127.0.0.1 to pin loopback"
+    assert Templates.config_example() =~ "host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST)"
+    assert Templates.config_example() =~ "0.0.0.0 exposes the LAN"
     assert Templates.config_example() =~ "GITHUB_TOKEN is the default daemon credential"
     assert Templates.config_example() =~ "github_app.account names the daemon's distinct App bot login"
     refute Templates.config_example() =~ "the App private key are set (preferred"
+    assert Templates.config_example() =~ "#   relay_operator_answers: true\n"
+    assert Templates.config_example() =~ "On by default; set false to opt out."
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
@@ -179,20 +181,47 @@ defmodule Aiur.Init.TemplatesTest do
   end
 
   describe "elevenlabs voice-input section" do
+    test "prompt and rendered config name both dotenv files in precedence order" do
+      parent = self()
+
+      io = %{
+        confirm: fn _question, _default -> true end,
+        puts: fn message -> send(parent, {:voice_prompt, IO.chardata_to_string(message)}) end,
+        input: fn _label, default, _hint -> default end
+      }
+
+      assert %{enabled: true, api_key: "$ELEVENLABS_API_KEY"} = ElevenLabs.prompt_eleven_labs(io, %{}, :repo_local)
+      assert_received {:voice_prompt, prompt}
+      assert prompt =~ "~/.aiur/.env (machine-wide) or ./.env"
+      assert :binary.match(prompt, "~/.aiur/.env") < :binary.match(prompt, "./.env")
+
+      yaml = IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
+      assert yaml =~ "set the value in `~/.aiur/.env` or `./.env`"
+      assert :binary.match(yaml, "~/.aiur/.env") < :binary.match(yaml, "./.env")
+    end
+
     test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 
-      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}}} =
+      assert {:ok,
+              %{
+                "elevenlabs" => %{
+                  "enabled" => true,
+                  "api_key" => "$ELEVENLABS_API_KEY",
+                  "language_code" => "eng",
+                  "voice_id" => nil
+                }
+              }} =
                YamlElixir.read_from_string(rendered)
 
       assert rendered ==
                "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
     end
 
-    test "declining renders nothing at all" do
+    test "declining renders a valid disabled section" do
       rendered = render_elevenlabs(%{enabled: false, api_key: nil})
 
-      assert rendered == ""
+      assert {:ok, %{"elevenlabs" => %{"enabled" => false}}} = YamlElixir.read_from_string(rendered)
     end
 
     test "the shipped example renders as valid YAML with the section when opted in" do
@@ -201,21 +230,26 @@ defmodule Aiur.Init.TemplatesTest do
       refute rendered =~ "{{ELEVENLABS_SECTION}}"
 
       assert {:ok, config} = YamlElixir.read_from_string(rendered)
-      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}} = config
+
+      assert %{
+               "elevenlabs" => %{
+                 "enabled" => true,
+                 "api_key" => "$ELEVENLABS_API_KEY",
+                 "language_code" => "eng",
+                 "voice_id" => nil
+               }
+             } = config
     end
 
-    # Regression: a declined question used to leave an `elevenlabs:` header (with
-    # only `language_code`) in the config, so `Resume.missing_section?/2` never saw
-    # the section as missing and voice input could never be backfilled later.
-    test "the shipped example omits the elevenlabs key entirely when declined" do
+    test "the shipped example records an explicit ElevenLabs decline" do
       rendered = render_example(%{enabled: false, api_key: nil})
 
       refute rendered =~ "{{ELEVENLABS_SECTION}}"
       refute rendered =~ "\n\n\n"
 
       assert {:ok, config} = YamlElixir.read_from_string(rendered)
-      refute Map.has_key?(config, "elevenlabs")
-      assert Resume.missing_section?(config, "elevenlabs")
+      assert config["elevenlabs"] == %{"enabled" => false}
+      refute Resume.missing_section?(config, "elevenlabs")
     end
   end
 

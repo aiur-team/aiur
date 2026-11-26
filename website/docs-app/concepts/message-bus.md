@@ -1,6 +1,6 @@
 # Message Bus
 
-Aiur uses a shared topic exchange for durable coordination between tickets, agents, and the Executor.
+Aiur uses a shared topic exchange to signal coordination between tickets, agents, and the Executor.
 
 ## Topic shape
 
@@ -13,11 +13,43 @@ Aiur uses a shared topic exchange for durable coordination between tickets, agen
 
 Events are signals; consumers follow validated references or correlation fields to the durable source of truth.
 
+## Reserved namespaces
+
+These registered namespaces freeze producer ownership before every producer ships; clients re-read the owning API instead of treating an event payload as state.
+
+| Namespace | Owner | Client action |
+| --- | --- | --- |
+| `ticket.<id>.agent.decision.human-needed`, `executor.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
+| `ticket.<id>.pr.closed_unmerged`, `ticket.<id>.issue.closed` | Queue readiness / MP-E1 | Re-read queue and pull-request state. |
+| `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
+| `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
+| `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
+| `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
+| `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
+
+The human-needed signal exports only Command identity, requester kind, blocking, urgency and cause. Its short label stays in the private journal payload. Routing facts persist without changing the Command’s answer or delivery status; the signal is recorded once per Command across restarts.
+
+## What survives a restart
+
+| Class | Topics | After a restart or disconnect |
+| --- | --- | --- |
+| Live | GitHub, CI, PR and branch events (`ticket.<id>.pr.*`, `ticket.<id>.ci.*`, `ticket.<id>.branch.push`, `ticket.<id>.issue.commented`, `system.<branch>.branch.push`) | Not replayed. Consumers re-read GitHub or the tracker. |
+| Logged | Events an agent emits for its own ticket (`ticket.<id>.agent.*`) | Written to the ticket's event log asynchronously, on a best-effort basis, only with a trusted ticket identity and while its log writer exists. Own emissions are not replayed on the agent's next turn. |
+| Ledgered | Alerts and attentions emitted through the alert system (`ticket.<id>.agent.attention.*`, `system.*` alerts) | Kept in the alert feed; the ledger does not replay them as events. |
+| Journaled | Executor stream (`executor.*`) and Command lifecycle | Written before delivery. The Executor stream replays from its cursor; Command records remain in their owning store. |
+
+These classes describe the existing persistence paths; a topic name alone does not guarantee durability.
+Logged events can be recovered by bootstrap when they match a subscription and follow its cursor, but bootstrap excludes own-emission (`self`) markers.
+
+Event IDs are unique per instance and survive restarts. They increase in the order they are assigned, may have gaps, and do not describe delivery order; use them to deduplicate, not to sort deliveries.
+
+Wakes for non-Executor topics that arrive while the Executor listener is down are not replayed; read `aiur status` and the tracker after a restart.
+
 ## Agent events
 
 | Name | Operator meaning |
 | --- | --- |
-| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar. |
+| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar and Build page Live cards. |
 | `progress.<slug>` | A named milestone inside the ticket. |
 | `decision.<slug>` | A ticket-level decision or design choice. |
 | `decision.acknowledged` | The target began applying a durable Executor answer. |
@@ -35,12 +67,27 @@ Events are signals; consumers follow validated references or correlation fields 
 | --- | --- |
 | `ticket.<id>.branch.push` | A validated ticket branch ref and commit changed. |
 | `system.<branch>.branch.push` | The integration branch moved. |
+| `system.optimistic.ledger_unavailable` | Once-per-boot alert when optimistic-start records cannot be persisted; dispatch continues. |
+| `system.capabilities.changed` | A stored capability report changed; payload contains only `revision` and `boot_id`. Refetch the authenticated report. Published on the first report after boot, never on unchanged ticks; does not wake the Executor. In-node consumers receive `{:capabilities_changed, revision}` on PubSub topic `capabilities`. |
+| `system.queue.<queue_id>.progress` | A queue crossed a progress milestone. |
+| `system.build_order.<root>.progress` | A Build Order crossed a progress milestone. |
 | `ticket.<id>.pr.opened` | The ticket's pull request opened. |
 | `ticket.<id>.pr.merged` | The ticket's pull request merged. |
 | `ticket.<id>.issue.commented` | A trusted issue comment arrived. |
 | `ticket.<id>.pr.review_comment` | A trusted PR review comment or thread arrived. |
 | `ticket.<id>.ci.passed` | Terminal CI passed. |
 | `ticket.<id>.ci.failed` | Terminal CI failed. |
+| `ticket.<id>.usage.spend_cap_reached` | The ticket's known API-equivalent USD spend reached its persisted cap. Payload contract: `aiur.ticket_spend_cap_reached` v1. |
+
+Progress milestones use current, resolved or partially resolved facts. Only the highest crossed threshold (25%, 50%, 75% or 100%) is announced per observation.
+
+Durable latches prevent repeats within a scope generation after restart; unreadable or unwritable latch storage suppresses milestones. The events carry `milestone`, `percent` and `generation` attributes.
+
+Internal consumers can read `Aiur.BuildProgress.facts/1` for all scopes (`:all`) or one scope.
+
+`subscribe/0` subscribes to Phoenix PubSub topic `build_progress`, carrying `{:build_progress_changed, fact}` when percent, resolution, freshness or generation changes, including decreases.
+
+Facts remain readable and signals continue when milestone storage is unavailable. This internal signal is separate from the topic exchange.
 
 ## Automatic subscriptions
 
@@ -53,6 +100,10 @@ Agents automatically subscribe to events relevant to their ticket, pull request,
 | Own terminal CI | Moves between repair, CI wait, and human review. |
 | Base-branch pushes | Warns when the integration target moves. |
 | Blocker lifecycle and branch pushes | Resumes the dependent ticket on explicit readiness. |
+
+Dispatch also creates the standard blocker subscriptions from hydrated native dependencies before spawning a worker, without posting the dependency again.
+
+They use `blocker:auto` on the dependent and `blockee:auto` on the blocker, just like `aiur_declare_blocker`. An optimistic dispatch declines if binding fails, so the worker cannot start without hearing blocker pushes.
 
 Manual `aiur_subscribe` is for additional watch cases, not for the standard ticket lifecycle.
 
@@ -68,6 +119,38 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 | Bare `*` or `#` | Refused. |
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
+
+## Listener-mode changes
+
+`ticket.<id>.agent.listen-mode.changed` is a live hint published after each local
+mode broadcast. Its payload carries `requested`, `effective`, `effective_reason`,
+`version`, and `actor` (`human`, `executor`, or `system`), with no message text.
+Consumers re-read listener-mode state. Default agent bindings exclude this topic.
+
+IssueLog attributes these events to the payload actor rather than the agent.
+Publication failures are logged without rolling back the saved mode or local
+broadcast; missed hints are not replayed.
+
+## Queue transitions
+
+`ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
+verbs `promoted`, `withdrawn`, `held`, `released`, `overridden`, and `removed`.
+Payloads contain only `ticket`, `queue_id`, and `cause` references and attributes
+(plus the bus envelope). An operator removal carries cause `operator`.
+
+Consumers re-read queue state; these topics are not bound to the Executor by
+default and are not replayed after a daemon restart. Publication failures are
+logged without retry.
+
+## Queue attentions
+
+Queue attentions add two default Executor bindings: `ticket.*.queue.attention.#`
+(`attention:auto`) and `system.queue.attention.#` (`dispatch:auto`). Both include
+the `.resolved` events that clear an attention.
+
+Queue latches survive restarts; the attention API retains failed durable
+emissions for retry by reconciliation. Queue bus payloads carry
+allowlisted references and attributes; human-readable copy stays in the local alert feed.
 
 ## Dependencies
 
@@ -90,7 +173,7 @@ A branch push alone never resumes a dependent ticket. Before the blocker merges,
 | Delivery | Aiur sends that action to the target. |
 | Acknowledge | The target repeats the decision ID, action ID, and expected version. |
 | Resolve | The target repeats the same fields after finishing. |
-| Revise | A new action is appended instead of rewriting history. |
+| Send correction | A new action is appended instead of rewriting history. |
 
 See [Commands](/concepts/commands) for the Executor view.
 
@@ -99,8 +182,218 @@ See [Commands](/concepts/commands) for the Executor view.
 | Source | Events it supplies |
 | --- | --- |
 | Repository events | Default-branch pushes and opened or merged PRs. |
-| Ticket-branch watch | Validated ticket ref changes. |
+| Ticket-branch watch | `ticket.N.branch.push` with the ref, SHA, and `previous_sha` (nil for a new ref); subscribed rewrites also emit `ticket.N.branch.force-push`. |
 | Trusted comment polling | Issue comments, PR comments, reviews, and threads. |
 | CI polling | Terminal results for `agent:ci-wait` tickets. |
 
+Force-push verdicts carry `compare_status`, `previous_missing` (404), and `superseded` (a newer SHA was observed). Compare failures or budget holds emit no verdict; agents still check ancestry locally.
+
 See [GitHub](/apis/github) for polling, rate budgets, and optional webhook setup.
+
+## Where a new fact goes
+
+- A coordination fact with an identity or routing information goes to the topic exchange.
+- A local "re-read this state" notification goes to PubSub with a version. Consumers re-read the owning store; the notification is not the source of truth.
+- Persist first, publish with the durable event ID, then notify local subscribers. [Commands](/concepts/commands) follow this order.
+- Ticket spend-cap exhaustion follows the same order. Its owning store retains the terminal fence and event ID; consumers that miss the live notification re-read `GET /api/v1/<id>/spend-cap`.
+- Bridges run from the exchange to PubSub only; do not turn a local notification into a coordination fact.
+
+Signals, not state — see the [opening rule](#topic-shape).
+
+## Export journal
+
+`events.export.enabled` (default `false`) starts a single writer under
+`<runtime_state_dir>/events/export/`. The private journal uses 8 MiB segments,
+owner-only permissions, and dense sequence numbers assigned after envelope filtering.
+
+Every exporter start adds a `gap`, including restarts and re-enabling export:
+activity before subscription may have been missed. A gap is retained history;
+a `reset` tells a reader its cursor or epoch cannot continue that history.
+
+Readers never repair files. Corruption or append failure makes export unavailable
+and raises one attention per exporter boot. Move a corrupt export directory aside
+before restarting to rebuild it; this starts a new epoch.
+
+At boot and segment roll, retention removes whole closed export segments, leaving
+retained bytes unchanged and never trimming the active segment. Whole-segment
+granularity can keep one extra segment (up to 8 MiB) beyond the record target.
+Transcripts and Command records are unaffected.
+
+Restarts preserve the epoch. Changing instance identity archives old segments in
+`old-<epoch>/` and starts a new epoch at sequence 1. Corrupt metadata is rebuilt
+from readable segments with a new epoch, without archiving those segments.
+
+Cursors older than retention, beyond the head, or from another epoch receive
+one reset response carrying the current epoch and oldest/head sequence bounds.
+
+## External event feed
+
+The authenticated pull API reads the export journal. It is off by default:
+[`events.export.enabled`](/reference/configuration-daemon#events) must be `true`
+(restart to apply).
+
+Both endpoints use the dashboard authentication policy and
+return `Cache-Control: no-store`. The existing per-ticket transcript endpoint,
+`GET /api/v1/:issue_identifier/events`, remains separate.
+
+`GET /api/v1/events/catalog` returns the exported topic patterns and their
+persistence classes and payload versions:
+
+```json
+{"v":1,"topics":[{"pattern":"ticket.*.pr.merged","class":"live","payload_version":1}]}
+```
+
+`GET /api/v1/events?after=4&limit=100&topics=ticket.*.pr.merged&epoch=current-epoch`
+returns `instance` (an instance ID or `null`), `epoch`, `head_seq`, `oldest_seq`,
+and `records`. Records have increasing `seq` values greater than `after`.
+
+Event records contain the identifier-only external envelope: `v`, `instance`,
+`id`, `topic`, `class`, timestamps, `source`, `refs`, `attrs`, `payload_version`
+and `anchor`. They contain no transcript or message content.
+
+`operator.notify.*` records ([`aiur notify`](/reference/cli-decisions)) carry
+the notification's `title`, `body`, `ticket`, `url` and `created_at` in `attrs`.
+
+Omit `after` to get the current head with no backlog. Bootstrap by noting that
+head, reading the required snapshots, then following with `after=<head_seq>`.
+
+Save the epoch with the cursor. `limit` defaults to 100 and accepts 1–500;
+`after` must be a non-negative integer.
+
+`topics` is a comma-separated filter;
+omitting it includes all exported topics. A filter can equal an exported
+pattern or replace wildcard segments with literals to narrow it. Filters cannot
+broaden the catalog or select private topics.
+
+A cursor older than retention, beyond the head, or from another epoch returns
+HTTP 200 with exactly one control record:
+
+```json
+{"instance":null,"epoch":"new-epoch","head_seq":60,"oldest_seq":50,"records":[{"type":"reset","oldest_seq":50,"head_seq":60}]}
+```
+
+A `reset` has no sequence number. Re-read snapshots and resume from the returned
+head and epoch.
+
+A retained `gap` has a sequence number, `scope: "*"`,
+`reason: "exporter_start"`, and `from`/`to` timestamps (`from` may be `null`).
+Gaps survive topic filters and require clients to re-read snapshots; resume
+after the gap's sequence.
+
+Use the response time and `head_seq` to judge freshness.
+
+Query failures use these codes:
+
+| Condition | HTTP status and error code |
+| --- | --- |
+| Export disabled (either endpoint) | 404 `feature_disabled`: `event export is disabled (events.export.enabled: false)` |
+| Invalid `limit` | 422 `invalid_limit` |
+| Invalid `after` | 422 `invalid_cursor` |
+| Malformed or non-exported topic filter | 422 `topic_not_exported` |
+| Unreadable or corrupt journal | 503 `events_unavailable` |
+| Method other than GET | 405 `method_not_allowed` |
+
+Errors use `{"error":{"code":"…","message":"…"}}`. Authentication failures
+are handled before feed content is read. With export disabled, `/api/v1/events`
+now reports `feature_disabled` instead of treating `events` as a ticket ID.
+
+### Foreground live connection
+
+With export enabled, request `POST /api/v1/events/token` using dashboard
+credentials or an authenticated dashboard session. The response contains `token`
+and `expires_in_seconds: 300`; disabled export returns 404 `feature_disabled`.
+Tokens use a separate signing salt from Stream Deck and responses use `no-store`.
+
+Connect a Phoenix WebSocket to `/events/websocket?token=<token>&vsn=2.0.0`
+and join `events:feed` with `{after, topics, epoch}`. `after` is a non-negative
+JSON integer or null, `topics` is an array of exported or narrower patterns,
+and `epoch` is a string or null.
+
+Omitted/null values start at the current head,
+select all exported topics, and use the current epoch respectively.
+Join errors reuse `invalid_cursor`, `topic_not_exported`, and `feature_disabled`.
+
+The channel pushes journal records as `record`, replaying pages of 500 before
+following live appends. Retained `gap` records and cursor/epoch `reset` records
+have the same meaning as the pull API. A live backlog exceeding 2,000 sequence
+positions produces one `reset` to the current head; re-read snapshots to recover.
+The channel accepts no client writes.
+
+A `heartbeat` every 25 seconds carries `head_seq` and ISO 8601 `observed_at`.
+Judge liveness by heartbeats, not event silence. Thirty seconds before expiry,
+a `record` with `{type: "auth_expiring", in_ms: 30000}` prompts token refresh.
+
+The channel closes at expiry or when dashboard credentials change. Obtain a new
+token and reconnect with the last applied sequence and epoch to replay missed
+records.
+
+Disabled export or an unreadable journal sends an error `record` with
+`code: "feature_disabled"` or `"events_unavailable"`, then closes the channel.
+
+## Held async and mute messages
+
+Agents with a tool path can call `aiur_read_messages` to consume their own held
+async or mute operator messages. Its optional `max` accepts 1–50 (default 50). Results
+contain `messages` (`id`, `text`, `from`, `accepted_at`) and `remaining`, oldest
+first.
+
+A message sent to one agent counts as addressed.
+Async queues one content-free nudge per accepted message telling the agent to
+call `aiur_read_messages`; retries of the same message ID do not add a nudge.
+The nudge carries no message body and does not advance the read cursor or
+reduce the unread count.
+
+It waits for the turn boundary when the agent is busy.
+
+Mute retains messages for explicit reads and never wakes for them. The labels
+follow Khala `7d0a3d44` (listener v1): **Async · pings only**, **Mute · silent**.
+
+Leaving Async or Mute for Sync or Steer queues one count-only backlog notice
+when unread bodies remain and the read tool is available. The bodies stay
+unread until explicitly read. Leaving Async supersedes its pending pings so
+the backlog notice is the only remaining nudge.
+
+The control projection declares `backlog_on_leave_async: notice`, the shared
+spec's alternative to Khala's `skip`. Showing a notice on exit from Mute is
+an Aiur-specific extension outside spec v1.
+
+In Sync, an unaddressed agent broadcast stays queued without waking an idle
+agent. A manual subscription watches a sender's events; it does not address
+them to the watcher. Actionable declared-blocker signals are addressed
+dependency inputs and retain their wake, as do operator/system inputs.
+
+Agent self-mode changes and owner locks are Khala-only features; Aiur v1 keeps
+human and Executor mode controls. Conversation sends default to Sync.
+
+Each batch contains at most 64 KiB of text; a clipped final message has
+`truncated: true` and is acknowledged in full. Normal sync messages stay with
+the scheduler. A consumed held message reports receipt `read`.
+
+The daemon serializes reads and saves `last_read_sequence` in the listener
+record.
+
+This position belongs to the current queue run: the queue itself is
+in memory and is not recovered after restart. It must not be used to skip
+new messages whose sequence numbers restart.
+
+Requests expired before acknowledgement begins consume nothing;
+the caller waits for the serialized result rather than abandoning a read on a
+transport timeout. A lost reply after acknowledgement cannot be replayed.
+
+A resumed older Codex thread keeps its original tool catalog. Async stays
+unavailable there unless its saved session handle confirms the read tool was
+installed. Fresh threads register the current catalog; Claude REPL has no tool
+path and continues to fall back to sync.
+
+## Held-message counts
+
+Per-ticket control capabilities include `listener.unread_count` and
+`listener.oldest_unread_at`. They count pending held async or mute operator messages,
+including messages retained while the agent is stopped. The oldest timestamp is
+`nil` when none remain. Ordinary pending messages and consumed, failed or
+superseded held messages are excluded.
+
+A system transcript event carries `payload.listener` with the current count and
+oldest timestamp when a hold, consuming read, mode restamp or failure changes
+these values. Clients should re-read capabilities after reconnecting; the
+projection is derived from the queue, rather than a separate counter.

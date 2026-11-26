@@ -1,0 +1,216 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 30,
+  "first_id": "web-rest-21",
+  "last_id": "web-rest-36",
+  "findings": [
+    {
+      "id": "web-rest-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/streamdeck_channel.ex:193",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-21"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-22",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/streamdeck_live.ex:340",
+      "note": "StreamdeckLive still combines large mode render, provider segmentation, paging, Commands and installation logic. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-23",
+      "status": "stale",
+      "anchor": "docs/research/refactor-2026-09-26/synthesis/u0-owner-ledger-7fe2fca3f.md:66",
+      "note": "path unchanged since 465aca643 because cited cache surface was already absent at both revisions; deletion 694f9d021 (#2841), not a new repair. Original citation retired; U7-T01 must not recreate deleted cache inspection.",
+      "source_ids": [
+        "web-rest-23"
+      ],
+      "review_scope": "absent-at-both-pins",
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported"
+    },
+    {
+      "id": "web-rest-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/transport.ex:675",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-25",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/endpoint.ex:33",
+      "note": "Endpoint still applies Plug.Static for listed assets before router fallback routes; static serving/embedded-controller duplication remains. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-26",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/live/streamdeck_live.ex:62",
+      "note": "Hardcoded per-commit dev tarball replaced by rolling streamdeck-nightly URL; stale-version claim repaired. Fallback still always supplies nightly rather than representing absent artifact, so comment remains inaccurate. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-27",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/live/analytics_live.ex:702",
+      "note": "Analytics gb fallback still fabricates 0 GB; unknown-output policies remain inconsistent. Removed GithubCache page no longer contributes third policy. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-28",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/financial_data/cache.ex:134",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-28"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-29",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/presenter.ex:303",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-30",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order_presenter.ex:398",
+      "note": "Presenter still filters all edges for each node and twice for selected relationships; root ViewModel still groups six module definitions.",
+      "source_ids": [
+        "web-rest-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-31",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:259",
+      "note": "Bare observability handler, no-op fleet toggle and fallback retained-count duplicate remain; StreamdeckChannel keeps unauthorized fallbacks behind authenticated join.",
+      "source_ids": [
+        "web-rest-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-32",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/streamdeck_live.ex:1742",
+      "note": "Focus/Volume/Speed values are still literal 62/74/48 and rendered as slider aria-valuenow; only page value is derived.",
+      "source_ids": [
+        "web-rest-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-33",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/streamdeck_strip.ex:145",
+      "note": "Relative-time copies still diverge on non-ISO text; datetime/key-access/flush-time helpers and answerable statuses remain repeated.",
+      "source_ids": [
+        "web-rest-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/streamdeck_channel.ex:232",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-34"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "web-rest-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/presenter.ex:578",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "web-rest-36",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/financial_data/supervisor.ex:14",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-36"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}

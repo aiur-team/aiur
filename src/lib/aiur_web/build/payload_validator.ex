@@ -1,0 +1,161 @@
+defmodule AiurWeb.Build.PayloadValidator do
+  @moduledoc false
+  alias AiurWeb.Build.ConversationPayload
+  alias AiurWeb.Build.PayloadSchema, as: Schema
+
+  @spec validate_row(term(), String.t()) :: :ok | {:error, [{String.t(), atom()}]}
+  def validate_row(row, section), do: row_validation(row, section, nil, nil)
+
+  @spec validate_row(term(), String.t(), term(), term()) :: :ok | {:error, [{String.t(), atom()}]}
+  def validate_row(row, section, lanes, features), do: row_validation(row, section, lanes, features)
+
+  defp row_validation(row, section, lanes, features) when is_map(row) and is_binary(section) do
+    errors = check(row, {:object, Schema.row(), Schema.row_optional()}, "") ++ row_rules(row, "")
+    errors = errors ++ if(row["sec"] == section, do: [], else: error("sec", :section))
+    errors = errors ++ if(is_map(lanes) and is_map(features), do: ticket_refs(row, "", section, lanes, features), else: [])
+    if errors == [], do: :ok, else: {:error, errors}
+  end
+
+  defp row_validation(_row, _section, _lanes, _features), do: {:error, [{"", :type}]}
+
+  @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
+  def validate(message) do
+    optional =
+      case message["kind"] do
+        "ticket" -> ~w(row control chat by_you_at)
+        "snapshot" -> ~w(icons unavailable_rows)
+        _ -> []
+      end
+
+    errors = check(message, {:object, Schema.message(message["kind"]), optional}, "") ++ references(message) ++ page_rules(message)
+    if errors == [], do: :ok, else: {:error, errors}
+  end
+
+  defp check(nil, {:nullable, _type}, _path), do: []
+  defp check(value, {:nullable, type}, path), do: check(value, type, path)
+
+  defp check(value, {:object, fields, optional}, path) when is_map(value) and is_map(fields) do
+    unknown = Enum.flat_map(Map.keys(value) -- Map.keys(fields), &error(join(path, &1), :unknown))
+    unknown ++ Enum.flat_map(fields, fn {key, type} -> field(value, key, type, optional, path) end)
+  end
+
+  defp check(value, {:dictionary, type}, path) when is_map(value), do: Enum.flat_map(value, fn {key, child} -> check(child, type, join(path, key)) end)
+  defp check(value, {:list, type}, path) when is_list(value), do: value |> Enum.with_index() |> Enum.flat_map(fn {child, i} -> check(child, type, join(path, i)) end)
+  defp check([a, b], {:pair, type}, path), do: check(a, type, join(path, 0)) ++ check(b, type, join(path, 1))
+  defp check(value, {:enum, values}, path), do: if(value in values, do: [], else: error(path, :enum))
+  defp check(value, {:literal, value}, _path), do: []
+  defp check(value, {:integer_range, low, high}, _path) when is_integer(value) and value >= low and value <= high, do: []
+  defp check(value, {:range, low, high}, _path) when is_number(value) and value >= low and value <= high, do: []
+  defp check(value, :string, _path) when is_binary(value), do: []
+  defp check(value, {:short_string, max}, path) when is_binary(value), do: if(String.length(value) <= max, do: [], else: error(path, :length))
+  defp check(value, :integer, _path) when is_integer(value), do: []
+  defp check(value, :positive, _path) when is_integer(value) and value > 0, do: []
+  defp check(value, :nonnegative, _path) when is_integer(value) and value >= 0, do: []
+  defp check(value, :number, _path) when is_number(value), do: []
+  defp check(value, :boolean, _path) when is_boolean(value), do: []
+
+  defp check(value, :id, path) when is_binary(value),
+    do: if(Regex.match?(~r"\A(?:[1-9][0-9]*|pack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64})\z", value), do: [], else: error(path, :id))
+
+  defp check(value, :pack_id, path) when is_binary(value), do: if(Regex.match?(~r"\Apack:(?!\.{1,2}/)[A-Za-z0-9._-]{1,64}/(?!\.{1,2}\z)[A-Za-z0-9._-]{1,64}\z", value), do: [], else: error(path, :id))
+  defp check(value, :display_path, path) when is_binary(value), do: if(Path.type(value) == :relative and not String.starts_with?(value, "~"), do: [], else: error(path, :path))
+  defp check(value, :model, path) when is_binary(value), do: if(Regex.match?(~r/^[a-z0-9][a-z0-9._-]{0,31}$/, value), do: [], else: error(path, :model))
+  defp check(value, :usage, path) when is_map(value), do: check(value, {:object, Schema.usage(value["state"]), []}, path)
+
+  defp check(value, :conversation_id, path) when is_binary(value),
+    do: if(Regex.match?(~r/\A[1-9][0-9]*\z/, value), do: [], else: error(path, :id))
+
+  defp check(value, :conversation_entry, path) when is_map(value) do
+    case ConversationPayload.entry(value["k"]) do
+      {fields, optional} -> check(value, {:object, fields, ["cursor" | optional]}, path)
+      nil -> error(path, :type)
+    end
+  end
+
+  defp check(value, :row, path) when is_map(value), do: check(value, {:object, Schema.row(), Schema.row_optional()}, path) ++ row_rules(value, path)
+  defp check(_value, _type, path), do: error(path, :type)
+
+  defp field(value, key, type, optional, path) do
+    case Map.fetch(value, key) do
+      {:ok, child} -> check(child, type, join(path, key))
+      :error -> if(key in optional, do: [], else: error(join(path, key), :missing))
+    end
+  end
+
+  defp row_rules(row, path) do
+    []
+    |> rule(row["sec"] != "plan" and row["cue"] != nil, join(path, "cue"), :section)
+    |> rule(row["sec"] == "plan" and not is_map(row["cue"]), join(path, "cue"), :section)
+    |> rule(row["sec"] == "plan" and row["wave"] != nil and (not is_integer(row["wave"]) or row["wave"] < 1), join(path, "wave"), :section)
+    |> rule(row["sec"] == "hist" and not is_integer(row["end"]), join(path, "end"), :section)
+    |> rule(row["start"] == nil != (row["start_src"] == "unknown"), join(path, "start_src"), :timing)
+    |> rule(is_map(row["dep_states"]) and is_list(row["deps"]) and Enum.sort(Map.keys(row["dep_states"])) != Enum.sort(row["deps"]), join(path, "dep_states"), :dependencies)
+    |> identity_rules(row, path)
+  end
+
+  defp identity_rules(errors, row, path) do
+    pack? = is_binary(row["id"]) and String.starts_with?(row["id"], "pack:")
+
+    errors
+    |> rule(pack? != is_map(row["src"]), join(path, "src"), :identity)
+    |> rule(pack? and (row["sec"] != "plan" or row["qpos"] != nil or row["was"] != nil), join(path, "id"), :identity)
+    |> rule(is_binary(row["id"]) and String.starts_with?(row["id"], "pack:") and row["num"] != nil, join(path, "num"), :identity)
+    |> rule(is_binary(row["id"]) and not String.starts_with?(row["id"], "pack:") and row["id"] != to_string(row["num"]), join(path, "num"), :identity)
+  end
+
+  defp page_rules(%{"kind" => "earlier", "rows" => rows}) when is_list(rows) do
+    rows |> Enum.with_index() |> Enum.flat_map(fn {row, i} -> if is_map(row) and row["sec"] == "hist", do: [], else: error("rows.#{i}.sec", :section) end)
+  end
+
+  defp page_rules(_message), do: []
+
+  defp references(%{"kind" => "snapshot", "lanes" => lanes, "features" => features, "order" => order, "sections" => sections} = msg)
+       when is_map(lanes) and is_map(features) and is_list(order) and is_map(sections) do
+    refs = Enum.flat_map(Enum.with_index(order), fn {key, i} -> reference(lanes, key, "order.#{i}") end)
+    refs ++ feature_refs(features, lanes) ++ row_refs(sections, lanes, features) ++ count_refs(msg["counts"], order, lanes) ++ progress_refs(msg["feature_progress"], lanes)
+  end
+
+  defp references(_message), do: []
+
+  defp feature_refs(features, lanes) do
+    Enum.flat_map(features, fn {key, feature} ->
+      if is_map(feature) and is_list(feature["epics"]), do: Enum.flat_map(feature["epics"], &reference(lanes, &1, "features.#{key}.epics")), else: []
+    end)
+  end
+
+  defp row_refs(sections, lanes, features) do
+    Enum.flat_map(sections, fn {sec, rows} -> section_refs(sec, rows, lanes, features) end)
+  end
+
+  defp section_refs(sec, rows, lanes, features) when is_list(rows) do
+    rows |> Enum.with_index() |> Enum.flat_map(fn {row, i} -> ticket_refs(row, "sections.#{sec}.#{i}", sec, lanes, features) end)
+  end
+
+  defp section_refs(_sec, _rows, _lanes, _features), do: []
+
+  defp ticket_refs(row, path, sec, lanes, features) when is_map(row) do
+    also = if is_list(row["also"]), do: Enum.flat_map(row["also"], &reference(features, &1, path <> ".also")), else: []
+
+    also ++
+      reference(lanes, row["epic"], path <> ".epic") ++
+      reference(features, row["feature"], path <> ".feature") ++
+      if(row["sec"] == sec, do: [], else: error(path <> ".sec", :section))
+  end
+
+  defp ticket_refs(_row, _path, _sec, _lanes, _features), do: []
+
+  defp count_refs(counts, order, lanes) when is_map(counts) do
+    Enum.flat_map(Map.keys(counts), &reference(lanes, &1, "counts.#{&1}")) ++ Enum.flat_map(order -- Map.keys(counts), &error("counts.#{&1}", :missing))
+  end
+
+  defp count_refs(_counts, _order, _lanes), do: []
+  defp progress_refs(%{"features" => progress}, lanes) when is_map(progress), do: Enum.flat_map(Map.keys(progress) -- Map.keys(lanes), &error("feature_progress.features.#{&1}", :reference))
+  defp progress_refs(_, _), do: []
+  defp reference(_map, nil, _path), do: []
+  defp reference(map, key, path), do: if(Map.has_key?(map, key), do: [], else: error(path, :reference))
+  defp rule(errors, true, path, reason), do: errors ++ error(path, reason)
+  defp rule(errors, false, _path, _reason), do: errors
+  defp join("", key), do: to_string(key)
+  defp join(path, key), do: path <> "." <> to_string(key)
+  defp error(path, reason), do: [{path, reason}]
+end

@@ -1,15 +1,14 @@
 defmodule Aiur.Orchestrator.PrAnchored do
   @moduledoc """
   PR-anchored routing and mid-run teardown for watched/commanded human PRs (U4, U6).
-  All functions execute inside the orchestrator GenServer process.
+  Remote tracker work executes outside the orchestrator GenServer process.
   """
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue, TicketBranch, Workspace}
+  alias Aiur.{Config, Issue, Signal, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TicketTransition, TrackerTasks, WorkspaceCleanup}
 
   @pr_anchored_state "pr-watch"
 
@@ -23,13 +22,13 @@ defmodule Aiur.Orchestrator.PrAnchored do
   def maybe_route_pr_anchored_or_legacy(%State{} = state, issue_number, source, event, attempt) do
     if pr_anchored_routing_enabled?() and CommentWake.trusted_comment_event?(event) and
          not CommentWake.benign_review_pass_comment?(event) do
-      case resolve_pr_anchored_unit(issue_number, event) do
-        {:ok, %Issue{} = pr_issue} ->
-          dispatch_pr_anchored_unit(state, pr_issue, source, event, attempt)
-
-        :legacy ->
-          CommentWake.maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
-      end
+      TrackerTasks.run(state, {:pr_route, issue_number, make_ref()}, fn -> fetch_pr_anchored_unit({event, issue_number}) end, fn arg1, arg2 ->
+        apply_pr_anchored_unit(
+          arg1,
+          arg2,
+          {attempt, event, issue_number, source}
+        )
+      end)
     else
       CommentWake.maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
     end
@@ -143,17 +142,40 @@ defmodule Aiur.Orchestrator.PrAnchored do
     cond do
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
         Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :already_running)
 
         state
 
       Slots.available_slots(state) <= 0 ->
         Logger.info("#{source} PR-anchored dispatch deferred; agent cap full: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :agent_cap_full)
 
         state
 
       true ->
         admit_pr_anchored_unit(state, issue, source, event, attempt)
     end
+  end
+
+  defp emit_pr_anchored_dispatch_refusal(%Issue{} = issue, cause) do
+    {message, remedy} =
+      case cause do
+        :already_running ->
+          {"PR comment was not routed because its PR agent is already running or claimed", "send the comment to that agent's session or retry after it finishes"}
+
+        :agent_cap_full ->
+          {"PR comment was deferred because the agent capacity is full", "free an agent slot and retry the PR comment"}
+      end
+
+    Signal.agent_alert(
+      "ticket.#{issue.identifier}.agent.attention.pr_anchored_dispatch_#{cause}",
+      "#{message} (PR ##{issue.identifier})",
+      issue: to_string(issue.identifier),
+      reason: "Trusted PR input was not routed (#{cause}). Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
   end
 
   # `maybe_choose_under_load/4` runs the choose-fun only when the admission gate
@@ -218,7 +240,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
         "held it on #{signal} for all #{attempt} attempts. The unit carries no agent:* label and no " <>
         "tracker row, so nothing will retry it — comment on the PR again once the host recovers."
 
-    Alerts.emit_system("system.dispatch.pr_anchored_held",
+    Signal.alert("system.dispatch.pr_anchored_held",
       reason: reason,
       needs_attention: true,
       severity: "warning"
@@ -259,33 +281,8 @@ defmodule Aiur.Orchestrator.PrAnchored do
   defp stop_closed_pr_anchored_entries(%State{} = state, entries, opts) do
     fetcher = pr_open_state_fetcher(opts)
 
-    Enum.reduce(entries, state, fn {issue_id, running_entry}, state_acc ->
-      pr_number = Map.get(running_entry, :identifier)
-
-      case fetcher.(pr_number) do
-        {:ok, nil} ->
-          Logger.warning("PR-anchored agent's PR is no longer open; stopping agent and cleaning workspace: issue_id=#{issue_id} pr=#{pr_number}")
-
-          state_acc = Orchestrator.terminate_running_issue(state_acc, issue_id, false)
-          cleanup_pr_anchored_workspace(issue_id, running_entry)
-          state_acc
-
-        {:ok, _pr} ->
-          # PR still open — let the agent keep working.
-          state_acc
-
-        {:error, reason} ->
-          # Transient fetch failure — do NOT terminate. A real terminal state is
-          # re-observed next cycle.
-          Logger.warning("PR-anchored teardown PR fetch failed; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} reason=#{inspect(reason)}")
-
-          state_acc
-
-        other ->
-          Logger.warning("PR-anchored teardown PR fetch returned unexpected value; leaving agent running: issue_id=#{issue_id} pr=#{pr_number} value=#{inspect(other)}")
-
-          state_acc
-      end
+    Enum.reduce(entries, state, fn arg1, arg2 ->
+      check_closed_pr_entry(arg1, arg2, {fetcher})
     end)
   end
 
@@ -308,7 +305,85 @@ defmodule Aiur.Orchestrator.PrAnchored do
     # start_agent_session persisted under), not the pr-<pr#> running key;
     # without this, a reopened PR would --resume the finished thread now that
     # claude-repl is resumable (#613).
-    Orchestrator.clear_session_handle(Map.get(running_entry, :identifier))
-    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
+    identifier = Map.get(running_entry, :identifier)
+    WorkspaceCleanup.clear_session_handle(identifier)
+    # The workspace lease is keyed by the identifier, so the cleanup names it
+    # as the ticket to re-check the lease before the delete.
+    ticket = if is_binary(identifier), do: identifier, else: issue_id
+    WorkspaceCleanup.start_terminal_workspace_cleanups([{ticket, issue_id, Map.get(running_entry, :worker_host)}])
+  end
+
+  defp fetch_pr_anchored_unit({event, issue_number}) do
+    resolve_pr_anchored_unit(issue_number, event)
+  end
+
+  defp apply_pr_anchored_unit(
+         current,
+         result,
+         {attempt, event, issue_number, source}
+       ) do
+    case result do
+      {:ok, %Issue{} = pr_issue} ->
+        dispatch_pr_anchored_unit(current, pr_issue, source, event, attempt)
+
+      :legacy ->
+        CommentWake.maybe_transition_idle_issue_to_rework(
+          current,
+          issue_number,
+          source,
+          event,
+          attempt
+        )
+
+      _failure ->
+        current
+    end
+  end
+
+  defp check_closed_pr_entry(
+         {issue_id, running_entry},
+         acc,
+         {fetcher}
+       ) do
+    pr_number = Map.get(running_entry, :identifier)
+
+    TrackerTasks.run(acc, {:pr_closed, issue_id}, fn -> fetch_open_pr({fetcher, pr_number}) end, fn arg1, arg2 ->
+      apply_closed_pr_entry(
+        arg1,
+        arg2,
+        {issue_id, pr_number, running_entry}
+      )
+    end)
+  end
+
+  defp fetch_open_pr({fetcher, pr_number}) do
+    fetcher.(pr_number)
+  end
+
+  defp apply_closed_pr_entry(
+         current,
+         result,
+         {issue_id, pr_number, running_entry}
+       ) do
+    case {Map.get(current.running, issue_id), result} do
+      {entry, {:ok, nil}} ->
+        if TrackerTasks.same_runner?(entry, running_entry) do
+          Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
+
+          current = TicketTransition.apply_effect(current, {:terminate, issue_id, false})
+          cleanup_pr_anchored_workspace(issue_id, entry)
+          current
+        else
+          current
+        end
+
+      {_entry, {:error, reason}} ->
+        Logger.warning("PR-anchored teardown deferred: issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+        current
+
+      _ ->
+        current
+    end
   end
 end

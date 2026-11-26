@@ -8,7 +8,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
   test "two recovering tickets claim in the same attempt after prior providers finish reaping" do
     root = Aiur.TestSupport.tmp_root!("workspace-recovery")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -96,7 +96,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     parent = self()
 
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
     alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
 
@@ -139,7 +139,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     parent = self()
 
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
     alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
 
@@ -184,7 +184,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     File.mkdir_p!(test_root)
 
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     test_pid = self()
 
@@ -252,7 +252,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     File.mkdir_p!(test_root)
 
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     File.write!(codex_binary, fake_codex_script())
     File.chmod!(codex_binary, 0o755)

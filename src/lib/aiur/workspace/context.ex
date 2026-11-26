@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Context do
   @moduledoc "Pure policy normalizing an issue-or-identifier into the workspace issue-context map: pr- leaf naming, todo-dispatch classification, log formatting."
 
-  alias Aiur.TicketBranch
+  alias Aiur.{OptimisticStart, TicketBranch}
 
   @spec todo_dispatch?(map()) :: boolean()
   def todo_dispatch?(%{issue_state: issue_state, issue_labels: labels}) do
@@ -15,7 +15,7 @@ defmodule Aiur.Workspace.Context do
 
   @spec build(map() | String.t() | nil) :: map()
   def build(%{id: issue_id, identifier: identifier} = issue) do
-    pr_head_ref = pr_head_ref_from(issue)
+    pr_head_ref = Map.get(issue, :continuation_head_ref) || pr_head_ref_from(issue)
     issue_identifier = identifier || "issue"
 
     %{
@@ -24,10 +24,11 @@ defmodule Aiur.Workspace.Context do
       # legacy `<id>` leaf), so a watched human PR never collides with a tracker
       # ticket of the same number. The running-entry identifier stays `<pr#>`
       # (the comment topic / resume key) — only the on-disk leaf is prefixed.
-      issue_identifier: workspace_identifier(issue_identifier, pr_head_ref),
+      issue_identifier: workspace_identifier(issue_identifier, pr_head_ref_from(issue)),
       issue_state: Map.get(issue, :state),
       issue_labels: Map.get(issue, :labels, []),
       pr_head_ref: pr_head_ref,
+      start_point: OptimisticStart.start_point(Map.get(issue, :optimistic_start)),
       branch_name: pr_head_ref || TicketBranch.branch_name(issue_identifier, Map.get(issue, :title))
     }
   end
@@ -39,6 +40,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: nil,
       issue_labels: [],
       pr_head_ref: nil,
+      start_point: nil,
       branch_name: TicketBranch.legacy_branch_name(identifier)
     }
   end
@@ -50,6 +52,7 @@ defmodule Aiur.Workspace.Context do
       issue_state: nil,
       issue_labels: [],
       pr_head_ref: nil,
+      start_point: nil,
       branch_name: TicketBranch.legacy_branch_name("issue")
     }
   end

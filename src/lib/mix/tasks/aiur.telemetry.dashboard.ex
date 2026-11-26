@@ -9,7 +9,7 @@ defmodule Mix.Tasks.Aiur.Telemetry.Dashboard do
   @moduledoc """
   # Self-contained Aiur telemetry dashboard
 
-  Generates the canonical offline analytics artifact from durable debug telemetry.
+  Generates the canonical offline analytics artifact from durable run telemetry.
 
       mix aiur.telemetry.dashboard [INPUT ...]
       mix aiur.telemetry.dashboard --input log/telemetry.ndjson --output run.html

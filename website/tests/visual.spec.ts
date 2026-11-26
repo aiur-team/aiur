@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { seedTheme, settle, routeFonts, screenshotMask } from './support/visual'
+import { seedTheme, settle, screenshotMask } from './support/visual'
 
 const themes = ['light', 'dark'] as const
 const viewports = [
@@ -10,7 +10,6 @@ const viewports = [
 
 test.describe.configure({ mode: 'parallel' })
 test.beforeEach(async ({ page }) => {
-  await routeFonts(page)
 })
 
 for (const theme of themes) {
@@ -40,7 +39,7 @@ for (const theme of themes) {
       })
 
       test('landing banner dismissed', async ({ page }) => {
-        await page.addInitScript(() => localStorage.setItem('aiur-archon-banner', 'dismissed'))
+        await page.addInitScript(() => localStorage.setItem('aiur-banner:khala-launch', 'dismissed'))
         await page.goto('/')
         await expect(page.locator('.announce')).toBeHidden()
         await settle(page)
@@ -83,6 +82,34 @@ for (const theme of themes) {
         })
       }
 
+      if (viewport.name !== 'mobile-landscape') {
+        test('docs component directory', async ({ page }) => {
+          await page.goto('/docs/reference/components')
+          await settle(page)
+          await expect(page.locator('.component-directory article').first()).toBeVisible()
+          await expect(page).toHaveScreenshot(`docs-components-${suffix}.png`)
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+          await page.getByLabel('Optional only').check()
+          await expect(page.locator('.component-directory article .badge.core')).toHaveCount(0)
+          await expect(page.locator('.component-directory article .badge.optional').first()).toBeVisible()
+          await expect(page).toHaveScreenshot(`docs-components-optional-${suffix}.png`)
+          await page.locator('#component-accounting a[href="#component-config"]').click()
+          await expect(page.getByLabel('Optional only')).not.toBeChecked()
+          await expect(page.locator('#component-config')).toBeVisible()
+          await expect(page.locator('.directory-diagram svg')).toBeVisible()
+        })
+      }
+
+      if (viewport.name === 'desktop') {
+        test('docs component directory survives diagram failure', async ({ page }) => {
+          await page.route('**/chunks/flowDiagram-*.js', (route) => route.abort())
+          await page.goto('/docs/reference/components')
+          await expect(page.getByRole('status').filter({ hasText: 'Diagram unavailable.' })).toBeVisible()
+          await expect(page.locator('#component-voice-stt')).toBeVisible()
+          await expect(page.locator('.directory-diagram svg')).toHaveCount(0)
+        })
+      }
+
       test('docs product switcher open', async ({ page }) => {
         await page.goto('/docs/')
         const button = page.locator('#product-switcher-button')
@@ -109,7 +136,14 @@ for (const theme of themes) {
           await expect(element).toBeVisible()
           await element.scrollIntoViewIfNeeded()
           await settle(page)
+          // Fixed navigation overlaps tall element clips at scroll-dependent offsets.
+          if (name === 'features') await page.addStyleTag({ content: '.topbar { visibility: hidden !important; }' })
           await expect(element).toHaveScreenshot(`element-${name}-${suffix}.png`, { mask: screenshotMask(page) })
+          if (name === 'features' && viewport.name === 'mobile') {
+            await page.evaluate(() => window.scrollBy(0, 40))
+            await settle(page)
+            await expect(element).toHaveScreenshot(`element-${name}-${suffix}.png`, { mask: screenshotMask(page), maxDiffPixelRatio: 0, maxDiffPixels: 0 })
+          }
         })
       }
     })

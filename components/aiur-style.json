@@ -1,0 +1,36 @@
+{
+  "id": "aiur-style",
+  "name": "Shared styles",
+  "layer": 5,
+  "kind": "package",
+  "paths": [
+    "packages/aiur-style/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Provides shared styles, accessible command tabs and clipboard controls for Aiur sites and clients.",
+  "status": "optional",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "archon/index.md",
+    "khala/index.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "steer"
+}

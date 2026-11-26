@@ -20,7 +20,7 @@ defmodule Aiur.CurrentRunProjections.Checkpoint do
     :outcome_lkg,
     :weight_facts
   ]
-  @canonical_fields [:membership_index, :restore_fence_pending? | @fields]
+  @canonical_fields [:input_fingerprint, :membership_index, :restore_fence_pending? | @fields]
   @max_fallback_entries 1_000
 
   @spec restore(map(), term()) :: map()
@@ -195,7 +195,7 @@ defmodule Aiur.CurrentRunProjections.Checkpoint do
 
   defp bounded_map(value) when is_map(value) do
     value
-    |> Enum.sort_by(fn {key, _fact} -> inspect(key) end)
+    |> Enum.sort_by(fn {key, _fact} -> key end)
     |> Enum.take(@max_fallback_entries)
     |> Map.new()
   end

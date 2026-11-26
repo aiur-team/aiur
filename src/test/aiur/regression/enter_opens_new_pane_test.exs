@@ -27,7 +27,7 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
   use ExUnit.Case, async: true
 
   @app_source Path.expand("../../../lib/aiur/agent_list/app.ex", __DIR__)
-  @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+  @slot_source Enum.map(~w(slot.ex slot/attach.ex slot/selection.ex), &Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__))
   @registry_source Path.expand(
                      "../../../lib/aiur/opencode/session_writer_registry.ex",
                      __DIR__
@@ -60,21 +60,21 @@ defmodule Aiur.Regression.EnterOpensNewPaneTest do
 
   describe "Slot has no /tui/select-session call site" do
     test "do_select_via_api and can_select_via_api are gone" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       refute source =~ "do_select_via_api"
       refute source =~ "can_select_via_api"
     end
 
     test "no leaf reference to ApiClient.select_session in slot.ex" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
       refute source =~ ~r/ApiClient\.select_session/
     end
   end
 
   describe "SessionWriterRegistry is keyed per (identifier, base_url)" do
     test "registry uses :duplicate keys" do
-      app_source = File.read!(Path.expand("../../../lib/aiur.ex", __DIR__))
+      app_source = File.read!(Path.expand("../../../lib/aiur/application/children.ex", __DIR__))
 
       assert app_source =~
                ~r/keys:\s*:duplicate.*Aiur\.Opencode\.SessionWriterRegistry\.Registry/,

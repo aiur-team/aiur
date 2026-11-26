@@ -7,14 +7,11 @@ defmodule Aiur.Init.GitHub do
 
   alias Aiur.{Codeowners.Edit, Config, Workflow}
   alias Aiur.Config.EnvRef
-  alias Aiur.GitHub.BotIdentity
+  alias Aiur.GitHub.{Access, BotIdentity}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
-  alias Aiur.GitHub.Transport
 
   @config_file_name ".aiur/config"
-  @env_file_name ".env"
   @token_url "https://github.com/settings/tokens"
 
   @spec create_labels(map(), [String.t()]) :: :ok | {:error, String.t()}
@@ -65,9 +62,7 @@ defmodule Aiur.Init.GitHub do
       {:ok, readiness} ->
         case persist_operator_assessment(readiness, tracker) do
           :ok ->
-            io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
-            maybe_scaffold_ci(io, deps, readiness)
-            {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+            report_unready_ci(io, deps, readiness)
 
           {:error, reason} ->
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
@@ -89,6 +84,24 @@ defmodule Aiur.Init.GitHub do
   end
 
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp report_unready_ci(io, deps, readiness) do
+    purpose =
+      "Aiur waits for required CI checks before merging agent work, so this setup checks whether the repository provides those checks."
+
+    if :base_branch_missing in readiness.issues do
+      message =
+        "Configured tracker.base_branch `#{readiness.base_branch}` does not exist. " <>
+          "Update `tracker.base_branch` in `.aiur/config` to a branch that exists on GitHub, then run `aiur init` again."
+
+      io.puts.(purpose <> "\n" <> message)
+      {:error, message}
+    else
+      io.puts.(purpose <> "\n" <> CiReadiness.format(readiness))
+      maybe_scaffold_ci(io, deps, readiness)
+      {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+    end
+  end
 
   defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
@@ -195,7 +208,7 @@ defmodule Aiur.Init.GitHub do
   def require_github_token do
     case github_token() do
       token when is_binary(token) and token != "" -> {:ok, token}
-      _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
+      _ -> {:error, "GITHUB_TOKEN not set — set it in ~/.aiur/.env (machine-wide) or ./.env (this repo; overrides ~/.aiur/.env) (#{@token_url})"}
     end
   end
 
@@ -226,7 +239,7 @@ defmodule Aiur.Init.GitHub do
 
   @spec detect_github_login() :: String.t() | nil
   @spec detect_github_login(([String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
-  def detect_github_login(command_fun \\ &HostCommand.run/2) do
+  def detect_github_login(command_fun \\ &Access.host_command/2) do
     # The operator identity must come from the local `gh` login, not the
     # daemon's credential. Clear both direct token overrides and the governed
     # credential-file override so the host keyring is the only authentication
@@ -258,7 +271,7 @@ defmodule Aiur.Init.GitHub do
   instead of crashing. `request_fun` is injectable for tests.
   """
   @spec detect_bot_account((map() -> {:ok, map()} | {:error, term()})) :: String.t() | nil
-  def detect_bot_account(request_fun \\ &Transport.default_request_fun/1) do
+  def detect_bot_account(request_fun \\ &Access.default_request_fun/1) do
     with {:ok, token} <- require_github_token(),
          {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(request_fun, token) do
       Edit.normalize_login(login)
@@ -304,7 +317,7 @@ defmodule Aiur.Init.GitHub do
   # The default `command_fun` for `detect_default_branch/2`: `gh` goes through
   # the budget guard and names the daemon's credential, so the wizard's repo
   # probe is admitted and recorded like every other call (#2353).
-  defp host_command("gh", args, opts), do: HostCommand.run(args, Keyword.put(opts, :bot_token, true))
+  defp host_command("gh", args, opts), do: Access.host_command(args, Keyword.put(opts, :bot_token, true))
   defp host_command(command, args, opts), do: System.cmd(command, args, opts)
 
   @doc false

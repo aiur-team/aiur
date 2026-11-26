@@ -1,5 +1,6 @@
 defmodule Aiur.AppServer.InterruptsTest do
   use ExUnit.Case, async: true
+  @moduletag :r7_characterization
 
   alias Aiur.AppServer.Interrupts
   alias Aiur.Codex.CodingAgent

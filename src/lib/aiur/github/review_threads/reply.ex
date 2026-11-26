@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   """
 
   require Logger
-  alias Aiur.GitHub.{BotIdentity, Errors, ReviewThreads, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, BotIdentity, ReviewThreads, WriteThrough}
 
   @reply_review_thread_mutation """
   mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
@@ -34,13 +34,15 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   def reply_to_review_thread(review_thread_id, body, opts \\ []) do
     with {:ok, thread_id} <- normalize_review_thread_id(review_thread_id),
          {:ok, body} <- normalize_review_thread_reply_body(body),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       attempts = normalize_positive_integer(Keyword.get(opts, :attempts), 3)
 
       do_reply_to_review_thread(request_fun, token, thread_id, body, attempts, opts, 1)
     end
   end
+
+  @reconcile_skew_seconds 5
 
   @spec do_reply_to_review_thread(
           function(),
@@ -53,6 +55,11 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
         ) ::
           {:ok, map()} | {:error, term()}
   def do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt) do
+    # Taken once for the whole reply so a retry's reconcile still sees an
+    # earlier attempt's applied post.
+    started_at = Keyword.get_lazy(opts, :reply_started_at, &DateTime.utc_now/0)
+    opts = Keyword.put(opts, :reply_started_at, started_at)
+
     case add_review_thread_reply(request_fun, token, thread_id, body) do
       {:ok, mutation_body} ->
         Logger.info("GitHub review thread reply mutation response: #{inspect(mutation_body)}")
@@ -77,21 +84,66 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
       {:error, reason} ->
         Logger.warning("GitHub review thread reply mutation failed: #{inspect(reason)}")
 
-        if Errors.retryable_github_error?(reason) and attempt < max_attempts do
-          sleep_review_thread_retry(opts, attempt)
-
-          do_reply_to_review_thread(
-            request_fun,
-            token,
-            thread_id,
-            body,
-            max_attempts,
-            opts,
-            attempt + 1
-          )
-        else
-          {:error, reason}
+        case reconcile_unknown_reply(reason, request_fun, token, thread_id, body, opts, started_at) do
+          :retry -> retry_review_thread_reply_mutation(reason, request_fun, token, thread_id, body, max_attempts, opts, attempt)
+          other -> other
         end
+    end
+  end
+
+  defp retry_review_thread_reply_mutation(reason, request_fun, token, thread_id, body, max_attempts, opts, attempt) do
+    if Access.retryable_github_error?(reason) and attempt < max_attempts do
+      sleep_review_thread_retry(opts, attempt)
+      do_reply_to_review_thread(request_fun, token, thread_id, body, max_attempts, opts, attempt + 1)
+    else
+      {:error, reason}
+    end
+  end
+
+  # A post whose outcome is unknown (deadline, timeout after send) may have been
+  # applied. Read the thread before retrying; never post blindly (github-b-03).
+  defp reconcile_unknown_reply(reason, request_fun, token, thread_id, body, opts, started_at) do
+    with :unknown <- Access.outcome({:error, reason}),
+         {:ok, daemon_account} <- BotIdentity.daemon_account(opts, request_fun, token),
+         {:ok, thread_body} <- ReviewThreads.fetch_review_thread(request_fun, token, thread_id) do
+      applied =
+        thread_body
+        |> ReviewThreads.review_thread_from_body()
+        |> ReviewThreads.thread_comments()
+        |> Enum.find(&applied_reply?(&1, daemon_account, body, started_at))
+
+      if applied do
+        {:ok,
+         %{
+           verified: true,
+           reconciled: true,
+           review_thread_id: thread_id,
+           verification: %{
+             "review_thread_id" => thread_id,
+             "latest_comment" => ReviewThreads.normalize_verified_thread_comment(applied)
+           }
+         }}
+      else
+        :retry
+      end
+    else
+      # Definite failure or held: today's retry behaviour.
+      outcome when outcome in [:held, :failed] -> :retry
+      {:error, _read_failure} -> {:error, reason}
+    end
+  end
+
+  defp applied_reply?(comment, daemon_account, body, started_at) do
+    with true <- get_in(comment, ["author", "login"]) == daemon_account,
+         true <- comment["body"] == body,
+         {:ok, created_at, _offset} <- DateTime.from_iso8601(to_string(comment["createdAt"])) do
+      # createdAt has second precision and GitHub's clock may skew: truncate and
+      # allow a margin. An identical body from the bot in that window is the
+      # duplicate we are avoiding.
+      floor = started_at |> DateTime.truncate(:second) |> DateTime.add(-@reconcile_skew_seconds)
+      DateTime.compare(created_at, floor) != :lt
+    else
+      _ -> false
     end
   end
 
@@ -177,7 +229,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def add_review_thread_reply(request_fun, token, thread_id, body) do
-    Transport.github_graphql(
+    Access.github_graphql(
       request_fun,
       token,
       @reply_review_thread_mutation,
@@ -273,7 +325,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   # place (#2427). Thread-specific read-path races below are retryable on top of
   # that.
   def retryable_review_thread_verification_error?({:github, _kind, _detail} = reason),
-    do: Errors.retryable_github_error?(reason)
+    do: Access.retryable_github_error?(reason)
 
   def retryable_review_thread_verification_error?({:review_thread_latest_comment_author_mismatch, _}),
     do: true

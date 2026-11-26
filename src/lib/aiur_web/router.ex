@@ -7,15 +7,81 @@ defmodule AiurWeb.Router do
   import Phoenix.LiveView.Router
 
   pipeline :dashboard_auth do
+    plug(:fetch_session)
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :browser_dashboard_auth do
+    plug(:fetch_session)
+    plug(:dashboard_basic_auth, browser?: true)
+  end
+
+  pipeline :auth_session do
+    plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+  end
+
+  pipeline :auth_post do
+    plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
+    plug(:protect_from_forgery)
+  end
+
   pipeline :dashboard_auth_required do
-    plug(:dashboard_basic_auth, required?: true)
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth, write?: true, required?: true)
+  end
+
+  pipeline :client_token_write do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth, write?: true)
+  end
+
+  pipeline :client_token_read do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth)
+  end
+
+  # CORS runs first so the 401 for a signed-out page still carries CORS headers.
+  pipeline :gateway_summary do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth)
+  end
+
+  # Browser writes from this gateway's own pages or a listed peer's page: preflighted, `X-Aiur-Request`, a session.
+  pipeline :gateway_write do
+    plug(AiurWeb.DashboardCors)
+    plug(:fetch_session)
+    plug(AiurWeb.GatewaySummaryAuth, write?: true)
+    plug(:require_custom_header)
+    plug(:require_dashboard_writable)
+    plug(:verify_gateway_write_origin)
+  end
+
+  pipeline :control_token do
+    plug(:fetch_session)
+    plug(AiurWeb.ControlTokenAuth)
+  end
+
+  pipeline :executor_hook_delivery_auth do
+    plug(AiurWeb.ExecutorHookAuth, delivery: true)
+  end
+
+  pipeline :executor_hook_auth do
+    plug(AiurWeb.ExecutorHookAuth)
   end
 
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
+  end
+
+  # Ticket-scoped Commands API: the caller carries a short-lived grant minted
+  # by a host server, never the instance supervisor credential.
+  pipeline :commands_scope_auth do
+    plug(AiurWeb.CommandsScopeAuth)
   end
 
   # GitHub webhook deliveries carry no bearer token and no browser session:
@@ -25,8 +91,12 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.GithubWebhook.Auth)
   end
 
+  # Auth runs first, so a pages-off run answers a page exactly like an unknown path.
+  pipeline :dashboard_pages do
+    plug(AiurWeb.DashboardPagesGate)
+  end
+
   pipeline :browser do
-    plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
@@ -52,151 +122,112 @@ defmodule AiurWeb.Router do
     plug(:require_custom_header)
   end
 
-  # Read-only gate for the dashboard's agent-write endpoints (Executor chat,
-  # refresh). Disabled by default until a deliberate dashboard parity pass —
-  # see issue #371. Re-enable via `observability.dashboard_writable` config.
+  # Gate the dashboard's agent-write endpoints (Executor chat, refresh, pause,
+  # resume). Writes are enabled by default; set
+  # `observability.dashboard_writable: false` to disable them.
   # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
   # behind this gate (see the route scopes below).
   pipeline :require_writable do
     plug(:require_dashboard_writable)
   end
 
-  # Keep the webhook receiver ahead of every other scope: the dashboard's
-  # trailing `/*path` catch-all would otherwise claim this path and answer with
-  # a Basic-Auth challenge instead of a signature check. The literal path is
-  # asserted against `AiurWeb.GithubWebhook.path/0` in the router tests, since
-  # the endpoint's body reader keys raw-body caching off that same value.
+  alias AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, Events, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Streamdeck}
+
+  require AiurWeb.Routes.{Api, Capabilities, CommandsApi, Control, DashboardPages, Decisions, GatewayHello, GatewayPause, GatewaySummary, GithubWebhook, Events, Streamdeck}
+  alias AiurWeb.Api.UsageProgressRoutes
+  require UsageProgressRoutes
+
+  # The receiver must precede every dashboard scope.
+  GithubWebhook.receiver()
+  GatewayHello.receiver()
+
   scope "/", AiurWeb do
-    pipe_through(:github_webhook)
-
-    # `log: false` suppresses Phoenix's default dispatch log, which would
-    # otherwise write the entire decoded webhook payload into the debug log.
-    post("/api/v1/github/webhook", GithubWebhookController, :create, log: false)
-  end
-
-  # Supervisor Decision mutations retain the dashboard's existing write
-  # defenses in addition to their dedicated machine credential. Keep these
-  # specific routes before `/api/v1/:issue_identifier` so `decisions` cannot
-  # be interpreted as an issue identifier.
-  scope "/", AiurWeb do
-    pipe_through([:supervisor_auth, :api_write, :require_writable])
-
-    post("/api/v1/decisions/:decision_id/enrich", DecisionApiController, :enrich)
-    post("/api/v1/decisions/:decision_id/decide", DecisionApiController, :decide)
-    post("/api/v1/decisions/:decision_id/revise", DecisionApiController, :revise)
-  end
-
-  # Read operations require the same supervisor identity but remain available
-  # while the dashboard is observe-only and need no browser mutation headers.
-  scope "/", AiurWeb do
-    pipe_through(:supervisor_auth)
-
-    get("/api/v1/decisions", DecisionApiController, :index)
-    get("/api/v1/decisions/:decision_id", DecisionApiController, :show)
-  end
-
-  # Authenticated method/shape catches keep unsupported Decision requests from
-  # falling through into the dashboard Basic-Auth issue API.
-  scope "/", AiurWeb do
-    pipe_through(:supervisor_auth)
-
-    match(:*, "/api/v1/decisions", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/enrich", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/decide", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/revise", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id", DecisionApiController, :method_not_allowed)
-    match(:*, "/api/v1/decisions/:decision_id/*path", DecisionApiController, :not_found)
+    pipe_through(:executor_hook_delivery_auth)
+    post("/api/v1/executor/hook/deliver", ExecutorHookDeliveryController, :create)
   end
 
   scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
-
-    get("/dashboard.css", StaticAssetController, :dashboard_css)
-    get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
-    get("/build-order-grid-hook.js", StaticAssetController, :build_order_grid_hook)
-    get("/time-brush-hook.js", StaticAssetController, :time_brush_hook)
-    get("/sortable-table-hook.js", StaticAssetController, :sortable_table_hook)
-    get("/streamdeck-emulator-hook.js", StaticAssetController, :streamdeck_emulator_hook)
-    get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
-    get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
-    get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
-    get("/aiur-logo.png", StaticAssetController, :aiur_logo)
-    get("/images/github-mark.svg", StaticAssetController, :github_mark)
-    get("/bungee.woff2", StaticAssetController, :bungee_font)
-    get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
-    get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
-    get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
-    get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
-    get("/vendor/layout/:version/:digest/:asset", StaticAssetController, :layout_asset)
+    pipe_through(:executor_hook_auth)
+    post("/api/v1/executor/hook", ExecutorHookController, :create)
+    match(:*, "/api/v1/executor/hook", ExecutorHookController, :method_not_allowed)
   end
 
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :browser])
+  get("/healthz", AiurWeb.PublicHealthController, :live)
+  get("/readyz", AiurWeb.PublicHealthController, :live)
 
-    get("/decisions", CommandsRedirectController, :legacy)
-    get("/decisions/:decision_id", CommandsRedirectController, :legacy)
+  scope "/auth" do
+    pipe_through(:auth_session)
+    get("/login", AiurWeb.DashboardAuthController, :login)
+    get("/google", AiurWeb.DashboardAuthController, :google)
+    get("/google/callback", AiurWeb.DashboardAuthController, :google_callback)
+  end
 
-    live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
-      live("/", DashboardLive, :index)
-      live("/chat/:owner/:repository/:identifier", DashboardLive, :index)
-      live("/commands", DashboardLive, :decisions)
-      live("/commands/:decision_id", DashboardLive, :decision)
-      live("/build-orders", BuildOrderLive, :build_orders)
-      live("/build-orders/:root_number", BuildOrderLive, :build_order)
-      live("/analytics", AnalyticsLive, :analytics)
-      live("/streamdeck", StreamdeckLive, :streamdeck)
+  scope "/auth" do
+    pipe_through(:auth_post)
+    post("/logout", AiurWeb.DashboardAuthController, :logout)
+    post("/passkeys/authentication/challenge", AiurWeb.DashboardAuthController, :authentication_challenge)
+    post("/passkeys/authentication/finish", AiurWeb.DashboardAuthController, :authentication_finish)
+    post("/passkeys/registration/challenge", AiurWeb.DashboardAuthController, :registration_challenge)
+    post("/passkeys/registration/finish", AiurWeb.DashboardAuthController, :registration_finish)
+  end
+
+  # Decision routes and catches must precede generic issue reads.
+  CommandsApi.reads()
+  CommandsApi.mutations()
+  CommandsApi.method_catches()
+  Decisions.mutations()
+  Decisions.reads()
+  Decisions.method_catches()
+  Control.calls()
+
+  if Mix.env() in [:dev, :test] do
+    scope "/" do
+      pipe_through([:client_token_write, :api_write])
+      post("/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :create)
+      match(:*, "/api/v1/memory/issues", Elixir.AiurWeb.Api.MemoryIssueController, :method_not_allowed)
     end
   end
 
-  # Agent-write endpoints driven from the browser/API. Gated read-only by
-  # default (`:require_writable`) until the dashboard parity pass.
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :api_write, :require_writable])
+  DashboardPages.static_assets()
+  DashboardPages.pages()
+  # Before Api.agent_writes(): `/api/v1/:issue_identifier/pause` would capture `gateway`.
+  GatewayPause.writes()
+  Api.agent_writes()
+  Api.machine_writes()
+  Events.session()
+  Streamdeck.session()
+  Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.mutations()
+  Usage.reads()
+  UsageProgressRoutes.reads()
 
-    post("/api/v1/refresh", ObservabilityApiController, :refresh)
-    match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/messages", ObservabilityApiController, :send_message)
-    match(:*, "/api/v1/:issue_identifier/messages", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/pause", ObservabilityApiController, :pause)
-    match(:*, "/api/v1/:issue_identifier/pause", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/resume", ObservabilityApiController, :resume)
-    match(:*, "/api/v1/:issue_identifier/resume", ObservabilityApiController, :method_not_allowed)
-  end
-
-  # Machine-to-machine write surfaces that are NOT browser-facing and must keep
-  # working in read-only mode: the TUI's tmux pane key bindings (interrupt/hide,
-  # see aiur.tmux.conf) and the RC claude lifecycle-hook sink (#367).
-  scope "/", AiurWeb do
-    pipe_through([:dashboard_auth, :api_write])
-
-    post("/api/v1/pane/interrupt", ObservabilityApiController, :pane_interrupt)
-    match(:*, "/api/v1/pane/interrupt", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/pane/hide", ObservabilityApiController, :pane_hide)
-    match(:*, "/api/v1/pane/hide", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :claude_hook)
-    match(:*, "/api/v1/:issue_identifier/claude-hook", ObservabilityApiController, :method_not_allowed)
-  end
-
-  scope "/", AiurWeb do
-    pipe_through(:dashboard_auth_required)
-
-    post("/api/v1/streamdeck/token", StreamdeckSessionController, :create)
+  # Account and rate-limit snapshot (#5697).
+  scope "/" do
+    pipe_through(:client_token_read)
+    get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
+    match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage", AiurWeb.UsageApiController, :index)
+    match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
+    get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
+    match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
 
   scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
-
-    get("/api/v1/state", ObservabilityApiController, :state)
-    get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
-    get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)
-    match(:*, "/api/v1/:issue_identifier/events", ObservabilityApiController, :method_not_allowed)
-    get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
-    match(:*, "/", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/streamdeck/grid", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
-    match(:*, "/*path", ObservabilityApiController, :not_found)
+    pipe_through(:client_token_read)
+    get("/api/v1/conversations/resolve", ConversationApiController, :resolve)
+    get("/api/v1/conversations/:conversation_id/entries", ConversationApiController, :entries)
+    get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)
+    get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
+    match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
   end
+
+  GatewaySummary.reads()
+
+  # Generic issue reads and the catch-all stay last.
+  Api.reads_and_catch_all()
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
@@ -212,6 +243,19 @@ defmodule AiurWeb.Router do
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
+  defp verify_gateway_write_origin(conn, _opts) do
+    listed? = match?([origin] when is_binary(origin), Plug.Conn.get_req_header(conn, "origin")) and AiurWeb.DashboardCors.listed_origin?(hd(Plug.Conn.get_req_header(conn, "origin")))
+
+    if listed? or origin_allowed?(conn) do
+      conn
+    else
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(403, ~s({"error":"origin not allowed"}))
+      |> Plug.Conn.halt()
+    end
+  end
+
   defp verify_same_origin(conn, _opts) do
     if origin_allowed?(conn) do
       conn
@@ -225,10 +269,11 @@ defmodule AiurWeb.Router do
 
   # Rejects agent-write requests while the dashboard is read-only. Sources the
   # flag from the endpoint config (set by `Aiur.HttpServer`, overridable in
-  # tests) and fails closed: a missing/false value keeps the dashboard
-  # observe-only.
+  # tests). The control endpoint defers this decision until after parsing the
+  # allowlisted call so it can audit write-call refusals while still allowing
+  # read-scope calls.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?() do
+    if dashboard_writable?() or conn.path_info == ["api", "v1", "control"] do
       conn
     else
       conn
@@ -239,7 +284,7 @@ defmodule AiurWeb.Router do
   end
 
   defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+    AiurWeb.EndpointConfig.get(:dashboard_writable) == true
   rescue
     _ -> false
   end
@@ -284,24 +329,21 @@ defmodule AiurWeb.Router do
   defp allowed_origins(conn) do
     endpoint_origin = safe_endpoint_origin()
 
-    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
+    [trusted_request_origin(conn), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(&expand_loopback_aliases/1)
     |> Enum.uniq()
   end
 
-  defp trusted_request_origin(conn, endpoint_origin) do
+  defp trusted_request_origin(conn) do
     case request_origin(conn) do
       {_scheme, host, _port} = origin ->
-        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+        if loopback_host?(host), do: origin
 
       nil ->
         nil
     end
   end
-
-  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
-  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
 
   defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
        when scheme in [:http, :https] and is_binary(host) and is_integer(port) do

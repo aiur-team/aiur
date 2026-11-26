@@ -43,7 +43,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
       )
 
       File.chmod!(claude, 0o755)
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       command = Command.build_command(missing_workspace, nil, nil, false, "rc-name", nil, nil)
 
@@ -77,6 +77,38 @@ defmodule Aiur.Claude.Repl.CommandTest do
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
       {exec_pos, _len} = :binary.match(cmd, "exec claude")
       assert scrub_pos < exec_pos
+    end
+
+    test "staged provider auth is sourced after scrubbing and removed before Claude exec" do
+      root = Aiur.TestSupport.tmp_root!("aiur-claude-provider-auth")
+      workspace = Path.join(root, "workspace")
+      File.mkdir_p!(workspace)
+      auth_file = Path.join(root, "provider-auth.sh")
+      File.write!(auth_file, "export CLAUDE_CODE_OAUTH_TOKEN='hosted-token'\n")
+      File.chmod!(auth_file, 0o600)
+      bin = Path.join(root, "bin")
+      File.mkdir_p!(bin)
+      claude = Path.join(bin, "claude")
+      File.write!(claude, "#!/usr/bin/env bash\nprintf '%s\\n' \"$CLAUDE_CODE_OAUTH_TOKEN\"\n")
+      File.chmod!(claude, 0o755)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+      command =
+        Command.build_command(workspace, nil, nil, false, "rc-name", nil, nil, provider_auth_file: auth_file)
+
+      {output, status} =
+        System.cmd("bash", ["-c", command],
+          env: [
+            {"PATH", bin <> ":" <> System.get_env("PATH", "")},
+            {"CLAUDE_CODE_OAUTH_TOKEN", "decoy-token"},
+            {"ANTHROPIC_API_KEY", "decoy-key"}
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert status == 0
+      assert output == "hosted-token\n"
+      refute File.exists?(auth_file)
     end
 
     test "exports the authoritative base branch into the tmux-backed process" do
@@ -132,7 +164,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
   describe "resume_session_id/2" do
     setup do
       dir = Aiur.TestSupport.tmp_root!("cmd-resume")
-      on_exit(fn -> File.rm_rf(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
       %{projects_dir: dir, workspace: "/ws/aiur/613"}
     end
 

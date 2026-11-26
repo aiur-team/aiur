@@ -6,7 +6,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   display-only summary and never advances either canonical axis.
   """
 
-  alias Aiur.{Decision, DecisionSanitizer}
+  alias Aiur.{Commands, Decision}
+  alias Aiur.Commands.{Answering, Media}
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -44,14 +45,32 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
+  @doc "Whether a projected dashboard row was requested by the Executor."
+  @spec executor?(map()) :: boolean()
+  def executor?(%{requester: %{"kind" => "executor"}}), do: true
+  def executor?(%{requester: %{kind: :executor}}), do: true
+  def executor?(_row), do: false
+
+  @doc "Human-readable requester, including legacy worker attribution."
+  @spec requester_label(map()) :: String.t()
+  def requester_label(row) do
+    if executor?(row) do
+      "Executor"
+    else
+      ticket = row.ticket[:identifier] || row.decision_id
+      agent = row.source[:agent_id]
+      Enum.join(Enum.reject(["#" <> ticket, agent], &is_nil/1), " · ")
+    end
+  end
+
   defp row(%Decision{} = decision) do
     active_answer = Decision.active_answer(decision)
 
     %{
       decision_id: decision.decision_id,
       version: decision.version,
-      ticket: DecisionSanitizer.ticket(decision.ticket),
-      source: DecisionSanitizer.source(decision.source),
+      ticket: Commands.sanitize_ticket(decision.ticket),
+      source: Commands.sanitize_source(decision.source),
       kind: decision.kind,
       authority: decision.authority,
       urgency: decision.urgency,
@@ -65,11 +84,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       options: Enum.map(decision.options, &option_row/1),
       recommendation: decision.recommendation,
       consequence_of_delay: decision.consequence_of_delay,
-      artifacts: DecisionSanitizer.artifacts(decision.artifacts),
+      artifacts: Commands.sanitize_artifacts(decision.artifacts),
+      media: Media.public(Map.get(decision, :media)),
       created_at: decision.created_at,
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
       delivery_status: decision.delivery_status,
+      pending_for_session?: decision.pending_for_session?,
+      conflict_summary: Answering.conflict_summary(decision, %{kind: :operator, id: "dashboard"}),
       original_answer: answer_row(decision.answer),
       answer: answer_row(active_answer),
       active_action_id: decision.active_action_id,
@@ -77,19 +99,23 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
       revision_result: decision.revision_result,
       superseded?: decision.revision_sequence > 0,
-      dispatch_attempts: Enum.map(decision.dispatch_attempts, &DecisionSanitizer.dispatch_attempt/1),
-      acknowledgement: DecisionSanitizer.lifecycle_fact(decision.acknowledgement),
-      resolution: DecisionSanitizer.lifecycle_fact(decision.resolution),
-      revision_follow_ups: DecisionSanitizer.follow_ups(decision.revision_follow_ups),
-      provenance: DecisionSanitizer.provenance(Map.get(decision, :provenance)),
+      open?: Commands.open?(decision),
+      dispatch_attempts: Enum.map(decision.dispatch_attempts, &Commands.sanitize_dispatch_attempt/1),
+      acknowledgement: Commands.sanitize_lifecycle_fact(decision.acknowledgement),
+      resolution: Commands.sanitize_lifecycle_fact(decision.resolution),
+      revision_follow_ups: Commands.sanitize_follow_ups(decision.revision_follow_ups),
+      provenance: Commands.sanitize_provenance(Map.get(decision, :provenance)),
       retryable: retryable?(decision),
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
     }
+    |> Map.merge(Commands.public_v2(decision))
   end
 
+  # An option without media keeps the dashboard row shape it had before the
+  # media contract; only a media-carrying option adds the key.
   defp option_row(option) do
-    %{
+    row = %{
       id: Map.get(option, :id),
       label: Map.get(option, :label),
       description: Map.get(option, :description),
@@ -97,6 +123,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       drawbacks: Map.get(option, :drawbacks),
       risk: Map.get(option, :risk)
     }
+
+    case Media.public(Map.get(option, :media)) do
+      [] -> row
+      media -> Map.put(row, :media, media)
+    end
   end
 
   defp answer_row(nil), do: nil
@@ -108,8 +139,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       selected_option_id: answer.selected_option_id,
       custom_response: answer.custom_response,
       rationale: answer.rationale,
-      actor: DecisionSanitizer.actor(answer.actor),
+      media: Media.public(Map.get(answer, :media)),
+      actor: Commands.sanitize_actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
+      operator_quote: answer.operator_quote,
+      relayed_by: answer.relayed_by,
       accepted_at: answer.accepted_at
     }
   end

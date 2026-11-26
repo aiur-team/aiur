@@ -144,6 +144,7 @@ defmodule Aiur.Opencode.EventRow do
   defp phrase_for_suffix("pr.opened"), do: "opened a PR"
   defp phrase_for_suffix("pr.merged"), do: "merged its PR"
   defp phrase_for_suffix("pr.review_comment"), do: "got a PR review comment"
+  defp phrase_for_suffix("branch.force-push"), do: "force-pushed its branch"
   defp phrase_for_suffix("branch.push"), do: "pushed to its branch"
   defp phrase_for_suffix("issue.commented"), do: "got an issue comment"
   defp phrase_for_suffix("agent.paused"), do: "was paused"

@@ -140,6 +140,32 @@ defmodule Aiur.GitHub.LocalHoldTest do
   end
 
   describe "run/2 — budget broker timeout wait-out (#2457)" do
+    test "new local-hold broker timeout shapes back off, record retries and recover" do
+      for error <- [
+            {:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}},
+            {:error, %{classification: :local_hold, detail: %{reason: :github_budget_broker_timeout}}}
+          ] do
+        {:ok, attempts} = Agent.start_link(fn -> 0 end)
+        parent = self()
+
+        assert {:ok, :admitted} =
+                 LocalHold.run(
+                   fn ->
+                     if Agent.get_and_update(attempts, fn n -> {n, n + 1} end) == 0, do: error, else: {:ok, :admitted}
+                   end,
+                   sleep_fun: fn ms -> send(parent, {:backoff, ms}) end,
+                   broker_timeout_recorder: fn -> send(parent, :broker_retry) end
+                 )
+
+        assert Agent.get(attempts, & &1) == 2
+        assert_receive {:backoff, ms}, 1000
+        assert ms >= LocalHold.backoff_base_ms()
+        assert ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
+        assert_receive :broker_retry, 1000
+        refute_receive :broker_retry, 100
+      end
+    end
+
     # The raw classified error `Errors.classify_error/1` produces for a
     # broker timeout.
     defp broker_timeout_error, do: {:error, {:github, :timeout, %{reason: :github_budget_broker_timeout}}}

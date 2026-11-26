@@ -1,0 +1,9 @@
+{
+  "from": "web-shell",
+  "to_module": "Aiur.Accounts.UsageReadings",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur_web/controllers/usage_accounts_api_controller.ex"
+  ],
+  "reason": "#5697: the account snapshot endpoint reads the daemon's polled per-account usage observations"
+}

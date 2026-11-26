@@ -1,0 +1,235 @@
+defmodule AiurWeb.RouterTableTest do
+  use ExUnit.Case, async: true
+
+  defmodule DecisionRouter do
+    use Phoenix.Router
+    alias AiurWeb.Routes.Decisions
+    require Decisions
+
+    pipeline :supervisor_auth do
+    end
+
+    pipeline :api_write do
+    end
+
+    pipeline :require_writable do
+    end
+
+    Decisions.mutations()
+    Decisions.reads()
+    Decisions.method_catches()
+  end
+
+  # Characterization of the router table, including the public health endpoints.
+  @expected [
+    {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
+    {:get, "/api/v1/gateway/hello", AiurWeb.GatewayHelloController, :show, [], :debug},
+    {:*, "/api/v1/gateway/hello", AiurWeb.GatewayHelloController, :method_not_allowed, [], :debug},
+    {:post, "/api/v1/gateway/enroll", AiurWeb.GatewayEnrollController, :create, [], false},
+    {:post, "/api/v1/executor/hook/deliver", AiurWeb.ExecutorHookDeliveryController, :create, [:executor_hook_delivery_auth], :debug},
+    {:post, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :create, [:executor_hook_auth], :debug},
+    {:*, "/api/v1/executor/hook", AiurWeb.ExecutorHookController, :method_not_allowed, [:executor_hook_auth], :debug},
+    {:get, "/healthz", AiurWeb.PublicHealthController, :live, [], :debug},
+    {:get, "/readyz", AiurWeb.PublicHealthController, :live, [], :debug},
+    {:get, "/auth/login", AiurWeb.DashboardAuthController, :login, [:auth_session], :debug},
+    {:get, "/auth/google", AiurWeb.DashboardAuthController, :google, [:auth_session], :debug},
+    {:get, "/auth/google/callback", AiurWeb.DashboardAuthController, :google_callback, [:auth_session], :debug},
+    {:post, "/auth/logout", AiurWeb.DashboardAuthController, :logout, [:auth_post], :debug},
+    {:post, "/auth/passkeys/authentication/challenge", AiurWeb.DashboardAuthController, :authentication_challenge, [:auth_post], :debug},
+    {:post, "/auth/passkeys/authentication/finish", AiurWeb.DashboardAuthController, :authentication_finish, [:auth_post], :debug},
+    {:post, "/auth/passkeys/registration/challenge", AiurWeb.DashboardAuthController, :registration_challenge, [:auth_post], :debug},
+    {:post, "/auth/passkeys/registration/finish", AiurWeb.DashboardAuthController, :registration_finish, [:auth_post], :debug},
+    {:get, "/api/v1/commands", AiurWeb.CommandsApiController, :index, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :show, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id/media/:attachment_id", AiurWeb.CommandsApiController, :media, [:commands_scope_auth], :debug},
+    {:post, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :answer, [:commands_scope_auth, :require_writable], :debug},
+    {:post, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :escalate, [:commands_scope_auth, :require_writable], :debug},
+    {:post, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :reject, [:commands_scope_auth, :require_writable], :debug},
+    {:post, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :mint_scope, [:supervisor_auth, :require_writable], :debug},
+    {:put, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:patch, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:delete, "/api/v1/commands/scope", AiurWeb.CommandsApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:put, "/api/v1/commands", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:patch, "/api/v1/commands", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:delete, "/api/v1/commands", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:post, "/api/v1/commands", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:put, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:patch, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:delete, "/api/v1/commands/:decision_id/answer", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:put, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:patch, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:delete, "/api/v1/commands/:decision_id/escalate", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:get, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:put, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:patch, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:delete, "/api/v1/commands/:decision_id/reject", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:post, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:put, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:patch, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:delete, "/api/v1/commands/:decision_id", AiurWeb.CommandsApiController, :method_not_allowed, [:commands_scope_auth], :debug},
+    {:*, "/api/v1/commands/:decision_id/*path", AiurWeb.CommandsApiController, :not_found, [:commands_scope_auth], :debug},
+    {:post, "/api/v1/decisions/:decision_id/enrich", AiurWeb.DecisionApiController, :enrich, [:supervisor_auth, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/decisions/:decision_id/decide", AiurWeb.DecisionApiController, :decide, [:supervisor_auth, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/decisions/:decision_id/revise", AiurWeb.DecisionApiController, :revise, [:supervisor_auth, :api_write, :require_writable], :debug},
+    {:get, "/api/v1/decisions", AiurWeb.DecisionApiController, :index, [:supervisor_auth], :debug},
+    {:get, "/api/v1/decisions/:decision_id", AiurWeb.DecisionApiController, :show, [:supervisor_auth], :debug},
+    {:get, "/api/v1/decisions/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions/:decision_id/enrich", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions/:decision_id/decide", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions/:decision_id/revise", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions/:decision_id", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
+    {:*, "/api/v1/decisions/:decision_id/*path", AiurWeb.DecisionApiController, :not_found, [:supervisor_auth], :debug},
+    {:post, "/api/v1/control", AiurWeb.ControlController, :run, [:control_token, :require_writable], :debug},
+    {:*, "/api/v1/control", AiurWeb.ControlController, :method_not_allowed, [:control_token, :require_writable], :debug},
+    {:post, "/api/v1/memory/issues", AiurWeb.Api.MemoryIssueController, :create, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/memory/issues", AiurWeb.Api.MemoryIssueController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:get, "/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/decision-questions-validation.js", AiurWeb.StaticAssetController, :decision_questions_validation, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/projects-home-hook.js", AiurWeb.StaticAssetController, :projects_home_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/gateway-state.js", AiurWeb.StaticAssetController, :gateway_state, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/gateway-view-hook.js", AiurWeb.StaticAssetController, :gateway_view_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/streamdeck-emulator-hook.js", AiurWeb.StaticAssetController, :streamdeck_emulator_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/streamdeck-emulator-knob.js", AiurWeb.StaticAssetController, :streamdeck_emulator_knob, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/aiur-dom-svg-layout-adapter.js", AiurWeb.StaticAssetController, :dom_svg_layout_adapter, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/aiur-dom-svg-layout-loader.js", AiurWeb.StaticAssetController, :dom_svg_layout_loader, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/aiur-dom-svg-layout/:module", AiurWeb.StaticAssetController, :dom_svg_layout_module, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/aiur-logo.png", AiurWeb.StaticAssetController, :aiur_logo, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/images/github-mark.svg", AiurWeb.StaticAssetController, :github_mark, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/provider-assets/*provider_asset", AiurWeb.StaticAssetController, :provider_asset, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/vendor/phoenix_html/phoenix_html.js", AiurWeb.StaticAssetController, :phoenix_html_js, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/vendor/phoenix/phoenix.js", AiurWeb.StaticAssetController, :phoenix_js, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/vendor/phoenix_live_view/phoenix_live_view.js", AiurWeb.StaticAssetController, :phoenix_live_view_js, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/vendor/layout/:version/:digest/:asset", AiurWeb.StaticAssetController, :layout_asset, [:browser_dashboard_auth, :dashboard_pages], :debug},
+    {:get, "/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/units", AiurWeb.UnitsRedirectController, :legacy, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/executor", AiurWeb.ExecutorRedirectController, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/decisions", AiurWeb.CommandsRedirectController, :legacy, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build-orders", AiurWeb.BuildOrderRedirectController, :catalog, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/projects", Phoenix.LiveView.Plug, :projects, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/gateways", Phoenix.LiveView.Plug, :gateways, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/conversations/:conversation_id", Phoenix.LiveView.Plug, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/commands", Phoenix.LiveView.Plug, :decisions, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/commands/:decision_id", Phoenix.LiveView.Plug, :decision, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/voice", Phoenix.LiveView.Plug, :voice, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/analytics", Phoenix.LiveView.Plug, :analytics, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/experiments", Phoenix.LiveView.Plug, :experiments, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/experiments/:id", Phoenix.LiveView.Plug, :experiment, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/instances", Phoenix.LiveView.Plug, :instances, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/post-deploy", Phoenix.LiveView.Plug, :index, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/streamdeck", Phoenix.LiveView.Plug, :streamdeck, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show, [:browser_dashboard_auth, :dashboard_pages, :secure_document], :debug},
+    {:get, "/commands/:decision_id/media/:attachment_id", AiurWeb.DecisionMediaController, :show, [:browser_dashboard_auth, :dashboard_pages, :secure_document], :debug},
+    {:post, "/api/v1/gateway/pause", AiurWeb.GatewayPauseController, :pause, [:gateway_write], :debug},
+    {:*, "/api/v1/gateway/pause", AiurWeb.GatewayPauseController, :method_not_allowed, [:gateway_write], :debug},
+    {:post, "/api/v1/gateway/resume", AiurWeb.GatewayPauseController, :resume, [:gateway_write], :debug},
+    {:*, "/api/v1/gateway/resume", AiurWeb.GatewayPauseController, :method_not_allowed, [:gateway_write], :debug},
+    {:post, "/api/v1/fleet/pause", AiurWeb.GatewayPauseController, :fleet_pause, [:gateway_write], :debug},
+    {:*, "/api/v1/fleet/pause", AiurWeb.GatewayPauseController, :method_not_allowed, [:gateway_write], :debug},
+    {:post, "/api/v1/fleet/resume", AiurWeb.GatewayPauseController, :fleet_resume, [:gateway_write], :debug},
+    {:*, "/api/v1/fleet/resume", AiurWeb.GatewayPauseController, :method_not_allowed, [:gateway_write], :debug},
+    {:post, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :cancel, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :update, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :pause, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/resume", AiurWeb.ObservabilityApiController, :resume, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/resume", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/pane/interrupt", AiurWeb.ObservabilityApiController, :pane_interrupt, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/pane/interrupt", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:post, "/api/v1/pane/hide", AiurWeb.ObservabilityApiController, :pane_hide, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/pane/hide", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:post, "/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :claude_hook, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:post, "/api/v1/operator/notify", AiurWeb.OperatorNotifyApiController, :create, [:client_token_write, :api_write], :debug},
+    {:*, "/api/v1/operator/notify", AiurWeb.OperatorNotifyApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:post, "/api/v1/events/token", AiurWeb.EventsSessionController, :create, [:dashboard_auth_required], :debug},
+    {:post, "/api/v1/streamdeck/token", AiurWeb.StreamdeckSessionController, :create, [:dashboard_auth_required], :debug},
+    {:get, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :method_not_allowed, [:client_token_read], :debug},
+    {:put, "/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :put, [:client_token_write, :api_write, :require_writable], :debug},
+    {:delete, "/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :delete, [:client_token_write, :api_write, :require_writable], :debug},
+    {:get, "/api/v1/:issue_identifier/usage", AiurWeb.Api.UsageController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/usage", AiurWeb.Api.UsageController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/spend-cap", AiurWeb.Api.SpendCapController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/progress", AiurWeb.Api.UsageProgressController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/progress", AiurWeb.Api.UsageProgressController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/usage", AiurWeb.UsageApiController, :index, [:client_token_read], :debug},
+    {:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/conversations/resolve", AiurWeb.ConversationApiController, :resolve, [:client_token_read], :debug},
+    {:get, "/api/v1/conversations/:conversation_id/entries", AiurWeb.ConversationApiController, :entries, [:client_token_read], :debug},
+    {:get, "/api/v1/conversations/:conversation_id/sessions", AiurWeb.ConversationApiController, :sessions, [:client_token_read], :debug},
+    {:get, "/api/v1/conversations/:conversation_id/anchors", AiurWeb.ConversationApiController, :anchors, [:client_token_read], :debug},
+    {:*, "/api/v1/conversations/*path", AiurWeb.ConversationApiController, :method_not_allowed_or_not_found, [:client_token_read], :debug},
+    {:get, "/api/v1/gateway/summary", AiurWeb.GatewaySummaryController, :show, [:gateway_summary], :debug},
+    {:*, "/api/v1/gateway/summary", AiurWeb.GatewaySummaryController, :method_not_allowed, [:gateway_summary], :debug},
+    {:get, "/api/v1/events", AiurWeb.EventsController, :index, [:client_token_read], :debug},
+    {:get, "/api/v1/events/catalog", AiurWeb.EventsController, :catalog, [:client_token_read], :debug},
+    {:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed, [:client_token_read], :debug},
+    {:*, "/api/v1/events/catalog", AiurWeb.EventsController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/build-order", AiurWeb.BuildOrderApiController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/build-order", AiurWeb.BuildOrderApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :show, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/listen-mode", AiurWeb.ListenModeController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/state", AiurWeb.ObservabilityApiController, :state, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:get, "/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :issue, [:client_token_read], :debug},
+    {:*, "/", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:*, "/api/v1/state", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:*, "/api/v1/:issue_identifier", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_read], :debug},
+    {:*, "/*path", AiurWeb.ObservabilityApiController, :not_found, [:client_token_read], :debug}
+  ]
+
+  test "compiled route table and matched pipelines retain pre-split behavior" do
+    actual = Enum.map(AiurWeb.Router.__routes__(), &project/1)
+    assert actual == @expected
+  end
+
+  test "webhook is first, catch-all is last, and Decision catches precede issue reads" do
+    routes = AiurWeb.Router.__routes__()
+    assert hd(routes).plug == AiurWeb.GithubWebhookController
+    assert List.last(routes).path == "/*path"
+    issue_index = Enum.find_index(routes, &(&1.verb == :get and &1.path == "/api/v1/:issue_identifier"))
+    decisions = routes |> Enum.with_index() |> Enum.filter(fn {route, _} -> route.plug == AiurWeb.DecisionApiController end)
+    assert length(decisions) == 11
+    assert Enum.all?(decisions, fn {_, index} -> index < issue_index end)
+  end
+
+  test "Decision component routes expand independently of the application router" do
+    expected =
+      Enum.filter(@expected, fn {_, path, plug, _, _, _} ->
+        plug in [AiurWeb.DecisionApiController, AiurWeb.DecisionMediaController] and
+          String.starts_with?(path, "/api/v1/decisions")
+      end)
+
+    assert Enum.map(DecisionRouter.__routes__(), &project(&1, DecisionRouter)) == expected
+  end
+
+  defp project(route, router \\ AiurWeb.Router) do
+    # __routes__/0 omits pipelines in Phoenix 1.8; match each route with a concrete path.
+    path = Regex.replace(~r/[:*][^\/]+/, route.path, "fixture")
+    method = if route.verb == :*, do: "AIUR_TEST", else: route.verb |> Atom.to_string() |> String.upcase()
+    info = Phoenix.Router.route_info(router, method, path, "localhost")
+    assert info.route == route.path
+    {route.verb, route.path, route.plug, route.plug_opts, info.pipe_through, route.metadata[:log]}
+  end
+end

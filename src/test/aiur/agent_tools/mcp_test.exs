@@ -35,6 +35,17 @@ defmodule Aiur.AgentTools.MCPTest do
     assert {:ok, %{"result" => %{"content" => [%{"text" => "done"}], "isError" => false}}} = Task.await(request, :infinity)
   end
 
+  test "an executor exit becomes a tool error without escaping the owner", %{gateway: gateway, connection: connection} do
+    assert {:ok, binding} = MCP.bind(gateway, "exit-attempt")
+    request = Task.async(fn -> post(connection, 41, "tools/call", %{"name" => "emit_event", "arguments" => %{}}) end)
+    receive_barrier({:aiur_mcp_call, ^gateway, _, _, ^binding, _, _, _} = message)
+
+    assert :ok = MCP.execute_request(gateway, message, fn _, _ -> exit(:boom) end)
+
+    assert {:ok, %{"result" => %{"content" => [%{"text" => "tool_execution_exit"}], "isError" => true}}} =
+             Task.await(request, 1_000)
+  end
+
   test "requests are denied before binding and after unbinding", %{gateway: gateway, connection: connection} do
     assert {:ok, %{"error" => %{"message" => "inactive_attempt"}}} =
              post(connection, 1, "tools/call", %{"name" => "emit_event", "arguments" => %{}})

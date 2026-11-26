@@ -2,7 +2,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsURLTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsURL}
+  alias Aiur.Projections.UnitsPolicy
+  alias AiurWeb.OperatorControlCenter.UnitsURL
 
   test "canonical encoding orders the version, non-default scope, then conditions" do
     selection = %{scope: :all, conditions: MapSet.new([:paused, :active])}

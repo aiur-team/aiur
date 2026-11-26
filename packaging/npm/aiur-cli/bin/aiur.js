@@ -32,6 +32,26 @@ function fail(message) {
   process.exit(1);
 }
 
+function usageError(message) {
+  process.stderr.write(`aiur: ${message}\n`);
+  process.exit(64);
+}
+
+function remoteTarget(argv) {
+  const args = [...argv];
+  let instance;
+  if (args[0] === "--instance") {
+    if (!args[1]) usageError("--instance requires a name");
+    instance = args[1];
+    args.splice(0, 2);
+  } else if (args[0]?.startsWith("--instance=")) {
+    instance = args[0].slice("--instance=".length);
+    if (!instance) usageError("--instance requires a name");
+    args.shift();
+  }
+  return { args, instance };
+}
+
 function resolveReleaseDir() {
   // A pre-set AIUR_RELEASE_DIR (the dev shim, or local `npm pack` install
   // verification) wins over platform-package resolution.
@@ -165,8 +185,8 @@ function ensureTmux() {
 // True only when the pinned opencode is on PATH; a wrong (e.g. newer,
 // unverified) version must be replaced with the pin, so presence alone
 // isn't enough.
-function opencodeMatchesPin() {
-  const result = safeSpawn("opencode", ["--version"], { encoding: "utf8" });
+function opencodeMatchesPin(command = "opencode") {
+  const result = safeSpawn(command, ["--version"], { encoding: "utf8" });
   return !result.error && result.status === 0 && (result.stdout || "").trim() === opencodeVersion();
 }
 
@@ -185,54 +205,107 @@ function installOpencode() {
   return !result.error && result.status === 0;
 }
 
+// npm's global bin may be shadowed by another OpenCode on the incoming PATH.
+// Verify the actual installed executable before making it the release's choice.
+function selectGlobalOpencode() {
+  const result = safeSpawn("npm", ["prefix", "-g"], { encoding: "utf8" });
+  if (result.error || result.status !== 0) return false;
+  const prefix = (result.stdout || "").trim();
+  if (!path.isAbsolute(prefix)) return false;
+  const bin = path.join(prefix, "bin");
+  if (!opencodeMatchesPin(path.join(bin, "opencode"))) return false;
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH || ""}`;
+  return true;
+}
+
 // opencode powers the interactive "take the wheel" panes. Non-fatal: everything
 // else works without it.
 function ensureOpencode() {
-  if (opencodeMatchesPin()) return;
+  if (opencodeMatchesPin() || selectGlobalOpencode()) return;
   if (process.env.AIUR_SKIP_OPENCODE_INSTALL !== "1") {
     process.stderr.write(
       `aiur: provisioning opencode@${opencodeVersion()} (one-time, for the interactive 'take the wheel' panes)…\n`,
     );
     installOpencode();
-    if (opencodeMatchesPin()) return;
+    if (opencodeMatchesPin() || selectGlobalOpencode()) return;
   }
   process.stderr.write(
-    "aiur: opencode was not found on PATH. The interactive 'take the wheel' " +
+    `aiur: opencode@${opencodeVersion()} is unavailable. The interactive 'take the wheel' ` +
       "feature needs it; everything else works without it. " +
-      "Install from https://opencode.ai\n",
+      `Install with: npm install -g opencode-ai@${opencodeVersion()}, ` +
+      "and put npm's global bin ahead of other opencode binaries on PATH.\n",
   );
 }
 
-// `init` and `--version` run as foreground one-shots that never start the
-// tmux-backed UI, so their tmux/opencode provisioning is irrelevant — and tmux
-// may legitimately be absent on a machine that only ever runs `aiur init`.
-function isForegroundOneShot(argv) {
-  for (const arg of argv) {
-    if (arg === "--version") return true;
-    if (arg.startsWith("-")) continue;
-    return arg === "init";
-  }
-  return false;
+// Match the shared engine's first-argument dispatch: only session launch paths
+// need interactive tools. Unknown commands still reach the engine's usage error.
+function requiresInteractiveTools(argv) {
+  const command = argv[0] || "";
+  if (["", "run", "restart", "--bg"].includes(command)) return true;
+  const nonLaunchCommands = new Set([
+    "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
+    "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+    "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
+    "upgrade", "pause", "resume", "park", "reset-budget", "message", "cleanup-stale", "stop",
+    "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "executor-listen", "executor-wait",
+    "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
+    "executor-roster", "executor-session", "executor-attach", "executor-detach", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
+  ]);
+  if (nonLaunchCommands.has(command)) return false;
+  return command.startsWith("-") || fs.existsSync(command);
 }
 
 function main() {
   const releaseDir = resolveReleaseDir();
+  const target = remoteTarget(process.argv.slice(2));
+  const containerMode = target.args.includes("--container");
 
-  if (!isForegroundOneShot(process.argv.slice(2))) {
+  if (!containerMode && requiresInteractiveTools(target.args)) {
     ensureTmux();
     ensureOpencode();
   }
 
   const pkgRoot = path.resolve(__dirname, "..");
   const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
+  const env = {
+    ...process.env,
+    AIUR_JS_RUNTIME: process.execPath,
+    AIUR_RELEASE_DIR: releaseDir,
+    AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
+  };
 
-  const result = spawnSync(launcher, process.argv.slice(2), {
+  delete env.AIUR_REMOTE_INSTANCE;
+  const engineArgs = target.instance
+    ? ["--instance", target.instance, ...target.args]
+    : target.args;
+
+  if (containerMode) {
+    const child = spawn(launcher, engineArgs, { stdio: "inherit", env });
+    let forwardedSignal = false;
+    const signalHandlers = new Map();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      const handler = () => {
+        forwardedSignal = true;
+        child.kill(signal);
+      };
+      signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+    child.on("error", (error) => fail(`failed to launch ${launcher}: ${error.message}`));
+    child.on("exit", (code, signal) => {
+      if (signal && !forwardedSignal) {
+        for (const [name, handler] of signalHandlers) process.removeListener(name, handler);
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code === null ? 1 : code);
+    });
+    return;
+  }
+
+  const result = spawnSync(launcher, engineArgs, {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
-    },
+    env,
   });
 
   if (result.error) {

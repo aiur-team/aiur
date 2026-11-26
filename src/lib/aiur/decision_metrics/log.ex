@@ -3,8 +3,8 @@ defmodule Aiur.DecisionMetrics.Log do
 
   require Logger
 
-  alias Aiur.{DecisionLog, Fs}
   alias Aiur.DecisionMetrics.{Options, Sample}
+  alias Aiur.{Fs, Journal}
 
   @type replay :: %{
           samples: %{String.t() => Sample.t()},
@@ -17,7 +17,7 @@ defmodule Aiur.DecisionMetrics.Log do
   @doc "Prepares the owner-only metrics directory and stream once at writer startup."
   @spec prepare(Path.t()) :: :ok | {:error, term()}
   def prepare(path) when is_binary(path) do
-    DecisionLog.prepare(Path.dirname(path), path, fn -> :ok end)
+    Journal.prepare(Path.dirname(path), path, fn -> :ok end)
   end
 
   @doc "Builds one redacted, JSON-safe lifecycle snapshot."

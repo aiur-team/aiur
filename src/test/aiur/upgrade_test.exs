@@ -105,7 +105,7 @@ defmodule Aiur.UpgradeTest do
     File.mkdir_p!(tmp)
     state_file = Path.join(tmp, "upgrade.json")
     Process.put(:upgrade_test_state_file, state_file)
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
 
     previous_env = %{
       "AIUR_UPGRADE_CHECK_DISABLED" => System.get_env("AIUR_UPGRADE_CHECK_DISABLED"),

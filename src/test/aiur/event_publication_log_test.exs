@@ -8,7 +8,7 @@ defmodule Aiur.EventPublicationLogTest do
     publication_file = Path.join(root, "trusted/log/event-publications.ndjson")
 
     on_exit(fn ->
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{publication_file: publication_file, root: root}

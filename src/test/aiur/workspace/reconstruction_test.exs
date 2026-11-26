@@ -11,7 +11,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
     workspace = Path.join(root, "ticket")
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, workspace: workspace}
   end
 

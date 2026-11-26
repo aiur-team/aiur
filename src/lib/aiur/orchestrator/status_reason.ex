@@ -6,13 +6,17 @@ defmodule Aiur.Orchestrator.StatusReason do
           | :prewarm_blocked
           | :orphaned_claim
           | :stale_claim
+          | :workspace_retained
+          | {:workspace_retained, String.t(), pos_integer(), atom()}
           | :workspace_ownership_waiting
-          | {:workspace_ownership_waiting, pos_integer(), atom()}
+          | {:executor_owned, String.t()}
+          | {:workspace_ownership_waiting, String.t(), pos_integer(), atom()}
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
           | {:transient, String.t() | nil, non_neg_integer() | nil}
           | {:paused, atom() | String.t() | nil}
           | {:paused, atom() | String.t() | nil, t()}
+          | {:backends, [{String.t(), :available | :limited | {:held, atom()}}]}
 
   @spec for_idle(boolean(), term(), non_neg_integer(), non_neg_integer()) :: t()
   def for_idle(_prewarm_blocked?, :lifetime, lifetime, maximum) when is_integer(lifetime) and is_integer(maximum),
@@ -39,20 +43,34 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:prewarm_blocked), do: "prewarm-blocked"
   def render(:orphaned_claim), do: "orphaned claim: no live agent"
   def render(:stale_claim), do: "stale in-progress claim: no live agent"
+  def render(:workspace_retained), do: "workspace retained; awaiting safe release"
   def render(:workspace_ownership_waiting), do: "workspace ownership held; awaiting safe release"
+  def render({:executor_owned, owner}), do: "Executor-owned by #{owner}; no fleet slot"
 
-  def render({:workspace_ownership_waiting, generation, proof}) do
+  def render({reason, ticket, generation, proof}) when reason in [:workspace_ownership_waiting, :workspace_retained] do
     detail =
       case proof do
-        :same_boot -> "unknown local provider; awaiting independent exit proof"
-        :boot_changed_release_pending -> "local host reboot proved provider exit; release pending"
-        :boot_probe_unavailable -> "unknown local provider; host boot proof unavailable"
-        :remote -> "unknown remote provider; exit unproven"
-        :not_recorded -> "unknown provider; exit proof not recorded"
-        :tracked_provider -> "tracked provider still reaping"
+        :same_boot ->
+          "unknown local provider; awaiting independent exit proof"
+
+        :boot_changed_release_pending ->
+          "local host reboot proved provider exit; audit/release pending, retry with aiur workspace-recover #{ticket} #{generation}"
+
+        :boot_probe_unavailable ->
+          "unknown local provider; host boot proof unavailable"
+
+        :remote ->
+          "unknown remote provider; exit unproven"
+
+        :not_recorded ->
+          "unknown provider; exit proof not recorded"
+
+        :tracked_provider ->
+          "tracked provider still reaping"
       end
 
-    "workspace ownership held (generation #{generation}): #{detail}"
+    prefix = if reason == :workspace_retained, do: "workspace retained", else: "workspace ownership held"
+    "#{prefix} (generation #{generation}): #{detail}"
   end
 
   def render({:latched, lifetime, maximum}), do: "latched #{lifetime}/#{maximum}"
@@ -81,7 +99,12 @@ defmodule Aiur.Orchestrator.StatusReason do
     end
   end
 
+  def render({:backends, backends}), do: Enum.map_join(backends, ", ", &render_backend/1)
+
   def render({:paused, reason, retry_reason}), do: "#{render({:paused, reason})}; #{render(retry_reason)}"
+
+  defp render_backend({backend, {:held, reason}}), do: "#{backend} held: #{String.replace(to_string(reason), "_", " ")}"
+  defp render_backend({backend, state}), do: "#{backend} #{state}"
 
   defp format_duration(milliseconds) when milliseconds < 60_000, do: "<1m"
   defp format_duration(milliseconds), do: "~#{div(milliseconds + 59_999, 60_000)}m"

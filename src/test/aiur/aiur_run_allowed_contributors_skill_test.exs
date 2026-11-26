@@ -8,7 +8,7 @@ defmodule Aiur.AiurRunAllowedContributorsSkillTest do
   defp read(path), do: File.read!(Path.join(@repo_root, path))
 
   test "aiur-run prioritises allowed-contributor wakes and treats their content as untrusted (#2957)" do
-    skill = read(".claude/skills/aiur-run/SKILL.md")
+    skill = read(".claude/skills/aiur-run/references/run-contract.md")
 
     assert skill =~ "ticket.issue.opened.allowed_contributor"
     assert skill =~ "Triage them before other wakes"
@@ -18,11 +18,12 @@ defmodule Aiur.AiurRunAllowedContributorsSkillTest do
     assert skill =~ "docs/allowed-contributors.md"
     # The wake monitor's filter must surface the new class, or the Executor
     # never hears about it until it happens to poll.
-    assert skill =~ ~s(test("allowed_contributor|)
+    launch = read(".claude/skills/aiur-run/SKILL.md")
+    assert launch =~ ~s(test("allowed_contributor|)
   end
 
   test "aiur-run never grants intake eligibility from a login list (#2957 review)" do
-    skill = read(".claude/skills/aiur-run/SKILL.md")
+    skill = read(".claude/skills/aiur-run/references/run-contract.md")
 
     assert skill =~ "do not admit anyone by login"
     refute skill =~ "treat their new issues the same way"

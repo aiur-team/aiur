@@ -1,8 +1,7 @@
 defmodule Aiur.GitHub.IssueRelationships do
   @moduledoc false
 
-  alias Aiur.BuildOrder.TicketDetail.DestinationNormalizer
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
   alias Aiur.TrackerIdentity
 
   @max_response_bytes 32_768
@@ -35,8 +34,6 @@ defmodule Aiur.GitHub.IssueRelationships do
 
   @spec fetch_linked_pull_requests(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) ::
           {:ok, %{nodes: [map()], truncated?: boolean()}} | {:error, term()}
-  def fetch_linked_pull_requests(identity, repository, opts \\ [])
-
   def fetch_linked_pull_requests(
         %TrackerIdentity{provider_id: provider_id, identifier: identifier},
         {owner, repository},
@@ -48,7 +45,7 @@ defmodule Aiur.GitHub.IssueRelationships do
          true <- number > 0,
          {:ok, token} <- relationship_token(opts),
          request_fun <- relationship_request_fun(opts),
-         {:ok, response} <- fetch_relationship_response(request_fun, token, owner, repository, number) do
+         {:ok, response} <- fetch_relationship_response(request_fun, token, owner, repository, number, opts) do
       normalize_response(response, provider_id)
     else
       false -> {:error, :invalid_github_issue_relationships_response}
@@ -60,15 +57,15 @@ defmodule Aiur.GitHub.IssueRelationships do
   def fetch_linked_pull_requests(_identity, _repository, _opts),
     do: {:error, :invalid_github_issue_relationships_response}
 
-  defp fetch_relationship_response(request_fun, token, owner, repository, number) do
+  defp fetch_relationship_response(request_fun, token, owner, repository, number, opts) do
     variables = %{
       "owner" => owner,
       "repository" => repository,
       "number" => number,
-      "limit" => DestinationNormalizer.max_pull_requests()
+      "limit" => Keyword.fetch!(opts, :limit)
     }
 
-    case Transport.github_graphql_response(
+    case Access.github_graphql_response(
            request_fun,
            token,
            @linked_pull_requests_query,
@@ -85,15 +82,15 @@ defmodule Aiur.GitHub.IssueRelationships do
     if Keyword.has_key?(opts, :relationship_request_fun) do
       opts
       |> Keyword.put(:request_fun, Keyword.fetch!(opts, :relationship_request_fun))
-      |> Transport.require_token()
+      |> Access.require_token()
     else
-      Transport.require_token(opts)
+      Access.require_token(opts)
     end
   end
 
   defp relationship_request_fun(opts) do
     Keyword.get_lazy(opts, :relationship_request_fun, fn ->
-      Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     end)
   end
 

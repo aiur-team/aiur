@@ -34,6 +34,16 @@ defmodule Mix.Tasks.PrBody.CheckTest do
   - [ ] <!-- Test checkbox -->
   """
 
+  @evidence """
+  ## Local tests
+
+  Policy: partial
+  Tested head: #{String.duplicate("a", 40)}
+  Base: origin/main @ #{String.duplicate("b", 40)}
+  Selection: affected tests
+  - `mix test` -> 42 tests, 0 failures
+  """
+
   @valid_body """
   #### Context
 
@@ -61,6 +71,8 @@ defmodule Mix.Tasks.PrBody.CheckTest do
   #### Test Plan
 
   - [x] Ran targeted checks.
+
+  #{@evidence}
   """
 
   setup do
@@ -327,6 +339,44 @@ defmodule Mix.Tasks.PrBody.CheckTest do
         end)
 
       assert output =~ "PR body format OK"
+    end)
+  end
+
+  test "requires Local tests even when a template omits it" do
+    in_temp_repo(fn ->
+      write_template!(@template)
+      File.write!("body.md", String.replace(@valid_body, @evidence, ""))
+
+      output =
+        capture_io(:stderr, fn ->
+          assert_raise Mix.Error, fn -> Check.run(["--file", "body.md"]) end
+        end)
+
+      assert output =~ "Missing required heading: ## Local tests"
+    end)
+  end
+
+  test "checks evidence shape, policy and head" do
+    in_temp_repo(fn ->
+      write_template!(@template)
+      File.write!("body.md", @valid_body)
+      assert capture_io(fn -> Check.run(["--file", "body.md", "--policy", "partial", "--head", String.duplicate("a", 40)]) end) =~ "PR body format OK"
+
+      for {body, args, error} <- [
+            {String.replace(@valid_body, String.duplicate("a", 40), "short"), [], "40-character SHA"},
+            {String.replace(@valid_body, " -> 42 tests, 0 failures", ""), [], "-> result"},
+            {@valid_body, ["--policy", "all"], "policy below repo mode"},
+            {@valid_body, ["--head", String.duplicate("c", 40)], "does not match PR head"}
+          ] do
+        File.write!("body.md", body)
+
+        output =
+          capture_io(:stderr, fn ->
+            assert_raise Mix.Error, fn -> Check.run(["--file", "body.md"] ++ args) end
+          end)
+
+        assert output =~ error
+      end
     end)
   end
 

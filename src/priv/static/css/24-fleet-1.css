@@ -1,0 +1,142 @@
+/* Condition pills: a coloured dot + label + count; the dot colour keys the
+   condition, and a selected pill lights up with its own hue. */
+
+.units-filter-note {
+  max-width: 58rem;
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+/* Full-bleed tables reach both card edges using the owning card's responsive
+   padding value.
+   The wrap carries the negative inline margin; each table keeps ownership of
+   its overflow treatment while the outer cells re-inset readable content. */
+.full-bleed-table-wrap {
+  margin-left: calc(-1 * var(--section-card-padding));
+  margin-right: calc(-1 * var(--section-card-padding));
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:first-child,
+.full-bleed-table-wrap > table > tbody > tr > td:first-child:not([colspan]) {
+  padding-left: var(--section-card-padding);
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:last-child,
+.full-bleed-table-wrap > table > tbody > tr > td:last-child:not([colspan]) {
+  padding-right: var(--section-card-padding);
+}
+
+/* Paused rows: a subtle gray left edge + soft gray tint — visually distinct
+   from the aggressive red blocking treatment and the neutral active rows. */
+
+/* Queued rows: muted — dimmed text over the standard surface, no tint or
+   attention edge. */
+
+/* The alert/blocked row tints warm and lighten the cell background, which drops
+   faint pill text below WCAG AA 4.5:1 on those rows only. Nudge the affected
+   pill colours toward --fg (theme-safe) so contrast holds over the tint without
+   changing the palette on ordinary rows. */
+
+.units-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.units-identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.units-identity strong {
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.units-state-glyph {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--good-ink);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.units-lane {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+}
+
+.units-facts {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.units-facts div {
+  display: grid;
+  grid-template-columns: minmax(5.2rem, auto) minmax(0, 1fr);
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.units-facts dt {
+  color: var(--muted);
+  font-size: 0.67rem;
+}
+
+.units-facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.units-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  margin: 0 0 0.55rem;
+  color: var(--fg);
+  font-size: 0.73rem;
+}
+
+.units-progress-track {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 3rem;
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.units-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.units-progress.unavailable {
+  color: var(--muted);
+}
+
+/* Compact icon actions in the Command column: pause/resume, open chat, remote
+   control. The row itself is the ticket-inspect trigger. */
+
+/* Keep the visible icon compact (2.2rem) but expand the pointer/tap target to
+   the 44px accessibility minimum via a transparent centered overlay. */

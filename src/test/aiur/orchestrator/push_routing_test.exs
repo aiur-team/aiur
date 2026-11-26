@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       completed: MapSet.new(),
       claimed: MapSet.new(),
       retry_attempts: %{},
-      queue_store: nil,
       last_polled_issues: %{},
       todo_over_capacity_alert_active: false,
       agent_totals: nil,
@@ -26,13 +25,8 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: false,
-      events_etag: nil,
-      events_last_id: nil,
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{},
       github_connectivity: %{},
-      github_poll_delays: %{},
-      github_command_scan_since: nil
+      github_poll_delays: %{}
     }
   end
 

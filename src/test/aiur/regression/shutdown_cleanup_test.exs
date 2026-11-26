@@ -47,10 +47,10 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       assert cleanup =~ ~r/kill_beams_matching "-name \$\{_session_node\}"/,
              "session_cleanup MUST resolve the BEAM by this run's node name"
 
-      assert File.read!(@engine) =~ ~r/kill -TERM/,
+      assert Aiur.EngineSource.text() =~ ~r/kill -TERM/,
              "session_cleanup MUST SIGTERM the BEAM so OTP supervisors run shutdown callbacks"
 
-      assert File.read!(@engine) =~ ~r/kill -KILL/,
+      assert Aiur.EngineSource.text() =~ ~r/kill -KILL/,
              "session_cleanup MUST SIGKILL stragglers after the grace period — a wedged BEAM leaks port 4000 forever"
     end
 
@@ -94,10 +94,10 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
 
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
-      assert source =~ ~r/trap 'session_cleanup' EXIT\b/,
-             "EXIT trap must register session_cleanup on its own."
+      assert source =~ ~S|trap 'session_cleanup; exit "$?"' EXIT|,
+             "EXIT trap must preserve the status returned by session_cleanup."
 
       for signal <- ["INT", "TERM", "HUP"] do
         assert source =~ ~r/trap '[^']*session_cleanup[^']*' #{signal}\b/,
@@ -110,7 +110,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
 
     test "foreground attach stderr filtering avoids process substitution" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       refute source =~ ~S|2> >(grep -v -F "[server exited]" >&2)|,
              """
@@ -126,7 +126,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
 
   describe "engine workspace cwd sweep" do
     test "is rooted in proc cwd, guarded against shallow roots, and escalates to KILL" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       assert source =~ "workspace_cwd_pids()",
              "engine needs a cwd-scoped pid scanner for the post-BEAM backstop"
@@ -152,10 +152,15 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
 
       assert stop =~ ~r/kill_beams_matching "-name \$\{AIUR_RELEASE_NODE\}".+reap_workspace_cwd_from_file "\$workspace_root_file"/s,
              "cmd_stop must run the cwd sweep after the BEAM node-name reap"
+
+      restart = cmd_restart_block()
+
+      assert restart =~ ~r{cmd_stop \|\| stop_status=\$\?[\s\S]*?wait_for_node_name_release "\$\{AIUR_RELEASE_NODE\}"},
+             "restart must wait for epmd to release the node name before rebuilding"
     end
 
     test "watchdog receives the workspace root file and sweeps after BEAM death" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       assert source =~ ~s(workspace_root_file="${10:-}"),
              "watchdog must accept the workspace-root handoff file path"
@@ -171,7 +176,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
 
   describe "stale manual-smoke cleanup" do
     test "startup warns, stop reaps, and cleanup-stale is a command" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
       stop = cmd_stop_block()
 
       assert source =~ "preflight_stale_manual_smoke",
@@ -191,7 +196,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
 
     test "inventory reports node names and workspace roots without cookie material" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       assert source =~ "stale_manual_smoke_beam_inventory",
              "cleanup needs a BEAM inventory rather than one-off pgrep calls"
@@ -199,12 +204,12 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
       assert source =~ "node=${node} workspace=${workspace_root}",
              "operator output must include node names and workspace roots"
 
-      refute source =~ ~r/report_stale_manual_smoke.+COOKIE/s,
+      refute File.read!(Path.join(Path.dirname(@engine), "engine/processes.sh")) =~ ~r/report_stale_manual_smoke.+COOKIE/s,
              "stale cleanup reports must not print cookies or token material"
     end
 
     test "stale BEAM cleanup is scoped to same-user issue workspaces and TERM before KILL" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       assert source =~ "*/aiur-workspaces/*",
              "broad stale cleanup must be scoped to issue/manual-smoke workspaces"
@@ -226,7 +231,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
 
     test "wrapper cleanup requires a manual-test start command and post-exit sleep state" do
-      source = File.read!(@engine)
+      source = Aiur.EngineSource.text()
 
       assert source =~ "*aiurdev\\ --test*",
              "wrapper cleanup must require a canonical manual smoke launch command"
@@ -295,14 +300,21 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
   # Pull the session_cleanup body out of the engine for source asserts.
   defp cleanup_block do
     [_, block] =
-      Regex.run(~r/session_cleanup\(\) \{(.+?)\n\}\ninstall_foreground_traps/us, File.read!(@engine), capture: :all)
+      Regex.run(~r/session_cleanup\(\) \{(.+?)\n\}\ninstall_foreground_traps/us, Aiur.EngineSource.text(), capture: :all)
 
     block
   end
 
   defp cmd_stop_block do
     [_, block] =
-      Regex.run(~r/cmd_stop\(\) \{(.+?)\n\}\n\n# --- dispatch/us, File.read!(@engine), capture: :all)
+      Regex.run(~r/cmd_stop\(\) \{(.+?)\n\}\n/us, Aiur.EngineSource.text(), capture: :all)
+
+    block
+  end
+
+  defp cmd_restart_block do
+    [_, block] =
+      Regex.run(~r/cmd_restart\(\) \{(.+?)\n\}\n/mus, Aiur.EngineSource.text(), capture: :all)
 
     block
   end

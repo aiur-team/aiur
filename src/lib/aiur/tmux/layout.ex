@@ -5,7 +5,7 @@ defmodule Aiur.Tmux.Layout do
   """
 
   require Logger
-  alias Aiur.Tmux.Exec
+  alias Aiur.Tmux.{Exec, Socket}
 
   @spec split_pane(
           map(),
@@ -74,11 +74,11 @@ defmodule Aiur.Tmux.Layout do
   defp new_hidden_window(state, window_name, command_to_run, env) do
     # `-d` keeps the new window in the background; `-P -F #{pane_id}` makes
     # tmux print the pane id so we can target it later for `join-pane`.
-    args = ["new-window", "-d", "-n", window_name] ++ env_args(env) ++ ["-P", "-F", "\#{pane_id}", command_to_run]
+    args = ["new-window", "-d", "-n", window_name] ++ env_args(env) ++ ["-P", "-F", "\#{pane_id}", launch_command(command_to_run, env)]
 
     case run_window_command(state, args, env) do
       {:ok, [pane_id | _]} ->
-        {:ok, String.trim(pane_id)}
+        configure_window(state, String.trim(pane_id))
 
       {:ok, []} ->
         {:error, :no_pane_id}
@@ -159,7 +159,7 @@ defmodule Aiur.Tmux.Layout do
   defp no_server?(reason) do
     reason
     |> List.wrap()
-    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, "no server running")))
+    |> Enum.any?(&(is_binary(&1) and (String.contains?(&1, "no server running") or String.contains?(&1, "No such file or directory"))))
   end
 
   # Create the holder session detached, running the REPL command as its first
@@ -180,13 +180,24 @@ defmodule Aiur.Tmux.Layout do
           "-P",
           "-F",
           "\#{pane_id}",
-          command_to_run
+          launch_command(command_to_run, env)
         ]
 
     case run_window_command(state, args, env) do
-      {:ok, [pane_id | _]} -> {:ok, String.trim(pane_id)}
+      {:ok, [pane_id | _]} -> configure_window(state, String.trim(pane_id))
       {:ok, []} -> {:error, :no_pane_id}
       {:error, _} = err -> err
+    end
+  end
+
+  defp configure_window(state, pane_id) do
+    case Socket.configure(state) do
+      :ok ->
+        {:ok, pane_id}
+
+      {:error, _} = error ->
+        kill_pane(state, pane_id)
+        error
     end
   end
 
@@ -208,4 +219,15 @@ defmodule Aiur.Tmux.Layout do
   end
 
   defp valid_env_name?(name), do: name != "" and not String.contains?(name, "=")
+
+  # tmux has no "unset" for `new-window -e`: `-e NAME=` sets an EMPTY value,
+  # and an empty value is not the same as unset. `CLAUDE_CONFIG_DIR=` makes
+  # Claude read a config dir of "" and report logged out (#3970). So a `false`
+  # entry is also unset in the launched shell command itself.
+  defp launch_command(command, env) do
+    case for({name, false} <- env, is_binary(name), Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_]*$/, name), do: name) do
+      [] -> command
+      names -> "unset " <> Enum.join(names, " ") <> " && " <> command
+    end
+  end
 end

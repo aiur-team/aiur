@@ -1,7 +1,9 @@
 defmodule Aiur.Workspace.Checkout do
   @moduledoc "Git branch selection for a freshly materialized workspace: live-origin-tip aiur/<id> vs PR-anchored head ref, plus the shared branch query."
 
-  alias Aiur.{PathSafety, RepoBase, TicketBranch}
+  require Logger
+
+  alias Aiur.{OptimisticStart, PathSafety, RepoBase, TicketBranch}
 
   @doc "Returns whether `workspace` is a usable checkout rooted at that exact path."
   @spec valid_workspace?(Path.t()) :: boolean()
@@ -33,7 +35,10 @@ defmodule Aiur.Workspace.Checkout do
     do: checkout_fresh_branch(workspace, branch_for(workspace))
 
   @spec checkout_fresh_branch(Path.t(), String.t()) :: :ok | {:error, term()}
-  def checkout_fresh_branch(workspace, branch_name) when is_binary(branch_name) do
+  def checkout_fresh_branch(workspace, branch_name), do: checkout_fresh_branch(workspace, branch_name, nil)
+
+  @spec checkout_fresh_branch(Path.t(), String.t(), map() | nil) :: :ok | {:error, term()}
+  def checkout_fresh_branch(workspace, branch_name, start_point) when is_binary(branch_name) do
     # A re-created workspace may already have a remote ticket branch (for
     # example, after its title changed while an open PR still points at the
     # original suffix). Resume that branch's tip rather than recreating its
@@ -41,7 +46,7 @@ defmodule Aiur.Workspace.Checkout do
     # the normal live-base checkout below.
     case fetch_remote_branch(workspace, branch_name) do
       :ok -> checkout_fetched_branch(workspace, branch_name)
-      :no_remote -> checkout_branch(workspace, branch_name, fresh_base_start_point(workspace))
+      :no_remote -> checkout_branch(workspace, branch_name, optimistic_start_point(workspace, start_point))
     end
   end
 
@@ -111,6 +116,20 @@ defmodule Aiur.Workspace.Checkout do
     case System.cmd("git", args, stderr_to_stdout: true) do
       {_out, 0} -> :ok
       other -> {:error, other}
+    end
+  end
+
+  defp optimistic_start_point(workspace, nil), do: fresh_base_start_point(workspace)
+
+  defp optimistic_start_point(workspace, start_point) do
+    with true <- OptimisticStart.valid_head?(start_point),
+         :ok <- fetch_remote_branch(workspace, start_point.ref),
+         {_out, 0} <- System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", start_point.sha, "FETCH_HEAD"], stderr_to_stdout: true) do
+      [start_point.sha]
+    else
+      reason ->
+        Logger.warning("optimistic_start_point=fallback workspace=#{workspace} reason=#{inspect(reason)}")
+        fresh_base_start_point(workspace)
     end
   end
 

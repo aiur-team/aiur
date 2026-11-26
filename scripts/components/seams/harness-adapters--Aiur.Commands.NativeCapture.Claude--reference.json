@@ -1,0 +1,10 @@
+{
+  "from": "harness-adapters",
+  "to_module": "Aiur.Commands.NativeCapture.Claude",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/claude/coding_agent.ex",
+    "src/lib/aiur/claude/coding_agent/native_questions.ex"
+  ],
+  "reason": "#6420 extend existing native capture lifecycle seam for lost reply transport and replacement-thread release; Command persistence stays in Commands"
+}

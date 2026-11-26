@@ -16,6 +16,15 @@ defmodule Aiur.ConfigTest do
     end
   end
 
+  describe "daemon_heartbeat_stale_ms/0" do
+    test "defaults to 3600000 milliseconds (1 hour) when monitoring section is absent" do
+      # This test verifies the default is applied by the schema
+      # The actual value is retrieved from settings
+      assert is_integer(Config.daemon_heartbeat_stale_ms())
+      assert Config.daemon_heartbeat_stale_ms() == 3_600_000
+    end
+  end
+
   describe "base_branch/2" do
     test "returns a configured non-empty branch" do
       assert Config.base_branch(%{base_branch: "develop"}, config_path: "/tmp/aiur/config", cwd: "/tmp/repo") == "develop"
@@ -56,6 +65,16 @@ defmodule Aiur.ConfigTest do
     test "floors at two agents for degenerate scheduler counts" do
       assert Config.default_max_concurrent_agents(0) == 2
       assert Config.default_max_concurrent_agents(-1) == 2
+    end
+  end
+
+  describe "default_max_concurrent_agents/2" do
+    test "limits the CPU cap by memory.max and the named per-agent estimate" do
+      estimate_bytes = Config.default_agent_memory_estimate_mb() * 1_048_576
+
+      assert Config.default_max_concurrent_agents(16, estimate_bytes * 8) == 8
+      assert Config.default_max_concurrent_agents(16, estimate_bytes * 32) == 20
+      assert Config.default_max_concurrent_agents(16, :unavailable) == 20
     end
   end
 end

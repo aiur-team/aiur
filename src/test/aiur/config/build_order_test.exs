@@ -2,7 +2,7 @@ defmodule Aiur.Config.BuildOrderTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildOrder.GraphProjection.Options
-  alias Aiur.Config
+  alias Aiur.BuildOrder.Settings
   alias Aiur.Config.Schema
 
   # The three surviving cadence keys deliberately have no fixed default any more.
@@ -84,9 +84,9 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.graph_catalog_labels_refresh_ms == 900_000
 
     # The setting is inert unless it reaches the projection's policy, so pin
-    # both halves of the wiring: Config exports the key, and policy_options/1
+    # both halves of the wiring: Settings exports the key, and policy_options/1
     # maps it through rather than falling back to the default.
-    assert Keyword.has_key?(Config.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
+    assert Keyword.has_key?(Settings.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
 
     policy =
       Options.policy_options(
@@ -138,6 +138,158 @@ defmodule Aiur.Config.BuildOrderTest do
         ] do
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"build_order" => attrs})
       assert message =~ "build_order"
+    end
+  end
+
+  defp lane(attrs \\ %{}) do
+    Map.merge(%{"key" => "bugs", "label" => "Bugs", "hue" => 38, "icon" => "bug", "labels" => ["bug"]}, attrs)
+  end
+
+  defp parse_lanes(lanes), do: Schema.parse(%{"build_order" => %{"lanes" => lanes}})
+
+  test "defaults are the design's four lanes, in design order" do
+    assert {:ok, settings} = Schema.parse(%{})
+    # DESIGN-E8 GENERAL, design-source/assets/build.js:96.
+    assert Enum.map(settings.build_order.lanes, &{&1.key, &1.label, &1.hue, &1.icon, &1.labels}) == [
+             {"bugs", "Bugs", 38, "bug", ["bug"]},
+             {"design", "Design", 312, "pen", ["design"]},
+             {"infra", "Infra", 200, "server", ["refactor", "chore"]},
+             {"docs", "Docs", 100, "docs", ["documentation"]}
+           ]
+  end
+
+  test "defaults apply when the section exists without lanes" do
+    assert {:ok, settings} = Schema.parse(%{"build_order" => %{"graph_max_inflight" => 2}})
+    assert Enum.map(settings.build_order.lanes, & &1.key) == ~w(bugs design infra docs)
+    assert settings.build_order.graph_max_inflight == 2
+  end
+
+  test "lanes null means the defaults" do
+    assert {:ok, settings} = parse_lanes(nil)
+    assert Enum.map(settings.build_order.lanes, & &1.key) == ~w(bugs design infra docs)
+  end
+
+  test "guard: an empty list turns lanes off" do
+    assert {:ok, settings} = parse_lanes([])
+    assert settings.build_order.lanes == []
+  end
+
+  test "a configured list replaces the defaults and keeps its order" do
+    assert {:ok, settings} = parse_lanes([lane(%{"key" => "runtime", "labels" => []}), lane()])
+    assert Enum.map(settings.build_order.lanes, & &1.key) == ["runtime", "bugs"]
+    assert hd(settings.build_order.lanes).labels == []
+  end
+
+  test "an epic: matcher is refused with the parking reason" do
+    assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"labels" => ["  Epic:Bugs "]})])
+    assert message == "build_order.lanes.0.labels must not use the epic: prefix; IssueSync treats epic:* labels as deliberate parking and stops healing those tickets"
+  end
+
+  test "labels are trimmed, downcased and deduplicated" do
+    assert {:ok, settings} = parse_lanes([lane(%{"labels" => [" Bug ", "bug", "BUG", " Refactor "]})])
+    assert hd(settings.build_order.lanes).labels == ["bug", "refactor"]
+  end
+
+  test "a label in two lanes is refused" do
+    assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(), lane(%{"key" => "infra", "labels" => ["Bug"]})])
+    assert message == ~s(build_order.lanes label "bug" is in both bugs and infra; a label can place a ticket in one lane only)
+  end
+
+  test "duplicate keys are refused" do
+    assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(), lane(%{"labels" => []})])
+    assert message == ~s(build_order.lanes key "bugs" is used by more than one lane)
+  end
+
+  test "unsorted is reserved" do
+    assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"key" => "unsorted"})])
+    assert message == "build_order.lanes.0.key is reserved for the column of tickets with no lane"
+  end
+
+  test "key format" do
+    for key <- ["Bugs", "-x", "a b"] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"key" => key})])
+      assert message == "build_order.lanes.0.key must be a lowercase identifier (letters, digits, dash, underscore)"
+    end
+  end
+
+  test "hue bounds" do
+    for {hue, reason} <- [{-1, "must be greater than or equal to 0"}, {360, "must be less than 360"}, {1.5, "is invalid"}] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"hue" => hue})])
+      assert message == "build_order.lanes.0.hue " <> reason
+    end
+
+    for hue <- [0, 359] do
+      assert {:ok, settings} = parse_lanes([lane(%{"hue" => hue})])
+      assert hd(settings.build_order.lanes).hue == hue
+    end
+  end
+
+  test "lane icons accept Heroicons names and preserve legacy aliases" do
+    assert "book-open" in Schema.Lane.icons()
+    assert "bug" in Schema.Lane.icons()
+
+    for icon <- ["book-open", "bug", "pen", "server", "docs"] do
+      assert {:ok, settings} = parse_lanes([lane(%{"icon" => icon})])
+      assert hd(settings.build_order.lanes).icon == icon
+    end
+
+    assert {:error, {:invalid_workflow_config, "build_order.lanes.0.icon is invalid"}} =
+             parse_lanes([lane(%{"icon" => "not-a-heroicon"})])
+  end
+
+  test "required fields" do
+    for field <- ~w(key label hue icon) do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes([Map.delete(lane(), field)])
+      assert message == "build_order.lanes.0.#{field} can't be blank"
+    end
+  end
+
+  test "a blank label is refused" do
+    for labels <- [["  "], [nil]] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"labels" => labels})])
+      assert message == "build_order.lanes.0.labels must not contain a blank label"
+    end
+  end
+
+  test "label control characters are refused" do
+    for label <- ["Bugs" <> <<7>>, "Bugs" <> <<127>>] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(%{"label" => label})])
+      assert message == "build_order.lanes.0.label must not contain control characters"
+    end
+  end
+
+  test "invalid children retain their indexed errors despite duplicate keys" do
+    assert {:error, {:invalid_workflow_config, message}} = parse_lanes([lane(), lane(%{"icon" => "rocket"})])
+    assert message == "build_order.lanes.1.icon is invalid"
+  end
+
+  test "the deprecated general_epics key loads as lanes and warns with the new key" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, settings} = Schema.parse(%{"build_order" => %{"general_epics" => [lane(%{"key" => "runtime", "labels" => []})]}})
+        assert Enum.map(settings.build_order.lanes, & &1.key) == ["runtime"]
+      end)
+
+    assert log =~ "build_order.general_epics is deprecated"
+    assert log =~ "build_order.lanes"
+  end
+
+  test "setting both lane lists is a config error" do
+    both = %{"build_order" => %{"lanes" => [lane()], "general_epics" => [lane(%{"key" => "runtime"})]}}
+
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(both)
+    assert message =~ "build_order.lanes must be the only lane list"
+    assert message =~ "build_order.general_epics"
+  end
+
+  test "malformed lane lists and matcher arrays return config errors" do
+    for {value, expected} <- [
+          {"bugs", "build_order.lanes is invalid"},
+          {["bugs"], "build_order.lanes is invalid"},
+          {[lane(%{"labels" => [1]})], "build_order.lanes.0.labels is invalid"}
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} = parse_lanes(value)
+      assert message == expected
     end
   end
 end

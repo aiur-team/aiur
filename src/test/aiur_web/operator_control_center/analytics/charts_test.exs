@@ -69,6 +69,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert Charts.cpu_stack(m, MapSet.new()) =~ "<svg"
   end
 
+  test "unknown cap omits the ceiling and wasted-capacity band while rendering activity" do
+    model = %{model() | cap: nil}
+    assert model.cap == nil
+    svg = Charts.concurrency(model)
+    assert svg =~ ~s|stroke="var(--accent)"|
+    refute svg =~ "cap "
+    refute svg =~ ~s|stroke="var(--attention)" stroke-width="1.2"|
+    refute svg =~ ~s|fill="var(--blocking)"|
+  end
+
   test "concurrency renders the cap line and a wasted-capacity band" do
     m = model()
     svg = Charts.concurrency(m)
@@ -99,6 +109,53 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "oldest live wait"
     assert svg =~ "degraded_build"
     assert svg =~ ~s(data-time-brush="true")
+  end
+
+  test "time axes keep sub-minute ticks distinct and y-axis values monotonic" do
+    m = model()
+    start_ms = m.window.start_ms
+    short = Charts.with_exact_time_domain(m, {start_ms, start_ms + 20_000})
+    short_svg = Charts.cpu_stack(short, MapSet.new())
+    x_labels = Regex.scan(~r/<text[^>]*text-anchor="middle"[^>]*>([^<]+)<\/text>/, short_svg, capture: :all_but_first) |> List.flatten()
+
+    assert Enum.uniq(x_labels) == x_labels
+    assert Enum.any?(x_labels, &String.contains?(&1, "s"))
+
+    svg = Charts.cpu_stack(m, MapSet.new())
+
+    y_labels =
+      Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.flat_map(fn label ->
+        case Regex.run(~r/^(\d+(?:\.\d+)?)/, label) do
+          [_, value] -> [String.to_float(value <> if(String.contains?(value, "."), do: "", else: ".0"))]
+          nil -> []
+        end
+      end)
+
+    assert y_labels == Enum.sort(y_labels)
+  end
+
+  test "fleet pressure y-axis uses integer multiples of a nice step" do
+    for {maximum, expected} <- [{6, ["0", "2", "4", "6"]}, {3, ["0", "1", "2", "3"]}] do
+      svg =
+        Charts.fleet_pressure(%{
+          model()
+          | series: [
+              %{
+                t_ms: @t0,
+                fleet_agents_occupied: maximum,
+                fleet_agents_effective: maximum,
+                build_gate_capacity: maximum,
+                build_gate_active: maximum,
+                build_gate_queued: maximum
+              }
+            ]
+        })
+
+      y_labels = Regex.scan(~r/<text[^>]*text-anchor="end"[^>]*>([^<]+)<\/text>/, svg, capture: :all_but_first) |> List.flatten()
+      assert y_labels == expected
+    end
   end
 
   test "fleet pressure breaks the SVG path at a gap instead of drawing through it" do
@@ -267,14 +324,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
   end
 
   test "complexity breakdown renders counts, average wall-clock, and em dashes" do
-    m =
-      Map.put(model(), :complexity_breakdown, [
-        %{tier: 1, count: 2, average_wall_clock_ms: 90_000},
-        %{tier: 2, count: 0, average_wall_clock_ms: nil},
-        %{tier: 3, count: 1, average_wall_clock_ms: 3_600_000},
-        %{tier: 4, count: 0, average_wall_clock_ms: nil},
-        %{tier: 5, count: 0, average_wall_clock_ms: nil}
-      ])
+    tiers = [
+      %{tier: 1, count: 2, average_wall_clock_ms: 90_000},
+      %{tier: 2, count: 0, average_wall_clock_ms: nil},
+      %{tier: 3, count: 1, average_wall_clock_ms: 3_600_000},
+      %{tier: 4, count: 0, average_wall_clock_ms: nil},
+      %{tier: 5, count: 0, average_wall_clock_ms: nil}
+    ]
+
+    m = model() |> Map.put(:complexity_breakdown, tiers) |> Map.put(:complexity_count_ticks, Presenter.complexity_count_ticks(tiers))
 
     svg = Charts.complexity_breakdown(m)
     assert svg =~ "Complexity breakdown"
@@ -283,5 +341,52 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "—"
     assert svg =~ "var(--an-s1)"
     refute svg =~ "#3987e5"
+  end
+
+  test "complexity breakdown renders each integer axis label through its ceiling" do
+    for {maximum, expected} <- [
+          {1, ["0", "1"]},
+          {2, ["0", "1", "2"]},
+          {7, ["0", "2", "4", "6", "8"]},
+          {21, ["0", "5", "10", "15", "20", "25"]},
+          {40, ["0", "10", "20", "30", "40"]},
+          {41, ["0", "10", "20", "30", "40", "50"]}
+        ] do
+      tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: maximum, else: 0), average_wall_clock_ms: nil}
+      ticks = Presenter.complexity_count_ticks(tiers)
+      svg = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks})
+      document = Floki.parse_fragment!(svg)
+
+      labels =
+        document
+        |> Floki.find(~s|text[x="33"]|)
+        |> Enum.map(&Floki.text/1)
+
+      assert labels == expected
+    end
+  end
+
+  test "complexity chart scales the tallest bar to the rounded axis ceiling" do
+    tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: 41, else: 0), average_wall_clock_ms: nil}
+    ticks = Presenter.complexity_count_ticks(tiers)
+    document = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks}) |> Floki.parse_fragment!()
+
+    top_grid_y =
+      document
+      |> Floki.find(~s|line[x1="40"]|)
+      |> Enum.map(&(Floki.attribute(&1, "y1") |> hd() |> Float.parse() |> elem(0)))
+      |> Enum.min()
+
+    tallest_bar_y =
+      document
+      |> Floki.find(~s|rect[fill="var(--an-s1)"]|)
+      |> hd()
+      |> Floki.attribute("y")
+      |> hd()
+      |> Float.parse()
+      |> elem(0)
+
+    assert top_grid_y == 20.0
+    assert_in_delta tallest_bar_y, 20 + 168 * (1 - 41 / 50), 0.01
   end
 end

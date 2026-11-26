@@ -18,7 +18,7 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       assert CommentContext.events(issue, %{}) == []
     end
 
-    test "returns [] when issue_comments fetcher errors" do
+    test "incomplete issue comments are labelled in the agent digest" do
       issue = %Issue{identifier: "CC-01", id: "gid-cc01"}
 
       fetchers = %{
@@ -28,7 +28,29 @@ defmodule Aiur.AgentRunner.CommentContextTest do
         unaddressed_pr_review_thread_comments: fn _pr -> {:ok, []} end
       }
 
-      assert CommentContext.events(issue, fetchers) == []
+      events = CommentContext.events(issue, fetchers)
+      assert [%{source: :system, message: message}] = events
+      assert message =~ "comment context incomplete: "
+      assert EventsDigest.render(events, issue.identifier) =~ ~s(comment context incomplete: <external-content source="github">:not_found</external-content>)
+    end
+
+    test "incomplete PR comments are labelled in the agent digest" do
+      issue = %Issue{identifier: "CC-01", id: "gid-cc01"}
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-01" -> {:ok, []}
+          7 -> {:error, :pagination_unexpected}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+        pr_review_comments: fn _ -> {:error, {:github, :timeout, %{reason: :timeout}}} end
+      }
+
+      events = CommentContext.events(issue, fetchers)
+      assert length(events) == 2
+      digest = EventsDigest.render(events, issue.identifier)
+      assert digest =~ ~s(comment context incomplete: <external-content source="github">:pagination_unexpected</external-content>)
+      assert digest =~ ~s(comment context incomplete: <external-content source="github">{:github, :timeout)
     end
 
     test "excludes workpad comments and returns post-cutoff comments" do
@@ -62,6 +84,24 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       assert event.topic == "ticket.CC-02.issue.commented"
       summary = get_in(event, [:comment, "body"]) || get_in(event, [:comment, :body]) || ""
       assert summary =~ "a follow-up comment"
+    end
+
+    test "retains PR conversation feedback older than a later issue workpad edit" do
+      issue = %Issue{identifier: "CC-PR-COMMENT", id: "gid-cc-pr-comment"}
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2026-10-20T16:45:00Z", authoritative: false}
+      feedback = %{"id" => 2, "body" => "Blocking: fix the failing tests before merge", "created_at" => "2026-10-20T16:41:00Z", authoritative: true}
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-PR-COMMENT" -> {:ok, [workpad]}
+          7 -> {:ok, [feedback]}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end
+      }
+
+      assert [%{id: 2, topic: "ticket.CC-PR-COMMENT.issue.commented"}] = CommentContext.events(issue, fetchers)
     end
 
     # A quota hold leaves CODEOWNER authority *unknown*, which classification
@@ -380,7 +420,9 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       }
 
       events = CommentContext.events(issue, fetchers)
-      assert Enum.map(events, & &1.id) == [1]
+      assert [%{id: 1}, %{source: :system, message: message}] = events
+      assert message =~ "comment context incomplete: "
+      assert message =~ ":boom"
     end
   end
 

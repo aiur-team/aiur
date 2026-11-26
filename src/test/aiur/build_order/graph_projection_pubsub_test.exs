@@ -22,13 +22,7 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
   alias Aiur.TrackerIdentity
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   test "catalog and selected subscriptions cannot miss a reset during topic lookup" do

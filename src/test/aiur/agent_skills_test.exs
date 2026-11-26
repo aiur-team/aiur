@@ -12,7 +12,7 @@ defmodule Aiur.AgentSkillsTest do
   setup do
     tmp = Aiur.TestSupport.tmp_root!("aiur_skills")
     File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, workspace: tmp}
   end
 
@@ -29,6 +29,18 @@ defmodule Aiur.AgentSkillsTest do
     assert installed_dev_loop =~ "Never `cd` into a repository to run Git"
     assert installed_dev_loop =~ "`git -C \"$workspace\"`"
     assert installed_dev_loop =~ "This is a cross-skill override"
+  end
+
+  test "exposes installed skills at every registered backend path", %{workspace: ws} do
+    assert :ok = AgentSkills.install(ws)
+
+    for %{path: path} <- Aiur.CodingAgent.skill_install_locations(),
+        skill <- AgentSkills.issue_worker_skills() do
+      destination = Path.join([ws, path, skill, "SKILL.md"])
+      assert File.regular?(destination), "missing #{path}/#{skill}/SKILL.md"
+      canonical = Path.join([ws, ".claude/skills", skill, "SKILL.md"])
+      assert File.read!(destination) == File.read!(canonical)
+    end
   end
 
   test "ships the pinned Compound Engineering dependency into every workspace", %{workspace: ws} do
@@ -71,6 +83,32 @@ defmodule Aiur.AgentSkillsTest do
     assert :crypto.hash(:sha256, license) |> Base.encode16(case: :lower) == "61d89de7646effdaba2d0a4ab7bd0eba60b4094b83efe5bc73c7940e43e93fc6"
     assert license =~ "MIT License"
     assert license =~ "Copyright (c) 2025 Every"
+  end
+
+  test "skills that instruct direct PR merging cannot be model-invoked" do
+    repo_root = Path.expand("../../..", __DIR__)
+    skills_root = Path.join(repo_root, ".claude/skills")
+
+    direct_merge_skills =
+      for skill_file <- Path.wildcard(Path.join(skills_root, "*/SKILL.md")),
+          content = File.read!(skill_file),
+          skill_name = skill_file |> Path.dirname() |> Path.basename(),
+          not (skill_name == "aiur-run" or String.starts_with?(skill_name, "aiur-run-")),
+          String.contains?(content, "gh pr merge"),
+          do: {skill_file, content}
+
+    assert direct_merge_skills != [], "expected at least one skill describing direct PR merging"
+
+    for {skill_file, content} <- direct_merge_skills do
+      frontmatter =
+        case String.split(content, "---", parts: 3) do
+          ["", metadata, _body] -> metadata
+          _ -> ""
+        end
+
+      assert Regex.match?(~r/^disable-model-invocation:\s*true\s*$/m, frontmatter),
+             "#{Path.relative_to(skill_file, repo_root)} instructs direct PR merging but is model-invocable"
+    end
   end
 
   test "installs design-import auxiliary agent metadata", %{workspace: ws} do
@@ -131,7 +169,7 @@ defmodule Aiur.AgentSkillsTest do
 
   test "refuses skill roots redirected outside the workspace", %{workspace: ws} do
     external = Aiur.TestSupport.tmp_root!("aiur_skills_external")
-    on_exit(fn -> File.rm_rf!(external) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(external) end)
     File.mkdir_p!(external)
     File.mkdir_p!(Path.join(ws, ".claude"))
     File.ln_s!(external, Path.join([ws, ".claude", "skills"]))
@@ -227,7 +265,7 @@ defmodule Aiur.AgentSkillsTest do
 
   test "does not write exclusions through an external gitdir", %{workspace: ws} do
     git_dir = Aiur.TestSupport.tmp_root!("aiur_skills_gitdir")
-    on_exit(fn -> File.rm_rf!(git_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(git_dir) end)
 
     assert {_output, 0} =
              System.cmd("git", ["init", "--quiet", "--separate-git-dir=#{git_dir}", ws], stderr_to_stdout: true)
@@ -243,7 +281,7 @@ defmodule Aiur.AgentSkillsTest do
   test "remote install does not write exclusions through an external gitdir", %{workspace: ws} do
     remote_workspace = Path.join(ws, "remote linked workspace")
     git_dir = Aiur.TestSupport.tmp_root!("aiur_remote_skills_gitdir")
-    on_exit(fn -> File.rm_rf!(git_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(git_dir) end)
 
     File.mkdir_p!(remote_workspace)
 
@@ -286,6 +324,125 @@ defmodule Aiur.AgentSkillsTest do
 
     assert File.read!(Path.join(own, "SKILL.md")) == "REPO OWN COPY\n",
            "install overwrote the target repo's own aiur-agent skill"
+  end
+
+  test "links repository-shipped Claude skills into Codex without replacing tracked entries", %{workspace: ws} do
+    repo_skill = Path.join([ws, ".claude", "skills", "repo-helper"])
+    tracked = Path.join([ws, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+    File.mkdir_p!(Path.dirname(tracked))
+    File.write!(tracked, "tracked entry\n")
+
+    assert :ok = AgentSkills.install(ws)
+
+    assert File.read!(tracked) == "tracked entry\n"
+    assert File.read!(Path.join([ws, ".claude", "skills", "repo-helper", "SKILL.md"])) == "repo skill\n"
+  end
+
+  test "remote install links repository-shipped Claude skills without replacing tracked entries", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote repo")
+    repo_skill = Path.join([remote_workspace, ".claude", "skills", "repo-helper"])
+    tracked = Path.join([remote_workspace, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+    File.mkdir_p!(Path.dirname(tracked))
+    File.write!(tracked, "tracked entry\n")
+    script_path = Path.join(ws, "remote-repo-skills.sh")
+    File.write!(script_path, AgentSkills.remote_install_script(remote_workspace))
+
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+
+    assert File.read!(tracked) == "tracked entry\n"
+    assert File.read!(Path.join([remote_workspace, ".claude", "skills", "repo-helper", "SKILL.md"])) == "repo skill\n"
+  end
+
+  test "links an untracked repository skill locally", %{workspace: ws} do
+    repo_skill = Path.join([ws, ".claude", "skills", "repo-helper"])
+    codex_skill = Path.join([ws, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+
+    assert :ok = AgentSkills.install(ws)
+
+    assert {:ok, "../../.claude/skills/repo-helper"} = File.read_link(codex_skill)
+    assert File.read!(Path.join(codex_skill, "SKILL.md")) == "repo skill\n"
+  end
+
+  test "remote install links an untracked repository skill", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote repo skill")
+    repo_skill = Path.join([remote_workspace, ".claude", "skills", "repo-helper"])
+    codex_skill = Path.join([remote_workspace, ".codex", "skills", "repo-helper"])
+    File.mkdir_p!(repo_skill)
+    File.write!(Path.join(repo_skill, "SKILL.md"), "repo skill\n")
+    script_path = Path.join(ws, "remote-repo-skill.sh")
+    File.write!(script_path, AgentSkills.remote_install_script(remote_workspace))
+
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+
+    assert {:ok, "../../.claude/skills/repo-helper"} = File.read_link(codex_skill)
+    assert File.read!(Path.join(codex_skill, "SKILL.md")) == "repo skill\n"
+  end
+
+  test "local install skips repo skills containing symlinks", %{workspace: ws} do
+    external = Aiur.TestSupport.tmp_root!("aiur_external_repo_skills")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(external) end)
+    source = Path.join([ws, ".claude", "skills"])
+
+    outside_dir = Path.join(external, "outside-dir")
+    File.mkdir_p!(outside_dir)
+    File.write!(Path.join(outside_dir, "SKILL.md"), "outside directory skill\n")
+    File.mkdir_p!(source)
+    File.ln_s!(outside_dir, Path.join(source, "linked-dir"))
+
+    symlink_file_dir = Path.join(source, "linked-file")
+    File.mkdir_p!(symlink_file_dir)
+    outside_file = Path.join(external, "outside-skill.md")
+    File.write!(outside_file, "outside file skill\n")
+    File.ln_s!(outside_file, Path.join(symlink_file_dir, "SKILL.md"))
+
+    nested_dir = Path.join([source, "nested-link", "references"])
+    File.mkdir_p!(nested_dir)
+    File.write!(Path.join([source, "nested-link", "SKILL.md"]), "nested link skill\n")
+    File.ln_s!(outside_file, Path.join(nested_dir, "reference.md"))
+
+    assert :ok = AgentSkills.install(ws)
+
+    for skill <- ~w(linked-dir linked-file nested-link) do
+      assert {:error, :enoent} = File.lstat(Path.join([ws, ".codex", "skills", skill]))
+    end
+  end
+
+  test "remote install skips repo skills containing symlinks", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote unsafe skills")
+    external = Aiur.TestSupport.tmp_root!("aiur_remote_external_repo_skills")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(external) end)
+    source = Path.join([remote_workspace, ".claude", "skills"])
+
+    outside_dir = Path.join(external, "outside-dir")
+    File.mkdir_p!(outside_dir)
+    File.write!(Path.join(outside_dir, "SKILL.md"), "outside directory skill\n")
+    File.mkdir_p!(source)
+    File.ln_s!(outside_dir, Path.join(source, "linked-dir"))
+
+    symlink_file_dir = Path.join(source, "linked-file")
+    File.mkdir_p!(symlink_file_dir)
+    outside_file = Path.join(external, "outside-skill.md")
+    File.write!(outside_file, "outside file skill\n")
+    File.ln_s!(outside_file, Path.join(symlink_file_dir, "SKILL.md"))
+
+    nested_dir = Path.join([source, "nested-link", "references"])
+    File.mkdir_p!(nested_dir)
+    File.write!(Path.join([source, "nested-link", "SKILL.md"]), "nested link skill\n")
+    File.ln_s!(outside_file, Path.join(nested_dir, "reference.md"))
+
+    script_path = Path.join(ws, "remote-unsafe-skills.sh")
+    File.write!(script_path, AgentSkills.remote_install_script(remote_workspace))
+    assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+
+    for skill <- ~w(linked-dir linked-file nested-link) do
+      assert {:error, :enoent} = File.lstat(Path.join([remote_workspace, ".codex", "skills", skill]))
+    end
   end
 
   test "is best-effort: a failed file operation returns :ok without raising", %{workspace: ws} do

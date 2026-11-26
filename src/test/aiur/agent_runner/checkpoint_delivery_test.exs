@@ -335,6 +335,18 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       end
     end
 
+    test "classification comes from the registry entry, not the backend name" do
+      item = %{category: :operator_message, id: 45, body: %{text: "registry recovery"}}
+      orch = start_fake(checkpoint: {:ok, item})
+      handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "muse")
+
+      assert {:deliver_text, "registry recovery", _success, failure} = handler.(:checkpoint)
+
+      assert :ok = failure.({:turn_start_failed, :port_closed})
+      assert_received {:restore, 45}
+      refute_received {:mark_failed, 45, _reason}
+    end
+
     test "a Claude checkpoint transport failure still marks the item failed" do
       item = %{category: :operator_message, id: 44, body: %{text: "do not replay"}}
       orch = start_fake(checkpoint: {:ok, item})

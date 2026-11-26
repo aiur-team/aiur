@@ -1,0 +1,269 @@
+Code.require_file("../../support/build_home/queue_read_model_fixture.ex", __DIR__)
+
+defmodule AiurWeb.Build.PayloadTest do
+  use ExUnit.Case, async: true
+  alias Aiur.Test.BuildHome.QueueReadModelFixture, as: FixtureQueue
+  alias Aiur.TestSupport.BuildHome.FixtureSource
+  alias AiurWeb.Build.{Payload, PlannedRows, Read}
+  @dir Path.expand("../../fixtures/build_home", __DIR__)
+
+  test "shared presentation metadata stays out while progress freshness is carried to the browser" do
+    row = fixture()["sections"]["now"] |> hd() |> Map.new(fn {key, value} -> {String.to_atom(key), value} end)
+    metadata = %{general_epics: ["runtime"], priority: 1, lane: "runtime", progress_freshness: "stale", dependency_ready: false}
+    data = put_in(fixture(), ["sections", "now"], [Map.merge(row, metadata)])
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Payload.validate(snapshot) == :ok
+    [wire_row] = snapshot["sections"]["now"]
+    assert wire_row["progress_freshness"] == "stale"
+    refute Map.has_key?(wire_row, "general_epics")
+    refute Map.has_key?(wire_row, "priority")
+    refute Map.has_key?(wire_row, "lane")
+    assert wire_row["pct"] == row.pct
+  end
+
+  test "rows preserve progress freshness and accept an optional observation timestamp" do
+    data = fixture()
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_observed_at"], 1_791_408_000_000)
+    data = put_in(data, ["sections", "now", Access.at(0), "progress_freshness"], "stale")
+    assert Payload.validate(Payload.snapshot(fixture(), "epoch", 1)) == :ok
+    snapshot = Payload.snapshot(data, "epoch", 1)
+    assert Payload.validate(snapshot) == :ok
+    assert hd(snapshot["sections"]["now"])["progress_freshness"] == "stale"
+  end
+
+  test "fixtures reach the full strict schema (future fixture guard)" do
+    for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
+      {:ok, data} = FixtureSource.full(dataset: name)
+      assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
+    end
+
+    hostile = @dir |> Path.join("hostile.json") |> File.read!() |> Jason.decode!()
+    assert Payload.validate(hostile["snapshot"]) == :ok
+  end
+
+  test "read failures retain their cause in valid error envelopes" do
+    for reason <- [:timeout, :index_not_running, :read_failed, :epic_config_unavailable, :settings_loading, :invalid_data] do
+      assert Payload.validate(Payload.error(reason)) == :ok
+    end
+  end
+
+  test "snapshot stores each rendered icon once in the icon catalog" do
+    svg = "<svg><path/></svg>"
+
+    data =
+      fixture()
+      |> put_in(["lanes", "bugs", "icon"], "home")
+      |> put_in(["lanes", "bugs", "svg"], svg)
+      |> put_in(["features", "khala", "icon"], "home")
+      |> put_in(["features", "khala", "svg"], svg)
+
+    snapshot = Payload.snapshot(data, "E", 1)
+
+    assert snapshot["icons"] == %{"home" => svg}
+    refute Map.has_key?(snapshot["lanes"]["bugs"], "svg")
+    refute Map.has_key?(snapshot["features"]["khala"], "svg")
+  end
+
+  test "snapshot compacts feature progress metadata already carried by its lane" do
+    metadata = %{"icon" => "cpu", "summary" => "Scheduler and memory work", "wave" => "0b"}
+    progress = Map.merge(metadata, %{"feature" => "kernel", "label" => "Kernel · core", "closed" => 2, "open" => 1, "ci_wait" => 0, "unpublished" => 0, "total" => 3})
+
+    data =
+      fixture()
+      |> put_in(["lanes", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
+      |> put_in(["features", "kernel"], %{"key" => "kernel", "label" => "Kernel", "icon" => "cpu", "epics" => ["f-kernel-core"]})
+      |> put_in(["feature_progress"], %{"features" => %{"f-kernel-core" => progress}, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => 0, "reason" => nil})
+
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Map.take(snapshot["lanes"]["f-kernel-core"], ~w(icon summary wave)) == metadata
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "icon")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "summary")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "wave")
+  end
+
+  test "runtime reason states remain valid in the Now wire payload" do
+    data = fixture()
+    row = get_in(data, ["sections", "now", Access.at(0)])
+    data = put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "paused-usage-limit")
+
+    assert is_map(row)
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
+  end
+
+  for {name, path, value, expected} <- [
+        {"pct is numeric", ["sections", "now", 0, "pct"], "50", "sections.now.0.pct"},
+        {"effort is an enum", ["sections", "now", 0, "agent", "effort"], "<b>", "sections.now.0.agent.effort"},
+        {"hue is numeric", ["lanes", "bugs", "hue"], "1);x", "lanes.bugs.hue"},
+        {"cue is plan-only", ["sections", "nq", 0, "cue"], %{}, "sections.nq.0.cue"},
+        {"section is an enum", ["sections", "now", 0, "sec"], "x", "sections.now.0.sec"},
+        {"history requires dated end", ["sections", "hist", 0, "end"], nil, "sections.hist.0.end"},
+        {"wave is positive", ["sections", "plan", 0, "wave"], 0, "sections.plan.0.wave"},
+        {"order has epic references", ["order", 0], "missing", "order.0"},
+        {"unknown row keys fail", ["sections", "now", 0, "colour"], "red", "sections.now.0.colour"}
+      ] do
+    test "validator: #{name}" do
+      path = Enum.map(unquote(Macro.escape(path)), fn key -> if is_integer(key), do: Access.at(key), else: key end)
+      data = put_in(fixture(), path, unquote(Macro.escape(value)))
+      data = if unquote(name) == "section is an enum", do: Payload.diff(%{now: data["now"], upsert: [hd(data["sections"]["now"])], remove: [], set: %{}}, "E", 1, nil), else: data
+      assert {:error, errors} = Payload.validate(data)
+      assert Enum.any?(errors, fn {path, _reason} -> path == if(unquote(name) == "section is an enum", do: "upsert.0.sec", else: unquote(expected)) end)
+    end
+  end
+
+  test "planned row with unobserved GitHub blockers keeps the snapshot valid (#7273)" do
+    # Shape of ReadModel.native_prerequisites/2 for {:unknown, :blockers_not_observed}.
+    unobserved = %{number: nil, verdict: :unknown, source: :github, trigger: nil, stage: nil, optimistic: false, description: "GitHub dependencies unknown (blockers_not_observed)"}
+    show = FixtureQueue.show([FixtureQueue.item(607, state: :ready, verdict: :ready, prerequisites: [unobserved, FixtureQueue.edge(597, :satisfied)])])
+    [row] = PlannedRows.build(show, {:ok, %{rows: %{}}}, []).rows
+    assert row.deps == ["597"] and is_nil(row.dependency_ready)
+
+    data = update_in(fixture(), ["sections", "plan", Access.at(0)], &Map.merge(&1, %{"deps" => row.deps, "dep_states" => Map.new(row.deps, fn id -> {id, "unknown"} end)}))
+    assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
+  end
+
+  test "planned unknown readiness is a boolean in the payload" do
+    for unknown <- [true, false] do
+      data = put_in(fixture(), ["sections", "plan", Access.at(0), "cue", "unknown"], unknown)
+      assert Payload.validate(data) == :ok
+    end
+
+    data = put_in(fixture(), ["sections", "plan", Access.at(0), "cue", "unknown"], "unknown")
+    assert {:error, errors} = Payload.validate(data)
+    assert {"sections.plan.0.cue.unknown", :type} in errors
+  end
+
+  test "counts must cover order" do
+    data = fixture() |> update_in(["counts"], &Map.delete(&1, "bugs"))
+    assert {:error, errors} = Payload.validate(data)
+    assert {"counts.bugs", :missing} in errors
+  end
+
+  test "feature progress is keyed by a feature-local lane and preserves unknown counts" do
+    progress = %{
+      "f-pag-api" => %{
+        "feature" => "pag",
+        "label" => "Pagination · API",
+        "closed" => nil,
+        "open" => 1,
+        "ci_wait" => nil,
+        "unpublished" => 2,
+        "total" => nil,
+        "observed_at" => 1_791_408_000_000,
+        "wave" => "0b",
+        "summary" => "API work",
+        "icon" => nil,
+        "code" => "MP-E8",
+        "plan_version" => "v1",
+        "extras" => nil,
+        "root_number" => 3042,
+        "root_title" => "Home / Build page",
+        "start_date" => "2026-10-01",
+        "reason" => "states unavailable · CI state unknown · planned count unavailable"
+      }
+    }
+
+    data = put_in(fixture(), ["feature_progress"], %{"features" => progress, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => nil, "reason" => nil})
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["feature_progress", "features"], %{"pag" => progress["f-pag-api"]})
+    assert {:error, errors} = Payload.validate(data)
+    assert {"feature_progress.features.pag", :reference} in errors
+  end
+
+  test "feature progress carries epic rows with their own merged and total" do
+    epic = %{"key" => "v1-launch", "label" => "V1 launch", "merged" => 3, "total" => 5, "features" => ["pag", "mp-e2"]}
+    data = put_in(fixture(), ["feature_progress", "epics"], [epic])
+    assert Payload.validate(data) == :ok
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [%{epic | "total" => 0}]) |> Payload.validate()
+    assert {"feature_progress.epics.0.total", :type} in errors
+
+    assert {:error, errors} = data |> put_in(["feature_progress", "epics"], [Map.delete(epic, "features")]) |> Payload.validate()
+    assert {"feature_progress.epics.0.features", :missing} in errors
+  end
+
+  test "every source must be present" do
+    for key <- ~w(history features queue agents index open_tickets) do
+      data = fixture() |> update_in(["sources"], &Map.delete(&1, key))
+      assert {:error, errors} = Payload.validate(data)
+      assert {"sources.#{key}", :missing} in errors
+    end
+
+    data = fixture() |> put_in(["sources", "open_tickets", "state"], "unsupported") |> put_in(["sources", "open_tickets", "truncated"], true)
+    assert Payload.validate(data) == :ok
+  end
+
+  test "locked usage cannot carry values" do
+    data = Map.put(fixture(), "usage", Map.put(Read.locked_usage(), "providers", []))
+    assert {:error, errors} = Payload.validate(data)
+    assert {"usage.providers", :unknown} in errors
+  end
+
+  test "row fetches missing values rather than defaulting" do
+    row = fixture()["sections"]["now"] |> hd() |> Map.delete("pct")
+    assert Payload.row(row) == {:error, {:missing, "pct"}}
+    assert Payload.row(Map.new(row, fn {k, v} -> {String.to_existing_atom(k), v} end)) == {:error, {:missing, :pct}}
+  end
+
+  test "unknown stays null and raw strings stay raw" do
+    data = fixture() |> put_in(["sections", "now", Access.at(0), "pct"], nil) |> Map.put("counts", nil)
+    data = data |> put_in(["sections", "now", Access.at(0), "est"], nil) |> put_in(["sections", "now", Access.at(0), "start"], nil)
+    data = put_in(data, ["sections", "now", Access.at(0), "start_src"], "unknown")
+    data = put_in(data, ["sections", "now", Access.at(0), "title"], "A & B")
+    json = Payload.snapshot(data, "E", 1) |> Jason.encode!() |> Jason.decode!()
+    assert Payload.validate(json) == :ok
+    assert json["counts"] == nil
+    row = hd(json["sections"]["now"])
+    assert Map.take(row, ~w(pct est start title)) == %{"pct" => nil, "est" => nil, "start" => nil, "title" => "A & B"}
+  end
+
+  test "scrub replaces invalid UTF-8 without joining valid characters" do
+    hostile = @dir |> Path.join("hostile.json") |> File.read!() |> Jason.decode!()
+    data = put_in(hostile["snapshot"], ["sections", "now", Access.at(0), "title"], Base.decode64!(hostile["invalid_title_base64"]))
+    encoded = Payload.snapshot(data, "E", 0) |> Jason.encode!() |> Jason.decode!()
+    assert hd(encoded["sections"]["now"])["title"] == "A�B"
+  end
+
+  test "window filter drops older history and merges socket-specific metadata" do
+    data = fixture()
+    [older, newer | _] = data["sections"]["hist"] |> Enum.sort_by(& &1["end"])
+    history = %{data["history"] | "from" => newer["end"]}
+    message = Payload.diff(%{now: data["now"], upsert: [older, newer], remove: [], set: %{history_meta: %{total: 999, undated: 1}}}, "E", 2, history)
+    assert message["upsert"] == [newer]
+    assert message["set"] == %{"history" => %{history | "total" => 999, "undated" => 1}}
+    assert Payload.validate(message) == :ok
+  end
+
+  test "source index generation never reaches the wire" do
+    message = fixture() |> Map.put("index_generation", 6) |> Payload.snapshot("E", 0)
+    refute Map.has_key?(message, "index_generation")
+  end
+
+  test "future regression guard: window budgets and full-index mean row size" do
+    {bytes, rows} =
+      Enum.reduce(~w(live dense newrepo noqueue offline), {0, 0}, fn name, {bytes, rows} ->
+        {:ok, data} = FixtureSource.full(dataset: name)
+        all = data["sections"] |> Map.values() |> List.flatten()
+        {bytes + Enum.sum(Enum.map(all, &Payload.bytes/1)), rows + length(all)}
+      end)
+
+    IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
+    # Required nullable src/was fields add 22 bytes: frozen census 512.98 -> 534.98 bytes per row.
+    assert bytes / rows <= 547
+
+    for name <- ~w(live dense) do
+      {:ok, data} = FixtureSource.snapshot(dataset: name)
+      budgeted = put_in(data, ["sections", "nq"], [])
+      bytes = Payload.bytes(Payload.snapshot(budgeted, "fixture", 0))
+      IO.puts("build snapshot dataset=#{name} bytes_without_nq=#{bytes} full_window_bytes=#{Payload.bytes(data)}")
+      assert bytes <= 65_536
+    end
+  end
+
+  defp fixture do
+    {:ok, data} = FixtureSource.full(dataset: "live")
+    data
+  end
+end

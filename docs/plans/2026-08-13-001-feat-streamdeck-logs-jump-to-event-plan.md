@@ -17,7 +17,7 @@ the newest entry; dial A still scrolls freely from wherever the jump landed.
 The strip must render the daemon's three transcript shapes distinguishably.
 
 Spec: `docs/design/streamdeck/README.md` lines 80-99 and
-`docs/design/streamdeck/streamdeck.design.js` (`sdRenderLogKeys`,
+`docs/design/streamdeck/streamdeck.design.2-cmd-logs.js` (`sdRenderLogKeys`,
 `sdBuildLogStrip`, `sdBuildFlat`, `sdEvStart`, `sdChatIdx`).
 
 ## Problem Frame

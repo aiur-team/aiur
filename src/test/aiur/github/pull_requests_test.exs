@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.PullRequestsTest do
 
   alias Aiur.GitHub.PullRequests
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -45,13 +45,51 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  test "returns all 150 changed paths across pages" do
+    paths = for id <- 1..150, do: "lib/file_#{id}.ex"
+
+    request_fun = fn %{url: url, caller: "pull_request_changed_paths"} ->
+      if String.contains?(url, "page=2") do
+        {:ok, %{status: 200, body: Enum.map(Enum.drop(paths, 100), &%{"filename" => &1})}}
+      else
+        {:ok, %{status: 200, body: Enum.map(Enum.take(paths, 100), &%{"filename" => &1}), headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+      end
+    end
+
+    assert {:ok, ^paths} = PullRequests.fetch_pull_request_changed_paths(42, request_fun: request_fun)
+  end
+
+  test "returns a later-page error without partial changed paths" do
+    request_fun = fn %{url: url} ->
+      if String.contains?(url, "page=2") do
+        {:error, :timeout}
+      else
+        {:ok, %{status: 200, body: [%{"filename" => "lib/foo.ex"}], headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+      end
+    end
+
+    assert {:error, {:github, :timeout, %{reason: :timeout}}} = PullRequests.fetch_pull_request_changed_paths(42, request_fun: request_fun)
+  end
+
+  test "returns review comments from every page" do
+    request_fun = fn %{url: url, caller: "pull_request_review_comments"} ->
+      if String.contains?(url, "page=2") do
+        {:ok, %{status: 200, body: [%{"id" => 2}]}}
+      else
+        {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"link", ~s(<#{url}&page=2>; rel="next")}]}}
+      end
+    end
+
+    assert {:ok, [%{"id" => 1}, %{"id" => 2}]} = PullRequests.fetch_pull_request_review_comments(42, request_fun: request_fun)
+  end
+
   describe "fetch_classified_pr_reviews/2" do
     test "strictly revalidates the formal review list and classifies its author" do
       repo_root = Aiur.TestSupport.tmp_root!("formal-reviews-codeowners")
       codeowners = Path.join(repo_root, ".github/CODEOWNERS")
       File.mkdir_p!(Path.dirname(codeowners))
       File.write!(codeowners, "* @owner\n")
-      on_exit(fn -> File.rm_rf!(repo_root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(repo_root) end)
 
       review = %{
         "id" => 92_794,
@@ -361,6 +399,21 @@ defmodule Aiur.GitHub.PullRequestsTest do
                  before_base_repair_fun: fn -> :ok end
                )
     end
+  end
+
+  test "updates a pull request body through the metered daemon transport" do
+    body = "Closes #5794\n"
+
+    request_fun = fn request ->
+      assert request.method == :patch
+      assert request.url =~ "/repos/owner/repo/pulls/42"
+      assert request.caller == "agent_handoff_body"
+      assert request.token == "test-gh-token"
+      assert request.body == %{"body" => body}
+      {:ok, %{status: 200, body: %{"number" => 42, "body" => body}}}
+    end
+
+    assert {:ok, %{"number" => 42, "body" => ^body}} = PullRequests.update_body(42, body, request_fun: request_fun)
   end
 
   describe "pull_request_has_label?/2" do

@@ -1,5 +1,6 @@
 defmodule Aiur.CodingAgentCheckpointTest do
   use Aiur.TestSupport
+  @moduletag :r7_characterization
 
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.CodingAgent, as: CodexAgent
@@ -74,14 +75,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
       File.mkdir_p!(workspace)
       File.mkdir_p!(test_root)
-      File.write!(binary, codex_idle_status_script())
+      File.write!(binary, String.replace(codex_idle_status_script(), "__TRACE_FILE__", trace_file))
       File.chmod!(binary, 0o755)
-
-      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
-
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CODEX_TRACE")
-      end)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         agent_kind: "codex",
@@ -122,14 +117,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
       File.mkdir_p!(workspace)
       File.mkdir_p!(test_root)
-      File.write!(binary, codex_prestart_idle_status_script())
+      File.write!(binary, String.replace(codex_prestart_idle_status_script(), "__TRACE_FILE__", trace_file))
       File.chmod!(binary, 0o755)
-
-      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
-
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CODEX_TRACE")
-      end)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         agent_kind: "codex",
@@ -175,10 +164,10 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp with_checkpoint_workspace(identifier, backend, script, body) do
     test_root = Aiur.TestSupport.tmp_root!("aiur-checkpoint-#{identifier}")
 
-    {agent, trace_env} =
+    agent =
       case backend do
-        :codex -> {CodexAgent, "SYMP_TEST_CODEX_TRACE"}
-        :claude -> {ClaudeAgent, "SYMP_TEST_CLAUDE_TRACE"}
+        :codex -> CodexAgent
+        :claude -> ClaudeAgent
       end
 
     try do
@@ -188,11 +177,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
 
       File.mkdir_p!(workspace)
       File.mkdir_p!(test_root)
-      File.write!(binary, script)
+      File.write!(binary, String.replace(script, "__TRACE_FILE__", trace_file))
       File.chmod!(binary, 0o755)
-
-      System.put_env(trace_env, trace_file)
-      on_exit(fn -> System.delete_env(trace_env) end)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         agent_kind: Atom.to_string(backend),
@@ -303,7 +289,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp codex_single_writer_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-single-writer.trace}"
+    trace_file="__TRACE_FILE__"
     first_turn_started=0
 
     while IFS= read -r line; do
@@ -339,7 +325,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp claude_single_writer_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CLAUDE_TRACE:-/tmp/claude-single-writer.trace}"
+    trace_file="__TRACE_FILE__"
     first_turn_started=0
 
     while IFS= read -r line; do
@@ -376,7 +362,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp codex_interrupt_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-interrupt.trace}"
+    trace_file="__TRACE_FILE__"
 
     while IFS= read -r line; do
       printf 'JSON:%s\\n' "$line" >> "$trace_file"
@@ -408,7 +394,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp claude_interrupt_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CLAUDE_TRACE:-/tmp/claude-interrupt.trace}"
+    trace_file="__TRACE_FILE__"
 
     while IFS= read -r line; do
       printf 'JSON:%s\\n' "$line" >> "$trace_file"
@@ -438,7 +424,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp codex_idle_status_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-idle-status.trace}"
+    trace_file="__TRACE_FILE__"
 
     while IFS= read -r line; do
       printf 'JSON:%s\\n' "$line" >> "$trace_file"
@@ -467,7 +453,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   defp codex_prestart_idle_status_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-prestart-idle-status.trace}"
+    trace_file="__TRACE_FILE__"
 
     while IFS= read -r line; do
       printf 'JSON:%s\\n' "$line" >> "$trace_file"

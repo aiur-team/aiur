@@ -250,21 +250,28 @@ defmodule Aiur.GitHub.AppIdentityTest do
     end
 
     test "drops events authored by the App bot" do
-      :ok = Exchange.subscribe("ticket.42.#")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.#"
+      ticket_topic1 = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
-      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{}, actor: @app_bot_login)
+      assert :filtered = Publisher.publish(ticket_topic1, %{}, actor: @app_bot_login)
       refute_receive {:event, _}, 100
     end
 
     test "the [bot] suffix survives the case-insensitive comparison" do
-      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{}, actor: "Aiur-Daemon[bot]")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      assert :filtered = Publisher.publish(ticket_topic, %{}, actor: "Aiur-Daemon[bot]")
     end
 
     test "a human actor still publishes" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
-      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{}, actor: "some-human")
-      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      assert {:ok, _id, _count} = Publisher.publish(ticket_topic, %{}, actor: "some-human")
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
   end
 
@@ -276,9 +283,12 @@ defmodule Aiur.GitHub.AppIdentityTest do
     end
 
     test "drops events the daemon authored under the App bot" do
-      :ok = Exchange.subscribe("ticket.42.#")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.#"
+      ticket_topic1 = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
-      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{}, actor: @app_bot_login)
+      assert :filtered = Publisher.publish(ticket_topic1, %{}, actor: @app_bot_login)
       refute_receive {:event, _}, 100
     end
 
@@ -286,10 +296,12 @@ defmodule Aiur.GitHub.AppIdentityTest do
     # the comment and the label an agent made in order to advance the ticket.
     # Suppressing it as "our own" would stall every ticket the fleet works on.
     test "an agent's own write is not suppressed" do
-      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      ticket = Integer.to_string(System.unique_integer([:positive]))
+      ticket_topic = "ticket.#{ticket}.issue.commented"
+      :ok = Exchange.subscribe(ticket_topic)
 
-      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{}, actor: "its-applekid")
-      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      assert {:ok, _id, _count} = Publisher.publish(ticket_topic, %{}, actor: "its-applekid")
+      assert_receive {:event, %{topic: ^ticket_topic}}, 500
     end
   end
 end

@@ -12,16 +12,19 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     original = :sys.get_state(orchestrator)
     parent = self()
     store = Process.whereis(DecisionStore)
-    dispatcher = :sys.get_state(store).dispatcher
+    store_state = :sys.get_state(store)
+    dispatcher = store_state.dispatcher
+    answer_comment_publisher = store_state.answer_comment_publisher
 
     :sys.replace_state(store, fn state ->
       %{
         state
         | dispatcher: fn decision, opts ->
             result = DecisionDispatch.dispatch(decision, opts)
-            send(parent, {:answer_queued, result})
+            send(parent, {:answer_queued, decision.decision_id, result})
             result
-          end
+          end,
+          answer_comment_publisher: fn _decision -> :ok end
       }
     end)
 
@@ -44,7 +47,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(store, &%{&1 | dispatcher: dispatcher})
+      :sys.replace_state(store, &%{&1 | dispatcher: dispatcher, answer_comment_publisher: answer_comment_publisher})
       :sys.replace_state(orchestrator, fn _ -> original end)
     end)
 
@@ -178,6 +181,45 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     end
   end
 
+  test "an unrelated failed dispatch cannot satisfy the answer receipt barrier", ctx do
+    {old_issue, _worker} = install_worker(ctx.orchestrator)
+    old_decision = request_decision(old_issue)
+    {issue, worker} = install_worker(ctx.orchestrator)
+    decision = request_decision(issue)
+    parent = self()
+    store = Process.whereis(DecisionStore)
+    dispatcher = :sys.get_state(store).dispatcher
+
+    :sys.replace_state(store, fn state ->
+      %{
+        state
+        | dispatcher: fn dispatched, opts ->
+            result = dispatcher.(dispatched, opts)
+            if dispatched.decision_id == old_decision.decision_id, do: send(parent, :unrelated_dispatch_finished)
+            result
+          end
+      }
+    end)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               old_decision.decision_id,
+               %{"idempotency_key" => old_decision.decision_id, "expected_version" => old_decision.version, "custom_response" => "Old answer"},
+               actor: %{kind: :executor, id: "executor"}
+             )
+
+    # The completion fences the old receipt without consuming it.
+    receive_barrier(:unrelated_dispatch_finished)
+    pause(ctx.orchestrator, issue, :paused)
+    answer(decision)
+    send(worker, :run)
+    receive_barrier({:first_input, text})
+    assert text =~ "Continue with the accepted contract"
+    assert_working(ctx.orchestrator, issue)
+    old_id = old_decision.decision_id
+    receive_barrier({:answer_queued, ^old_id, {:ok, _item_id}})
+  end
+
   # A pause request that expires unacknowledged leaves a working worker. A
   # message or answer must then reach it as on main: accepted, delivered now,
   # and no resume (#2730 review). The stale variant re-adds the old
@@ -242,7 +284,9 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     expire_pause(ctx.orchestrator, issue)
     state = :sys.get_state(ctx.orchestrator)
     stale_entry = Map.put(state.running[issue.id], :pending_pause_reason, entry.pending_pause_reason)
-    assert {:error, :max_concurrent_agents_reached} = PauseResume.resume_paused_issue_preflight(state, stale_entry)
+
+    assert {:error, {:state_concurrency_limit_reached, "in-progress"}} =
+             PauseResume.resume_paused_issue_preflight(state, stale_entry)
   end
 
   defp expire_pause(orchestrator, issue) do
@@ -344,7 +388,8 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
                actor: %{kind: :executor, id: "executor"}
              )
 
-    receive_barrier({:answer_queued, result})
+    decision_id = decision.decision_id
+    receive_barrier({:answer_queued, ^decision_id, result})
     assert {:ok, _} = result
   end
 

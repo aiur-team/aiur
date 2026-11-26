@@ -37,10 +37,12 @@ RUN mise trust ./mise.toml && \
     mise exec -- mix local.hex --force && \
     mise exec -- mix local.rebar --force
 
+COPY packages/elixir/ ./packages/elixir/
 COPY src/mix.exs src/mix.lock ./src/
+COPY scripts/retry-mix-deps-get.sh ./scripts/retry-mix-deps-get.sh
 
 RUN cd src && \
-    mise exec -- mix deps.get && \
+    bash ../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get && \
     MIX_ENV=dev mise exec -- mix deps.compile && \
     MIX_ENV=test mise exec -- mix deps.compile
 
