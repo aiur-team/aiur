@@ -1,17 +1,10 @@
-/**
- * <aiur-composer>: the chat composer for apps that embed an Aiur conversation.
- *
- * Idle, it is one row: attach, the text input, mic and send. Tapping the mic
- * (or holding it) dictates into the input, and the row becomes a recording
- * row: cancel, a live waveform, two-way voice, stop and send. The element never
- * talks to Aiur or to a voice provider itself; the host hands it adapters, and
- * a button whose adapter is missing is not shown.
- */
+import { ComposerController } from './composer-controller.mjs';
+import { TAG, TEMPLATE, iconMarkup } from './composer-view.mjs';
 
-import { BARS, TAG, TEMPLATE, iconMarkup } from './composer-view.mjs';
+export { ComposerController };
+export { conversationError } from './conversation-error.mjs';
 
-// A press on the mic that lasts this long is a hold, and releasing it stops
-// dictation. A shorter press is a tap, and dictation runs until stop, send or cancel.
+// A shorter press leaves dictation running until stop, send or cancel.
 const HOLD_MS = 300;
 const HTMLElementBase = globalThis.HTMLElement ?? class {};
 
@@ -20,20 +13,10 @@ export class AiurComposer extends HTMLElementBase {
     return ['placeholder', 'disabled', 'accept', 'pinned'];
   }
 
-  #adapters = {};
-  #attachments = [];
-  #uploads = 0;
-  // The dictation in progress: { session, before, after, text, end }. `end` is
-  // set once the user stops, sends, cancels or switches to voice.
-  #dictation = null;
-  #levels = new Array(BARS).fill(0);
-  #voice = null;
-  #sending = false;
+  #controller = new ComposerController();
   #viewportListener = null;
+  #release = null;
   #el;
-
-  /** Called with `(text, attachments)`. A returned promise keeps the draft until it resolves. */
-  onSend = null;
 
   constructor() {
     super();
@@ -41,16 +24,13 @@ export class AiurComposer extends HTMLElementBase {
     root.innerHTML = TEMPLATE;
     this.#el = {
       input: root.querySelector('textarea'),
+      inputSlot: root.querySelector('slot[name="input"]'),
       attachments: root.querySelector('.attachments'),
-      attach: root.querySelector('.attach'),
-      cancel: root.querySelector('.cancel'),
+      controls: Array.from(root.querySelectorAll('.row > slot')).filter((slot) => slot.name !== 'input'),
       wave: root.querySelector('.wave'),
       bars: Array.from(root.querySelectorAll('.wave i')),
-      mic: root.querySelector('.mic'),
-      voice: root.querySelector('.voice'),
-      stop: root.querySelector('.stop'),
-      send: root.querySelector('.send'),
       file: root.querySelector('input[type="file"]'),
+      status: root.querySelector('[part="status"]'),
     };
     this.#wire();
   }
@@ -62,7 +42,9 @@ export class AiurComposer extends HTMLElementBase {
 
   disconnectedCallback() {
     this.#followKeyboard(false);
-    this.#endDictation('cancel');
+    this.#release?.();
+    this.cancelDictation();
+    this.stopVoice();
   }
 
   attributeChangedCallback(name) {
@@ -70,371 +52,215 @@ export class AiurComposer extends HTMLElementBase {
     if (name === 'pinned' && this.isConnected) this.#followKeyboard(this.hasAttribute('pinned'));
   }
 
-  /** `{ upload, dictation, voice }`; each one is optional. */
-  get adapters() {
-    return this.#adapters;
+  get adapters() { return this.#controller.adapters; }
+  set adapters(value) { this.#controller.adapters = value; }
+
+  get onSend() { return this.#controller.onSend; }
+  set onSend(handler) { this.#controller.onSend = handler; }
+
+  get value() { return this.#controller.value; }
+  set value(text) { this.#controller.value = text; }
+
+  get attachments() { return this.#controller.attachments; }
+  get disabled() { return this.hasAttribute('disabled'); }
+  get state() { return this.#controller.state; }
+
+  focus(options) { this.#draftControl().focus(options); }
+  clear() { this.#controller.clear(); }
+  send() { return this.#controller.send(); }
+  attach(file) { return this.#controller.attach(file); }
+  removeAttachment(id) { this.#controller.removeAttachment(id); }
+  stopDictation() { return this.#controller.stopDictation(); }
+  cancelDictation() { return this.#controller.cancelDictation(); }
+  startVoice() { return this.#controller.startVoice(); }
+  stopVoice() { return this.#controller.stopVoice(); }
+
+  #draftControl() {
+    return this.#el.inputSlot.assignedElements()[0] ?? this.#el.input;
   }
 
-  set adapters(value) {
-    this.#adapters = value ?? {};
-    this.#render();
+  startDictation(start = this.#draftControl().selectionStart ?? this.value.length, end = this.#draftControl().selectionEnd ?? start) {
+    return this.#controller.startDictation(start, end);
   }
 
-  get value() {
-    return this.#el.input.value;
+  openFilePicker() {
+    const { hidden, disabled } = this.state.controls.attach;
+    if (!hidden && !disabled) this.#el.file.click();
   }
 
-  set value(text) {
-    this.#el.input.value = text ?? '';
-    this.#resize();
-    this.#render();
-  }
-
-  get attachments() {
-    return this.#attachments.filter((item) => item.state === 'ready').map((item) => item.attachment);
-  }
-
-  focus(options) {
-    this.#el.input.focus(options);
-  }
-
-  clear() {
-    this.#attachments = [];
-    this.value = '';
-  }
-
-  /** Sends the draft, as the send button does. While dictating, it stops dictation first. */
-  async send() {
-    if (this.#recording()) return this.#endDictation('send');
-    if (!this.#canSend()) return false;
-    const text = this.value.trim();
-    const attachments = this.attachments;
-    const detail = { text, attachments };
-
-    this.dispatchEvent(new CustomEvent('aiur-send', { detail, bubbles: true, composed: true }));
-
-    if (typeof this.onSend !== 'function') {
-      this.clear();
-      return true;
-    }
-
-    this.#sending = true;
-    this.#render();
-    try {
-      await this.onSend(text, attachments);
-      this.clear();
-      return true;
-    } catch (error) {
-      this.#fail('send', error);
-      return false;
-    } finally {
-      this.#sending = false;
-      this.#render();
-    }
+  #emit(type, detail) {
+    this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
   }
 
   #wire() {
-    const { input, attach, cancel, mic, voice, stop, send, file } = this.#el;
+    const { input, file } = this.#el;
+    const fallback = (name) => this.shadowRoot.querySelector(`slot[name="${name}"] button`);
+
+    for (const type of ['aiur-send', 'aiur-conversation-state', 'aiur-conversation-error']) {
+      this.#controller.addEventListener(type, ({ detail }) => {
+        if (type === 'aiur-conversation-state') this.#render(detail);
+        this.#emit(type, detail);
+        if (type === 'aiur-conversation-error') this.#emit('aiur-composer-error', detail);
+      });
+    }
 
     input.addEventListener('input', () => {
+      this.value = input.value;
       this.#resize();
-      this.#render();
     });
-
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         this.send();
       }
     });
+    const escape = (event) => {
+      if (event.key === 'Escape' && this.state.dictation === 'recording') this.cancelDictation();
+    };
+    this.shadowRoot.addEventListener('keydown', escape);
+    this.addEventListener('keydown', escape);
 
-    this.shadowRoot.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.#recording()) this.#endDictation('cancel');
-    });
-
-    send.addEventListener('click', () => this.send());
-    attach.addEventListener('click', () => file.click());
+    fallback('send').addEventListener('click', () => this.send());
+    fallback('attach').addEventListener('click', () => this.openFilePicker());
     file.addEventListener('change', () => {
-      for (const picked of Array.from(file.files ?? [])) this.#upload(picked);
+      for (const picked of file.files ?? []) this.attach(picked);
       file.value = '';
     });
 
-    // Press starts dictation at once so no words are lost. Releasing a hold
-    // stops it; releasing a tap leaves it running. The mic is hidden as soon as
-    // dictation starts, so the release is caught on the window.
+    // The mic hides during dictation, so the release is caught on the window.
+    const mic = fallback('mic');
     mic.addEventListener('pointerdown', (event) => {
-      if (event.button > 0) return;
+      if (event.button > 0 || mic.disabled) return;
       event.preventDefault();
       const pressedAt = Date.now();
-      this.#startDictation();
-      const dictation = this.#dictation;
+      this.startDictation();
+      if (this.state.dictation !== 'recording') return;
       const win = this.ownerDocument.defaultView;
-      const release = () => {
+      const release = (up) => {
+        if (up.pointerId !== event.pointerId) return;
+        this.#release();
+        if (Date.now() - pressedAt >= HOLD_MS) this.stopDictation();
+      };
+      this.#release = () => {
         win.removeEventListener('pointerup', release);
         win.removeEventListener('pointercancel', release);
-        if (Date.now() - pressedAt >= HOLD_MS && this.#dictation === dictation) this.#endDictation('stop');
+        this.#release = null;
       };
       win.addEventListener('pointerup', release);
       win.addEventListener('pointercancel', release);
     });
-    // A touch's click lands wherever the finger lifts, which is the stop button
-    // once the row has changed; stop the touch from producing a click at all.
+    // A touch must not activate the stop button that replaced the mic.
     mic.addEventListener('touchstart', (event) => event.preventDefault(), { passive: false });
     mic.addEventListener('contextmenu', (event) => event.preventDefault());
-    // Keyboard activation (a click with no pointer behind it) starts a tap dictation.
     mic.addEventListener('click', (event) => {
       if (event.detail > 0) return;
-      this.#startDictation();
-      if (this.#recording()) stop.focus();
+      this.startDictation();
+      if (this.state.dictation === 'recording') {
+        const stop = this.#el.controls.find((slot) => slot.name === 'stop');
+        (stop.assignedElements()[0] ?? fallback('stop')).focus();
+      }
     });
 
-    stop.addEventListener('click', () => this.#endDictation('stop'));
-    cancel.addEventListener('click', () => this.#endDictation('cancel'));
-    voice.addEventListener('click', () => (this.#voice ? this.#stopVoice() : this.#endDictation('voice')));
-  }
-
-  async #upload(file) {
-    const upload = this.#adapters.upload;
-    if (typeof upload !== 'function') return;
-
-    const item = { name: file.name, state: 'uploading', attachment: null };
-    this.#attachments.push(item);
-    this.#uploads += 1;
-    this.#render();
-
-    try {
-      item.attachment = await upload(file);
-      item.state = 'ready';
-    } catch (error) {
-      this.#attachments = this.#attachments.filter((other) => other !== item);
-      this.#fail('upload', error);
-    } finally {
-      this.#uploads -= 1;
-      this.#render();
-    }
-  }
-
-  #recording() {
-    return Boolean(this.#dictation && !this.#dictation.end);
-  }
-
-  async #startDictation() {
-    const adapter = this.#adapters.dictation;
-    if (!adapter || this.#dictation || this.#voice || this.disabled) return;
-
-    const { input } = this.#el;
-    const start = input.selectionStart ?? input.value.length;
-    const end = input.selectionEnd ?? input.value.length;
-    const dictation = { session: null, before: input.value.slice(0, start), after: input.value.slice(end), text: '', end: null };
-    this.#dictation = dictation;
-    this.#level(null);
-    this.#render();
-
-    try {
-      dictation.session = await adapter.start({
-        onPartial: (text) => {
-          if (this.#dictation === dictation && !dictation.end) this.#show(dictation, String(text ?? '').trim());
-        },
-        onLevel: (level) => {
-          if (this.#dictation === dictation && !dictation.end) this.#level(level);
-        },
-      });
-    } catch (error) {
-      if (this.#dictation === dictation) {
-        this.#show(dictation, '');
-        this.#dictation = null;
-        this.#render();
-      }
-      this.#fail('dictation', error);
-      return;
-    }
-
-    // Stopped, sent or cancelled before the recorder was ready: finish now.
-    if (dictation.end) await this.#settle(dictation);
-  }
-
-  /** `how` is 'stop', 'send', 'cancel' or 'voice'. */
-  async #endDictation(how) {
-    const dictation = this.#dictation;
-    if (!dictation || dictation.end) return false;
-    dictation.end = how;
-    if (how === 'cancel') this.#show(dictation, '');
-    this.#render();
-    this.#refocus();
-    if (!dictation.session) return false;
-    return this.#settle(dictation);
-  }
-
-  async #settle(dictation) {
-    const { session, end } = dictation;
-
-    if (end === 'cancel') {
-      this.#dictation = null;
-      this.#render();
-      try {
-        session.cancel?.();
-      } catch (error) {
-        this.#fail('dictation', error);
-      }
-      return false;
-    }
-
-    let text = dictation.text;
-    try {
-      const final = await session.stop();
-      if (typeof final === 'string' && final.trim()) text = final.trim();
-    } catch (error) {
-      this.#fail('dictation', error);
-    }
-    this.#show(dictation, text);
-    this.#dictation = null;
-    this.#render();
-
-    if (end === 'send') return this.send();
-    if (end === 'voice') return this.#startVoice();
-    return false;
-  }
-
-  // Puts the dictated text between what was before and after the cursor.
-  #show(dictation, text) {
-    const { input } = this.#el;
-    const { before, after } = dictation;
-    const lead = text && before && !/\s$/.test(before) ? ' ' : '';
-    const trail = text && after && !/^\s/.test(after) ? ' ' : '';
-    dictation.text = text;
-    input.value = before + lead + text + trail + after;
-    const caret = (before + lead + text).length;
-    input.setSelectionRange?.(caret, caret);
-    this.#resize();
-  }
-
-  // Scrolls the waveform by one bar; `null` flattens it.
-  #level(level) {
-    if (level === null) this.#levels.fill(0);
-    else {
-      this.#levels.shift();
-      this.#levels.push(Math.min(1, Math.max(0, Number(level) || 0)));
-    }
-    this.#el.bars.forEach((bar, index) => {
-      bar.style.transform = `scaleY(${Math.max(0.1, this.#levels[index]).toFixed(2)})`;
-    });
-  }
-
-  // The words dictated so far become the voice session's first turn, so they
-  // leave the input rather than being sent twice. A failed start puts them back.
-  async #startVoice() {
-    const adapter = this.#adapters.voice;
-    if (!adapter || this.#voice) return false;
-
-    const initialText = this.value.trim();
-    this.value = '';
-    try {
-      this.#voice = await adapter.start({
-        initialText,
-        onEnd: () => {
-          this.#voice = null;
-          this.#render();
-        },
-      });
-    } catch (error) {
-      this.value = initialText;
-      this.#fail('voice', error);
-    }
-    this.#render();
-    return Boolean(this.#voice);
-  }
-
-  async #stopVoice() {
-    const session = this.#voice;
-    this.#voice = null;
-    this.#render();
-    try {
-      await session.stop();
-    } catch (error) {
-      this.#fail('voice', error);
-    }
-  }
-
-  // A button that just hid cannot keep focus; hand it to the input.
-  #refocus() {
-    const active = this.shadowRoot.activeElement;
-    if (active?.hidden) this.#el.input.focus();
-  }
-
-  #fail(action, error) {
-    this.dispatchEvent(new CustomEvent('aiur-composer-error', { detail: { action, error }, bubbles: true, composed: true }));
-  }
-
-  get disabled() {
-    return this.hasAttribute('disabled');
-  }
-
-  #canSend() {
-    if (this.#recording()) return !this.#sending && !this.disabled;
-    const hasContent = this.value.trim() !== '' || this.attachments.length > 0;
-    return hasContent && !this.#dictation && this.#uploads === 0 && !this.#sending && !this.disabled;
+    fallback('stop').addEventListener('click', () => this.stopDictation());
+    fallback('cancel').addEventListener('click', () => this.cancelDictation());
+    fallback('voice').addEventListener('click', () => (
+      this.state.voice === 'live' ? this.stopVoice() : this.startVoice()
+    ));
   }
 
   #syncAttributes() {
     const { input, file } = this.#el;
     input.placeholder = this.getAttribute('placeholder') ?? '';
-    input.disabled = this.disabled;
     const accept = this.getAttribute('accept');
     if (accept) file.setAttribute('accept', accept);
     else file.removeAttribute('accept');
-    this.#render();
+    this.#controller.disabled = this.disabled;
   }
 
-  #render() {
-    const { input, attach, cancel, wave, mic, voice, stop, send, attachments } = this.#el;
-    const disabled = this.disabled;
-    const recording = this.#recording();
-    const live = Boolean(this.#voice);
+  #render(state) {
+    const { input, wave, bars, status, attachments, controls } = this.#el;
+    const recording = state.dictation === 'recording';
+    const active = this.shadowRoot.activeElement ?? this.ownerDocument.activeElement;
+    const activeSlot = active?.assignedSlot ?? active?.closest('slot');
+    if (!recording) this.#release?.();
 
-    attach.hidden = recording || typeof this.#adapters.upload !== 'function';
-    mic.hidden = recording || live || !this.#adapters.dictation;
-    cancel.hidden = !recording;
+    for (const slot of controls) {
+      const control = state.controls[slot.name];
+      const button = slot.firstElementChild;
+      slot.hidden = control.hidden;
+      button.disabled = control.disabled;
+      button.setAttribute('aria-label', control.label);
+      if (control.pressed !== undefined) button.setAttribute('aria-pressed', String(control.pressed));
+    }
+
+    if (input.value !== state.value) {
+      input.value = state.value;
+      if (state.caret !== null) input.setSelectionRange(state.caret, state.caret);
+      this.#resize();
+    }
+    input.disabled = state.disabled;
+    input.readOnly = state.readOnly;
+    input.setAttribute('aria-label', state.inputLabel);
+    if (activeSlot?.hidden) this.focus();
     wave.hidden = !recording;
-    stop.hidden = !recording;
-    voice.hidden = !this.#adapters.voice || !(recording || live);
+    bars.forEach((bar, index) => {
+      bar.style.transform = `scaleY(${Math.max(0.1, state.levels[index]).toFixed(2)})`;
+    });
 
-    attach.disabled = disabled;
-    mic.disabled = disabled;
-    voice.disabled = disabled;
-    send.disabled = !this.#canSend();
-    // Dictated words stream in, so typing meanwhile would be overwritten.
-    input.readOnly = Boolean(this.#dictation);
-
-    voice.setAttribute('aria-pressed', String(live));
-    voice.setAttribute('aria-label', live ? 'End voice conversation' : 'Switch to voice conversation');
-    send.setAttribute('aria-label', recording ? 'Stop and send' : 'Send');
+    this.setAttribute('data-dictation-state', state.dictation);
+    this.setAttribute('data-voice-state', state.voice);
+    this.toggleAttribute('data-sending', state.sending);
     this.toggleAttribute('data-recording', recording);
-    this.toggleAttribute('data-voice-live', live);
+    this.toggleAttribute('data-voice-live', state.voice === 'live');
+    if (state.error) this.setAttribute('data-error-code', state.error.code);
+    else this.removeAttribute('data-error-code');
+    if (status.textContent !== state.announcement) status.textContent = state.announcement;
 
-    attachments.replaceChildren(...this.#attachments.map((item) => this.#chip(item)));
+    // Keep attachment controls stable while the user types or the waveform updates.
+    const ids = new Set(state.attachments.map((item) => String(item.id)));
+    for (const chip of Array.from(attachments.children)) {
+      if (!ids.has(chip.dataset.id)) chip.remove();
+    }
+    for (const item of state.attachments) {
+      const chip = attachments.querySelector(`[data-id="${item.id}"]`);
+      if (chip?.dataset.state === item.state) {
+        const remove = chip.querySelector('button');
+        if (remove) remove.disabled = state.disabled;
+        continue;
+      }
+      const next = this.#chip(item);
+      if (chip) chip.replaceWith(next);
+      else attachments.append(next);
+    }
   }
 
   #chip(item) {
-    const chip = document.createElement('span');
+    const chip = this.ownerDocument.createElement('span');
     chip.className = 'chip';
     chip.setAttribute('part', 'attachment');
+    chip.dataset.id = item.id;
     chip.dataset.state = item.state;
-    const name = document.createElement('span');
-    name.textContent = item.attachment?.name ?? item.name;
+    const name = this.ownerDocument.createElement('span');
+    name.setAttribute('part', 'attachment-name');
+    name.textContent = item.name;
     chip.append(name);
 
     if (item.state === 'ready') {
-      const remove = document.createElement('button');
+      const remove = this.ownerDocument.createElement('button');
       remove.type = 'button';
-      remove.setAttribute('aria-label', `Remove ${name.textContent}`);
+      remove.disabled = this.disabled;
+      remove.setAttribute('part', 'remove-attachment');
+      remove.setAttribute('aria-label', `Remove ${item.name}`);
       remove.innerHTML = iconMarkup('cancel');
       remove.addEventListener('click', () => {
-        this.#attachments = this.#attachments.filter((other) => other !== item);
-        this.#render();
+        this.removeAttachment(item.id);
+        this.focus();
       });
-      chip.append(remove);
+      const slot = this.ownerDocument.createElement('slot');
+      slot.name = `remove-attachment-${item.id}`;
+      slot.append(remove);
+      chip.append(slot);
     }
-
     return chip;
   }
 

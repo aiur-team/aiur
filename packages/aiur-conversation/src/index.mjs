@@ -1,1 +1,1 @@
-export { AiurComposer, defineComposer } from './composer.mjs';
+export { AiurComposer, ComposerController, conversationError, defineComposer } from './composer.mjs';
