@@ -76,7 +76,7 @@ defmodule Aiur.Events.Catalog.Entries do
                  class: :logged,
                  export?: true,
                  refs: [:ticket, :job_id],
-                 attrs: [percent: :integer, progress_source: {:enum, ~w(worker checklist phase)}],
+                 attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}],
                  owner: "harness-adapters"
                }
              end)
