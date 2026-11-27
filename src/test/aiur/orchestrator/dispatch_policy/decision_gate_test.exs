@@ -44,6 +44,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
       assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) == :dispatch
     end
 
+    test "a foreign active state skips with the owning label in the reason" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "pc",
+        max_concurrent_agents: 5
+      )
+
+      ticket =
+        issue("foreign-owner",
+          labels: ["pc:todo", "agent:in-progress"],
+          state_labels: ["todo"],
+          dispatch_authorized?: true
+        )
+
+      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) ==
+               {:skip, {:foreign_owner, "agent:in-progress"}}
+    end
+
     test "a held issue is declined with :build_queue_hold before other state gates" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
       :ets.new(Hints.table_name(), [:named_table, :set])

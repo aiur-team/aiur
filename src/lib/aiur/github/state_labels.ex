@@ -14,6 +14,33 @@ defmodule Aiur.GitHub.StateLabels do
     foreign_state_label?(labels, prefix, MapSet.to_list(states))
   end
 
+  @spec foreign_active_state_label([String.t()], String.t(), MapSet.t(), MapSet.t()) :: String.t() | nil
+  def foreign_active_state_label(labels, prefix, active_states, terminal_states) do
+    states = MapSet.union(active_states, MapSet.new(@known_states))
+    normalized_prefix = prefix |> String.trim() |> String.downcase()
+
+    Enum.find_value(labels, fn label ->
+      normalized_label = label |> String.trim() |> String.downcase()
+
+      case String.split(normalized_label, ":", parts: 2) do
+        [other_prefix, state] ->
+          foreign_active_label(other_prefix, state, normalized_prefix, states, terminal_states, normalized_label)
+
+        _other ->
+          nil
+      end
+    end)
+  end
+
+  defp foreign_active_label(other_prefix, state, prefix, states, terminal_states, label) do
+    normalized_state = StatePolicy.normalize_state(state)
+
+    if other_prefix != prefix and MapSet.member?(states, normalized_state) and
+         not MapSet.member?(terminal_states, normalized_state) and
+         not StatePolicy.terminal_state_name?(normalized_state),
+       do: label
+  end
+
   @spec filter_candidate_repair_labels([Aiur.Issue.t()], String.t(), MapSet.t()) :: [Aiur.Issue.t()]
   def filter_candidate_repair_labels(issues, prefix, active_states) do
     Enum.reject(issues, fn issue ->

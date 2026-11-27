@@ -88,4 +88,6 @@ defmodule Aiur.Orchestrator.ResumeDeclineReasonTest do
 
   defp union_atoms({:type, _line, :union, members}), do: Enum.flat_map(members, &union_atoms/1)
   defp union_atoms({:atom, _line, atom}), do: [atom]
+  defp union_atoms({:type, _line, :tuple, members}), do: Enum.flat_map(members, &union_atoms/1)
+  defp union_atoms(_other), do: []
 end

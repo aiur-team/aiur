@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildQueue.Hints, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors}
+  alias Aiur.{BuildQueue.Hints, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -168,6 +168,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @type dispatch_decline_reason ::
           :invalid_issue
           | :contradictory_state_labels
+          | :foreign_owner
+          | {:foreign_owner, String.t()}
           | :not_routable
           | :unauthorized
           | :paused
@@ -202,6 +204,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @dispatch_decline_reasons [
     :invalid_issue,
     :contradictory_state_labels,
+    :foreign_owner,
     :not_routable,
     :unauthorized,
     :paused,
@@ -383,8 +386,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp issue_identity_decision(%Issue{} = issue) do
+    foreign_label = Tracker.foreign_active_state_label(issue.labels, active_state_set(), terminal_state_set())
+
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_label != nil -> {:skip, {:foreign_owner, foreign_label}}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}

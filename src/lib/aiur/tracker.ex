@@ -168,6 +168,16 @@ defmodule Aiur.Tracker do
       else: false
   end
 
+  @doc "Returns the foreign active state label that identifies another instance as ticket owner."
+  @spec foreign_active_state_label([String.t()], MapSet.t(), MapSet.t()) :: String.t() | nil
+  def foreign_active_state_label(labels, active_states, terminal_states) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :foreign_active_state_label, 3),
+      do: tracker_adapter.foreign_active_state_label(labels, active_states, terminal_states),
+      else: nil
+  end
+
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
           {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
