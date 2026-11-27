@@ -190,7 +190,7 @@ before attempting repair; do not edit entry segments while the daemon runs.
 
 ## On-demand agent conversations
 
-A host app starts a worker conversation without filing a ticket itself with `POST /api/v1/agent-conversations` (write client token). This endpoint requires the GitHub tracker because each conversation runs under a GitHub issue.
+A host app starts a worker conversation without filing a ticket itself with `POST /api/v1/agent-conversations` (write client token).
 
 | Field | Meaning |
 | --- | --- |
@@ -202,6 +202,8 @@ A host app starts a worker conversation without filing a ticket itself with `POS
 | `images` | Up to 8 `{url, alt_text?}` objects. URLs must be stable HTTPS GitHub image URLs; signed/private URLs are rejected. |
 | `complexity` | 1–5; selects the route like a `complexity:N` ticket. Without it, the default route applies. |
 | `client_request_id` | Makes the start idempotent: a retry returns the first ticket. |
+
+This endpoint requires the GitHub tracker because each conversation runs under a GitHub issue.
 
 Aiur files a ticket labelled `<prefix>:todo` and `<prefix>:conversation` and polls at once. The conversation runs as an ordinary worker on its own branch and keeps running after the host disconnects.
 
