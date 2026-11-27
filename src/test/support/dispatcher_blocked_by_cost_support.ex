@@ -7,6 +7,7 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
   import ExUnit.Assertions
   import ExUnit.Callbacks
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.GitHub.{CycleFetchCache, Issues, OpenIssueSnapshot, Quota, ResourceStore}
   alias Aiur.Issue
   alias Aiur.Orchestrator
@@ -80,6 +81,7 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
   @doc false
   def github_double(_context) do
     {:ok, _started} = Application.ensure_all_started(:req)
+    Hints.create_table()
 
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
@@ -175,6 +177,7 @@ defmodule Aiur.DispatcherBlockedByCostSupport do
   end
 
   def candidate(id) do
+    :ets.insert(Hints.table_name(), {id, {0, 0}, false, :pr_merged})
     %Issue{id: id, identifier: id, title: "dependent #{id}", state: "todo", selected_backend: "codex"}
   end
 
