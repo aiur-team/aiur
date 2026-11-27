@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionAttentionStartupTest do
   use Aiur.TestSupport
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.{DecisionAttention, DecisionStore, Issue}
 
   alias Aiur.Events.SubscriptionStore
@@ -174,6 +175,51 @@ defmodule Aiur.DecisionAttentionStartupTest do
     refute_receive {:bounded_import, _, _}, 100
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
     assert map_size(:sys.get_state(pid).attentions) == 2
+  end
+
+  # OGM #803 and open-games #480 (2026-11-16): a restart imported aiur alerts
+  # ("An open blocking decision stops its ticket…") as option-less
+  # human_required Commands, which landed on the creator's list beside the
+  # tickets' real picks.
+  test "an imported attention is addressed to the Executor, never the creator" do
+    identifier = "DECISION-IMPORT-EXECUTOR-#{System.unique_integer([:positive])}"
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-import-executor")
+    previous_dir = Application.get_env(:aiur, :decision_state_dir)
+    Application.put_env(:aiur, :decision_state_dir, dir)
+
+    on_exit(fn ->
+      case previous_dir do
+        nil -> Application.delete_env(:aiur, :decision_state_dir)
+        path -> Application.put_env(:aiur, :decision_state_dir, path)
+      end
+
+      Aiur.TestCleanup.rm_rf!(dir)
+    end)
+
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
+
+    alert = %{
+      identifier: identifier,
+      slug: "decision-stale-d392b46a47a0a1b0",
+      question: "An open blocking decision stops its ticket and every ticket it gates; answer it with `aiur commands`.",
+      topic: "ticket.#{identifier}.agent.attention.decision-stale-d392b46a47a0a1b0",
+      source_created_at: ~U[2026-11-15 04:07:28Z]
+    }
+
+    {pid, _name} =
+      start_attention(
+        attention_loader: fn -> [alert] end,
+        decision_projector: fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end
+      )
+
+    assert eventually(fn -> :sys.get_state(pid).importing? == false end)
+    assert [decision] = DecisionStore.list(store)
+    assert decision.kind == "legacy_attention"
+    assert decision.audience == :executor
+    assert decision.authority == :supervisor_allowed
+    # Even with no Executor online it waits for one instead of falling back to the creator.
+    assert %{state: :with_executor} = Policy.route(decision, :offline)
   end
 
   test "restart import cannot revert a differently worded structured enrichment" do

@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   require Logger
 
   alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
-  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, Timeline}
+  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, StateLabels, Timeline}
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -21,9 +21,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   @spec authorize(Issue.t(), String.t(), String.t(), String.t(), keyword()) :: Issue.t()
   def authorize(issue, owner, repo, prefix, opts \\ [])
 
-  def authorize(%Issue{state_labels: [_, _ | _] = state_labels} = issue, _owner, _repo, _prefix, _opts) do
-    deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
-  end
+  def authorize(%Issue{state_labels: [_, _ | _]} = issue, owner, repo, prefix, opts),
+    do: StateLabels.authorize(issue, &authorize(&1, owner, repo, prefix, opts), &deny_ambiguous/2)
 
   # Verified label provenance is primary; App fixers and registered local provenance are narrow exceptions.
   #

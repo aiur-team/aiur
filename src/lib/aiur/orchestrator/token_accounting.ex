@@ -129,6 +129,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         completed_turn_count: completed_turn_count_for_update(completed_turn_count, update)
       })
       |> record_runtime_terminal_evidence(update)
+      |> put_turn_effort(update)
       |> NativeHold.integrate(update)
 
     {updated_running_entry, token_delta}
@@ -147,6 +148,14 @@ defmodule Aiur.Orchestrator.TokenAccounting do
   end
 
   defp reset_usage_epoch(entry, _update), do: entry
+
+  # Effort can change between turns of one thread, so the running entry shows
+  # the effort the latest turn started at, not only the launch effort.
+  defp put_turn_effort(%{session_execution: %{} = execution} = entry, %{event: :session_started, effort: effort})
+       when is_binary(effort),
+       do: %{entry | session_execution: Map.put(execution, :effort, effort)}
+
+  defp put_turn_effort(entry, _update), do: entry
 
   defp native_session_id_for_update(_entry, %{event: :session_started, thread_id: id})
        when is_binary(id), do: id

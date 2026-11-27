@@ -19,7 +19,8 @@ defmodule Aiur.Codex.CodingAgent do
     SessionLifecycle,
     StartupFailure,
     TurnEvents,
-    TurnLoop
+    TurnLoop,
+    TurnOverrides
   }
 
   alias Aiur.Config
@@ -263,6 +264,9 @@ defmodule Aiur.Codex.CodingAgent do
   @impl Aiur.AppServer.Adapter
   @doc false
   def start_turn(session, prompt, issue), do: Handshake.start_turn(session, prompt, issue)
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  def turn_effort(session, issue), do: TurnOverrides.effort(session, issue)
   @impl Aiur.AppServer.Adapter
   @doc false
   def backend_label, do: "Codex"

@@ -305,7 +305,9 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
 
   defp fetch_ruleset_detail(_request_fun, _token, _base_url, _summary), do: {:error, :invalid_ruleset_summary}
 
-  defp required_check_error(%{status: 403} = response) do
+  @doc false
+  @spec required_check_error(map()) :: term()
+  def required_check_error(%{status: 403} = response) do
     case Access.response_message(response) do
       message when is_binary(message) ->
         if String.contains?(message, @plan_limit_message),
@@ -317,7 +319,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     end
   end
 
-  defp required_check_error(response), do: Access.github_status_error(response)
+  def required_check_error(response), do: Access.github_status_error(response)
 
   @doc false
   @spec required_checks_from(term()) :: [map()]

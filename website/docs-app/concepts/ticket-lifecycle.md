@@ -87,6 +87,18 @@ active, it would be redispatched into the same no-op turns. Other no-op-bound
 tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
 
+A `ci-wait` ticket whose ready PR has a required check that already failed goes
+to `rework` without waiting for the checks still running on that head. The rework
+comment lists the failed checks with each one's first error lines. A failure the
+CI recovery would rerun as a flake still waits for the run to finish.
+
+Some failures are not about the code and never send a ticket to `rework`:
+
+- A gate job such as `required` that failed only because its upstream jobs were cancelled counts as a cancelled run. Aiur reruns it once and raises an attention if the rerun is cancelled too.
+- A check GitHub never started, for billing, a spending limit or a `startup_failure`, leaves the verdict pending.
+
+A repository whose CI runs outside hosted Actions sets `agent.ci_failed_rework: false`, and no CI failure reworks its tickets.
+
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
 merge-queue runs get those runners. The agent's next
@@ -211,6 +223,10 @@ could not be read — and which model ran instead.
 `aiur init` creates `model:<backend>`, the effort labels, `model:remote`, and a
 `model:<family>` for each family your CLIs report. It creates no version-specific labels
 and never deletes ones a repository already has; those keep working as exact pins.
+
+On Codex, the effort and a `model:codex*` pin are read again before every turn, so
+changing `model:low` to `model:xhigh` takes effect on the ticket's next turn without
+a new thread. Other backends pick up a label change at their next session start.
 
 ## Build queue
 

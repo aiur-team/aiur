@@ -5,6 +5,13 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
+Never build or run a release whose stamped commit is not an ancestor of the
+tracked `origin/main` in the stamped repository. Every fix reaches the daemon
+through ticket → branch → PR → merge → rebuild. Do not pin local branches,
+cherry-pick unmerged work, or merge open PR heads into the running checkout.
+The November 2026 NUC incident ran 78 commits outside main for 17 days because
+local pin branches bypassed review and keep-current stopped detecting drift.
+
 When publishing an `aiur-build` build order, publication registers one epic for
 the pack, one feature per product feature group inside that epic, and each
 feature's lanes. An epic holds features, a feature holds tickets, and a lane is
@@ -59,13 +66,16 @@ only a token argument, terse lines are genuinely better for the person coming
 back.
 
 ```
-- merged #2637 init repo-local config — unblocks #2639 label creation
-- #2638 .env credential shadow — codex terra picked up, low effort
+- root cause #2640 executor requeue loop — requeued #2638 after owner issue filed
+- root cause #2642 stranded PR state — relabelled #2637 after repair
 - #2641 usage-probe — agent blocked, needs a decision: <url>
 - 90% — 10 agents on phase 3 tickets, 2 in review
 ```
 
 - One line. No preamble, no recap, no closing.
+- For each recovery, lead with the named root cause and its owner issue number,
+  then name the recovery. Pair it in the same turn with a fix or owning issue;
+  if unknown, say symptom-only and why.
 - Lead with the identifier — `#2637`, `merged`, `90%`. The first token is what
   the eye scans for.
 - **Carry enough context to be understood cold.** The reader has been away for
@@ -375,6 +385,12 @@ on it.
 
 ## 6. Backstop and defects
 
+Every relabel, requeue, budget reset, park, restart, or fresh thread is a
+recovery: name its root cause in the same turn and either fix it or file/link
+the owning issue. If unknown, say symptom-only and why. On the second occurrence
+of the same symptom, file the issue or add evidence to its existing owner before
+recovering again.
+
 Prioritize restoring productive Aiur workers, but do not preserve nominal
 worker ownership while delivery is demonstrably failing to converge. A single
 ordinary stale-base, conflict, lint, or review repair remains the owning
@@ -425,8 +441,9 @@ Noticing a problem is the start of the work, not the report. In the same turn:
 3. **File and dispatch.** File the root cause with `agent:todo` and the
    evidence, so it joins the continuous build now. Do not keep it in a deferred
    ledger because it is "incidental": the queue orders it against other work.
-4. **Do it by hand once.** The second manual repeat of the same fix is an
-   automation ticket, with the counts as evidence (see `aiur-meta` 3b).
+4. **Do it by hand once.** On the second occurrence, file an owner issue or add
+   evidence to its existing owner before another recovery. If the repeated fix
+   should be automated, capture counts (see `aiur-meta` 3b).
 5. **Disarm before you review.** If a PR with auto-merge on gets a push after
    your approval, disable auto-merge first, then review the new commits; `main`
    has no review rule, so an unreviewed commit merges on green CI.
