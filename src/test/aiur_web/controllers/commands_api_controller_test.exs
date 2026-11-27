@@ -238,6 +238,10 @@ defmodule AiurWeb.CommandsApiControllerTest do
     assert MapSet.to_list(scope.label_set) == ["game:chess"]
   end
 
+  test "a Commands scope mint request cannot create a Build Order grant" do
+    assert mint_status(%{"principal" => "creator-7", "build_order" => %{"kind" => "feature", "key" => "game-board"}}) == 422
+  end
+
   test "minting rejects an invalid principal or empty ticket set" do
     assert mint_status(%{"principal" => "", "tickets" => ["42"]}) == 422
     assert mint_status(%{"principal" => "player-7", "tickets" => []}) == 422

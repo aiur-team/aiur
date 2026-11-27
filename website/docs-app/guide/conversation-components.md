@@ -8,6 +8,47 @@ title: Embed conversation components
 apps that embed Aiur. The package includes `<aiur-composer>` for message drafts,
 attachments, dictation and two-way voice.
 
+## Exportable views today
+
+The host-styling contract currently covers these packages:
+
+| Package | Exported view | Host contract |
+| --- | --- | --- |
+| `@aiur/conversation` | Chat composer | Controller state and commands, replacement controls, slots and CSS properties. |
+| `aiur-build-order` | Build Order review and graph | `build-order.v1` document renderers, `<aiur-build-order>`, and host CSS tokens. |
+| `@aiur/commands` | Command list and response | Static HTML renderers and `data-part` CSS hooks. |
+
+Kanban, timeline and agent views do not have an export contract yet. The Build
+Order element accepts `view="fit"` to render the review without its wide graph;
+this is suitable for narrow containers. Hosts should verify their exact content
+at 390×844 and 1440×900 because ticket titles and host fonts vary.
+
+Build Order embedding uses a short-lived feature or epic grant. The host server
+authenticates its viewer and asks Aiur to mint that grant. A creator gets a
+grant for their own game's feature or epic; an admin can receive a grant for
+any chosen feature or epic; a player receives no grant. Aiur validates the
+grant against current registry membership on every read. A missing or
+out-of-scope grant returns 404 with no view data.
+
+```http
+POST /api/v1/build-order/scope
+Authorization: Bearer <host's Aiur supervisor token>
+Content-Type: application/json
+
+{"principal":"creator-7","build_order":{"kind":"feature","key":"chess-board"}}
+```
+
+The browser receives the short-lived token, never the supervisor token, and
+uses it on `GET /api/v1/build-order/embed`. The package example at
+`packages/aiur-build-order/examples/host.html` shows host token styling.
+
+If a host wants a plain activity page instead, read
+`GET /api/v1/:issue_identifier/progress` with the ordinary dashboard/client
+credential. It returns the `aiur.ticket_progress` v1 contract: `phase`, current
+or retained `progress`, ordered progress/check-in/phase `events`, `sources`,
+and `generated_at`. Unknown progress remains unknown; the endpoint does not
+estimate a percentage.
+
 ## Component contract
 
 - **Controller and view.** Each component exposes a DOM-free controller with

@@ -83,6 +83,26 @@ instead of an empty graph.
 The package [README](https://github.com/aiur-team/aiur/blob/main/packages/aiur-build-order/README.md)
 documents its exports, the element's attributes and a complete static-HTML example.
 
+### Embedding a scoped feature or epic
+
+Hosts can use the same renderer for one feature or epic without exposing the
+global catalog. The host server authenticates the viewer and mints a short-lived
+grant with `POST /api/v1/build-order/scope`; its `build_order` object contains
+`kind` (`feature` or `epic`) and `key`. The browser presents the returned bearer
+token to `GET /api/v1/build-order/embed`. Aiur checks current feature ownership
+on every read and returns only tickets in that scope. A missing, removed or
+out-of-scope scope returns 404. The host maps its own roles: creators receive
+their game's grant, admins can receive any selected grant, and players receive
+no grant.
+
+The scoped document keeps the `build-order.v1` shape. Because the feature
+registry does not store dependency graphs or progress aggregates, those fields
+are explicitly unknown. A host can build a plain activity page from
+`GET /api/v1/:issue_identifier/progress`, which returns the versioned
+`aiur.ticket_progress` contract with phase, progress, source status and ordered
+progress/check-in/phase events. Exportable-view inventory and the host example
+are documented in [Embed conversation components](/guide/conversation-components#exportable-views-today).
+
 ## Pack contents
 
 | File or field | Purpose |

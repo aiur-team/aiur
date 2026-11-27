@@ -27,6 +27,9 @@ export const STYLES = `@layer aiur.build-order {
     font-family: var(--aiur-font-body);
     font-size: var(--aiur-text-sm);
     line-height: 1.45;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .aiur-bo *, .aiur-bo *::before, .aiur-bo *::after { box-sizing: inherit; }
@@ -154,7 +157,7 @@ export const STYLES = `@layer aiur.build-order {
     font-family: var(--aiur-font-mono);
     font-size: var(--aiur-text-xs);
     color: var(--aiur-color-muted);
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .aiur-bo-epic { display: grid; gap: var(--aiur-space-2); }
@@ -194,15 +197,17 @@ export const STYLES = `@layer aiur.build-order {
     font-family: var(--aiur-font-mono);
   }
 
-  .aiur-bo-table-wrap { overflow-x: auto; }
+  .aiur-bo-table-wrap { max-width: 100%; min-width: 0; overflow: hidden; }
 
   .aiur-bo-table { width: 100%; border-collapse: collapse; font-size: var(--aiur-text-sm); }
+  .aiur-bo-table { table-layout: fixed; }
 
   .aiur-bo-table th, .aiur-bo-table td {
     text-align: start;
     padding: var(--aiur-space-2);
     border-bottom: 1px solid var(--aiur-color-hairline);
     vertical-align: top;
+    overflow-wrap: anywhere;
   }
 
   .aiur-bo-table th {
@@ -211,7 +216,7 @@ export const STYLES = `@layer aiur.build-order {
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--aiur-color-muted);
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .aiur-bo-table tr[data-critical="true"] td { background: var(--aiur-color-accent-soft); }
@@ -226,7 +231,7 @@ export const STYLES = `@layer aiur.build-order {
     font-family: var(--aiur-font-mono);
     font-size: var(--aiur-text-xs);
     color: var(--aiur-color-fg);
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .aiur-bo-legend { display: grid; gap: var(--aiur-space-2); }
@@ -265,6 +270,7 @@ export const STYLES = `@layer aiur.build-order {
   svg.aiur-bo-graph {
     display: block;
     max-width: 100%;
+    overflow: hidden;
     height: auto;
     color: var(--aiur-color-fg);
     background: var(--aiur-color-bg-app);

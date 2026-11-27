@@ -50,6 +50,18 @@ test('view=graph stays a graph and view=both stays both', async ({ page }) => {
   await expect(page.locator('#graph-only article.aiur-bo--review')).toHaveCount(0);
 });
 
+test('fit view has no horizontal overflow at phone and desktop widths', async ({ page }) => {
+  const fit = page.locator('#fit');
+  await expect(fit.locator('article.aiur-bo--review')).toHaveCount(1);
+  await expect(fit.locator('svg.aiur-bo-graph')).toHaveCount(0);
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow, `horizontal overflow at ${viewport.width}x${viewport.height}`).toBe(false);
+  }
+});
+
 test('an unusable document renders its error instead of an empty box', async ({ page }) => {
   const broken = page.locator('#broken');
   await expect(broken).toHaveAttribute('data-status', 'error');
