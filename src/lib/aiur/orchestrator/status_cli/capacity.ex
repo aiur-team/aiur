@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.EnvelopeResume
   alias Aiur.Orchestrator.OptimisticSlots
+  alias Aiur.Orchestrator.ResourceEnvelope
   alias Aiur.SystemLoad
 
   @doc false
@@ -19,9 +20,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
     resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
     IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
     print_envelope_status(capacity)
+    print_resource_ceiling(capacity)
   end
 
   def print_capacity_status(_capacity, _polling), do: :ok
+
+  @spec print_resource_ceiling(term()) :: :ok
+  def print_resource_ceiling(%{effective: effective} = capacity) do
+    if label = ResourceEnvelope.label(capacity), do: IO.puts("DISPATCH CEILING #{effective} binding=#{label}")
+    :ok
+  end
+
+  def print_resource_ceiling(_capacity), do: :ok
 
   defp print_envelope_status(%{envelope_last_change_reason: reason, envelope_hold_reason: hold} = capacity) when is_binary(hold) do
     changed = envelope_change_age(capacity[:envelope_last_change_at_ms])
@@ -61,6 +71,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
   defp capacity_binding_label({:dispatch_cycle_stalled, detail}), do: CapacityBinding.dispatch_cycle_stalled_label(detail)
   defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
+  defp capacity_binding_label({:envelope, %{resource_binding: %{}} = capacity}), do: CapacityBinding.ceiling_label(capacity)
   defp capacity_binding_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"

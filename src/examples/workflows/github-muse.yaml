@@ -173,6 +173,7 @@ agent:
   # token/usage limit hits.
   priority: [muse]
   max_concurrent_agents: 2
+  # resource_concurrency: false  # opt in to the measured dispatch ceiling
   max_turns: 12
   # Cold backend switches continue from workspace context; provider transcripts
   # are never transferred across backends.

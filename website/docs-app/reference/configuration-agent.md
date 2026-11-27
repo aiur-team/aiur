@@ -59,6 +59,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.relay` | boolean | true | Runs local Codex app-server and headless Claude behind a detached relay that retains provider output between controller connections. `false` uses the direct Port transport. Remote SSH workers keep their existing transport; normal stop and the BEAM-death watchdog still reap agents. On Linux the relay adopts every process an agent command leaves behind, even one that called `setsid` or was orphaned, and kills it at each turn's start and end and when the provider exits; the direct Port transport does not. |
 | `agent.relay_orphan_timeout_seconds` | integer | 1800 | Stops the provider process group after this many seconds without a relay controller. Must be positive. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
+| `agent.resource_concurrency` | boolean | false | Use measured host, cgroup, build, and provider readings to set the dispatch ceiling. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. A value is one route (`"claude:sonnet"`) or, for `account_selection: headroom`, a list of the routes that level allows (`["claude:sonnet", "codex:gpt-5.5:high"]`). Every other policy and reader uses the list's first route. Claude takes no effort segment: `claude:sonnet:medium` is rejected. |
 | `agent.routing_candidates` | map | `%{}` | Read-only: every level's route list, derived from list values in `agent.routing`. A value set here is ignored. |
 | `agent.rtk.enabled` | boolean | false | Enables the Agent output compression panel on the analytics page, which reports rtk's host-level output savings when available. Aiur does not install, enable, or disable rtk's hook and does not enforce this setting at agent dispatch. A host-wide rtk hook applies to every agent regardless of this setting; the operator owns the hook and must exclude `gh` (`exclude_commands = ["gh"]` under `[hooks]`), because `gh` in an agent workspace is the GitHub quota guard and rtk must not rewrite it. The analytics panel reports rtk's status, including when its probe detects that `gh` would be rewritten, but cannot disable the hook. At daemon startup Aiur also checks the host hook, independent of this setting, and raises an informational alert when it would rewrite `gh`. |
@@ -323,7 +324,7 @@ Daemon releases default to `+sbwt none +sbwtdcpu none +sbwtdio none` to lower id
 | --- | --- |
 | CPU pressure and AIMD | `agent.max_cpu_pressure` is the hard Linux CPU PSI `some avg60` ceiling and always uses raw host pressure. The soft `agent.target_cpu_pressure` AIMD signal discounts measured CPU from niced processes outside the daemon and registered fleet-agent process trees, such as Executor review work. Detached agent relays are included through the process reaper registry, so their niced build descendants remain counted. After 3 fresh overload samples and `agent.load_cooldown_seconds`, AIMD floors its reduction at half occupied slots or the recorded safe level, capped at the current envelope; it adds `agent.load_ramp_step` only below 80% of target. |
 | PSI-unavailable fallback | `agent.max_load_average`, `agent.target_load_average`, and optional `agent.run_queue_threshold` use per-scheduler load and run queue; CPU corroboration applies when available, otherwise raw load. Status explicitly names the fallback. |
-| Memory, file descriptors, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. Build occupancy does not defer dispatch; build concurrency, stagger, and nice throttle bursts separately. |
+| Memory, file descriptors, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. In the default mode, build concurrency, stagger, and nice throttle build bursts separately from dispatch. |
 | Recovery | Gates reopen when pressure clears; unavailable CPU pressure does not count as a zero-pressure recovery sample. |
 
 | Hold signal | Where it appears |
@@ -334,6 +335,27 @@ Daemon releases default to `+sbwt none +sbwtdcpu none +sbwtdio none` to lower id
 | Alert feed | Debounced `system.fleet.capacity.backoff` |
 
 Holds limit only new admissions. Running agents and agent-spawned sub-agents continue.
+
+### Resource-based dispatch ceiling
+
+Set `agent.resource_concurrency: true` to start at one slot and cap dispatch at the lower of the configured and session limits. The existing hard admission gates still apply. Running agents keep their slots when the ceiling falls.
+
+With dispatchable work waiting, fresh healthy readings must span `agent.load_cooldown_seconds` (at least 10 seconds) before each one-slot increase.
+
+Missing or stale readings, a build holding a slot, or a gap longer than two normal dispatch intervals interrupt the hold. A fresh pressure reading halves the ceiling on the dispatch cycle, down to a minimum of one.
+
+These readings determine whether the ceiling can rise or needs to fall.
+
+| Reading | Pressure threshold |
+| --- | --- |
+| Host CPU PSI `some avg10` | Above `agent.target_cpu_pressure` (10% if unset). |
+| Host memory PSI `some avg10` | Above 1%. |
+| Host `MemAvailable` | Below `agent.min_free_memory_mb` (1024 MB if unset). |
+| Cgroup headroom | CPU PSI above the host target in `aiur.slice` (or the daemon's CPU-limited cgroup). Memory use excluding inactive file cache above `agent.cgroup_memory_threshold` (80% if unset) of the lower finite `memory.high` or `memory.max`. Aiur reads its enclosing or nearest `aiur.slice`, or its own cgroup. |
+| Build gate | All configured build slots active. |
+| Provider budget | Below 10% projected headroom above reserve on the best open coding route, using the same reading as `aiur capacity`. |
+
+`aiur status`, `aiur agents`, and the dashboard show the effective ceiling, its binding signal, and the age of its observation. An unknown signal has no observation age.
 
 ## agent.claude
 

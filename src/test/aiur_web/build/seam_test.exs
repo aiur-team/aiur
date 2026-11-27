@@ -43,7 +43,8 @@ defmodule AiurWeb.Build.SeamTest do
   @shell ~w(AgentLogModal UnitControls UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
 
   test "web side references only the seam (future regression guard)" do
-    files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
+    build_live = Path.join(@root, "lib/aiur_web/live/build_live.ex")
+    files = Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
     assert [_ | _] = files
     assert Enum.all?(files, &File.regular?/1)
     # C8-T03 reads the existing nonblocking snapshot facade with cadence-aware tolerance.
@@ -67,6 +68,8 @@ defmodule AiurWeb.Build.SeamTest do
     identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
     # Running-row PR facts read the progress store only through this projection seam.
     progress_pr_facts = Path.join(@root, "lib/aiur_web/build/progress_pr_facts.ex")
+    # The landing page shares the dispatch ceiling presentation with the dashboard.
+    assert offenders([build_live], &(allowed?(&1) or &1 == "AiurWeb.OperatorControlCenter.Overview")) == []
     assert offenders(files -- [freshness, conversation, journal, events, document, identity, progress_pr_facts], &allowed?/1) == []
     assert offenders([progress_pr_facts], &(allowed?(&1) or &1 == "Aiur.StartTrigger.ProgressStore")) == []
     assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []

@@ -22,6 +22,7 @@ defmodule Aiur.CLI do
           required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
           required(:ensure_all_started) => (-> ensure_started_result()),
           optional(:configured_max_agents) => (-> pos_integer()),
+          optional(:resource_concurrency?) => (-> boolean()),
           optional(:executor_mode?) => (-> boolean()),
           optional(:check_daemon_gap) => (-> :ok)
         }
@@ -276,12 +277,18 @@ defmodule Aiur.CLI do
          true <- requested > ceiling do
       IO.puts(:stderr, [
         "warning: --max-agents #{requested} exceeds agent.max_concurrent_agents (#{ceiling}); ",
-        "the explicit CLI value wins, so using #{requested}. ",
+        max_agents_warning_effect(deps, requested, ceiling),
         "Raise the config value or pass --max-agents <= #{ceiling} to silence this."
       ])
     else
       _ -> :ok
     end
+  end
+
+  defp max_agents_warning_effect(deps, requested, ceiling) do
+    if Map.get(deps, :resource_concurrency?, fn -> false end).(),
+      do: "resource-based concurrency keeps the configured ceiling of #{ceiling}. ",
+      else: "the explicit CLI value wins, so using #{requested}. "
   end
 
   defp last_option_value(opts, key) do

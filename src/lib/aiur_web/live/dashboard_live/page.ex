@@ -56,6 +56,7 @@ defmodule AiurWeb.DashboardLive.Page do
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
+      <Overview.dispatch_ceiling capacity={@payload.fleet[:capacity]} />
 
       <VoicePanel.panel :if={@live_action == :voice} {assigns} />
 

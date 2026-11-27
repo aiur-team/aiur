@@ -69,6 +69,9 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
     field(:max_concurrent_agents, :integer)
+
+    # @config-reference config-configuration-agent-00 agent.resource_concurrency | boolean | false | Use measured host, cgroup, build, and provider readings to set the dispatch ceiling. |
+    field(:resource_concurrency, :boolean, default: false)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
@@ -341,6 +344,7 @@ defmodule Aiur.Config.Schema.Agent do
         :prior_work_continuation,
         :max_dispatches_per_ticket,
         :max_concurrent_agents,
+        :resource_concurrency,
         :run_queue_threshold,
         :max_concurrent_builds,
         :build_nice,

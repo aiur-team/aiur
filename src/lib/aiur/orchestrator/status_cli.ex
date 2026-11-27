@@ -297,6 +297,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
           retrying = Map.get(snapshot, :retrying, [])
           idle = Map.get(snapshot, :idle, [])
           visible_idle = AgentsTable.visible_idle_rows(idle, Keyword.get(opts, :all, false))
+          Capacity.print_resource_ceiling(Map.get(snapshot, :capacity))
           AgentsTable.print_agents_table(running ++ retrying ++ visible_idle)
           AgentsTable.print_idle_count(length(idle) - length(visible_idle))
           DispatchSelections.print(Map.get(snapshot, :capacity))

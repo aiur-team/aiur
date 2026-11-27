@@ -14,6 +14,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.EnvelopeResume
   alias Aiur.Orchestrator.PressureAdmission
+  alias Aiur.Orchestrator.ResourceEnvelope
+  alias Aiur.Orchestrator.ResourceReadings
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
@@ -38,6 +40,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
 
     state
+    |> maybe_update_resource_envelope(probes, false, now_ms)
     |> remember_cpu_snapshot(probes)
     |> CapacityConstraints.record_capacity_sample(probes)
     |> CapacityConstraints.record_capacity_constraints(probes)
@@ -87,8 +90,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
     {envelope_value, envelope_target, envelope_schedulers} = PressureAdmission.envelope_signal(probes)
 
     state =
-      PressureAdmission.update(state, probes, now_ms, queued_demand?, fresh?)
-      |> CapacityConstraints.maybe_record_load_envelope_constraint(envelope_value, envelope_target, envelope_schedulers)
+      update_envelope(state, probes, now_ms, queued_demand?, fresh?)
+      |> maybe_record_legacy_constraint(envelope_value, envelope_target, envelope_schedulers)
 
     # Reusing a sample neither confirms nor interrupts sustained overload.
     state = if fresh? or previous_signal != state.load_envelope_state[:signal], do: state, else: put_in(state.load_envelope_state[:overload_samples], overload_samples)
@@ -110,7 +113,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   defp hold_dispatch(state, %{signal: :cpu_pressure} = reason, issues, choose_fun, now_ms, opts) do
     state = hold_dispatch(state, reason, now_ms, opts)
 
-    if PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample),
+    if not ResourceEnvelope.enabled?(state) and PressureAdmission.priority_bypass_allowed?(state.dispatch_capacity_sample),
       do: dispatch_urgent_under_pressure(state, issues, choose_fun),
       else: state
   end
@@ -163,9 +166,14 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   defp dispatch_after_envelope(state, issues, choose_fun, envelope, queued_demand?, now_ms, opts) do
     {value, target, schedulers} = envelope
-    hold = envelope_hold(state, value, target, schedulers, queued_demand?)
-    state = reconcile_capacity_hold(state, hold, now_ms, opts)
-    choose_fun.(state, issues)
+    measured? = ResourceEnvelope.enabled?(state)
+    hold = if measured?, do: :dispatch, else: envelope_hold(state, value, target, schedulers, queued_demand?)
+
+    if measured? and Keyword.get(opts, :require_free_slot?, false) and Slots.available_slots(state) == 0 do
+      hold_dispatch(state, %{signal: :envelope, measured: Slots.used_slots(state), threshold: Slots.effective_concurrent_agent_limit(state)}, now_ms, opts)
+    else
+      state |> reconcile_capacity_hold(hold, now_ms, opts) |> choose_fun.(issues)
+    end
   end
 
   # A P1 may run under PSI pressure; lower priority work stays behind the gate.
@@ -181,7 +189,11 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   # the demand) and is injected at the gate.
   @doc false
   @spec admission_probes() :: map()
-  def admission_probes do
+  def admission_probes, do: admission_probes(true)
+
+  defp admission_probes(include_resource_readings?) do
+    agent = Config.settings!().agent
+    resources = if include_resource_readings? and agent.resource_concurrency, do: ResourceReadings.sample(agent), else: %{}
     cgroup_memory_threshold = Config.cgroup_memory_threshold()
     cgroup_memory = SystemCgroup.memory()
     memory_threshold_mb = Config.min_free_memory_mb()
@@ -201,6 +213,21 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       github_quota: DispatchPolicy.read_github_quota(),
       disk_status: Aiur.DiskWatchdog.current()
     })
+    |> Map.merge(resources)
+  end
+
+  defp maybe_record_legacy_constraint(state, value, target, schedulers) do
+    if ResourceEnvelope.enabled?(state), do: state, else: CapacityConstraints.maybe_record_load_envelope_constraint(state, value, target, schedulers)
+  end
+
+  defp update_envelope(state, probes, now_ms, demand?, fresh?) do
+    if ResourceEnvelope.enabled?(state),
+      do: ResourceEnvelope.update(state, probes, demand?, now_ms),
+      else: PressureAdmission.update(state, probes, now_ms, demand?, fresh?)
+  end
+
+  defp maybe_update_resource_envelope(state, probes, demand?, now_ms) do
+    if ResourceEnvelope.enabled?(state), do: ResourceEnvelope.update(state, probes, demand?, now_ms), else: state
   end
 
   defp cgroup_memory_available_mb(%{current: current, inactive_file: inactive_file, max: maximum}, threshold, _host_floor) when is_number(threshold) do
@@ -238,7 +265,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
         {:hold, :prewarm}
 
       true ->
-        probes = admission_probes() |> put_cpu_headroom(state)
+        probes = admission_probes(false) |> put_cpu_headroom(state)
 
         case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true)) do
           :dispatch -> :dispatch

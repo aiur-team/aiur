@@ -11,6 +11,7 @@ defmodule Aiur.CLI.RuntimeDeps do
       set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
       configured_max_agents: &Aiur.Config.max_concurrent_agents/0,
+      resource_concurrency?: fn -> Aiur.Config.settings!().agent.resource_concurrency == true end,
       executor_mode?: fn -> Application.get_env(:aiur, :executor_mode, false) end,
       check_daemon_gap: &Aiur.DaemonHeartbeatChecker.check_and_alert!/0
     }

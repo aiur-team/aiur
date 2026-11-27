@@ -20,7 +20,7 @@ Runtime overrides set with `aiur set` are operator-owned and stored per instance
 
 Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`, `capacity.sources.<backend>.reserve.percent` (may only raise the reserve).
 
-Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
+Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. With resource-based concurrency enabled, the lower of the session and configured caps applies. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
 
 ## Environment variables
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
