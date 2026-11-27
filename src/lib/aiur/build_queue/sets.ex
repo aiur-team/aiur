@@ -30,9 +30,13 @@ defmodule Aiur.BuildQueue.Sets do
 
     %{
       id: queue.id,
+      name: queue.name,
+      kind: queue.kind,
+      created_at_ms: DateTime.to_unix(queue.created_at, :millisecond),
       rank: queue.rank,
       held: queue.held,
       unfinished: unfinished,
+      started: Enum.any?(states, &(&1.state in [:claimed, :completed, :cancelled, :removed])),
       active: Enum.any?(states, &(&1.state == :claimed)),
       unknown: Enum.any?(states, &(&1.state == :unknown)),
       observed_at_ms: observed

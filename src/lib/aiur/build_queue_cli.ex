@@ -55,7 +55,13 @@ defmodule Aiur.BuildQueueCLI do
   defp select_next(envelope, _opts), do: envelope
 
   defp mark_stalled(envelope, opts) do
-    Aiur.QueueStallStatus.decorate(envelope, Keyword.get(opts, :capacity), Keyword.get(opts, :now_ms, System.system_time(:millisecond)))
+    capacity = Keyword.get(opts, :capacity, %{})
+    free_slots = get_in(capacity, [:capacity, :available]) || 0
+    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+
+    Map.update(envelope, :queues, [], fn queues ->
+      Enum.map(queues, &Map.put(&1, :stalled?, SetSummary.stalled?(&1, now, free_slots)))
+    end)
   end
 
   defp default_error(message), do: IO.puts(:stderr, message)

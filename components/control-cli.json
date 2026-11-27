@@ -44,7 +44,6 @@
     "src/lib/aiur/project/supervisor.ex",
     "src/lib/aiur/project/supervisors.ex",
     "src/lib/aiur/project/watcher.ex",
-    "src/lib/aiur/queue_stall_status.ex",
     "src/lib/aiur/pubsub_boot.ex",
     "src/lib/aiur/shutdown.ex",
     "src/lib/aiur/specs_check.ex",

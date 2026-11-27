@@ -144,15 +144,9 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_stalled_lists(snapshot) do
-    available = get_in(snapshot, [:capacity, :available]) || 0
-
-    if available > 0 do
-      stalled = Aiur.QueueStallStatus.stalled_queues(snapshot, available)
-      Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
-      update_stalled_attention(stalled)
-    end
-  catch
-    :exit, _reason -> :ok
+    stalled = Map.get(snapshot, :stalled_lists, [])
+    Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
+    update_stalled_attention(stalled)
   end
 
   defp update_stalled_attention(stalled) do
