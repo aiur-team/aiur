@@ -82,6 +82,15 @@ defmodule Aiur.Events.Catalog.Entries do
                }
              end)
 
+  @ticket_progress %Entry{
+    pattern: "ticket.*.progress",
+    class: :live,
+    export?: false,
+    refs: [:ticket],
+    attrs: [percent: :integer, step: :text, phase: {:enum, ~w(plan work review pr ci merge)}, source: {:enum, ~w(worker checklist phase)}, done: :integer, total: :integer, updated_at: :text],
+    owner: "harness-adapters"
+  }
+
   @agent_command %Entry{pattern: "ticket.*.agent.command", class: :logged, export?: true, refs: [:ticket], owner: "harness-adapters"}
 
   @entries @core ++
@@ -89,6 +98,7 @@ defmodule Aiur.Events.Catalog.Entries do
              @ci ++
              @comments ++
              [@merge_group_failure, @merge_group_requeue, @agent_command] ++
+             [@ticket_progress] ++
              @progress ++
              PlannedEntries.entries() ++ SystemEntries.entries() ++ GithubSystemEntries.entries() ++ TicketEntries.entries() ++ AttentionEntries.entries() ++ LegacyEntries.entries()
 

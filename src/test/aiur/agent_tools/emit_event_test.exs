@@ -30,6 +30,30 @@ defmodule Aiur.AgentTools.EmitEventTest do
   end
 
   describe "allowlist" do
+    test "report_progress publishes a bounded worker step with an explicit percent" do
+      response =
+        EmitEvent.execute(
+          "emit_event",
+          %{"name" => "report_progress", "message" => "unused", "payload" => %{"percent" => 42, "step" => "Writing the reducer host-lock tests"}},
+          event_publisher: publisher()
+        )
+
+      assert response["success"] == true
+      assert_received {:published, "progress", "Writing the reducer host-lock tests", %{"percent" => 42, "step" => "Writing the reducer host-lock tests", "source" => "worker"}}
+    end
+
+    test "report_progress rejects missing or invalid percentages" do
+      response =
+        EmitEvent.execute(
+          "emit_event",
+          %{"name" => "report_progress", "message" => "step", "payload" => %{"percent" => 101}},
+          event_publisher: publisher()
+        )
+
+      assert response["success"] == false
+      refute_received {:published, _, _, _}
+    end
+
     test "accepts bare progress" do
       response =
         EmitEvent.execute(

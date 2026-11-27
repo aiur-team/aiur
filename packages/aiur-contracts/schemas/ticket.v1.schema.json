@@ -88,7 +88,8 @@
         "review": { "type": "string" },
         "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
         "waiting_reason": { "type": "string" },
-        "tracker_identity": { "type": "object", "additionalProperties": true }
+        "tracker_identity": { "type": "object", "additionalProperties": true },
+        "progress": { "$ref": "#/$defs/ticketWorkProgress" }
       },
       "required": [
         "state",
@@ -98,7 +99,8 @@
         "open_decision_count_health",
         "review",
         "ci",
-        "waiting_reason"
+        "waiting_reason",
+        "progress"
       ]
     },
     "retry": {
@@ -195,6 +197,25 @@
         "draft?": { "type": "boolean" }
       },
       "required": ["decision", "pr_number", "head_sha", "draft?"]
+    },
+    "ticketWorkProgress": {
+      "title": "TicketWorkProgress",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "step": { "type": "string", "maxLength": 120 },
+        "phase": { "enum": ["plan", "work", "review", "pr", "ci", "merge"] },
+        "source": { "enum": ["worker", "checklist", "phase"] },
+        "checklist": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "properties": { "done": { "type": "integer", "minimum": 0 }, "total": { "type": "integer", "minimum": 0 } }, "required": ["done", "total"] },
+            { "type": "null" }
+          ]
+        },
+        "updated_at": { "type": ["string", "null"] }
+      },
+      "required": ["percent", "step", "phase", "source", "checklist", "updated_at"]
     }
   }
 }

@@ -124,7 +124,7 @@ defmodule Aiur.Events.GithubWebhookTest do
   end
 
   describe "issue comments" do
-    test "an Agent Workpad comment is dropped, matching the poller" do
+    test "an Agent Workpad comment publishes checklist progress" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
 
       delivery =
@@ -134,8 +134,12 @@ defmodule Aiur.Events.GithubWebhookTest do
           "user" => %{"login" => "its-everdred"}
         })
 
-      assert %{status: :dropped, reason: :agent_workpad_comment} =
-               GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
+      topic = "ticket.#{ticket}.agent.progress"
+
+      assert {:publish, [{^topic, payload, _opts}]} =
+               Normalizer.normalize("issue_comment", delivery, repo: @repo)
+
+      assert %{percent: 70, phase: "work", source: "checklist", step: "Work phase complete", done: 1, total: 1} = payload
     end
 
     test "a deleted-comment action does not publish" do

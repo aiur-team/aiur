@@ -88,6 +88,14 @@
       "open_decision_count": 0,
       "open_decision_count_health": "unknown",
       "pause_reason": null,
+      "progress": {
+        "checklist": null,
+        "percent": 15,
+        "phase": "work",
+        "source": "phase",
+        "step": "Working through the plan",
+        "updated_at": null
+      },
       "queue_depth": 1,
       "repl_attach_command": null,
       "review": "not_started",

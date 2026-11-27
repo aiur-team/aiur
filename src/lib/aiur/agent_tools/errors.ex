@@ -263,11 +263,14 @@ defmodule Aiur.AgentTools.Errors do
   def payload(:missing_event_message),
     do: %{"error" => %{"message" => "`emit_event.message` is required."}}
 
+  def payload(:invalid_report_progress),
+    do: %{"error" => %{"message" => "`report_progress` requires an integer percent from 0 to 100 and a non-empty one-line step no longer than 120 characters."}}
+
   def payload(:event_name_not_in_allowlist) do
     %{
       "error" => %{
         "message" =>
-          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
+          "`emit_event.name` must match the agent vocabulary: report_progress, progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
         "examples" => [
           "progress",
           "progress.brainstorm-end",

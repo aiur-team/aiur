@@ -283,21 +283,23 @@ defmodule Aiur.TicketActivity.Projection do
       nil ->
         {entry, false}
 
-      %{percent: percent, source: source} ->
-        fold_ordered_progress(entry, observation, order, percent, source)
+      %{percent: percent, source: source, step: step, progress_source: progress_source, done: done, total: total, phase: phase} ->
+        progress_data = %{percent: percent, source: source, step: step, progress_source: progress_source, done: done, total: total, phase: phase}
+        fold_ordered_progress(entry, observation, order, progress_data)
     end
   end
 
-  defp fold_ordered_progress(entry, observation, order, percent, source) do
+  defp fold_ordered_progress(entry, observation, order, progress_data) do
     if newer_order?(order, entry.progress_order) do
       entry = %{entry | progress_order: order}
-      apply_progress(entry, observation, order, percent, source)
+      apply_progress(entry, observation, order, progress_data)
     else
       {entry, false}
     end
   end
 
-  defp apply_progress(entry, observation, order, percent, source) do
+  defp apply_progress(entry, observation, order, progress_data) do
+    %{percent: percent, source: source} = progress_data
     current = entry.progress
 
     if Reducer.accept_progress?(
@@ -306,17 +308,24 @@ defmodule Aiur.TicketActivity.Projection do
          current_percent(current),
          provenance_changed?(current, observation)
        ) do
-      progress = progress_value(observation, order, percent, source)
+      progress = progress_value(observation, order, progress_data)
       {%{entry | progress: progress, provenance: progress.provenance}, true}
     else
       {entry, true}
     end
   end
 
-  defp progress_value(observation, order, percent, source) do
+  defp progress_value(observation, order, progress_data) do
+    %{percent: percent, source: source, step: step, progress_source: progress_source, done: done, total: total, phase: phase} = progress_data
+
     %{
       percent: percent,
       source: source,
+      step: step,
+      progress_source: progress_source,
+      done: done,
+      total: total,
+      phase: phase,
       provenance: safe_provenance(observation.provenance),
       occurred_at: safe_timestamp(observation.occurred_at),
       observed_at: observation.observed_at,
@@ -393,7 +402,15 @@ defmodule Aiur.TicketActivity.Projection do
        when name in ["progress", "progress.checkin", "progress.phase"] do
     case Map.get(attributes, :percent) do
       percent when is_integer(percent) and percent >= 0 and percent <= 100 ->
-        %{percent: percent, source: if(name == "progress.checkin", do: :checkin, else: :phase)}
+        %{
+          percent: percent,
+          source: if(name == "progress.checkin", do: :checkin, else: :phase),
+          step: Map.get(attributes, :step),
+          progress_source: Map.get(attributes, :progress_source),
+          done: Map.get(attributes, :done),
+          total: Map.get(attributes, :total),
+          phase: Map.get(attributes, :phase)
+        }
 
       _ ->
         nil

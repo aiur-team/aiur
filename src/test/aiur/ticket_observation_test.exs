@@ -37,6 +37,18 @@ defmodule Aiur.TicketObservationTest do
     refute Jason.encode!(observation) =~ "private model output"
   end
 
+  test "retains only a bounded explicit progress step and recognized worker source" do
+    observation =
+      TicketObservation.normalize(%{"percent" => 42, "step" => "  Writing\nunit tests  ", "source" => "worker", "secret" => "hidden"},
+        identity: identity(),
+        source: %{kind: :agent_event, name: "progress"},
+        observed_at: ~U[2026-07-13 12:00:01Z]
+      )
+
+    assert observation.attributes == %{percent: 42, step: "Writing unit tests", progress_source: :worker}
+    refute Jason.encode!(observation) =~ "hidden"
+  end
+
   test "does not qualify legacy observations from a topic, number, path, or active workflow" do
     observation =
       TicketObservation.normalize(
