@@ -40,7 +40,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-const RECORDING = ['cancel', 'waveform', 'voice', 'stop', 'send'];
+const RECORDING = ['cancel', 'waveform', 'voice', 'mic', 'stop', 'send'];
 const IDLE = ['attach', 'input', 'mic', 'send'];
 
 // The parts the user can see, in row order.
@@ -175,16 +175,17 @@ test('a removed attachment is not sent', async () => {
 // A recorder the test drives: it streams words and levels, and logs what the composer asks of it.
 function recorder({ final = '', ready } = {}) {
   const calls = [];
+  let muted = false;
   let callbacks;
   const adapter = {
     start: (options) => {
       calls.push('start');
       callbacks = options;
-      const session = { stop: async () => (calls.push('stop'), final), cancel: () => calls.push('cancel') };
+      const session = { stop: async () => (calls.push('stop'), final), cancel: () => calls.push('cancel'), setMuted: (value) => { muted = value; } };
       return ready ? ready.promise.then(() => session) : Promise.resolve(session);
     },
   };
-  return { adapter, calls, say: (text) => callbacks.onPartial(text), level: (value) => callbacks.onLevel(value) };
+  return { adapter, calls, say: (text) => callbacks.onPartial(text), level: (value) => callbacks.onLevel(value), get muted() { return muted; } };
 }
 
 // A press and an immediate release; the release lands on the window because the mic hides.
@@ -208,6 +209,9 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   tap(part('mic'));
   await settle();
   assert.deepEqual(mic.calls, ['start'], 'a tap must not stop dictation; only stop, send or cancel do');
+  part('mic').click();
+  assert.equal(mic.muted, true, 'the visible mic toggles mute while dictating');
+  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
   assert.deepEqual(visible(el), ['input', ...RECORDING], 'the input stays above the recording row');
 
   mic.say('with a');
@@ -296,7 +300,7 @@ test('send in the recording row stops dictation and sends the final words once',
   assert.equal(el.value, '');
 });
 
-test('two-way voice ends dictation and carries the words so far over as the first turn', async () => {
+test('two-way upgrades dictation, keeps mic and controls fixed, mutes, and renders both speakers', async () => {
   const { el, part } = mount();
   const mic = recorder({ final: 'make the level longer' });
   const starts = [];
@@ -323,7 +327,19 @@ test('two-way voice ends dictation and carries the words so far over as the firs
   assert.equal(el.value, '', 'the words moved to the voice session, so they are not sent twice');
   assert.equal(part('voice').getAttribute('aria-pressed'), 'true');
   assert.equal(part('voice').getAttribute('aria-label'), 'End voice conversation');
-  assert.deepEqual(visible(el), ['attach', 'input', 'voice', 'send']);
+  assert.deepEqual(visible(el), ['attach', 'input', 'waveform', 'voice', 'mic', 'send']);
+  assert.equal(part('waveform').hidden, false, 'voice keeps the live waveform visible');
+  starts[0].onLevel(0.8);
+  assert.ok(part('waveform').lastElementChild.style.transform.includes('0.80'));
+  starts[0].onPartial('user', 'hello there');
+  starts[0].onPartial('agent', 'Hi!');
+  starts[0].onPartial('user', 'hello there again');
+  assert.deepEqual([...el.shadowRoot.querySelectorAll('[part="transcript"] p')].map((p) => p.textContent), [
+    'You: hello there again', 'Agent: Hi!',
+  ]);
+  part('mic').click();
+  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
+  assert.equal(part('mic').getAttribute('aria-pressed'), 'false');
 
   part('voice').click();
   await settle();
@@ -376,6 +392,25 @@ test('the waveform scrolls with the loudness the recorder reports', async () => 
   assert.equal(bars.at(-2), 'scaleY(1.00)');
   assert.equal(bars[0], 'scaleY(0.10)', 'silence still shows a sliver');
   assert.equal(el.hasAttribute('data-recording'), true);
+});
+
+test('dictation keeps the right-side send and mic controls in stable positions', async () => {
+  const { el, part } = mount();
+  const mic = recorder();
+  el.adapters = { ...allAdapters(), dictation: mic.adapter };
+  const idle = visible(el);
+  tap(part('mic'));
+  await settle();
+  const recording = visible(el);
+  assert.deepEqual(recording, ['input', 'cancel', 'waveform', 'voice', 'mic', 'stop', 'send']);
+  assert.equal(recording.at(-1), 'send');
+  assert.ok(recording.indexOf('mic') < recording.indexOf('send'));
+  assert.equal(recording.filter((name) => name === 'send').length, 1);
+  assert.ok(recording.indexOf('waveform') >= 0);
+  part('stop').click();
+  await settle();
+  assert.deepEqual(visible(el), idle);
+  assert.deepEqual(idle, ['attach', 'input', 'mic', 'send']);
 });
 
 test('the mic works from the keyboard and focus moves to stop', async () => {

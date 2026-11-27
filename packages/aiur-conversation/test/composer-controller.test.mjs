@@ -29,7 +29,7 @@ test('headless host uploads and sends final dictation through the shared command
 
   composer.value = 'Hello, team';
   await composer.startDictation(6, 6);
-  assert.equal(composer.state.focusOrder.includes('mic'), false);
+  assert.equal(composer.state.focusOrder.includes('mic'), true);
   partial('please');
   assert.equal(composer.value, 'Hello, please team');
   assert.equal(await composer.send(), true);

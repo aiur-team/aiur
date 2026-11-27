@@ -53,6 +53,8 @@
     syncSend(composer.state);
   }
   const log = document.querySelector('#log');
+  let voiceCallbacks;
+  let voiceTimer;
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // Stand-ins for the host's own transport.
@@ -73,9 +75,17 @@
       },
     },
     voice: {
-      async start({ initialText }) {
+      async start({ initialText, onPartial, onLevel }) {
+        voiceCallbacks = { onPartial, onLevel };
+        clearInterval(voiceTimer);
+        voiceTimer = setInterval(() => {
+          onLevel(Math.random());
+          onPartial('user', 'Hello from the microphone');
+          onPartial('agent', 'Hello from the agent');
+        }, 500);
         if (initialText) log.append(Object.assign(document.createElement('li'), { textContent: `(voice) ${initialText}` }));
-        return { stop: async () => {} };
+        let muted = false;
+        return { stop: async () => { clearInterval(voiceTimer); voiceCallbacks = null; }, setMuted: (value) => { muted = value; } };
       },
     },
   };
