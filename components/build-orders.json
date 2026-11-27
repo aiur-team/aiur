@@ -50,6 +50,7 @@
     "Aiur.FeatureCLI",
     "Aiur.TicketReopen",
     "AiurWeb.BuildOrder.DataSource",
+    "AiurWeb.BuildOrderHostApi",
     "AiurWeb.BuildOrder.Runtime"
   ],
   "facade_pending": null,
