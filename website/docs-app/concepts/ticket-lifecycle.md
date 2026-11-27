@@ -96,9 +96,9 @@ A pending PR `Post-deploy check:` keeps the ticket open until completed on
 optional `Follow-ups: #125` in its body. Every listed issue must be closed and
 clear of `needs-triage`.
 
-These labels and fields are the OGM integration contract. Use Aiur's Command APIs
-to create cards and confirm outcomes; missing or unavailable evidence holds
-closure for retry.
+These labels and fields are the OGM integration contract. Use Aiur's Command
+APIs to create cards and confirm outcomes. Missing or unavailable evidence
+holds closure for retry.
 
 
 When the no-op turn bound or normal turn limit stops an agent, a newly opened or
