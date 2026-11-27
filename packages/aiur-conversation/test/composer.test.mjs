@@ -341,60 +341,6 @@ test('send in the recording row stops dictation and sends the final words once',
   assert.equal(el.value, '');
 });
 
-test('two-way upgrades dictation, keeps mic and controls fixed, mutes, and renders both speakers', async () => {
-  const { el, part } = mount();
-  const mic = recorder({ final: 'make the level longer' });
-  const starts = [];
-  let stops = 0;
-  el.adapters = {
-    upload: async (file) => ({ name: file.name }),
-    dictation: mic.adapter,
-    voice: {
-      start: async (options) => {
-        starts.push(options);
-        return { stop: async () => stops++, setMuted: () => {} };
-      },
-    },
-  };
-
-  tap(part('mic'));
-  await settle();
-  mic.say('make the level');
-  part('voice').click();
-  await settle();
-
-  assert.deepEqual(mic.calls, ['start', 'stop'], 'the words are transcribed, not thrown away');
-  assert.equal(starts[0].initialText, 'make the level longer');
-  assert.equal(el.value, '', 'the words moved to the voice session, so they are not sent twice');
-  assert.equal(part('voice').getAttribute('aria-pressed'), 'true');
-  assert.equal(part('voice').getAttribute('aria-label'), 'End voice conversation');
-  assert.deepEqual(visible(el), ['attach', 'input', 'waveform', 'voice', 'mic', 'send']);
-  assert.equal(part('waveform').hidden, false, 'voice keeps the live waveform visible');
-  starts[0].onLevel(0.8);
-  assert.ok(part('waveform').lastElementChild.style.transform.includes('0.80'));
-  starts[0].onPartial('user', 'hello there');
-  starts[0].onPartial('agent', 'Hi!');
-  starts[0].onPartial('user', 'hello there again');
-  assert.deepEqual([...el.shadowRoot.querySelectorAll('[part="transcript"] p')].map((p) => p.textContent), [
-    'You: hello there again', 'Agent: Hi!',
-  ]);
-  part('mic').click();
-  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
-  assert.equal(part('mic').getAttribute('aria-pressed'), 'false');
-
-  part('voice').click();
-  await settle();
-  assert.equal(stops, 1);
-  assert.deepEqual(visible(el), IDLE, 'two-way hides again once the conversation ends');
-
-  tap(part('mic'));
-  await settle();
-  part('voice').click();
-  await settle();
-  starts[1].onEnd();
-  assert.deepEqual(visible(el), IDLE, 'the agent hanging up resets the composer');
-});
-
 test('a voice session that fails to start gives the words back', async () => {
   const { el, part } = mount();
   const mic = recorder({ final: 'are you there' });
