@@ -29,6 +29,7 @@
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.OutcomeGate",
     "Aiur.Commands.Answering",
     "Aiur.Commands.CLIAnswers",
     "Aiur.Commands.DeliveryTarget",

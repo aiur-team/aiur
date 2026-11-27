@@ -37,6 +37,8 @@ defmodule Aiur.Commands do
   defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: Aiur.DecisionStore
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
+  @spec validate_review_handoff([String.t()], String.t() | nil, [map()]) :: :ok | {:error, atom()}
+  defdelegate validate_review_handoff(labels, identifier, decisions), to: Aiur.Commands.OutcomeGate, as: :validate_handoff
   @spec matches_route?(map(), atom() | nil) :: boolean()
   defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
   @spec override_rows(map()) :: [map()]
