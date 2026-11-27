@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue.FeatureSourceTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.Commands.OutcomeGate
   alias Aiur.BuildQueue.{Hints, Model, MutationCLI, Server}
   alias Aiur.BuildQueue.Sources.Feature
+  alias Aiur.Commands.OutcomeGate
   alias Aiur.Config.Schema
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
