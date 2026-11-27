@@ -14,6 +14,7 @@ defmodule Aiur.UsageAggregate.Query do
 
   @group_dimensions %{
     by_provider: :provider,
+    by_user_id: :user_id,
     by_run: :run_id,
     by_ticket: :ticket,
     by_agent_family: :agent_family,
@@ -171,9 +172,10 @@ defmodule Aiur.UsageAggregate.Query do
   end
 
   defp unknown_attribution(selected) do
-    Enum.reduce(selected, %{run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0}, fn
+    Enum.reduce(selected, %{user_id: 0, run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0}, fn
       {{dims, _measure}, _value}, acc ->
         acc
+        |> bump(:user_id, is_nil(dims.user_id))
         |> bump(:run_id, is_nil(dims.run_id))
         |> bump(:ticket, dims.ticket == :unknown)
         |> bump(:account_generation, is_nil(dims.account_generation))

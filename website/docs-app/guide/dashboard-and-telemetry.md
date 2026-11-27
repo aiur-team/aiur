@@ -144,6 +144,10 @@ The Units Models panel shows provider usage from the shared provider read model.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
 
+Set `AIUR_USAGE_USER_ID` to a stable, host-supplied user identifier to attach it to provider usage records. Authenticated `GET /api/v1/usage/users/<user_id>` returns that user's recorded token totals by provider, ticket and run, estimated provider-reported cost, current provider allocation windows with reset time and freshness, paid API spend records under Gas, and reusable provider logo/token SVG paths in `icons`. Fetch those paths (for example, `/provider-assets/codex-color.svg`) with dashboard authentication. The route only serves the configured user id; other ids return `404`.
+
+Use authenticated writable `POST /api/v1/usage/gas` to record a paid API charge. Send `id`, `user_id`, `api`, `amount_usd`, and `occurred_at`; `basis` defaults to `actual` and may be `estimate`, while `ticket` and `conversation_id` are optional. Repeating an identical id returns the original record; reusing it with different data is rejected. Set `AIUR_GAS_BUDGET_USD` to show the configured spend budget and remaining amount.
+
 Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the same as `aiur capacity --json`: one "Energy" figure and each source's state, accounts, reserve, holds and limits, as dispatch computes them. Each figure carries `observed_at`, `age_ms` and `freshness`; show a `null` `energy.level` as unknown, never as full.
 
 With an `openrouter:` route configured, the provider row shows the key's remaining credit against its limit, and `aiur usage openrouter` lists each route's spend per route and model. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it, the route key's own limit stands in.

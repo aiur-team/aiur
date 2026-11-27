@@ -362,7 +362,7 @@ defmodule Aiur.Application.Children do
             ]
           )
         ) ++
-        [Aiur.Orchestrator.UnresponsiveWatchdog]
+        [Aiur.Orchestrator.UnresponsiveWatchdog, Aiur.Usage.GasLedger]
     )
     |> with_projects(projects, recording?)
   end

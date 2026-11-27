@@ -27,6 +27,7 @@ defmodule Aiur.UsageAggregate.Key do
   @type ticket :: {:github, String.t(), String.t(), String.t()} | :unknown
   @type dims :: %{
           provider: atom(),
+          user_id: String.t() | nil,
           run_id: String.t() | nil,
           ticket: ticket(),
           attempt_id: String.t() | nil,
@@ -62,6 +63,7 @@ defmodule Aiur.UsageAggregate.Key do
   def dims(%UsageEnvelope{} = envelope) do
     %{
       provider: envelope.provider,
+      user_id: envelope.attribution.user_id,
       run_id: envelope.attribution.run_id,
       ticket: ticket(envelope.attribution.tracker_identity),
       attempt_id: envelope.attribution.attempt_id,
@@ -129,6 +131,7 @@ defmodule Aiur.UsageAggregate.Key do
   defp encode_dims(dims) do
     %{
       "provider" => Atom.to_string(dims.provider),
+      "user_id" => dims.user_id,
       "run_id" => dims.run_id,
       "ticket" => encode_ticket(dims.ticket),
       "attempt_id" => dims.attempt_id,
@@ -156,6 +159,7 @@ defmodule Aiur.UsageAggregate.Key do
 
   defp decode_dims(raw) when is_map(raw) do
     with {:ok, provider} <- enum(raw["provider"], @providers),
+         {:ok, user_id} <- opaque_or_nil(raw["user_id"]),
          {:ok, ticket} <- decode_ticket(raw["ticket"]),
          {:ok, backend} <- enum(raw["backend"], @backends),
          {:ok, agent_family} <- enum(raw["agent_family"], @agent_families),
@@ -172,6 +176,7 @@ defmodule Aiur.UsageAggregate.Key do
       {:ok,
        %{
          provider: provider,
+         user_id: user_id,
          run_id: run_id,
          ticket: ticket,
          attempt_id: attempt_id,
