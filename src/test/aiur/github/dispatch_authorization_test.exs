@@ -115,6 +115,52 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :denied
   end
 
+  test "a daemon queued ticket dispatches when daemon identity is not allowlisted" do
+    events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z")]
+
+    authorized =
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "daemon_label_applier"
+    assert authorized.dispatch_authorization_actor == "daemon[bot]"
+    assert authorized.dispatch_authorization_reason == nil
+  end
+
+  test "an agent bot label still needs trusted prior triage" do
+    events = [labeled_event(10, "agent:todo", "agent-bot", "2026-01-01T00:00:00Z")]
+
+    denied =
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization_actor == "agent-bot"
+    assert denied.dispatch_authorization_reason == :label_applier_not_allowed
+  end
+
+  test "an agent state transition carries forward a daemon queue action" do
+    events = [
+      labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "agent-bot", "2026-01-02T00:00:00Z")
+    ]
+
+    authorized =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "prior_daemon_triage:daemon[bot]"
+  end
+
+  test "an untrusted actor denial retains actor and reason for status" do
+    events = [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]
+
+    denied = authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization_actor == "outsider"
+    assert denied.dispatch_authorization_reason == :label_applier_not_allowed
+  end
+
   # Carry-forward is deliberately limited to Aiur's own identity. "Latest
   # applier wins" is what stops a hostile relabel riding a stale approval, so
   # any non-Aiur actor still replaces the decision.
