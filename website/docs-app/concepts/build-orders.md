@@ -279,7 +279,7 @@ These capability states describe whether the integration is available; each adop
 
 ## Start trigger
 
-Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_opened`); later stages satisfy earlier triggers. Lists therefore start the next item as soon as the previous item has a ready, non-draft PR, allowing work to overlap review and merge time. Choose `pr_merged` when each list item should wait for the previous PR to merge.
+Lists use `build_queue.start_trigger` (default `pr_opened`) to start the next item when the prior item has a ready, non-draft PR; choose `pr_merged` to wait for its merge.
 
 | Trigger | Starts when | Evidence |
 | --- | --- | --- |
