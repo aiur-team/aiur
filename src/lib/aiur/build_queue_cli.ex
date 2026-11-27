@@ -60,6 +60,7 @@ defmodule Aiur.BuildQueueCLI do
     free_slots =
       case capacity do
         %{capacity: %{available: available}} when is_integer(available) -> available
+        %{available: available} when is_integer(available) -> available
         _ -> 0
       end
 

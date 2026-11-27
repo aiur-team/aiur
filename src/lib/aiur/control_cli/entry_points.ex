@@ -145,11 +145,13 @@ defmodule Aiur.ControlCLI.EntryPoints do
   def ownership_migrate(opts), do: guarded("ownership migrate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> MigrateCLI.run() |> exit_marker() end)
 
   @spec queue(keyword()) :: :ok
-  def queue(opts \\ []),
-    do:
-      guarded("queue", fn ->
-        opts |> Keyword.put_new(:capacity, StatusReport.snapshot_api()) |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker()
-      end)
+  def queue(opts \\ []), do: guarded("queue", fn -> opts |> add_queue_capacity() |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)
+
+  defp add_queue_capacity(opts) do
+    if Keyword.get(opts, :verb, :show) == :show,
+      do: Keyword.put_new(opts, :capacity, StatusReport.snapshot_api()),
+      else: opts
+  end
 
   @spec analytics(keyword()) :: :ok
   def analytics(opts \\ []), do: guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
