@@ -124,6 +124,18 @@ defmodule Aiur.Issue do
   def parked?(%__MODULE__{parked: parked}), do: parked == true
   def parked?(_issue), do: false
 
+  @doc "Returns whether the issue is an epic container (`epic` or `epic:*`), which only groups work."
+  @spec epic?(t()) :: boolean()
+  def epic?(%__MODULE__{labels: labels}) when is_list(labels), do: Enum.any?(labels, &epic_label?/1)
+  def epic?(_issue), do: false
+
+  defp epic_label?(label) when is_binary(label) do
+    label = label |> String.trim() |> String.downcase()
+    label == "epic" or String.starts_with?(label, "epic:")
+  end
+
+  defp epic_label?(_label), do: false
+
   @spec parked?(t(), map()) :: boolean()
   def parked?(issue, running_entry), do: parked?(issue) or Map.get(running_entry, :operator_parked) == true
 

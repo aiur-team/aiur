@@ -128,6 +128,10 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
       Issue.held?(issue) ->
         {:skip, if(Issue.parked?(issue), do: :parked, else: :executor_owned)}
 
+      # An epic only groups its member tickets; it has no work of its own.
+      Issue.epic?(issue) ->
+        {:skip, :epic}
+
       DispatchPolicy.normalize_issue_state(issue.state) == "" ->
         {:skip, :unlabeled_issue}
 
@@ -177,10 +181,11 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   end
 
   defp emit_idle_comment_refusal(issue_number, reason)
-       when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
+       when reason in [:parked, :epic, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
     remedy =
       case reason do
         :parked -> "resume the issue explicitly to clear the park marker"
+        :epic -> "comment on a member ticket; an epic is never dispatched"
         :unlabeled_issue -> "assign an agent state if this issue should be worked"
         :no_open_pr -> "open a pull request before requesting rework"
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"

@@ -156,6 +156,7 @@ defmodule Aiur.ControlCLI.Reasons do
         dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
         pause_override_still_present: "tracker pause override is still present",
         ticket_parked: "ticket is parked from fleet dispatch; resume it explicitly to clear the park marker",
+        ticket_epic: "ticket is an epic; epics group member tickets and are never dispatched",
         ticket_executor_owned: "ticket is held by the Executor; release its owner marker before fleet dispatch",
         park_pending: "park marker write is still pending; wait for it before resume",
         park_marker_clear_failed: "park marker could not be cleared",

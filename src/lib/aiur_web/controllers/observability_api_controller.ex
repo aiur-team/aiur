@@ -301,6 +301,7 @@ defmodule AiurWeb.ObservabilityApiController do
               :not_resumable,
               :pause_override_still_present,
               :ticket_parked,
+              :ticket_epic,
               :globally_paused,
               :stale_generation,
               :tracker_issue_not_found,

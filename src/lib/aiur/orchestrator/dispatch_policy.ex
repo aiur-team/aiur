@@ -172,6 +172,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :unauthorized
           | :paused
           | :parked
+          | :epic
           | :executor_owned
           | :spend_cap_exhausted
           | :spend_cap_unavailable
@@ -206,6 +207,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :unauthorized,
     :paused,
     :parked,
+    :epic,
     :executor_owned,
     :spend_cap_exhausted,
     :spend_cap_unavailable,
@@ -390,6 +392,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
       not issue_not_parked?(issue) -> {:skip, :parked}
+      Issue.epic?(issue) -> {:skip, :epic}
       not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
       true -> SpendCap.decision(issue)
     end
