@@ -193,6 +193,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
+    Aiur.Usage.GasLedger,
     AiurWeb.DashboardAuth.ChallengeStore,
     AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,

@@ -63,7 +63,7 @@ defmodule Aiur.UsageAggregate.Key do
   def dims(%UsageEnvelope{} = envelope) do
     %{
       provider: envelope.provider,
-      user_id: envelope.attribution.user_id,
+      user_id: Map.get(envelope.attribution, :user_id),
       run_id: envelope.attribution.run_id,
       ticket: ticket(envelope.attribution.tracker_identity),
       attempt_id: envelope.attribution.attempt_id,
