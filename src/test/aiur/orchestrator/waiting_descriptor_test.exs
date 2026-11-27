@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AgentControlCLI, AgentQueueItem, Issue}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Orchestrator.{AutoResume, LifecycleFence, RetryEngine, Slots, SnapshotStore, State, StatusReport, WaitingReason}
   alias Aiur.Workspace.Ownership
   alias AiurWeb.Presenter
@@ -284,6 +285,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
   test "dependency waiting evidence and rendered text name the dispatch trigger" do
     blocker = %{id: "surfacing-blocker", identifier: "12", state: "ci-wait"}
     row = %{issue_id: "surfacing-dependent", identifier: "13", waiting_reason: :waiting_for_dependency, blocked_by: [blocker]}
+    :ets.insert(Hints.create_table(), {row.issue_id, {0, 0}, false, :pr_merged})
     attached = WaitingReason.attach(row, %State{})
     assert attached.waiting.reason == :waiting_for_dependency
     assert attached.waiting.cause == [blocker]

@@ -13,8 +13,17 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
-        if Map.get(state, :save_delay, 0) > 0, do: Process.sleep(state.save_delay)
+        if gate = Map.get(state, :save_gate) do
+          {owner, ref} = gate
+          send(owner, {:store_save_started, ref})
+
+          receive do
+            {:release_store_save, ^ref} -> :ok
+          end
+        end
+
         {result, state} = next_save_result(state)
+        state = Map.delete(state, :save_gate)
         if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
       end)
     end
@@ -61,7 +70,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   setup do
-    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, save_delay: 0, marker_result: :ok} end})
+    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
     Process.register(boundary, Boundary)
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
@@ -372,12 +381,20 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
   test "queue set confirms an applied trigger after its mutation call times out", %{server: pid} do
     run(pid, :add, ids: ["1"], queue: "wave")
-    Agent.update(Boundary, &%{&1 | save_delay: 30})
+    gate = make_ref()
+    owner = self()
+    Agent.update(Boundary, &Map.put(&1, :save_gate, {owner, gate}))
 
-    output =
-      capture_io(fn ->
-        assert 0 == MutationCLI.run(verb: :set, queue: "wave", start_on: "pr_opened", server: pid, call_timeout: 1)
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          assert 0 == MutationCLI.run(verb: :set, queue: "wave", start_on: "pr_opened", server: pid, call_timeout: 0)
+        end)
       end)
+
+    assert_receive {:store_save_started, ^gate}, 1_000
+    send(Process.whereis(Boundary), {:release_store_save, gate})
+    output = Task.await(task, 5_000)
 
     assert output =~ "wave: applied pr_opened (queue override)"
     queue = Enum.find(Aiur.BuildQueue.show(pid).queues, &(&1.name == "wave"))

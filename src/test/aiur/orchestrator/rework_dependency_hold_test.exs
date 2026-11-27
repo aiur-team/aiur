@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.ReworkDependencyHoldTest do
   # dispatched and looped on no-op rework turns.
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, Tracker, Workflow}
+  alias Aiur.{BuildQueue.Hints, Issue, Tracker, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
   setup do
@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.ReworkDependencyHoldTest do
       blocked_by: [%{id: "3784", identifier: "3784", state: "rework"}]
     }
 
+    :ets.insert(Hints.create_table(), {issue.id, {0, 0}, false, :pr_merged})
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
     parent = self()
 
