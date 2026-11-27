@@ -4,7 +4,9 @@ defmodule AiurWeb.BuildOrderApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.BuildOrder.Features
   alias Aiur.BuildOrder.PublishedReference
+  alias Aiur.Commands.Scope
   alias AiurWeb.BuildOrderApiController
 
   test "returns the whole catalog document without a root selector" do
@@ -71,6 +73,80 @@ defmodule AiurWeb.BuildOrderApiControllerTest do
     assert conn.status == 422
     assert get_resp_header(conn, "allow") == ["GET"]
     assert %{"error" => %{"code" => "method_not_allowed"}} = Jason.decode!(conn.resp_body)
+  end
+
+  test "an embedded read requires a verified feature or epic scope" do
+    conn = BuildOrderApiController.embedded(api_conn(:get), %{})
+    assert conn.status == 404
+    assert %{"error" => %{"code" => "build_order_not_found"}} = Jason.decode!(conn.resp_body)
+
+    {:ok, %{scope: scope}} = Scope.mint("player-7", [], secret: String.duplicate("s", 64), build_order: %{kind: "feature", key: "not-owned"})
+    conn = api_conn(:get) |> Plug.Conn.assign(:command_scope, scope) |> BuildOrderApiController.embedded(%{})
+    assert conn.status == 404
+  end
+
+  test "an embedded feature grant returns only its owning tickets" do
+    dir = Aiur.TestSupport.tmp_root!("build-order-host-api")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    features = start_supervised!({Features, name: nil, state_dir: dir, general_epics: [], filesystem_sync_fun: fn -> :ok end, alert_fun: fn _, _, _ -> :ok end})
+    meta = [server: features, source: "cli:test", actor: "test"]
+    assert {:ok, _} = Features.create("game-board", %{label: "Game board"}, meta)
+    assert {:ok, _} = Features.add("game-board", [8155, 9999], meta)
+    assert {:ok, _} = Features.epic_create("game", %{label: "Game"}, meta)
+    assert {:ok, _} = Features.epic_add("game", ["game-board"], meta)
+    assert {:ok, _} = Features.create("other-game", %{label: "Other game"}, meta)
+    assert {:ok, _} = Features.add("other-game", [7000], meta)
+    {:ok, %{scope: scope}} = Scope.mint("creator-7", [], secret: String.duplicate("s", 64), build_order: %{kind: "feature", key: "game-board"})
+    activity = %{entries: []}
+
+    conn =
+      api_conn(:get)
+      |> Plug.Conn.assign(:command_scope, scope)
+      |> put_private(:build_order_host_opts, features_opts: [server: features], activity_fun: fn -> activity end)
+      |> BuildOrderApiController.embedded(%{})
+
+    assert conn.status == 200
+    document = Jason.decode!(conn.resp_body)
+    assert [%{"key" => "game-board", "epic" => "game"}] = document["features"]
+    assert document["tickets"] |> Enum.map(& &1["number"]) |> Enum.sort() == [8155, 9999]
+    assert document["sources"]["pack"]["status"] == "unknown"
+    assert document["waves"] == []
+  end
+
+  test "an embedded epic grant includes only its owned features and tickets" do
+    dir = Aiur.TestSupport.tmp_root!("build-order-host-epic-api")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    features = start_supervised!({Features, name: nil, state_dir: dir, general_epics: [], filesystem_sync_fun: fn -> :ok end, alert_fun: fn _, _, _ -> :ok end})
+    meta = [server: features, source: "cli:test", actor: "test"]
+    assert {:ok, _} = Features.create("game-board", %{label: "Game board"}, meta)
+    assert {:ok, _} = Features.add("game-board", [8155], meta)
+    assert {:ok, _} = Features.create("unrelated", %{label: "Unrelated"}, meta)
+    assert {:ok, _} = Features.add("unrelated", [7000], meta)
+    assert {:ok, _} = Features.epic_create("game", %{label: "Game"}, meta)
+    assert {:ok, _} = Features.epic_add("game", ["game-board"], meta)
+    {:ok, %{scope: scope}} = Scope.mint("creator-7", [], secret: String.duplicate("s", 64), build_order: %{kind: "epic", key: "game"})
+
+    conn =
+      api_conn(:get)
+      |> Plug.Conn.assign(:command_scope, scope)
+      |> put_private(:build_order_host_opts, features_opts: [server: features], activity_fun: fn -> %{entries: []} end)
+      |> BuildOrderApiController.embedded(%{})
+
+    assert conn.status == 200
+    document = Jason.decode!(conn.resp_body)
+    assert [%{"key" => "game-board", "title" => "Game board", "epic" => "game"}] = document["features"]
+    assert document["tickets"] |> Enum.map(& &1["number"]) == [8155]
+
+    removed = [server: features, source: "cli:test", actor: "test"]
+    assert {:ok, _} = Features.epic_remove("game", ["game-board"], removed)
+
+    conn =
+      api_conn(:get)
+      |> Plug.Conn.assign(:command_scope, scope)
+      |> put_private(:build_order_host_opts, features_opts: [server: features], activity_fun: fn -> %{entries: []} end)
+      |> BuildOrderApiController.embedded(%{})
+
+    assert conn.status == 404
   end
 
   defp api_conn(method, source \\ PublishedReference.source()) do

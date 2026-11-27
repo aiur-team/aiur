@@ -9,13 +9,13 @@ import { STYLES } from './styles.js';
 // the renderers and the parser are importable without a DOM.
 const HTMLElementBase = typeof globalThis.HTMLElement === 'function' ? globalThis.HTMLElement : class {};
 
-const VIEWS = ['review', 'graph', 'both'];
+const VIEWS = ['review', 'graph', 'both', 'fit'];
 
 /**
  * `<aiur-build-order>` mounts the review, the graph, or both from one document.
  *
  * Sources, in order: the `json` attribute or `json` property, then a `fetch`
- * function property, then the `src` URL. `view` is `review`, `graph` or `both`.
+ * function property, then the `src` URL. `view` is `review`, `graph`, `both` or `fit`.
  * A parse or fetch failure renders the structured error instead of a blank box
  * and is readable from `element.error`.
  */
@@ -131,7 +131,7 @@ export class AiurBuildOrderElement extends HTMLElementBase {
     const view = this.view;
     const document_ = this.#document;
     const parts = [];
-    if (view === 'review' || view === 'both') parts.push(renderReview(document_));
+    if (view === 'review' || view === 'both' || view === 'fit') parts.push(renderReview(document_));
     if (view === 'graph' || view === 'both') parts.push(renderGraph(document_));
     this.dataset.status = document_.status;
     this.innerHTML = parts.join('\n');
@@ -147,6 +147,7 @@ export class AiurBuildOrderElement extends HTMLElementBase {
       if (response && response.ok === false) {
         return { ok: false, error: { code: 'fetch_failed', message: `GET ${url} returned ${response.status ?? 'an error'}.`, path: [] } };
       }
+      if (response && typeof response.json === 'function') return { ok: true, value: await response.json() };
       if (response && typeof response.text === 'function') return { ok: true, value: await response.text() };
       return { ok: true, value: response };
     } catch (error) {

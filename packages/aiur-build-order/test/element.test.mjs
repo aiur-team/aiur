@@ -32,16 +32,23 @@ test('view selects one renderer', async () => {
   assert.doesNotMatch(element.innerHTML, /class="aiur-bo-graph"/);
 });
 
+test('fit view renders the responsive review without the wide graph', async () => {
+  const { element } = mount({ json: fixtureText('build-order.v1.json'), view: 'fit' });
+  await element.load();
+  assert.match(element.innerHTML, /aiur-bo--review/);
+  assert.doesNotMatch(element.innerHTML, /aiur-bo-graph/);
+});
+
 test('a fetch function resolves a src URL without the page global', async () => {
   const calls = [];
   const { element } = mount({ src: 'https://example.test/build-order.json' });
-  element.fetch = async (url) => {
-    calls.push(url);
-    return { ok: true, text: async () => fixtureText('build-order.v1.json') };
+  element.fetch = async (url, init) => {
+    calls.push([url, init]);
+    return { ok: true, json: async () => fixture('build-order.v1.json') };
   };
   await settle();
 
-  assert.deepEqual(calls, ['https://example.test/build-order.json']);
+  assert.deepEqual(calls, [['https://example.test/build-order.json', { headers: { accept: 'application/json' } }]]);
   assert.equal(element.error, null);
   assert.match(element.innerHTML, /data-ticket="BO-001"/);
 });
