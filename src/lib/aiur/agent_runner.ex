@@ -102,6 +102,9 @@ defmodule Aiur.AgentRunner do
   # Matched by shape: agent-runner may not depend on the github or orchestration
   # components; `RetryEngine.AgentDown` does the full hold classification.
   defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}), do: local_budget_hold?(inner)
+  # A hold that refused the between-turn issue-state refresh.
+  defp local_budget_hold?({:issue_state_refresh_failed, inner}), do: local_budget_hold?(inner)
+  defp local_budget_hold?({:github, :local_hold, _detail}), do: true
   defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
   defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
   defp local_budget_hold?(_reason), do: false
@@ -162,6 +165,12 @@ defmodule Aiur.AgentRunner do
   # or release the ticket's claim with no scheduled re-claim. Classified through
   # the shared `Aiur.GitHub.Errors` classifier so the transient/permanent list
   # lives in one place.
+  # The between-turn issue-state refresh is a tracker read; its transient
+  # failure is the same infrastructure fault, not an agent defect. A budget hold
+  # is left to the hold exit, which waits for the hold's own reset.
+  defp github_transport_transient?({:issue_state_refresh_failed, inner}),
+    do: not local_budget_hold?(inner) and github_transport_transient?(inner)
+
   defp github_transport_transient?({:github, _kind, _detail} = reason),
     do: Access.retryable_github_error?(reason)
 

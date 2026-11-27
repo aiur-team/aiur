@@ -145,6 +145,8 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   def local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
     do: local_budget_hold_reason(inner)
 
+  def local_budget_hold_reason({:issue_state_refresh_failed, inner}), do: local_budget_hold_reason(inner)
+
   def local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
     do: local_budget_hold_reason(Map.get(diagnostic, :detail))
 
