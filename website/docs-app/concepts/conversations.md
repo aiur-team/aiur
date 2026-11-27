@@ -207,6 +207,8 @@ This endpoint requires the GitHub tracker because each conversation runs under a
 
 Aiur files a ticket labelled `<prefix>:todo` and `<prefix>:conversation` and polls at once. The conversation runs as an ordinary worker on its own branch and keeps running after the host disconnects.
 
-The response (201, or 200 for a retry) names the `ticket`, `thread` and `messages` URLs. `thread` reads the worker transcript (`GET /api/v1/:ticket/thread`); `messages` sends follow-ups (`POST /api/v1/:ticket/messages`). Each image appears in the initial ticket context as a Markdown image.
+The response (201, or 200 for a retry) names `conversation_id`, `ticket`, `thread` and `messages`. `conversation_id` echoes `client_request_id`, or a generated id when omitted.
+
+`thread` reads the worker transcript (`GET /api/v1/:ticket/thread`); `messages` sends follow-ups (`POST /api/v1/:ticket/messages`). Each image appears in the initial ticket context as a Markdown image.
 
 Each start wakes the Executor with `executor.agent_conversation.started` and publishes `operator.notify.info` for host feeds. To promote a conversation to an ordinary ticket, remove its `conversation` label: its history is that ticket's.
