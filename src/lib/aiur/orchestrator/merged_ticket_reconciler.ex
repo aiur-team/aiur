@@ -328,6 +328,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     Enum.find(merges, fn
       %RecentMerge{} = merge ->
         (identifier in RecentMerge.closing_issue_identifiers(merge) or
+           (merge.ticket_id == identifier and
+              identifier not in RecentMerge.referenced_issue_identifiers_in_body(merge.summary, merge.repository)) or
            (closed_without_state_label?(issue) and merge.ticket_id == identifier) or
            NonClosingMerge.triage_due?(issue, merge, opts)) and
           not stale_merge?(merge, now) and

@@ -211,6 +211,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.completed", "orchestration"},
     # aiur/handoff/report.ex
     {"system.restart.handoff.fallback", "orchestration"},
+    # aiur/main_line_build.ex
+    {"system.build.not_on_main", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
     # aiur/orchestrator/spend_cap/health.ex

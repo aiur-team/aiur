@@ -153,7 +153,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
     recovery = claim_recovery_message(auto_reclaim)
 
     message =
-      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{failures(reason_code, attempt)} " <>
         "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
@@ -177,7 +177,14 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}) when is_integer(timeout_ms),
     do: {:workspace_hook_timeout, %{hook: "before_run", timeout_ms: timeout_ms}}
 
+  # An agent run that failed every attempt is not a tracker failure; naming it
+  # one sent operators looking at GitHub for a provider or agent fault.
+  defp claim_release_reason({%{__exception__: true}, stacktrace}) when is_list(stacktrace), do: {:agent_retry_exhausted, %{}}
+  defp claim_release_reason("agent exited: " <> _detail), do: {:agent_retry_exhausted, %{}}
   defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+
+  defp failures(:agent_retry_exhausted, attempt), do: "#{attempt} failed agent attempts"
+  defp failures(_reason_code, _attempt), do: "#{@max_retry_poll_failures} tracker failures"
 
   @doc false
   @spec recovery_delay_options(term()) :: keyword()

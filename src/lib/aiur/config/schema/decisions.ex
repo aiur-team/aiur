@@ -20,6 +20,7 @@ defmodule Aiur.Config.Schema.Decisions do
           embed_hosts: [String.t()],
           escalation: Escalation.t(),
           native_capture: Aiur.Config.Schema.Decisions.NativeCapture.t(),
+          require_option_media: boolean(),
           require_suggested_responses: boolean(),
           supervisor_allowed_kinds: [String.t()],
           supervisor_allow_non_reversible: boolean()
@@ -30,6 +31,10 @@ defmodule Aiur.Config.Schema.Decisions do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail decisions.require_suggested_responses | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
     field(:require_suggested_responses, :boolean, default: false)
+    # @config-reference config-configuration-17 decisions.require_option_media
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail decisions.require_option_media | boolean | false | Refuse a `decision.requested` Command when any option has no media (an image path or URL), and tell the worker which options lack it. For projects where a person must see each option to choose. Native and attention Commands are exempt. |
+    field(:require_option_media, :boolean, default: false)
     embeds_one(:native_capture, Aiur.Config.Schema.Decisions.NativeCapture, on_replace: :update, defaults_to_struct: true)
     embeds_one(:escalation, Aiur.Config.Schema.Decisions.Escalation, on_replace: :update, defaults_to_struct: true)
     # @config-reference config-configuration-17 decisions.supervisor_allowed_kinds
@@ -47,7 +52,7 @@ defmodule Aiur.Config.Schema.Decisions do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible, :require_suggested_responses, :embed_hosts], empty_values: [])
+    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible, :require_suggested_responses, :require_option_media, :embed_hosts], empty_values: [])
     |> cast_embed(:escalation)
     |> cast_embed(:native_capture)
     |> validate_change(:supervisor_allowed_kinds, &validate_allowed_kinds/2)

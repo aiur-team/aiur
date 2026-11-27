@@ -44,7 +44,10 @@ defmodule Aiur.AppServer.Adapter do
   """
   @callback classify_stream_failure(diagnostics :: String.t()) :: {:paused, map()} | :unclassified
 
-  @optional_callbacks classify_stream_failure: 1
+  @doc "The reasoning effort a turn for `issue` runs at, when the backend can change it per turn."
+  @callback turn_effort(session :: map(), issue :: map()) :: String.t() | nil
+
+  @optional_callbacks classify_stream_failure: 1, turn_effort: 2
 
   @spec run_turn(module(), map(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
@@ -95,7 +98,8 @@ defmodule Aiur.AppServer.Adapter do
         })
 
         session_id = "#{thread_id}-#{turn_id}"
-        Logger.info("#{backend.backend_label()} session started for #{Messages.issue_context(issue)} session_id=#{session_id}")
+        effort = turn_effort(backend, session, issue)
+        Logger.info("#{backend.backend_label()} session started for #{Messages.issue_context(issue)} session_id=#{session_id} effort=#{inspect(effort)}")
 
         Messages.emit_message(
           callbacks.on_message,
@@ -103,7 +107,8 @@ defmodule Aiur.AppServer.Adapter do
           %{
             session_id: session_id,
             thread_id: thread_id,
-            turn_id: turn_id
+            turn_id: turn_id,
+            effort: effort
           },
           metadata
         )
@@ -192,6 +197,12 @@ defmodule Aiur.AppServer.Adapter do
   end
 
   def classify_stream_failure(_backend, _diagnostics), do: :unclassified
+
+  defp turn_effort(backend, session, issue) do
+    if Code.ensure_loaded?(backend) and function_exported?(backend, :turn_effort, 2),
+      do: backend.turn_effort(session, issue),
+      else: Map.get(session, :effort)
+  end
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
