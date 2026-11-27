@@ -39,6 +39,21 @@ defmodule Aiur.Codex.FramesTest do
     refute Map.has_key?(frame["params"], "dynamicTools")
   end
 
+  test "fast mode asks for the priority tier on new and resumed threads" do
+    # Codex keeps a thread's tier across resumes and ignores a launch-time
+    # `service_tier` config on resume, so both requests must carry it.
+    policies = Map.put(@policies, :service_tier, "priority")
+
+    assert Frames.thread_init_frame(nil, "/ws", policies)["params"]["serviceTier"] == "priority"
+    assert Frames.thread_init_frame("thr_1", "/ws", policies)["params"]["serviceTier"] == "priority"
+  end
+
+  test "without fast mode the thread requests leave the tier to Codex" do
+    for policies <- [@policies, Map.put(@policies, :service_tier, nil)], thread <- [nil, "thr_1"] do
+      refute Map.has_key?(Frames.thread_init_frame(thread, "/ws", policies)["params"], "serviceTier")
+    end
+  end
+
   test "turn_start_frame/6 builds the first turn request" do
     issue = %{identifier: "AIUR-813", title: "Extract Codex modules"}
     frame = Frames.turn_start_frame("thr", "prompt", issue, "/ws", "never", %{"mode" => "read-only"})

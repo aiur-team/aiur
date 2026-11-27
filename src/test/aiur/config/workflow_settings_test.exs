@@ -229,6 +229,16 @@ defmodule Aiur.Config.WorkflowSettingsTest do
     assert Config.settings!().agent.codex.command == "codex app-server"
   end
 
+  test "codex fast mode is off by default and maps to the priority service tier" do
+    # Fast mode spends more of the account's usage, so it must stay opt-in.
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().agent.codex.fast_mode == false
+    assert {:ok, %{service_tier: nil}} = Config.codex_runtime_settings()
+
+    write_workflow_file!(Workflow.workflow_file_path(), codex_fast_mode: true)
+    assert {:ok, %{service_tier: "priority"}} = Config.codex_runtime_settings()
+  end
+
   test "launcher dashboard default fills only a missing server host" do
     env_var = "AIUR_DEFAULT_DASHBOARD_HOST"
     previous_default = System.get_env(env_var)

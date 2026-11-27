@@ -18,7 +18,8 @@ defmodule Aiur.Config do
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
           thread_sandbox: String.t(),
-          turn_sandbox_policy: map()
+          turn_sandbox_policy: map(),
+          service_tier: String.t() | nil
         }
 
   @doc "Whether the operator explicitly permits recording relayed answers."

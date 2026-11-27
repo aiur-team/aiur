@@ -442,7 +442,7 @@ defmodule Aiur.Codex.RateLimitAdapter do
   defp optional_unix_timestamp(_value), do: {:error, :malformed}
 
   defp plan_tier(plan_type) when plan_type in ["free"], do: :free
-  defp plan_tier(plan_type) when plan_type in ["go", "plus", "pro", "prolite"], do: :pro
+  defp plan_tier(plan_type) when plan_type in ["go", "plus", "pro", "prolite", "promax"], do: :pro
   defp plan_tier("team"), do: :team
   defp plan_tier(plan_type) when plan_type in ["self_serve_business_usage_based", "business"], do: :business
   defp plan_tier(plan_type) when plan_type in ["enterprise_cbp_usage_based", "enterprise"], do: :enterprise
