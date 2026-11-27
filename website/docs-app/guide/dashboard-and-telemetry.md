@@ -150,7 +150,9 @@ Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the sa
 
 With an `openrouter:` route configured, the provider row shows the key's remaining credit against its limit, and `aiur usage openrouter` lists each route's spend per route and model. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it, the route key's own limit stands in.
 
-The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed. With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed.
+
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
 actual use varies. Missing anchors are unavailable. Read it with
 `aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
@@ -166,9 +168,7 @@ At zero, daemon requests are rejected locally and agent-launched `gh` commands w
 
 Aiur also coordinates request *shape* across all local instances that share a credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state by SHA-256 fingerprints, never the token or consumer identity itself. It enforces a shared requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and jittered admission starts.
 
-A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands.
-
-The broker is optional: without `python3`, metering fails open to unmetered
+A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands. The broker is optional: without `python3`, metering fails open to unmetered
 requests (announced once at boot). `claude-repl` agents require `python3` for
 their durable lifecycle-hook spool, independently of the broker.
 
