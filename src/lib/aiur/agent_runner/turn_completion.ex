@@ -79,12 +79,31 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     {verdict, progress} = TurnProgress.observe(TurnProgress.from_opts(opts), witness)
     cap = noop_turn_cap(opts)
 
-    if verdict == :noop do
-      continue_after_optional_command(turn_context, refreshed_issue, fn ->
+    case apply_optional_command_default(refreshed_issue) do
+      {:ok, true} when verdict == :noop ->
+        TurnLoop.return_completed(turn_context, refreshed_issue)
+
+      {:ok, _optional?} when verdict == :noop ->
         handle_noop_turn(turn_context, app_session, refreshed_issue, progress, witness, cap, message_handler)
-      end)
-    else
-      continue_productive_turn(turn_context, app_session, refreshed_issue, progress, turn_number, max_turns, opts)
+
+      {:ok, _optional?} ->
+        continue_productive_turn(turn_context, app_session, refreshed_issue, progress, turn_number, max_turns, opts)
+
+      {:error, reason} ->
+        {:error, {:optional_command_default_failed, reason}}
+    end
+  end
+
+  defp apply_optional_command_default(issue) do
+    case Commands.nonblocking_question_pause?(issue.identifier) do
+      {:ok, true} ->
+        case OptionalDefaults.apply(issue.identifier) do
+          :ok -> {:ok, true}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _other ->
+        {:ok, false}
     end
   end
 
@@ -221,22 +240,6 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
       :ok -> {:ok, %{issue | state: "human-review"}}
       {:error, reason} -> {:error, {:state, reason}}
-    end
-  end
-
-  # An optional Command asks for operator input without blocking the worker.
-  # If the no-op bound would park the ticket, retain its active state and leave
-  # a durable reason for the next dispatched recommendation.
-  defp continue_after_optional_command(turn_context, issue, otherwise) do
-    case Commands.nonblocking_question_pause?(issue.identifier) do
-      {:ok, true} ->
-        case OptionalDefaults.apply(issue.identifier) do
-          :ok -> TurnLoop.return_completed(turn_context, issue)
-          {:error, reason} -> {:error, {:optional_command_default_failed, reason}}
-        end
-
-      _other ->
-        otherwise.()
     end
   end
 

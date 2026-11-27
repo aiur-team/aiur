@@ -26,7 +26,12 @@ defmodule Aiur.AgentRunner.OptionalCommandTurnTest do
 
     assert {:ok, %{decision: optional}} =
              DecisionStore.request(
-               %{"question" => "Which option do you prefer?", "blocking" => false},
+               %{
+                 "question" => "Which option do you prefer?",
+                 "blocking" => false,
+                 "recommendation" => %{"option_id" => "ship", "label" => "Ship"},
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "hold", "label" => "Hold"}]
+               },
                ticket: %{identifier: issue.identifier},
                source: %{agent_id: "worker", session_id: "session", event_id: nil}
              )
@@ -54,12 +59,62 @@ defmodule Aiur.AgentRunner.OptionalCommandTurnTest do
                nil
              )
 
-    assert_receive {:memory_tracker_comment, identifier, comment}, 1000
-    assert identifier == issue.identifier
-    assert comment =~ "continue on your recommendation"
     assert {:ok, retained} = DecisionStore.get(optional.decision_id)
     assert retained.decision_status == :open
+    assert retained.default_applied.option_id == "ship"
     refute_receive {:memory_tracker_state_update, _, "human-review"}, 50
+  end
+
+  test "a productive turn records the optional Command default before continuing", ctx do
+    configure_memory_tracker!(self())
+    issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
+
+    assert {:ok, %{decision: optional}} =
+             DecisionStore.request(
+               %{
+                 "question" => "Which option do you prefer?",
+                 "blocking" => false,
+                 "recommendation" => %{"option_id" => "ship", "label" => "Ship"},
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "hold", "label" => "Hold"}]
+               },
+               ticket: %{identifier: issue.identifier},
+               source: %{agent_id: "worker", session_id: "session", event_id: nil}
+             )
+
+    assert {:completed, %{state: "in-progress"}} =
+             TurnLoop.run_turns(
+               %{backend: "claude", workspace: ctx.workspace, worker_host: nil},
+               ctx.workspace,
+               issue,
+               nil,
+               [
+                 resumed: true,
+                 run_turn: fn _session, _prompt, _issue, _opts ->
+                   File.write!(Path.join(ctx.workspace, "progress.txt"), "made progress")
+                   {:ok, %{session_id: "optional-command-productive"}}
+                 end,
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 workspace_probe: fn _workspace, _host ->
+                   case Process.get(:optional_probe_calls, 0) do
+                     0 ->
+                       Process.put(:optional_probe_calls, 1)
+                       %{changed?: false, head: "before"}
+
+                     _ ->
+                       %{changed?: true, head: "after"}
+                   end
+                 end,
+                 open_pr_fetcher: fn _ -> {:ok, nil} end
+               ],
+               fn _ids -> {:ok, [issue]} end,
+               nil,
+               nil,
+               1,
+               nil
+             )
+
+    assert {:ok, %{default_applied: %{option_id: "ship", at: %DateTime{}}}} = DecisionStore.get(optional.decision_id)
   end
 
   defp configure_memory_tracker!(recipient) do

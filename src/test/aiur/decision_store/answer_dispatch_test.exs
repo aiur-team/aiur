@@ -160,6 +160,39 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       assert answer_action.selected_option_id == "wait"
     end
 
+    test "a custom late answer after merge creates a corrective ticket", %{dir: dir} do
+      parent = self()
+
+      pid =
+        start_store!(dir,
+          dispatch_delay_ms: 60_000,
+          override_context_reader: fn _ticket -> %{pr: %{merged?: true, number: 92, merge_commit_sha: String.duplicate("b", 40)}} end,
+          late_answer_corrective_find: fn _answer, _opts -> {:ok, nil} end,
+          late_answer_corrective_reconciler: fn decision, answer, pr, _opts ->
+            send(parent, {:custom_corrective_ticket, decision.decision_id, answer.custom_response, pr.number})
+            {:ok, %{identifier: "979-custom-corrective"}}
+          end
+        )
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Ship or wait?",
+                 "blocking" => false,
+                 "source_id" => "late-custom-after-merge",
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "wait", "label" => "Wait"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Safe default"}
+               })
+
+      assert :ok = OptionalDefaults.apply("979", pid)
+
+      assert {:ok, %{status: :accepted, action: action}} =
+               answer(pid, decision.decision_id, %{"idempotency_key" => "late-custom", "expected_version" => 1, "custom_response" => "Hold rollout"})
+
+      assert_receive {:custom_corrective_ticket, decision_id, "Hold rollout", 92}, 1_000
+      assert decision_id == decision.decision_id
+      assert action.custom_response == "Hold rollout"
+    end
+
     test "dispatch timeout settles once and ignores a late correlated result", %{dir: dir} do
       parent = self()
       coordinator = unique_coordinator_name("Timeout")

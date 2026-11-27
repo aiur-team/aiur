@@ -122,7 +122,23 @@ defmodule Aiur.DecisionDispatchTest do
       |> Map.merge(%{
         blocking: false,
         recommendation: %{option_id: "ship", reason: "Ship is reversible"},
-        default_applied: %{option_id: "ship", at: ~U[2026-07-12 10:01:00Z]}
+        default_applied: %{option_id: "ship", at: DateTime.utc_now()}
+      })
+
+    assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
+  end
+
+  test "tells the worker that a custom response replaces the optional default" do
+    decision =
+      answered_decision(%{
+        "idempotency_key" => "custom-override-default",
+        "expected_version" => 1,
+        "custom_response" => "Hold the rollout"
+      })
+      |> Map.merge(%{
+        blocking: false,
+        recommendation: %{option_id: "ship", reason: "Ship is reversible"},
+        default_applied: %{option_id: "ship", at: DateTime.utc_now()}
       })
 
     assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
@@ -135,7 +151,6 @@ defmodule Aiur.DecisionDispatchTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Application.put_env(:aiur, :pending_operator_messages_store_path, Path.join(dir, "pending.json"))
     on_exit(fn -> Application.delete_env(:aiur, :pending_operator_messages_store_path) end)
-    parent = self()
     queue_store = Aiur.AgentQueueStore.new()
 
     state = %Aiur.Orchestrator.State{queue_store: queue_store, running: %{}}
@@ -156,14 +171,9 @@ defmodule Aiur.DecisionDispatchTest do
 
     record_evidence = fn _item -> :ok end
 
-    assert {{:ok, %{status: :accepted}}, _next_state} =
-             EnqueueNextWorker.enqueue(state, "979", "Answer", request, enqueue_plain, record_evidence,
-               redispatch_fun: fn identifier ->
-                 send(parent, {:redispatch, identifier})
-                 :ok
-               end
-             )
+    assert {{:ok, %{status: :accepted}}, next_state} =
+             EnqueueNextWorker.enqueue(state, "979", "Answer", request, enqueue_plain, record_evidence, [])
 
-    assert_receive {:redispatch, "979"}, 1_000
+    assert next_state.queued_demand_hints["979"] == 2
   end
 end

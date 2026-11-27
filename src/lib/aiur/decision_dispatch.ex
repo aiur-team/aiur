@@ -90,9 +90,12 @@ defmodule Aiur.DecisionDispatch do
     bound(prefix, @max_message_chars - byte_size(lifecycle) - 2) <> "\n\n" <> lifecycle
   end
 
-  defp overrides_default?(%Decision{blocking: false, recommendation: %{option_id: recommended}}, %DecisionAnswer{selected_option_id: selected}) do
-    is_binary(selected) and selected != recommended
-  end
+  defp overrides_default?(%Decision{blocking: false, recommendation: %{option_id: recommended}}, %DecisionAnswer{selected_option_id: selected})
+       when is_binary(selected),
+       do: selected != recommended
+
+  defp overrides_default?(%Decision{blocking: false, recommendation: %{option_id: _recommended}}, %DecisionAnswer{selected_option_id: nil, custom_response: response})
+       when is_binary(response) and response != "", do: true
 
   defp overrides_default?(_decision, _answer), do: false
 

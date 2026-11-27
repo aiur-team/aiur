@@ -313,6 +313,12 @@ defmodule Aiur.DecisionStore.Answers do
     state
   end
 
+  defp maybe_schedule_late_answer_corrective(state, %Decision{blocking: false, default_applied: %{option_id: _default}}, %DecisionAnswer{selected_option_id: nil, custom_response: response} = answer)
+       when is_binary(response) and response != "" do
+    send(self(), {:reconcile_late_answer_corrective, answer.action_id})
+    state
+  end
+
   defp maybe_schedule_late_answer_corrective(state, _decision, _answer), do: state
 
   @doc false

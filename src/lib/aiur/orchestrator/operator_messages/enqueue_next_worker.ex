@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
   @moduledoc false
 
-  alias Aiur.{AgentQueue, Orchestrator.Client, Orchestrator.LifecycleFence}
+  alias Aiur.{AgentQueue, Orchestrator.LifecycleFence}
+  alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages.PendingStore
   alias Aiur.Orchestrator.OperatorMessages.Unread
 
@@ -51,10 +52,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
     record_evidence.(item)
     next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(identifier, item)
 
-    if status == :accepted and correlated_answer?(request) do
-      redispatch = Keyword.get(opts, :redispatch_fun, &redispatch/1)
-      _ = redispatch.(identifier)
-    end
+    next_state =
+      if status == :accepted and correlated_answer?(request) do
+        redispatch = Keyword.get(opts, :redispatch_fun, &redispatch/2)
+        redispatch.(next_state, identifier)
+      else
+        next_state
+      end
 
     result = if request.mode == :correlated, do: %{status: status, item: item}, else: item.id
     {{:ok, result}, next_state}
@@ -63,9 +67,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
   defp correlated_answer?(%{mode: :correlated, correlation: %{decision_id: id}}) when is_binary(id), do: true
   defp correlated_answer?(_request), do: false
 
-  defp redispatch(identifier) do
-    Client.redispatch(identifier)
-  catch
-    :exit, _reason -> :ok
+  defp redispatch(state, identifier) do
+    {:reply, _result, next_state} = Lifecycle.note_queued_demand(state, [identifier])
+    next_state
   end
 end

@@ -222,9 +222,7 @@ defmodule Aiur.DecisionStore.Info do
   end
 
   defp reconcile_late_answer_corrective(state, action_id) do
-    decision = Enum.find_value(state.current, fn {_id, item} -> if item.answer && item.answer.action_id == action_id, do: item end)
-
-    with %Decision{blocking: false, default_applied: %{option_id: default}, answer: %{selected_option_id: selected} = answer} = decision when selected != default <- decision,
+    with %Decision{blocking: false, default_applied: %{option_id: _default}, answer: answer} = decision <- find_differing_answer(state.current, action_id),
          %{pr: %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <- state.override_context_reader.(decision.ticket.identifier),
          false <- Map.has_key?(state.late_answer_corrective_jobs, action_id) do
       owner = self()
@@ -240,6 +238,21 @@ defmodule Aiur.DecisionStore.Info do
     else
       _not_eligible -> state
     end
+  end
+
+  defp find_differing_answer(current, action_id) do
+    Enum.find_value(current, fn
+      {_id, %Decision{default_applied: %{option_id: default}, answer: %{action_id: ^action_id, selected_option_id: selected}} = decision}
+      when is_binary(selected) and selected != default ->
+        decision
+
+      {_id, %Decision{default_applied: %{option_id: _default}, answer: %{action_id: ^action_id, selected_option_id: nil, custom_response: response}} = decision}
+      when is_binary(response) and response != "" ->
+        decision
+
+      _other ->
+        nil
+    end)
   end
 
   defp reconcile_late_answers(state) do

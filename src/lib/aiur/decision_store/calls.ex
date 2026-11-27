@@ -67,7 +67,7 @@ defmodule Aiur.DecisionStore.Calls do
     Enum.reduce_while(decisions, {:ok, state}, fn decision, {:ok, acc} ->
       case CommandFacts.record(acc, decision.decision_id, :default_applied, %{option_id: decision.recommendation.option_id, at: DateTime.utc_now()}, []) do
         {:reply, {:ok, _result}, next} -> {:cont, {:ok, next}}
-        {:reply, {:error, reason}, _next} -> {:halt, {{:error, reason}, acc}}
+        {:reply, {:error, reason}, next} -> {:halt, {{:error, reason}, next}}
       end
     end)
     |> case do
