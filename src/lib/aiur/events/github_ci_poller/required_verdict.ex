@@ -83,7 +83,9 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
 
   # With no required checks configured, every failure decides. A failed read
   # is quarantined before this fallback can classify any failure.
-  defp required_failure?(failures, opts) do
+  @doc false
+  @spec required_failure?([map()], keyword()) :: boolean()
+  def required_failure?(failures, opts) do
     case Keyword.fetch!(opts, :required_checks) do
       {:ok, [_ | _] = required} ->
         names = MapSet.new(required, & &1.name)
