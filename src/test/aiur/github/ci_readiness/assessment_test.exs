@@ -33,6 +33,18 @@ defmodule Aiur.GitHub.CiReadiness.AssessmentTest do
     assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
   end
 
+  # open-games (2026-11-16) is private on GitHub Free: both endpoints answer 403
+  # "Upgrade to GitHub Pro", so the CI poller held every PR pending for hours
+  # and ci-wait tickets with red CI never went to rework.
+  test "a plan that cannot have rulesets or branch protection requires no checks" do
+    plan_limit = {:ok, %{status: 403, body: %{"message" => "Upgrade to GitHub Pro or make this repository public to enable this feature."}}}
+
+    for {rules, protection} <- [{plan_limit, plan_limit}, {{:ok, %{status: 200, body: []}}, plan_limit}] do
+      request_fun = fn %{url: url} -> if String.contains?(url, "/rules/branches/"), do: rules, else: protection end
+      assert {:ok, []} = CiReadiness.fetch_required_checks(repo: "owner/repo", token: "test-gh-token", request_fun: request_fun)
+    end
+  end
+
   test "PR workflow runs seven fast jobs, including soak, and the event gate produces the required check" do
     root = Path.expand("../../../../..", __DIR__)
     workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
