@@ -450,6 +450,19 @@ defmodule Aiur.AgentRunner.ToolExecutor.DecisionRequestsTest do
       assert Jason.decode!(response["output"])["error"]["reason"] =~ "timeout"
       assert Process.alive?(self())
     end
+
+    # open-games #645: the worker saw only the error tuple and never asked its creator.
+    test "a media list over the cap tells the worker the limits and how to fit" do
+      issue = %Issue{identifier: "TE-media-cap-#{System.unique_integer([:positive])}"}
+      decision_requester = fn _payload, _opts -> {:error, {:decision_invalid, {:media, :too_many}}} end
+      executor = ToolExecutor.build(issue, nil, nil, %{}, decision_requester: decision_requester)
+
+      response = executor.("emit_event", %{"name" => "decision.requested", "message" => "Do these fit?", "payload" => %{"blocking" => false}})
+
+      error = Jason.decode!(response["output"])["error"]
+      assert error["reason"] =~ "too_many"
+      assert error["hint"] =~ "128 when every item is audio"
+    end
   end
 
   defp wait_for_coordination_queue(name, key, attempts \\ 400)
