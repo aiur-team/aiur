@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   @moduledoc false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Slots, State}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, HoldDecline, Slots, State}
   alias Aiur.Workspace.Ownership
 
   @grace_ms 60_000
@@ -79,8 +79,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
     end) or Map.has_key?(state.retry_attempts, issue.id) or
       Map.has_key?(state.auto_resume, issue.id) or
       Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, issue.identifier) or
-      Map.has_key?(state.dispatch_recovery.workspace_ownership.ready, issue.id)
+      Map.has_key?(state.dispatch_recovery.workspace_ownership.ready, issue.id) or
+      budget_hold_deferred?(state, issue)
   end
+
+  # A dispatch deferred by a local GitHub budget hold is still owned: the
+  # dispatcher retries it on the next poll. CI lifecycle had already written
+  # `in-progress` for the redispatch, so without this the sweep released the
+  # label to rework mid-hold and raised a false orphan alert (Open-Games #29).
+  # A hold that persists escalates to the attention decline, which ends this.
+  defp budget_hold_deferred?(state, issue), do: Map.get(state.dispatch_declines, issue.id) == HoldDecline.hold_reason()
 
   @spec lease_free?(Issue.t(), keyword()) :: boolean()
   def lease_free?(issue, opts) do

@@ -36,6 +36,26 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     refute_received {:comment, _, _}
   end
 
+  # Open-Games #29: CI lifecycle wrote `in-progress` for a redispatch, the
+  # dispatch was deferred by a GitHub budget hold, and the sweep released the
+  # label to rework mid-hold with a false orphan alert.
+  test "a dispatch deferred by a budget hold is not swept as an orphan" do
+    issue = issue()
+    held = %State{dispatch_declines: %{issue.id => Aiur.Orchestrator.HoldDecline.hold_reason()}}
+
+    {waiting, [^issue]} = StartupClaimReconciler.reconcile(held, [issue], Keyword.put(opts(), :now_ms, 0))
+    {_, [^issue]} = StartupClaimReconciler.reconcile(waiting, [issue], Keyword.put(opts(), :now_ms, 60_000))
+    assert waiting.orphaned_claim_since == %{}
+    refute_received {:write, _, _, _}
+    refute_received {:alert, _, _}
+
+    # An escalated hold is an attention decline, and the sweep acts as before.
+    escalated = %{held | dispatch_declines: %{issue.id => :dependency_hydration_failed}}
+    {waiting, [_]} = StartupClaimReconciler.reconcile(escalated, [issue], Keyword.put(opts(), :now_ms, 0))
+    {_, [%Issue{state: "todo"}]} = StartupClaimReconciler.reconcile(waiting, [issue], Keyword.put(opts(), :now_ms, 60_000))
+    assert_received {:write, "3622", "todo", "in-progress"}
+  end
+
   test "a claimed same-boot marker cannot disable recovery after an Orchestrator restart" do
     opts = Keyword.put(opts(), :read_boot_marker_fun, fn -> {:ok, Aiur.Boot.run_id()} end)
     {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
