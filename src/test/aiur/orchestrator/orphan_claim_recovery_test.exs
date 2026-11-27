@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
   # One recovery lifecycle owns these scenarios: observation, guarded release, and async poll completion.
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, StartupClaimReconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, HoldDecline, StartupClaimReconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
 
   test "booted orphan becomes dispatchable after the grace period with one comment and Executor wake" do
@@ -41,7 +41,7 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
   # label to rework mid-hold with a false orphan alert.
   test "a dispatch deferred by a budget hold is not swept as an orphan" do
     issue = issue()
-    held = %State{dispatch_declines: %{issue.id => Aiur.Orchestrator.HoldDecline.hold_reason()}}
+    held = %State{dispatch_declines: %{issue.id => HoldDecline.hold_reason()}}
 
     {waiting, [^issue]} = StartupClaimReconciler.reconcile(held, [issue], Keyword.put(opts(), :now_ms, 0))
     {_, [^issue]} = StartupClaimReconciler.reconcile(waiting, [issue], Keyword.put(opts(), :now_ms, 60_000))
