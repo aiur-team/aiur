@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   import Aiur.Orchestrator.DispatchPolicy.IssueStates
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.{Config, Issue}
+  alias Aiur.{Commands, Config, Issue}
   alias Aiur.Orchestrator.{DependencyGate, Slots, State}
 
   # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
@@ -160,8 +160,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   True when dispatch of the issue must be held for an open blocking Command,
   per the latest dispatch cycle's decision-store read.
 
-  `blocked_ticket_ids` is a `MapSet` of ticket identifiers with open blocking
-  Commands. The gate is fail-closed: `:unavailable` (the decision store could
+  `blocked_ticket_ids` is a `MapSet` of ticket identifiers or repository-
+  qualified keys with open blocking Commands. The gate is fail-closed: `:unavailable` (the decision store could
   not be read) returns true, because an open blocking Command is
   indistinguishable from an empty store when the store cannot be read.
   `nil` (no cycle computed the set) returns false, preserving compatibility
@@ -173,8 +173,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   it checks `MapSet` membership explicitly.
   """
   @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
-  def blocked_on_decision?(%Issue{id: id}, %MapSet{} = blocked),
-    do: MapSet.member?(blocked, id)
+  def blocked_on_decision?(%Issue{} = issue, %MapSet{} = blocked) do
+    MapSet.member?(blocked, Commands.decision_ticket_key(issue))
+  end
 
   def blocked_on_decision?(_issue, :unavailable), do: true
   def blocked_on_decision?(_issue, _blocked), do: false

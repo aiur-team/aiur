@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
       # fleet on a store outage would be worse than letting a blocked agent run
       # one more cycle. Fail-closed is the dispatch side's job.
       match?(%MapSet{}, state.blocked_ticket_ids) and
-          MapSet.member?(state.blocked_ticket_ids, issue.id) ->
+          DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids) ->
         Logger.info([
           "Issue has an open blocking Command: ",
           State.issue_context(issue),

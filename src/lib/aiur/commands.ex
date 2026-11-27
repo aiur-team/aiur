@@ -74,16 +74,16 @@ defmodule Aiur.Commands do
           {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
   defdelegate attention_correlation(issue, slug), to: Aiur.DecisionAttention, as: :correlation
 
-  @spec blocked_ticket_ids() :: {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  @spec blocked_ticket_ids() :: {:ok, MapSet.t(term())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(), to: Aiur.DecisionStore
-
-  @spec blocked_ticket_ids(GenServer.server()) ::
-          {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  @spec blocked_ticket_ids(GenServer.server()) :: {:ok, MapSet.t(term())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(server), to: Aiur.DecisionStore
 
+  @doc false
+  @spec decision_ticket_key(map()) :: Aiur.DecisionTicketKey.t() | nil
+  defdelegate decision_ticket_key(ticket), to: Aiur.DecisionTicketKey, as: :from_ticket
   @spec classify_supervisor_token(term()) :: Aiur.SupervisorToken.classification()
   defdelegate classify_supervisor_token(token), to: Aiur.SupervisorToken, as: :classify
-
   @spec create_ask(String.t(), map()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate create_ask(repo, attrs), to: Aiur.Asks, as: :create
 

@@ -203,13 +203,14 @@ defmodule Aiur.Orchestrator.State do
           globally_paused: boolean(),
           fleet_paused: boolean(),
           gateway_paused: boolean(),
-          # Ticket identifiers with an open blocking Command, read once per
-          # dispatch cycle from `DecisionStore.blocked_ticket_ids/1`. `nil`
+          # Ticket identifiers or repository-qualified ticket keys with an
+          # open blocking Command, read once per dispatch cycle from
+          # `DecisionStore.blocked_ticket_ids/1`. `nil`
           # means "never computed this cycle" (treated as no gate); a `MapSet`
           # holds exactly those tickets; `:unavailable` means the decision
           # store could not be read, which the dispatch gate treats as
           # fail-closed (unknown blocks hold new work).
-          blocked_ticket_ids: MapSet.t(String.t()) | :unavailable | nil,
+          blocked_ticket_ids: MapSet.t(term()) | :unavailable | nil,
           ci_readiness_checked: boolean() | nil,
           ci_readiness_unavailable_alerted: boolean() | nil,
           ci_readiness_check_pid: pid() | nil,

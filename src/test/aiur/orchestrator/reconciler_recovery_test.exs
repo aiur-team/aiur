@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.ReconcilerRecoveryTest do
       }
 
       state = %State{
-        blocked_ticket_ids: MapSet.new([issue.id]),
+        blocked_ticket_ids: MapSet.new([{:github, String.downcase(identity.owner), String.downcase(identity.repository), identity.identifier}]),
         running: %{
           issue.id => %{
             pid: nil,

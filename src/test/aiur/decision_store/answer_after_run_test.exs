@@ -52,7 +52,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-after-answer"))
       id = decision.decision_id
       assert {:ok, blocked} = DecisionStore.blocked_ticket_ids(pid)
-      assert MapSet.member?(blocked, "979")
+      assert MapSet.member?(blocked, {:github, "its-everdred", "aiur", "979"})
 
       payload = %{"idempotency_key" => "resume-1", "expected_version" => 1, "option_id" => "ship"}
       later = DateTime.add(DateTime.utc_now(), 60, :second)
@@ -60,7 +60,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
 
       # Recording the answer clears the dispatch hold at once.
       assert {:ok, released} = DecisionStore.blocked_ticket_ids(pid)
-      refute MapSet.member?(released, "979")
+      refute MapSet.member?(released, {:github, "its-everdred", "aiur", "979"})
 
       # No worker runs the ticket. This is a normal wait for its next session,
       # not a failed delivery that should spend the retry ladder.
