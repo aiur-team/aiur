@@ -84,6 +84,10 @@ back.
 - Do not restate *history* from an earlier line — the scrollback holds that —
   but do restate *identity* every time. Those are different: repeating "what
   happened before" is noise, repeating "which thing this is" is the whole point.
+- **A recovery line leads with its root cause and owner.** Write
+  `- #1433 core requeue: resumed a thread that did no work, fix aiur PR <n> (aiur) → requeued`,
+  not `- requeued #1433`. A line that names only the action hides whether the
+  cause is being fixed. See [Every recovery names its root cause](#every-recovery-names-its-root-cause).
 - **Silence is the default.** A tick that found nothing emits nothing. A check
   that ran and passed is not news. This is the largest saving here and the
   easiest rule to talk yourself out of, because a quiet tick feels like it
@@ -430,6 +434,25 @@ Noticing a problem is the start of the work, not the report. In the same turn:
 5. **Disarm before you review.** If a PR with auto-merge on gets a push after
    your approval, disable auto-merge first, then review the new commits; `main`
    has no review rule, so an unreviewed commit merges on green CI.
+
+### Every recovery names its root cause
+
+A recovery treats a symptom. Relabel, requeue, reset-budget, park, unpark,
+restart, resume and fresh-thread all return one ticket to work and leave the
+cause in place to strike the next ticket. Pair each one, in the same turn, with:
+
+1. **The root cause, named.** One sentence about the mechanism, with its
+   evidence (log line, file:line, label history). "The agent got stuck" is a
+   symptom. "Requeue resumed a thread whose last turn did no work" is a cause.
+2. **The fix or its owner.** Either the fix (PR and sha), or a filed issue with
+   an owner: the repository and team that will fix it. Reuse the issue when the
+   same cause is already filed, and add this occurrence as evidence.
+
+A recovery without both is unfinished work, not a judgement call. **A second
+occurrence of the same cause means file now**, in that turn, even mid-incident;
+do not wait for the hourly meta check to notice it. Record each recovery and its
+root-cause link in the Executor decision ledger, because the meta check audits
+that record.
 
 Escalate to the operator only what is theirs: spend, product choices the pack
 does not answer, store releases, deploys they reserve, and irreversible

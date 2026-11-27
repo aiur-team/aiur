@@ -322,6 +322,17 @@ wait to be asked: a gap you work around silently is a gap the operator finds lat
 Name the time it costs a ticket (minutes from approval to merge, from merge-group
 start to merge, from handback to review) and say which automation would cut it.
 
+### 3c. Audit recoveries for a root-cause link
+
+List every recovery since the last pass: relabel, requeue, reset-budget, park,
+unpark, restart, resume or fresh-thread. Take them from the Executor decision
+ledger and the daemon's `control-audit.ndjson`, and match the two. Each one
+must link a named root cause and a fix or owner issue, as `aiur-run`
+[Every recovery names its root cause](../aiur-run/SKILL.md#every-recovery-names-its-root-cause)
+requires. A recovery without that link is a finding: name the cause, file or
+reuse its issue, and add the link. Two recoveries for the same cause with no
+filed issue are a finding against the Executor as well as against Aiur.
+
 ## 4. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a
