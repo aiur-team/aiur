@@ -6,13 +6,14 @@ pageClass: cli-reference
 ## Inspect and operate a running daemon
 
 `aiur status` reports the running build as `build: <sha> (on main)` when its
-stamped commit is an ancestor of the stamped repository's tracked `origin/main`.
-Otherwise it reports `build: <sha> NOT ON MAIN (<n> commits ahead)`.
+stamped commit is an ancestor of the stamped repository's tracked integration
+branch (`origin/main` in this repository). Otherwise it reports
+`build: <sha> NOT ON MAIN (<n> commits ahead)`.
 
 If the stamp, repository, or tracked main cannot be read, it reports
 `build: <sha> (unknown)`, or `build: unknown (unknown)` without a stamped SHA.
 `aiur status --json` includes the same finding in `build` as `{status, commit,
-commits_ahead}`. `status` is `on_main`, `not_on_main`, or `unknown`.
+commits_ahead, branch}`. `status` is `on_main`, `not_on_main`, or `unknown`.
 
 A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
 

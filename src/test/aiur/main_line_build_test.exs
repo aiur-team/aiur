@@ -11,7 +11,7 @@ defmodule Aiur.MainLineBuildTest do
     git(repo, ["update-ref", "refs/remotes/origin/main", sha])
 
     assert %{status: :on_main, commit: ^sha, commits_ahead: 0} = MainLineBuild.current(stamp: stamp(repo, sha))
-    assert MainLineBuild.line(%{status: :on_main, commit: sha}) == "build: #{sha} (on main)"
+    assert MainLineBuild.line(%{status: :on_main, commit: sha, branch: "main"}) == "build: #{sha} (on main)"
   end
 
   test "reports commits outside tracked main" do
@@ -25,7 +25,7 @@ defmodule Aiur.MainLineBuildTest do
     pin_sha = git(repo, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit-tree", tree, "-p", main_sha, "-m", "pin"]) |> String.trim()
 
     assert %{status: :not_on_main, commit: ^pin_sha, commits_ahead: 1} = MainLineBuild.current(stamp: stamp(repo, pin_sha))
-    assert MainLineBuild.line(%{status: :not_on_main, commit: pin_sha, commits_ahead: 1}) == "build: #{pin_sha} NOT ON MAIN (1 commits ahead)"
+    assert MainLineBuild.line(%{status: :not_on_main, commit: pin_sha, commits_ahead: 1, branch: "main"}) == "build: #{pin_sha} NOT ON MAIN (1 commits ahead)"
   end
 
   test "keeps unavailable main state explicitly unknown" do
@@ -39,7 +39,7 @@ defmodule Aiur.MainLineBuildTest do
 
   test "announces an off-main build with a warning and attention" do
     sha = String.duplicate("a", 40)
-    result = %{status: :not_on_main, commit: sha, commits_ahead: 3}
+    result = %{status: :not_on_main, commit: sha, commits_ahead: 3, branch: "main"}
     test_pid = self()
 
     assert :ok =
@@ -57,7 +57,7 @@ defmodule Aiur.MainLineBuildTest do
 
   test "does not announce an on-main build" do
     test_pid = self()
-    assert :ok = MainLineBuild.announce(current: fn -> %{status: :on_main} end, warn: fn _ -> send(test_pid, :warning) end, alert: fn _, _ -> send(test_pid, :alert) end)
+    assert :ok = MainLineBuild.announce(current: fn -> %{status: :on_main, commit: "a", branch: "main"} end, warn: fn _ -> send(test_pid, :warning) end, alert: fn _, _ -> send(test_pid, :alert) end)
     refute_received :warning
     refute_received :alert
   end
