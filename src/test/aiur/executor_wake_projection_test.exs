@@ -138,6 +138,15 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert {:ok, %{"author_id" => nil}} = ExecutorWakeProjection.project(%{event | author_id: "42"})
   end
 
+  test "projects conversation start wakes with ticket and without owner or title" do
+    assert {:ok, record} = ExecutorWakeProjection.project(%{id: 74, topic: "executor.agent_conversation.started", ticket: "8154", owner: "kevin", title: "private title"})
+    assert record["topic_class"] == "executor.agent_conversation"
+    assert record["ticket"] == "8154"
+    assert record["action"] == "started"
+    refute Jason.encode!(record) =~ "private title"
+    refute Jason.encode!(record) =~ "kevin"
+  end
+
   test "projects human-review handoffs with their pull request and head SHA" do
     sha = String.duplicate("d", 40)
     event = %{id: 13, topic: "ticket.42.agent.handoff.human_review", action: "human_review", pr_number: 3019, head_sha: sha}

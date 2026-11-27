@@ -11,6 +11,7 @@
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",
+    "src/lib/aiur_web/agent_conversations.ex",
     "src/lib/aiur_web/api/memory_issue_controller.ex",
     "src/lib/aiur_web/commands_scope_auth.ex",
     "src/lib/aiur_web/control_body_limit.ex",
