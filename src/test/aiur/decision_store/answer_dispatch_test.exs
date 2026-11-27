@@ -3,7 +3,7 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AnswerDispatchTest do
   use Aiur.DecisionStoreCase, async: false
 
-  alias Aiur.DecisionStore.OptionalDefaults
+  alias Aiur.Commands.OptionalDefaults
 
   describe "answer outbox" do
     test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do

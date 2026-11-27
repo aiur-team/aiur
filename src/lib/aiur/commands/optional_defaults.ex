@@ -1,4 +1,4 @@
-defmodule Aiur.DecisionStore.OptionalDefaults do
+defmodule Aiur.Commands.OptionalDefaults do
   @moduledoc false
 
   @spec apply(String.t(), GenServer.server()) :: :ok | {:error, term()}
