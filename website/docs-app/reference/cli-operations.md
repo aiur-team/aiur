@@ -13,6 +13,7 @@ If the stamp, repository, or tracked main cannot be read, it reports
 `build: <sha> (unknown)`, or `build: unknown (unknown)` without a stamped SHA.
 `aiur status --json` includes the same finding in `build` as `{status, commit,
 commits_ahead}`. `status` is `on_main`, `not_on_main`, or `unknown`.
+
 A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
 
 Time alone never releases the lease; a timed-out release returns `{:error, :release_timeout}`. Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Recover only a local hold with verified reboot or stale owner-PID proof using `aiur workspace-recover <ticket-identifier> <generation>`.

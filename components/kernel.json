@@ -7,7 +7,6 @@
     "src/lib/aiur/boot.ex",
     "src/lib/aiur/bounded.ex",
     "src/lib/aiur/build_stamp.ex",
-    "src/lib/aiur/main_line_build.ex",
     "src/lib/aiur/coordination_tasks.ex",
     "src/lib/aiur/disk_full.ex",
     "src/lib/aiur/display_sanitizer.ex",
