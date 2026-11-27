@@ -56,7 +56,13 @@ defmodule Aiur.BuildQueueCLI do
 
   defp mark_stalled(envelope, opts) do
     capacity = Keyword.get(opts, :capacity, %{})
-    free_slots = get_in(capacity, [:capacity, :available]) || 0
+
+    free_slots =
+      case capacity do
+        %{capacity: %{available: available}} when is_integer(available) -> available
+        _ -> 0
+      end
+
     now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
 
     Map.update(envelope, :queues, [], fn queues ->
