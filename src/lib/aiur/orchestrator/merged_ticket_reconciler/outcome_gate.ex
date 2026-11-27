@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.OutcomeGate do
   alias Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair
   alias Aiur.PostDeployChecklist
 
+  @spec hold_open(map(), map(), map(), keyword(), list(), function()) :: {map(), list()}
   def hold_open(state, issue, merge, opts, retained, failed_fun) do
     update =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
@@ -19,15 +20,16 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.OutcomeGate do
     end
   end
 
-  def reconcile_closed(state, issues, merges, now, opts, closed_without_state_label_fun, merged_ticket_target_fun, failed_fun, reconciled_fun, record_fun) do
+  @spec reconcile_closed(map(), [map()], [map()], DateTime.t(), keyword(), map()) :: map()
+  def reconcile_closed(state, issues, merges, now, opts, callbacks) do
     opts = Keyword.put_new(opts, :repair_outcome_gate_issue_fun, &closed_gate_required?/1)
 
     target_fun = fn issue, opts ->
-      target_for_issue(issue, opts, closed_without_state_label_fun, merged_ticket_target_fun)
+      target_for_issue(issue, opts, callbacks.closed_without_state_label, callbacks.merged_ticket_target)
     end
 
-    ClosedRepair.reconcile(state, issues, merges, now, opts, record_fun, fn state, issue, merge, opts ->
-      repair_closed_issue(state, issue, merge, opts, target_fun, failed_fun, reconciled_fun, record_fun)
+    ClosedRepair.reconcile(state, issues, merges, now, opts, callbacks.record, fn state, issue, merge, opts ->
+      repair_closed_issue(state, issue, merge, opts, target_fun, callbacks.failed, callbacks.reconciled, callbacks.record)
     end)
   end
 

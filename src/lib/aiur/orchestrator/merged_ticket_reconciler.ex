@@ -83,11 +83,13 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       merges,
       now,
       opts,
-      &closed_without_state_label?/1,
-      &merged_ticket_target/2,
-      &emit_failed_alert/5,
-      &emit_reconciled_alert/5,
-      &record_reconciled/3
+      %{
+        closed_without_state_label: &closed_without_state_label?/1,
+        merged_ticket_target: &merged_ticket_target/2,
+        failed: &emit_failed_alert/5,
+        reconciled: &emit_reconciled_alert/5,
+        record: &record_reconciled/3
+      }
     )
     |> then(fn state -> {state, Enum.reverse(retained)} end)
   end
