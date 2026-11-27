@@ -16,7 +16,7 @@ test('headless host uploads and sends final dictation through the shared command
     dictation: {
       start: async ({ onPartial }) => {
         partial = onPartial;
-        return { stop: async () => 'please review' };
+        return { stop: async () => 'please review', setMuted: () => {} };
       },
     },
   };

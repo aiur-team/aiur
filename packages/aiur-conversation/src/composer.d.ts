@@ -9,8 +9,8 @@ export interface DictationSession {
   stop(): Promise<string | void>;
   /** Discards the recording. The composer removes the dictated words itself. */
   cancel?(): void;
-  /** Optional host hook called when the user mutes or unmutes the microphone. */
-  setMuted?(muted: boolean): void;
+  /** Required host hook called when the user mutes or unmutes the microphone. */
+  setMuted(muted: boolean): void;
 }
 
 /** What the composer hands `dictation.start`. Call both as often as the recognizer allows. */
@@ -33,7 +33,7 @@ export interface VoiceCallbacks {
 export interface VoiceSession {
   stop(): Promise<void>;
   /** Optional host hook called when the user mutes or unmutes the microphone. */
-  setMuted?(muted: boolean): void;
+  setMuted(muted: boolean): void;
 }
 
 export interface VoiceStartOptions {
@@ -119,7 +119,7 @@ interface ComposerCommands {
   cancelDictation(): Promise<boolean>;
   startVoice(): Promise<boolean>;
   stopVoice(): Promise<void>;
-  toggleVoiceMute(): boolean;
+  toggleMicMute(): boolean;
 }
 
 export interface ComposerController extends ComposerCommands {
@@ -140,7 +140,7 @@ export declare class AiurComposer extends HTMLElement {
   /** Defaults to the current input selection. */
   startDictation(start?: number, end?: number): Promise<void>;
   openFilePicker(): void;
-  toggleVoiceMute(): boolean;
+  toggleMicMute(): boolean;
 }
 
 /** Registers `<aiur-composer>` (or `tag`) once and returns the element class. */

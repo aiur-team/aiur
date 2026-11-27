@@ -75,7 +75,7 @@ export class AiurComposer extends HTMLElementBase {
   cancelDictation() { return this.#controller.cancelDictation(); }
   startVoice() { return this.#controller.startVoice(); }
   stopVoice() { return this.#controller.stopVoice(); }
-  toggleVoiceMute() { return this.#controller.toggleVoiceMute(); }
+  toggleMicMute() { return this.#controller.toggleMicMute(); }
 
   #draftControl() {
     return this.#el.inputSlot.assignedElements()[0] ?? this.#el.input;
@@ -135,7 +135,7 @@ export class AiurComposer extends HTMLElementBase {
       if (event.button > 0 || mic.disabled) return;
       event.preventDefault();
       if (this.state.dictation === 'recording' || this.state.voice === 'live') {
-        this.toggleVoiceMute();
+        this.toggleMicMute();
         return;
       }
       const pressedAt = Date.now();
@@ -161,7 +161,7 @@ export class AiurComposer extends HTMLElementBase {
     mic.addEventListener('click', (event) => {
       if (event.detail > 0) return;
       if (this.state.dictation === 'recording' || this.state.voice === 'live') {
-        this.toggleVoiceMute();
+        this.toggleMicMute();
         return;
       }
       this.startDictation();

@@ -93,11 +93,11 @@ shows the live waveform plus a running transcript for both speakers.
 | Button | Adapter | Behaviour |
 | --- | --- | --- |
 | + (attach) | `upload(file) → Promise<{ name, … }>` | Opens the file picker. Each file shows as a chip while it uploads. Send waits until every upload finishes. |
-| Mic | `dictation.start({ onPartial, onLevel }) → Promise<{ stop() → Promise<text>, cancel?() }>` | A tap starts dictation and it runs until stop, send or cancel. Holding the mic for 300 ms or more also works: letting go stops. The words go in at the cursor as they are heard. Enter or Space start it from the keyboard. |
+| Mic | `dictation.start({ onPartial, onLevel }) → Promise<{ stop() → Promise<text>, cancel?(), setMuted(muted) }>` | A tap starts dictation and it runs until stop, send or cancel. Holding the mic for 300 ms or more also works: letting go stops. The words go in at the cursor as they are heard. Enter or Space start it from the keyboard. |
 | ✕ (cancel) | `dictation` | Discards the dictated words, keeps what was typed and calls `cancel`. Escape does the same. |
 | ■ (stop) | `dictation` | Calls `stop` and leaves the final text in the input to edit. It never sends. |
-| Mic | `voice.start` session | During a two-way session, toggles microphone mute without ending the conversation. The optional session `setMuted(muted)` hook is called when provided. |
-| Two-way voice | `voice.start({ onEnd, onPartial, onLevel, initialText }) → Promise<{ stop(), setMuted?() }>` | Beside the mic while dictating, upgrades dictation into a live conversation. The draft moves into `initialText` as the first turn. During voice, `onPartial('user' | 'agent', text)` updates that speaker's transcript and `onLevel(level)` drives the waveform. The two-way button ends the session. Call `onEnd` when it closes by itself; if `start` rejects, the text returns to the input. |
+| Mic | `voice.start` session | During a two-way session, toggles microphone mute without ending the conversation. The required session `setMuted(muted)` hook is called. |
+| Two-way voice | `voice.start({ onEnd, onPartial, onLevel, initialText }) → Promise<{ stop(), setMuted(muted) }>` | Beside the mic while dictating, upgrades dictation into a live conversation. The draft moves into `initialText` as the first turn. During voice, `onPartial('user' | 'agent', text)` updates that speaker's transcript and `onLevel(level)` drives the waveform. The two-way button ends the session. Call `onEnd` when it closes by itself; if `start` rejects, the text returns to the input. |
 | Send | `onSend(text, attachments)` | Enter sends and Shift+Enter adds a new line. In the recording row it stops dictation and sends the final text. If `onSend` returns a promise, the draft stays until it resolves. A rejection keeps the draft. |
 
 #### Dictation callbacks

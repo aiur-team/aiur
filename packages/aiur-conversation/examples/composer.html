@@ -64,13 +64,16 @@
       async start({ onPartial, onLevel }) {
         const words = 'make the hero jump twice as high'.split(' ');
         let heard = 0;
+        let muted = false;
         const timer = setInterval(() => {
+          if (muted) return;
           onLevel(Math.random());
           if (Math.random() < 0.25 && heard < words.length) onPartial(words.slice(0, ++heard).join(' '));
         }, 80);
         return {
           stop: async () => (clearInterval(timer), words.slice(0, heard).join(' ')),
           cancel: () => clearInterval(timer),
+          setMuted: (value) => { muted = value; },
         };
       },
     },

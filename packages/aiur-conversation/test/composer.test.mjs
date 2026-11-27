@@ -52,8 +52,8 @@ function visible(el) {
 
 const allAdapters = () => ({
   upload: async (file) => ({ name: file.name }),
-  dictation: { start: async () => ({ stop: async () => '' }) },
-  voice: { start: async () => ({ stop: async () => {} }) },
+  dictation: { start: async () => ({ stop: async () => '', setMuted: () => {} }) },
+  voice: { start: async () => ({ stop: async () => {}, setMuted: () => {} }) },
 });
 
 test('only the buttons the host can serve are shown, each with a label and no text', () => {
@@ -227,6 +227,22 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   assert.deepEqual(sent, [], 'stop leaves the words to edit; it never sends');
 });
 
+test('mute toggled before dictation startup applies when the session becomes ready', async () => {
+  const { el, part } = mount();
+  const ready = deferred();
+  const mic = recorder({ final: 'after startup', ready });
+  el.adapters = { dictation: mic.adapter };
+  tap(part('mic'));
+  await tick();
+  part('mic').click();
+  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
+  ready.resolve();
+  await settle();
+  assert.equal(mic.muted, true, 'late session receives the pending mute value');
+  assert.deepEqual(mic.calls, ['start']);
+  await el.stopDictation();
+});
+
 test('holding the mic and letting go stops dictation', async () => {
   const { el, part } = mount();
   const mic = recorder({ final: 'jump' });
@@ -311,7 +327,7 @@ test('two-way upgrades dictation, keeps mic and controls fixed, mutes, and rende
     voice: {
       start: async (options) => {
         starts.push(options);
-        return { stop: async () => stops++ };
+        return { stop: async () => stops++, setMuted: () => {} };
       },
     },
   };
