@@ -3,7 +3,8 @@ defmodule Aiur.Codex.HandshakeTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Codex.{Frames, Handshake}
+  alias Aiur.Codex.{Frames, Handshake, TurnOverrides}
+  alias Aiur.Issue
 
   @policies %{approval_policy: "never", thread_sandbox: "read-only"}
 
@@ -297,6 +298,45 @@ defmodule Aiur.Codex.HandshakeTest do
 
       assert {:ok, "turn-1"} = Handshake.start_turn(session, "prompt", %{identifier: "DASH-018", title: "test"})
       assert_receive {:turn_lifecycle, "account/updated"}, 2_000
+    end
+  end
+
+  describe "per-turn effort" do
+    @describetag :tmp_dir
+
+    # A fidelity ladder raises one ticket from a cheap mock pass to a full
+    # build on the same thread; the raised effort must reach the next turn
+    # instead of the effort the thread started with (#7947).
+    test "a model:<effort> label changed between two turns reaches the second turn/start", %{tmp_dir: tmp_dir} do
+      frames_path = Path.join(tmp_dir, "frames.jsonl")
+
+      port =
+        script_port("""
+        n=0
+        while IFS= read -r line; do
+          printf '%s\\n' "$line" >> '#{frames_path}'
+          n=$((n+1))
+          printf '%s\\n' "{\\"id\\":3,\\"result\\":{\\"turn\\":{\\"id\\":\\"turn-$n\\"}}}"
+        done
+        """)
+
+      session = %{port: port, thread_id: "thread-1", workspace: "/ws", approval_policy: "never", turn_sandbox_policy: %{}, effort: "low"}
+      issue = %Issue{identifier: "OGM-1", title: "Mock then build", labels: ["model:low"]}
+
+      assert {:ok, "turn-1"} = Handshake.start_turn(session, "mock it", issue)
+      assert {:ok, "turn-2"} = Handshake.start_turn(session, "build it", %{issue | labels: ["model:xhigh"]})
+      Port.close(port)
+
+      assert [first, second] = frames_path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+      assert first["params"]["effort"] == "low"
+      assert second["method"] == "turn/start"
+      assert second["params"]["effort"] == "xhigh"
+      refute Map.has_key?(second["params"], "model")
+    end
+
+    test "a ticket with no effort sends no override, so the thread keeps its effort" do
+      assert TurnOverrides.params(%{effort: "high"}, %Issue{identifier: "OGM-1", labels: []}) == %{}
+      assert TurnOverrides.effort(%{effort: "high"}, %Issue{identifier: "OGM-1", labels: []}) == "high"
     end
   end
 

@@ -30,6 +30,10 @@ Alongside that, the meta-analysis of the work itself (proven repeatedly in the
    one falls, the next entry names its successor;
 2. classify recurring problems, not incidents — ask what CLASS of failure
    recurred this hour (the known classes are listed below);
+   audit every last-hour recovery (relabel, requeue, budget reset, park,
+   restart, fresh thread): list each without a root-cause issue link, then file
+   an owner issue or add evidence to its existing owner. A repeated symptom
+   cannot be recovered again without that owner;
 3. when a class recurs (rule of thumb: 3+ reproductions, or 2 with a shared
    root cause), file ONE systemic ticket attacking the class instead of
    patching more instances, recording the reproductions that justify it. At

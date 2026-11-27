@@ -148,6 +148,38 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
 
   defp enforce_passed(result, _runs, _statuses, _pr, _opts), do: result
 
+  @doc """
+  Decides a ready PR red once a required check has failed, without waiting for
+  the slower checks still running on the same head. The result keeps
+  `checks_incomplete: true` so callers that need the finished run (a rerun of
+  a flake, a ticket that is not waiting on CI) can put it back with
+  `await_remaining_checks/1`.
+  """
+  @spec fail_fast(map(), map(), keyword()) :: map()
+  def fail_fast(%{decision: :pending, pending_reason: :check_runs_incomplete, failures: [_ | _] = failures} = result, pr, opts) do
+    if ready_pr?(pr) and RequiredVerdict.required_failure?(failures, opts) do
+      result |> Map.delete(:pending_reason) |> Map.merge(%{decision: :failed, checks_incomplete: true})
+    else
+      result
+    end
+  end
+
+  def fail_fast(result, _pr, _opts), do: result
+
+  @doc "Puts an early failure back to waiting for the checks still running."
+  @spec await_remaining_checks(map()) :: map()
+  def await_remaining_checks(%{checks_incomplete: true} = result),
+    do: result |> Map.delete(:checks_incomplete) |> Map.merge(%{decision: :pending, pending_reason: :check_runs_incomplete})
+
+  def await_remaining_checks(result), do: result
+
+  defp ready_pr?(pr) do
+    case Map.get(merge_queue_observation(pr), :draft?) do
+      draft? when is_boolean(draft?) -> not draft?
+      _ -> Map.get(pr, "draft", Map.get(pr, "isDraft")) == false
+    end
+  end
+
   defp enforce_queue_state(result, pr) do
     if unmergeable_queue_entry?(merge_queue_observation(pr)) do
       Map.merge(result, %{
