@@ -158,6 +158,12 @@ defmodule Aiur.AgentRunner do
   defp github_transport_transient?({:github, _kind, _detail} = reason),
     do: Access.retryable_github_error?(reason)
 
+  # The between-turn issue-state refresh is a tracker read; its transient
+  # failure is the same infrastructure fault, not an agent defect. A budget hold
+  # is left to the hold exit, which waits for the hold's own reset.
+  defp github_transport_transient?({:issue_state_refresh_failed, inner}),
+    do: is_nil(Aiur.LocalBudgetHold.reason(inner)) and github_transport_transient?(inner)
+
   defp github_transport_transient?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError],
        do: Access.retryable_github_error?(Access.classify_error({:error, reason}))

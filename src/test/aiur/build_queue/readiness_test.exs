@@ -130,6 +130,36 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert hd(model.queues).waiting_reason == "GitHub dependencies unknown"
   end
 
+  # OGM's launch list sat at 0/4 for an hour: its members carried `needs-triage`,
+  # so the planner held them as parked, but `queue show` said "GitHub
+  # dependencies unknown (blockers_not_observed)" for every member, claimed ones
+  # included, and the operator chased blockers that did not exist.
+  test "a held or claimed member keeps its real reason when its blockers are not cached" do
+    queue = %Queue{id: "q-0001", name: "launch", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
+    member = fn id, position -> %Item{issue_id: id, queue_id: queue.id, position: position, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at} end
+    observation = fn id -> %Observation{issue_id: id, open?: true, labels: ["agent:queued", "agent:todo", "needs-triage"], state_reason: nil, pr: nil, observed_at_ms: 10_000} end
+
+    model =
+      ReadModel.build(%{
+        status: :running,
+        clock: fn -> 10_000 end,
+        document: %{queues: [queue], items: [member.("11", 0), member.("12", 1), member.("13", 2)], edges: [], latches: []},
+        settings: %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}},
+        projections: [
+          %{issue_id: "11", state: :claimed, verdict: :ready, reason: nil, rank: {0, 5, 0, 0, "11"}},
+          %{issue_id: "12", state: :held, verdict: :ready, reason: :parked_marker, rank: {0, 5, 1, 0, "12"}},
+          %{issue_id: "13", state: :ready, verdict: :ready, reason: nil, rank: {0, 5, 2, 0, "13"}}
+        ],
+        observations: Map.new(["11", "12", "13"], &{&1, observation.(&1)}),
+        native_blockers: Map.new(["11", "12", "13"], &{&1, {:unknown, :blockers_not_observed}})
+      })
+
+    by_number = Map.new(hd(model.queues).items, &{&1.number, &1})
+    assert %{state: :claimed, verdict: :ready, reason: nil} = by_number[11]
+    assert %{state: :held, verdict: :ready, reason: :parked_marker} = by_number[12]
+    assert %{verdict: :unknown, reason: "GitHub dependencies unknown (blockers_not_observed)"} = by_number[13]
+  end
+
   test "stale manual overrides are parked in queue summaries without changing planner state" do
     queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
 
