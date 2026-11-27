@@ -173,7 +173,7 @@ defmodule Aiur.DecisionStore.RequestsTest do
       assert rearmed.version == 2
       assert rearmed.decision_status == :open
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
-      assert MapSet.member?(ids, "979")
+      assert MapSet.member?(ids, {:github, "its-everdred", "aiur", "979"})
     end
 
     test "changed content re-arms a dismissed Command that is not a legacy attention", %{dir: dir} do
