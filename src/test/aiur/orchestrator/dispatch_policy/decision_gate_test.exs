@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
-        tracker_label_prefix: "agent",
+        tracker_label_prefix: "pc",
         max_concurrent_agents: 5
       )
 
@@ -28,7 +28,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
-        tracker_label_prefix: "agent",
+        tracker_label_prefix: "pc",
         tracker_active_states: ["qa-review"],
         max_concurrent_agents: 5
       )
