@@ -358,7 +358,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
-    case issue_identity_decision(issue) do
+    # An epic only groups member tickets; whatever labels it carries, it never dispatches.
+    case if(Issue.epic?(issue), do: {:skip, :epic}, else: issue_identity_decision(issue)) do
       :dispatch -> issue_state_decision(issue, active_states, terminal_states)
       {:skip, _reason} = declined -> declined
     end
@@ -392,7 +393,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
       not issue_not_parked?(issue) -> {:skip, :parked}
-      Issue.epic?(issue) -> {:skip, :epic}
       not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
       true -> SpendCap.decision(issue)
     end
