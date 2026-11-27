@@ -12,9 +12,11 @@ defmodule Aiur.Project.StatusRows do
   @read_timeout_ms 1_500
 
   @spec print() :: :ok
-  def print do
-    IO.puts(Jason.encode!(%{observed_at: DateTime.to_iso8601(DateTime.utc_now()), projects: rows()}))
-  end
+  def print, do: IO.puts(Jason.encode!(json()))
+
+  @doc false
+  @spec json() :: map()
+  def json, do: %{observed_at: DateTime.to_iso8601(DateTime.utc_now()), projects: rows(), build: Aiur.MainLineBuild.current()}
 
   @spec rows() :: [map()]
   def rows do

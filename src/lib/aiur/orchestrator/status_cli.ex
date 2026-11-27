@@ -105,6 +105,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_status_report(statuses, snapshot, opts) do
+    IO.puts(Aiur.MainLineBuild.line(Aiur.MainLineBuild.current()))
     bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
     deadline_ms = System.monotonic_time(:millisecond) + bound_ms
     # Start every daemon read now so they overlap the table rendering (#5817).
