@@ -7,8 +7,8 @@ defmodule Aiur.Orchestrator.RetryPollClaimTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, Workflow}
-  alias Aiur.Orchestrator.{DispatchPolicy, State, TrackerTasks}
   alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.{DispatchPolicy, State, TrackerTasks}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", tracker_active_states: ["todo", "in-progress", "rework"])
