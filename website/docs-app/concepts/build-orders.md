@@ -279,14 +279,14 @@ These capability states describe whether the integration is available; each adop
 
 ## Start trigger
 
-Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_merged`); later stages satisfy earlier triggers.
+Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_opened`); later stages satisfy earlier triggers. Lists therefore start the next item as soon as the previous item has a ready, non-draft PR, allowing work to overlap review and merge time. Choose `pr_merged` when each list item should wait for the previous PR to merge.
 
 | Trigger | Starts when | Evidence |
 | --- | --- | --- |
 | `pr_opened` | The blocker has a ready, non-draft PR | Delivered PR facts or `ci-wait` and later labels |
 | `pr_ci_green` | Required CI has passed | Retained CI verdict or `human-review`/`rework` and later labels |
 | `pr_approved` | Human review approves | Standing review verdict or `merging` and later labels |
-| `pr_merged` | The blocker PR merges (default) | Merge facts, `done`, or completed issue closure |
+| `pr_merged` | The blocker PR merges (serial-list option) | Merge facts, `done`, or completed issue closure |
 | `issue_closed` | The blocker issue closes completed | Confirmed closure and reason |
 
 Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
@@ -335,7 +335,7 @@ Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready`
 
 ## Merged PRs with open issues
 
-A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+A merged prerequisite PR releases dependents under every trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
 
 For `issue_closed` queues, if the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves on closure or when no dependent requires `issue_closed`; Aiur never closes the issue for this rule.
 

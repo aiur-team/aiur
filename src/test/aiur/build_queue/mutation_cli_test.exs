@@ -13,6 +13,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
+        if Map.get(state, :save_delay, 0) > 0, do: Process.sleep(state.save_delay)
         {result, state} = next_save_result(state)
         if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
       end)
@@ -60,7 +61,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   end
 
   setup do
-    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, marker_result: :ok} end})
+    boundary = start_supervised!({Agent, fn -> %{document: @empty, labels: Map.new(["1", "2", "3", "9"], &{&1, %{labels: ["agent:queued"]}}), save_result: :ok, save_delay: 0, marker_result: :ok} end})
     Process.register(boundary, Boundary)
     owner = self()
     settings = %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}}
@@ -365,8 +366,23 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     run(pid, :set, queue: "wave", start_on: "default")
     assert hd(document().queues).start_trigger == nil
     assert hd(document().queues).generation == 2
-    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
     assert {:ok, [{"missing", {:error, :not_found}}]} = MutationCLI.execute(verb: :set, queue: "missing", start_on: "pr_opened", server: pid)
+  end
+
+  test "queue set confirms an applied trigger after its mutation call times out", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "wave")
+    Agent.update(Boundary, &%{&1 | save_delay: 30})
+
+    output =
+      capture_io(fn ->
+        assert 0 == MutationCLI.run(verb: :set, queue: "wave", start_on: "pr_opened", server: pid, call_timeout: 1)
+      end)
+
+    assert output =~ "wave: applied pr_opened (queue override)"
+    queue = Enum.find(Aiur.BuildQueue.show(pid).queues, &(&1.name == "wave"))
+    assert queue.start_trigger == :pr_opened
+    assert queue.start_trigger_source == :queue
   end
 
   test "optimistic add promotes through real reconciliation", %{server: pid} do

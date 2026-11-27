@@ -43,7 +43,7 @@ defmodule Aiur.BuildQueueCLITest do
     assert first.number == 1
     assert first.downstream_open == 1
     assert second.number == 2
-    assert [%{number: 1, source: :list, verdict: :pending, trigger: :pr_merged, stage: nil, optimistic: false}] = second.prerequisites
+    assert [%{number: 1, source: :list, verdict: :pending, trigger: :pr_opened, stage: nil, optimistic: false}] = second.prerequisites
     assert model.sources["tracker_observation"].age_ms == 1_000
     output = capture_io(fn -> assert BuildQueueCLI.run(server: pid, json: true, queue: "paseo") == 0 end)
     json = Jason.decode!(output)
@@ -181,9 +181,9 @@ defmodule Aiur.BuildQueueCLITest do
     base = %{state() | observations: %{"1" => observation}}
 
     for {override, trigger, source, text} <- [
-          {nil, :pr_merged, :config, "start on pr_merged (default)"},
+          {nil, :pr_opened, :config, "start on pr_opened (default)"},
           {:pr_ci_green, :pr_ci_green, :queue, "start on pr_ci_green"},
-          {:pr_opened, :pr_opened, :queue, "start on pr_opened"}
+          {:pr_merged, :pr_merged, :queue, "start on pr_merged"}
         ] do
       document = %{base.document | queues: Enum.map(base.document.queues, &%{&1 | start_trigger: override})}
       model = ReadModel.build(%{base | document: document})

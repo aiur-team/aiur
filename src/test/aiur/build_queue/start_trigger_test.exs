@@ -20,8 +20,8 @@ defmodule Aiur.BuildQueue.StartTriggerTest do
     refute {:promote, "1"} in actions
   end
 
-  test "default merge releases while strict queue keeps the merged-open attention" do
-    input = input(nil, pr: :merged, merged_at_ms: 1)
+  test "explicit merge releases while strict queue keeps the merged-open attention" do
+    input = input(:pr_merged, pr: :merged, merged_at_ms: 1)
     input = %{input | opts: Keyword.put(input.opts, :merged_open_grace_ms, 1)}
     {[ready], actions} = Planner.plan(input)
     assert ready.state == :ready
@@ -60,16 +60,23 @@ defmodule Aiur.BuildQueue.StartTriggerTest do
   end
 
   test "config default overrides and finite validation reach queue settings" do
-    assert Settings.start_trigger(settings()) == :pr_merged
+    assert Settings.start_trigger(settings()) == :pr_opened
     assert {:ok, configured} = Schema.parse(%{"build_queue" => %{"start_trigger" => "pr_opened"}})
     assert Settings.start_trigger(configured) == :pr_opened
     assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"build_queue" => %{"start_trigger" => "soon"}})
     for trigger <- Aiur.StartTrigger.triggers(), do: assert(message =~ Atom.to_string(trigger))
     assert {:ok, omitted} = Schema.parse(%{"build_queue" => %{"start_trigger" => nil}})
-    assert Settings.start_trigger(omitted) == :pr_merged
+    assert Settings.start_trigger(omitted) == :pr_opened
     input = input(nil, labels: ["agent:ci-wait"])
     {[ready], _} = Planner.plan(%{input | opts: Keyword.put(input.opts, :start_trigger, Settings.start_trigger(configured))})
     assert ready.state == :ready
+  end
+
+  test "the default list trigger promotes its next item when the prior PR opens" do
+    input = input(nil, labels: ["agent:ci-wait"])
+    {[ready], actions} = Planner.plan(input)
+    assert ready.state == :ready
+    assert {:promote, "1"} in actions
   end
 
   test "old store documents decode while explicit triggers round-trip and invalid values fail" do
