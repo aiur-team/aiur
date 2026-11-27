@@ -203,13 +203,35 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, refreshed} ->
-        {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
+        dependency_result = observe_dependencies(hydrator, refreshed, opts, 3)
+
+        case dependency_result do
+          {:error, reason} ->
+            Logger.warning(
+              "Starting candidate after bounded GitHub dependency observation failed: " <>
+                "#{State.issue_context(refreshed)} reason=#{inspect(reason)}"
+            )
+
+            {:validated, refreshed, {:ok, refreshed}}
+
+          other ->
+            {:validated, refreshed, HoldDecline.observe(other)}
+        end
 
       {:error, reason} = error ->
         if broker_timeout?(reason), do: validate_from_cached_dependencies(issue, error), else: error
 
       other ->
         other
+    end
+  end
+
+  defp observe_dependencies(_hydrator, _issue, _opts, 0), do: {:error, :observation_attempts_exhausted}
+
+  defp observe_dependencies(hydrator, issue, opts, attempts_left) do
+    case Tracker.with_transient_retry(fn -> hydrator.(issue) end, opts) do
+      {:error, _reason} when attempts_left > 1 -> observe_dependencies(hydrator, issue, opts, attempts_left - 1)
+      result -> result
     end
   end
 

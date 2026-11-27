@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.BuildQueue
+  alias Aiur.BuildQueue.SetSummary
   alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Commands
   alias Aiur.Config
@@ -12,6 +14,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Instance.Roster.Presentation
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.SystemLoad
   alias Aiur.WorkflowStore.ReloadRejection
@@ -123,6 +126,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     StatusTable.print_status_table(visible_statuses)
+    print_stalled_lists(snapshot)
     CiWait.print(snapshot)
 
     if released_claims > 0 do
@@ -139,6 +143,45 @@ defmodule Aiur.Orchestrator.StatusCLI do
     print_polling_status(Map.get(snapshot, :polling))
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
     exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
+  end
+
+  defp print_stalled_lists(snapshot) do
+    available = get_in(snapshot, [:capacity, :available]) || 0
+
+    if available > 0 do
+      case BuildQueue.show() do
+        %{queues: queues} ->
+          report_stalled_queues(queues, available)
+
+        _ ->
+          :ok
+      end
+    end
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp report_stalled_queues(queues, available) do
+    stalled = Enum.filter(queues, &SetSummary.stalled?(&1, System.system_time(:millisecond), available))
+    Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
+    update_stalled_attention(stalled)
+  end
+
+  defp update_stalled_attention(stalled) do
+    topic = "system.queue.stalled_list"
+    active? = AttentionSnapshot.active_system_attention?(topic)
+
+    cond do
+      stalled != [] and not active? ->
+        names = Enum.map_join(stalled, ", ", & &1.name)
+        Aiur.Signal.alert(topic, reason: "Queue lists stalled over one hour with free slots: #{names}", needs_attention: true, severity: "warning")
+
+      stalled == [] and active? ->
+        Aiur.Signal.alert("#{topic}.resolved", reason: "No queue lists remain stalled with free slots", needs_attention: false, severity: "info")
+
+      true ->
+        :ok
+    end
   end
 
   defp print_instance_roster(opts) do

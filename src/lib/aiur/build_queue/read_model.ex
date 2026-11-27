@@ -344,6 +344,7 @@ defmodule Aiur.BuildQueue.ReadModel do
       feature: queue.feature,
       epic: queue.epic,
       name: queue.name,
+      created_at: queue.created_at,
       start_trigger: context.trigger,
       start_trigger_override: queue.start_trigger,
       start_trigger_source: if(is_nil(queue.start_trigger), do: :config, else: :queue),
