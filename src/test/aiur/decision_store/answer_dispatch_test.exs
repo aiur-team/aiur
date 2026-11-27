@@ -3,6 +3,8 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AnswerDispatchTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.DecisionStore.OptionalDefaults
+
   describe "answer outbox" do
     test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do
       parent = self()
@@ -117,7 +119,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
                  "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
                })
 
-      assert :ok = Aiur.DecisionStore.OptionalDefaults.apply("979", pid)
+      assert :ok = OptionalDefaults.apply("979", pid)
       assert {:ok, %{default_applied: %{option_id: "ship", at: %DateTime{}}}} = DecisionStore.get(decision.decision_id, pid)
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.map(audit, &audit_type/1) == [:requested, :default_applied]
@@ -148,7 +150,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
                  "recommendation" => %{"option_id" => "ship", "reason" => "Safe default"}
                })
 
-      assert :ok = Aiur.DecisionStore.OptionalDefaults.apply("979", pid)
+      assert :ok = OptionalDefaults.apply("979", pid)
 
       assert {:ok, %{action: answer_action, status: :accepted}} =
                answer(pid, decision.decision_id, %{"idempotency_key" => "late-merged", "expected_version" => 1, "option_id" => "wait"})

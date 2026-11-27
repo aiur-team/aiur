@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   alias Aiur.AgentRunner.{MergedNoop, NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.CodingAgent.CapacityGate
   alias Aiur.{Commands, Config, Issue}
+  alias Aiur.DecisionStore.OptionalDefaults
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
 
@@ -229,7 +230,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   defp continue_after_optional_command(turn_context, issue, otherwise) do
     case Commands.nonblocking_question_pause?(issue.identifier) do
       {:ok, true} ->
-        case Aiur.DecisionStore.OptionalDefaults.apply(issue.identifier) do
+        case OptionalDefaults.apply(issue.identifier) do
           :ok -> TurnLoop.return_completed(turn_context, issue)
           {:error, reason} -> {:error, {:optional_command_default_failed, reason}}
         end
