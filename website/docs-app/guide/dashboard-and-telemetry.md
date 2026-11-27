@@ -142,9 +142,7 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
-Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
-
-Set `AIUR_USAGE_USER_ID` to attribute usage. Authenticated `GET /api/v1/usage/users/<user_id>` returns Minerals by provider, ticket and run, cost estimates, allocation windows and reset times, Gas records, and reusable logo/token SVG paths in `icons`. Fetch paths such as `/provider-assets/codex-color.svg` with dashboard auth; other user ids return `404`.
+`GET /api/v1/usage` matches `aiur usage`; `/usage/<provider>` and `/usage/accounts` read providers/accounts. Set `AIUR_USAGE_USER_ID`; `/api/v1/usage/users/<user_id>` returns Minerals by provider/ticket/run, estimated cost, reset times, Gas and reusable SVG paths in `icons`. Fetch `/provider-assets/codex-color.svg` with dashboard auth; unknown ids are `404`.
 
 Record paid API charges with writable `POST /api/v1/usage/gas` (`id`, `user_id`, `api`, `amount_usd`, `occurred_at`; optional `basis`, `ticket`, `conversation_id`). Identical ids are idempotent; changed data conflicts. `AIUR_GAS_BUDGET_USD` sets the displayed budget.
 
@@ -152,9 +150,7 @@ Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the sa
 
 With an `openrouter:` route configured, the provider row shows the key's remaining credit against its limit, and `aiur usage openrouter` lists each route's spend per route and model. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it, the route key's own limit stands in.
 
-The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed.
-
-With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed. With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
 actual use varies. Missing anchors are unavailable. Read it with
 `aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
@@ -171,6 +167,7 @@ At zero, daemon requests are rejected locally and agent-launched `gh` commands w
 Aiur also coordinates request *shape* across all local instances that share a credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state by SHA-256 fingerprints, never the token or consumer identity itself. It enforces a shared requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and jittered admission starts.
 
 A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands.
+
 The broker is optional: without `python3`, metering fails open to unmetered
 requests (announced once at boot). `claude-repl` agents require `python3` for
 their durable lifecycle-hook spool, independently of the broker.
@@ -190,6 +187,7 @@ When active consumers of the same token disagree, the broker uses the most
 restrictive ceilings and the widest stagger observed in the preceding two
 minutes. This prevents a permissive second instance from raising the shared
 limit above another instance's configured safety boundary.
+
 At startup Aiur installs an optional Executor-shell wrapper at `~/.aiur/bin/gh`. Put that directory ahead of the system `gh` in an Executor shell's `PATH` to share the same budget for direct CLI calls.
 
 The wrapper fingerprints the `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth` credential it actually uses, so distinct daemon and Executor credentials never share a budget. Agent workspaces receive the wrapper automatically.
@@ -197,6 +195,7 @@ The wrapper fingerprints the `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth` credential
 ### Supervisor Decision API
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32 random bearer-safe bytes.
+
 Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local); an already-exported value wins, followed by the global file and then the repository file.
 
 A present non-empty short, whitespace-surrounded, or non-bearer-safe value aborts startup, while an absent or empty value leaves the API disabled. Keep the dashboard on loopback/private tunneling or terminate HTTPS before using the credential remotely.
