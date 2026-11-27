@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
   alias Aiur.Workflow
 
   describe "blocked-on-decision dispatch gate (#1965)" do
-    test "a GitHub issue carrying another instance's state label is never dispatchable" do
+    test "a GitHub issue's active state is not overridden by another instance's terminal label" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -19,13 +19,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
       )
 
       ticket =
-        issue("foreign", labels: [" NUC:todo "], state_labels: ["todo"], dispatch_authorized?: true)
+        issue("foreign", labels: ["pc:todo", "agent:done"], state_labels: ["todo"], dispatch_authorized?: true)
 
-      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) ==
-               {:skip, :inactive_state}
+      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) == :dispatch
     end
 
-    test "a foreign label for a custom workflow state is never dispatchable" do
+    test "the daemon's active state wins over a foreign terminal label" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -37,13 +36,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy.DecisionGateTest do
       ticket =
         issue("custom-foreign",
           state: "qa-review",
-          labels: ["agent:qa-review", "nuc:qa-review"],
+          labels: ["pc:qa-review", "agent:done"],
           state_labels: ["qa-review"],
           dispatch_authorized?: true
         )
 
-      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) ==
-               {:skip, :inactive_state}
+      assert DispatchPolicy.dispatch_decision(ticket, %State{max_concurrent_agents: 5}) == :dispatch
     end
 
     test "a held issue is declined with :build_queue_hold before other state gates" do

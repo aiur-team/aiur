@@ -236,15 +236,18 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
 
       terminal_workspace = Path.join([workspace_root, "owner", "repo", "610"])
+      active_workspace = Path.join([workspace_root, "owner", "repo", "611"])
       File.mkdir_p!(terminal_workspace)
+      File.mkdir_p!(active_workspace)
       File.write!(Path.join(terminal_workspace, "dirty.txt"), "leftover")
+      File.write!(Path.join(active_workspace, "dirty.txt"), "keep")
       File.mkdir_p!(Path.join(terminal_workspace, "logs"))
       File.write!(Path.join([terminal_workspace, "logs", "agent.ndjson"]), "diagnostic transcript")
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
-        tracker_label_prefix: "agent",
+        tracker_label_prefix: "pc",
         tracker_active_states: ["todo", "in-progress"],
         tracker_terminal_states: ["done"],
         workspace_root: workspace_root,
@@ -255,7 +258,8 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       Application.put_env(:aiur, :startup_cleanup_test_pid, self())
 
       Application.put_env(:aiur, :startup_cleanup_issues, [
-        %Issue{id: "issue-610", identifier: "610", title: "Done", state: "done"}
+        %Issue{id: "issue-610", identifier: "610", title: "Done", state: "done"},
+        %Issue{id: "issue-611", identifier: "611", title: "Open", state: "todo", labels: ["pc:todo", "agent:done"]}
       ])
 
       :ok = SessionHandle.save("610", %{backend: "codex", thread_id: "thread-clear"})
@@ -268,6 +272,7 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       # The sweep saves and deletes in one task, off the Orchestrator (#2743).
       assert_receive {:workspace_cleanup_finished, "610", :ok}, 10_000
       refute File.exists?(terminal_workspace)
+      assert File.read!(Path.join(active_workspace, "dirty.txt")) == "keep"
       archived_transcript = Path.wildcard(Path.join([workspace_root, "log", "closed-ticket-transcripts", "610", "*", "agent.ndjson"]))
       assert [_] = archived_transcript
       assert File.read!(hd(archived_transcript)) == "diagnostic transcript"
@@ -361,7 +366,7 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       restore_application_env(:startup_cleanup_issues, previous_issues)
       restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
-      File.rm_rf(workspace_root)
+      Aiur.TestCleanup.rm_rf!(workspace_root)
     end
   end
 
