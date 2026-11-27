@@ -1,9 +1,92 @@
 defmodule Aiur.Orchestrator.Dispatcher.CommandGateTest do
   use Aiur.DispatcherTestSupport
 
-  alias Aiur.Orchestrator.TokenAccounting
+  alias Aiur.{DecisionStore, TrackerIdentity}
+  alias Aiur.Orchestrator.{DispatchPolicy, TokenAccounting}
 
   describe "blocking Command dispatch gate (#1965)" do
+    test "an open Command for another repository with the same ticket number does not hold dispatch" do
+      dir = Aiur.TestSupport.tmp_root!("dispatcher-cross-repo-decision")
+
+      store =
+        start_supervised!(
+          {DecisionStore, [name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end]},
+          id: :dispatcher_cross_repo_decision_store
+        )
+
+      identity = fn owner, repository, node_id ->
+        {:ok, identity} =
+          TrackerIdentity.from_github(
+            %{"node_id" => node_id, "database_id" => 5, "number" => 5},
+            {owner, repository},
+            {owner, repository}
+          )
+
+        identity
+      end
+
+      other_identity = identity.("some-org", "other-repo", "MDU6SXNzdWU1")
+      ticket_identity = identity.("open-games", "open-games", "MDU6SXNzdWU2")
+
+      assert {:ok, %{decision: _other_decision}} =
+               DecisionStore.request(
+                 %{"question" => "Should this other repository proceed?", "blocking" => true},
+                 [
+                   ticket: %{
+                     identifier: "5",
+                     title: "Other repo ticket",
+                     url: nil,
+                     tracker_identity: other_identity
+                   },
+                   source: %{agent_id: "dispatcher-test", session_id: "cross-repo", event_id: nil}
+                 ],
+                 store
+               )
+
+      candidate = %Issue{id: "5", identifier: "5", title: "Open Games ticket", state: "todo", tracker_identity: ticket_identity}
+      state = Dispatcher.refresh_blocked_ticket_ids(%State{}, store)
+
+      assert MapSet.member?(state.blocked_ticket_ids, {:github, "some-org", "other-repo", "5"})
+      held_candidate = %Issue{id: "5", identifier: "5", title: "Other repo ticket", state: "todo", tracker_identity: other_identity}
+      assert DispatchPolicy.blocked_on_decision?(held_candidate, state.blocked_ticket_ids)
+      refute DispatchPolicy.blocked_on_decision?(candidate, state.blocked_ticket_ids)
+      refute Dispatcher.choose_issues(state, [candidate]).dispatch_declines["5"] == :blocked_on_decision
+
+      assert {:ok, %{decision: legacy_decision}} =
+               DecisionStore.request(
+                 %{"question" => "Which release should we deploy?", "blocking" => true},
+                 [
+                   ticket: %{
+                     identifier: "5",
+                     title: "Legacy Open Games ticket",
+                     url: "https://github.com/open-games/open-games/issues/5"
+                   },
+                   source: %{agent_id: "dispatcher-test", session_id: "legacy-open-games", event_id: nil}
+                 ],
+                 store
+               )
+
+      assert legacy_decision.ticket.url == "https://github.com/open-games/open-games/issues/5"
+      legacy_state = Dispatcher.refresh_blocked_ticket_ids(state, store)
+      assert DispatchPolicy.blocked_on_decision?(candidate, legacy_state.blocked_ticket_ids)
+
+      unjoinable_identity =
+        TrackerIdentity.unjoinable(:missing_provider_identity,
+          owner: "open-games",
+          repository: "open-games",
+          identifier: "5"
+        )
+
+      unjoinable_candidate = %Issue{
+        id: "5",
+        identifier: "5",
+        url: "https://github.com/open-games/open-games/issues/5",
+        tracker_identity: unjoinable_identity
+      }
+
+      assert DispatchPolicy.blocked_on_decision?(unjoinable_candidate, legacy_state.blocked_ticket_ids)
+    end
+
     test "an expired unanswered blocking Command no longer gates dispatch" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
       candidate = issue("decision-cycle-#{System.unique_integer([:positive])}")

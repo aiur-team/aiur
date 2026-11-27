@@ -32,5 +32,8 @@ defmodule Aiur.VoiceConversation.BriefingSourceTest do
     assert {:ok, "user: Retained conversation"} = BriefingSource.details(:executor, "transcript", opts)
     assert Enum.any?(briefing.extra, &(&1.title == "Open Commands" and &1.text == "1 open; top 1: cmd-1: Deploy?"))
     assert {:ok, "45, 46"} = BriefingSource.details(:executor, "blockers", blocked_tickets: fn -> {:ok, MapSet.new(["45", "46"])} end)
+
+    assert {:ok, "45, org/repo#5"} =
+             BriefingSource.details(:executor, "blockers", blocked_tickets: fn -> {:ok, MapSet.new(["45", {:github, "org", "repo", "5"}])} end)
   end
 end
