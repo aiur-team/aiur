@@ -246,16 +246,21 @@ test('mute toggled before dictation startup applies when the session becomes rea
 test('sessions without mute support are stopped and reported', async () => {
   const { el } = mount();
   let dictationStopped = 0;
+  let dictationCancelled = 0;
   let voiceStopped = 0;
   const errors = [];
   el.addEventListener('aiur-composer-error', ({ detail }) => errors.push(detail.action));
   el.adapters = {
-    dictation: { start: async () => ({ stop: async () => { dictationStopped++; } }) },
+    dictation: { start: async () => ({
+      stop: async () => { dictationStopped++; },
+      cancel: async () => { dictationCancelled++; },
+    }) },
     voice: { start: async () => ({ stop: async () => { voiceStopped++; } }) },
   };
 
   await el.startDictation();
-  assert.equal(dictationStopped, 1);
+  assert.equal(dictationCancelled, 1);
+  assert.equal(dictationStopped, 0, 'cleanup does not stop after cancel');
   assert.equal(el.state.dictation, 'idle');
   assert.equal(await el.startVoice(), false);
   assert.equal(voiceStopped, 1);

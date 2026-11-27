@@ -223,7 +223,8 @@ export class ComposerController extends EventTarget {
     }).catch(async (error) => {
       if (dictation.session && typeof dictation.session.setMuted !== 'function') {
         try {
-          await (dictation.session.cancel?.() ?? dictation.session.stop());
+          if (dictation.session.cancel) await dictation.session.cancel();
+          else await dictation.session.stop();
         } catch { /* Keep the adapter contract error as the reported failure. */ }
       }
       this.#dictation = null;
