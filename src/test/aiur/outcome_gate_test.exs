@@ -3,8 +3,15 @@ defmodule Aiur.OutcomeGateTest do
 
   alias Aiur.Commands.OutcomeGate
 
+  test "outcome gates stay off for tickets without an opt-in label" do
+    assert :ok = OutcomeGate.validate_handoff([], "42", [])
+    assert OutcomeGate.outcome_confirmed?([], "42", [])
+    assert OutcomeGate.merge_target([], "42", [%{decision_status: :open}]) == "done"
+  end
+
   test "creator review handoff requires an open actionable creator Command" do
-    assert {:error, :missing_actionable_creator_command} = OutcomeGate.validate_handoff(["creator-facing"], "42", [])
+    assert {:error, :missing_actionable_creator_command} =
+             OutcomeGate.validate_handoff(["creator-facing"], "42", [])
 
     assert :ok =
              OutcomeGate.validate_handoff(
@@ -22,7 +29,8 @@ defmodule Aiur.OutcomeGateTest do
   end
 
   test "engineering-only handoff requires an open Executor-only Command" do
-    assert {:error, :missing_executor_command} = OutcomeGate.validate_handoff(["engineering-only"], "42", [])
+    assert {:error, :missing_executor_command} =
+             OutcomeGate.validate_handoff(["engineering-only"], "42", [])
 
     assert :ok =
              OutcomeGate.validate_handoff(
@@ -55,23 +63,35 @@ defmodule Aiur.OutcomeGateTest do
     ]
 
     refute OutcomeGate.outcome_confirmed?(["creator-facing"], "42", incomplete)
-    assert OutcomeGate.merge_target(["creator-facing"], "42", incomplete) == "human-review"
+    assert OutcomeGate.merge_target(["creator-facing"], "42", incomplete) == "done"
   end
 
-  test "pending post-deploy checks hold merge closure until marked complete" do
+  test "pending post-deploy checks remain recorded without holding merged work open" do
     pending = [%{"ticket" => "42", "done_at" => nil}]
     complete = [%{"ticket" => "42", "done_at" => "2026-11-27T12:00:00Z"}]
 
-    assert OutcomeGate.merge_target([], "42", [], pending) == "human-review"
+    assert OutcomeGate.merge_target([], "42", [], pending) == "done"
     assert OutcomeGate.merge_target([], "42", [], complete) == "done"
   end
 
   test "epic closure waits for closed and triaged children and follow-ups" do
-    assert OutcomeGate.related_work_complete?([%{state: "closed", triaged?: true}], [%{state: "closed", triaged?: true}])
+    assert OutcomeGate.related_work_complete?([%{state: "closed", triaged?: true}], [
+             %{state: "closed", triaged?: true}
+           ])
+
     refute OutcomeGate.related_work_complete?([%{state: "open"}], [])
-    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [%{state: "closed", triaged?: false}])
-    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [%{state: "open", triaged?: true}])
-    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [%{state: "open", triaged?: false}])
+
+    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [
+             %{state: "closed", triaged?: false}
+           ])
+
+    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [
+             %{state: "open", triaged?: true}
+           ])
+
+    refute OutcomeGate.related_work_complete?([%{state: "closed"}], [
+             %{state: "open", triaged?: false}
+           ])
   end
 
   defp command(identifier, status, route_state, audience) do

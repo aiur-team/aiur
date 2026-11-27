@@ -74,7 +74,7 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:294-301`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume/tracker_control.ex:307` |
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
-| `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword, no blocking open PR remains, and any creator outcome, post-deploy check, and epic relationship gates are complete | `merged_ticket_reconciler.ex`; `comment_wake.ex:46` |
+| `done` | orchestrator on merge when the PR carries a closing keyword and no blocking open PR remains; pending outcomes do not hold dependents | `merged_ticket_reconciler.ex`; `comment_wake.ex:46` |
 
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
@@ -87,18 +87,23 @@ Command store refuses handoff so the agent can retry after recording it.
 Use `engineering-only` for engineering review; handoff requires an open Command
 with `audience: executor`.
 
-After merge, a creator-facing ticket stays in review until a human or Executor
-answers a ticket Command with a non-empty reason. Its answer records actor and
-time; reconciliation retries from it and holds closure when evidence is missing.
+After merge, the ticket reaches `done` without a creator verdict. Its open
+Command remains available to creator and Executor; answers retain actor,
+reason, and time. Pending outcomes use no worker slots or turns and hold no
+dependents or queue work. “Needs changes” creates a separate epic follow-up;
+it never reopens the blocker.
 
-A pending PR `Post-deploy check:` keeps the ticket open until completed on
-`/post-deploy`. For an epic, add `epic` and list `Children: #123, #124` plus
-optional `Follow-ups: #125` in its body. Every listed issue must be closed and
-clear of `needs-triage`.
+A pending PR `Post-deploy check:` remains recorded for completion on
+`/post-deploy`, but does not hold the merged ticket or its dependents open. For
+an epic, add `epic` and list `Children: #123, #124` plus optional
+`Follow-ups: #125` in its body. The epic itself stays open while any listed
+issue is open or has `needs-triage`.
 
-These labels and fields are the OGM integration contract. Use Aiur's Command
-APIs to create cards and confirm outcomes. Missing or unavailable evidence
-holds closure for retry.
+These labels and fields are the OGM contract. Opt in with `creator-facing`,
+`engineering-only`, `epic`, or a post-deploy record. Use Command APIs for cards
+and outcomes; retry through durable projections. Missing outcomes do not hold
+merged work; missing epic relationships keep it open. Create follow-ups
+idempotently.
 
 
 When the no-op turn bound or normal turn limit stops an agent, a newly opened or
