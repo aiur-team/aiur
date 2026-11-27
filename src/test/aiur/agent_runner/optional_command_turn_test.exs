@@ -111,7 +111,7 @@ defmodule Aiur.AgentRunner.OptionalCommandTurnTest do
                nil,
                nil,
                1,
-               nil
+               2
              )
 
     assert {:ok, %{default_applied: %{option_id: "ship", at: %DateTime{}}}} = DecisionStore.get(optional.decision_id)
