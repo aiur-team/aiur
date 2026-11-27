@@ -11,6 +11,10 @@ defmodule Aiur.TestSupport.OpenAICompatAgent do
       import Aiur.TestSupport.OpenAICompatAgent
 
       setup do
+        unless Process.whereis(Aiur.TaskSupervisor) do
+          start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
+        end
+
         workspace =
           Path.join(
             Aiur.Config.workspace_root(),

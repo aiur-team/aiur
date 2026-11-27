@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.ProvisionerTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Workflow, Workspace}
+  alias Aiur.{AgentGitHubGuard, Workflow, Workspace}
   alias Aiur.Workspace.Provisioner
 
   @linux_build_gate match?({:unix, :linux}, :os.type()) and
@@ -25,11 +25,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
-    assert script =~ ~s(bin="$workspace/.aiur-runtime/bin")
-    assert script =~ "for command_name in 'gh'"
-    assert script =~ "for command_name in 'git'"
-    assert script =~ ~s(target="$bin/$command_name")
-    assert script =~ "chmod 755"
+    assert script =~ AgentGitHubGuard.remote_install_script("/remote/workspace", remote_host: "worker-1")
     # Without a workspace-private scratch dir, remote agents fall back to the
     # worker's shared /tmp and clobber each other's staged files (#1763).
     assert script =~ ".aiur-runtime/tmp"

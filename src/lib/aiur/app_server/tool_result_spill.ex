@@ -2,7 +2,7 @@ defmodule Aiur.AppServer.ToolResultSpill do
   @moduledoc false
 
   require Logger
-  alias Aiur.{PathSafety, Workspace.GitMetadata}
+  alias Aiur.{PathSafety, Workspace}
 
   @max_inline_frame_bytes 100 * 1024
   @runtime_dir ".aiur-runtime"
@@ -43,7 +43,7 @@ defmodule Aiur.AppServer.ToolResultSpill do
   defp prepare_directory(workspace) do
     with {:ok, canonical_workspace} <- PathSafety.canonicalize(workspace),
          true <- File.dir?(canonical_workspace),
-         :ok <- GitMetadata.ensure_tool_results_excluded(canonical_workspace),
+         :ok <- Workspace.ensure_tool_results_excluded(canonical_workspace),
          {:ok, runtime_dir} <- ensure_private_directory(canonical_workspace, @runtime_dir),
          {:ok, results_dir} <- ensure_private_directory(runtime_dir, @results_dir),
          {:ok, %{candidate: ^results_dir}} <- PathSafety.contained?(canonical_workspace, results_dir) do

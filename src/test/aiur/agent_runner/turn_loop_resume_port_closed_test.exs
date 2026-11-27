@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentRunner.SessionResume
   alias Aiur.AgentRunner.TurnLoop
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.SessionHandle
@@ -44,7 +45,7 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     %{workspace: workspace, issue: issue, orchestrator: orchestrator}
   end
 
-  test "two dispatches whose resumed first turn loses the port drop the thread", ctx do
+  test "future regression guard: repeated resumed closes make the next dispatch fresh", ctx do
     StreamDiagnostics.record(self(), "provider startup banner: thread transport closed")
 
     log =
@@ -58,6 +59,34 @@ defmodule Aiur.AgentRunner.TurnLoopResumePortClosedTest do
     assert SessionHandle.load(ctx.issue.identifier, "codex") == :none
     assert SessionHandle.abandoned_thread?(ctx.issue.identifier)
     assert log =~ ~s(stream_diagnostics="provider startup banner: thread transport closed")
+
+    resume_thread_id = SessionResume.load_resume_thread_id("codex", nil, ctx.issue.identifier)
+    assert is_nil(resume_thread_id)
+
+    fresh_session = %{backend: "codex", resumed: false, thread_id: resume_thread_id, workspace: ctx.workspace, worker_host: nil}
+    first_turn_opts = SessionResume.put_first_turn_opts([], fresh_session, ctx.issue.identifier)
+
+    run_fresh_turn = fn _session, prompt, _issue, _opts ->
+      assert prompt =~ "previous agent thread was abandoned after it repeatedly lost its transport"
+      {:ok, %{thread_id: "fresh"}}
+    end
+
+    assert {:completed, %Aiur.Issue{identifier: identifier}} =
+             TurnLoop.run_turns(
+               fresh_session,
+               ctx.workspace,
+               ctx.issue,
+               nil,
+               Keyword.put(first_turn_opts, :run_turn, run_fresh_turn),
+               fn _ids -> {:ok, [ctx.issue]} end,
+               ctx.orchestrator,
+               nil,
+               1,
+               1
+             )
+
+    assert identifier == ctx.issue.identifier
+    assert {:ok, %{thread_id: "fresh"}} = SessionHandle.load(ctx.issue.identifier, "codex")
     StreamDiagnostics.clear(self())
   end
 

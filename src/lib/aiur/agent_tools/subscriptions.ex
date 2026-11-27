@@ -5,9 +5,9 @@ defmodule Aiur.AgentTools.Subscriptions do
 
   @behaviour Aiur.AgentTools.Handler
 
+  alias Aiur.AgentEvents
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
-  alias Aiur.Events.AgentSubscriptionPolicy
 
   @aiur_subscribe_description """
   Subscribe the current issue to a topic pattern. Patterns use AMQP topic
@@ -126,6 +126,6 @@ defmodule Aiur.AgentTools.Subscriptions do
 
   def normalize_topic_pattern(_), do: {:error, :invalid_topic_pattern}
 
-  defp validate_subscription(:subscribe, pattern), do: AgentSubscriptionPolicy.validate(pattern)
+  defp validate_subscription(:subscribe, pattern), do: AgentEvents.validate_agent_subscription_pattern(pattern)
   defp validate_subscription(:unsubscribe, _pattern), do: :ok
 end

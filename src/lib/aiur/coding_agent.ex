@@ -92,7 +92,9 @@ defmodule Aiur.CodingAgent do
   # Per-issue selection and routing.
   defdelegate backend_for(issue, opts \\ []), to: Routing
   defdelegate select_for_dispatch(issue, opts \\ []), to: Routing
-  defdelegate peak_priced_route?(route, now), to: Routing
+  @doc "Checks whether a route is peak-priced using caller-supplied schedule and classification functions."
+  @spec peak_priced_route?(String.t(), DateTime.t(), (atom() -> term()), (DateTime.t(), term() -> atom())) :: boolean()
+  defdelegate peak_priced_route?(route, now, window_schedule_for, window_classifier), to: Routing
   defdelegate route_price_identity(route), to: Routing
   defdelegate model_for(issue, opts \\ []), to: Routing
   defdelegate effort_for(issue), to: Routing

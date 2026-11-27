@@ -9,6 +9,7 @@ export type WireContract = CapabilitiesReport | CapabilityError;
 export type CapabilityEntry = {
   state: CapabilityState;
   reason?: CapabilityReason | null;
+  detail?: string;
   depends_on?: string[];
   version?: number;
   observed_at?: string;

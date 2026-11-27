@@ -10,6 +10,7 @@
     "src/lib/aiur/coordination_tasks.ex",
     "src/lib/aiur/disk_full.ex",
     "src/lib/aiur/display_sanitizer.ex",
+    "src/lib/aiur/event_humanizer_helpers.ex",
     "src/lib/aiur/fs.ex",
     "src/lib/aiur/git.ex",
     "src/lib/aiur/heroicons.ex",
@@ -17,6 +18,7 @@
     "src/lib/aiur/json_safe.ex",
     "src/lib/aiur/json_store.ex",
     "src/lib/aiur/jsonl.ex",
+    "src/lib/aiur/local_budget_hold.ex",
     "src/lib/aiur/local_test_evidence.ex",
     "src/lib/aiur/local_test_evidence/bullets.ex",
     "src/lib/aiur/opaque_identifier.ex",
@@ -36,6 +38,7 @@
     "src/lib/aiur/system_cgroup.ex",
     "src/lib/aiur/system_pressure.ex",
     "src/lib/aiur/test_run_state.ex",
+    "src/lib/aiur/token_usage.ex",
     "src/lib/aiur/tracker_identity.ex",
     "src/lib/aiur/yaml.ex",
     "src/priv/pidfd_reap.py"

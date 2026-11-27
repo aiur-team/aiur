@@ -130,7 +130,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle.ContainmentTest do
       # This direct cleanup proof is deliberately test-only: an uncertain
       # production start must retain the lease rather than replace a live cwd.
       assert :ok = Ownership.cancel_provider_expectation(active_lease)
-      assert :ok = Ownership.release(active_lease)
       assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
 
       assert {:ok, retry_lease} = Ownership.claim(ticket)

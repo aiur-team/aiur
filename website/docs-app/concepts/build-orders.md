@@ -254,7 +254,9 @@ Ownership is ranked: a list owns over a feature, and a feature over an epic or B
 
 ### Feature sets
 
-A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
+A queue is a feature set. In the ready tier, explicit ticket priority comes first. At the same priority, main-fix tickets lead, then ranked queue-set members in set and list order, followed by unqueued tickets. Queue hints and work kind break remaining ties. Dependency and capacity gates still apply.
+
+On a shared gateway, the broker gives capacity to projects by project priority, and the dispatcher selects tickets within its project.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
@@ -417,3 +419,13 @@ A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths,
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
 
 Add `experiment:feature` to a root issue to [measure the feature](/concepts/experiments#measuring-a-feature) from its first member merge through go-live.
+
+## Work overlap review
+
+Aiur compares a GitHub ticket's planned work with open tickets, open pull requests, and recent merges before starting a worker and again at review.
+
+It reports **Build**, **Extend existing**, or **Fold into**, with the matching issue or PR number and any shared title terms, paths, or symbols found in the descriptions.
+
+The Executor receives a wake, and a changed verdict or new evidence appears in an overlap note on the GitHub ticket. Aiur leaves dispatch and work disposition to the existing workflow.
+
+Every five minutes, Aiur also looks for overlapping open tickets and PRs within and across features. It uses owning and also-affects membership. A linked PR inherits the feature membership of its tickets. New or changed pairs wake the Executor with both work items and the matching evidence.

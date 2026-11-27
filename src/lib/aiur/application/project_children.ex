@@ -9,7 +9,7 @@ defmodule Aiur.Application.ProjectChildren do
 
   @doc "Modules a projects-mode machine list drops: they poll or dispatch for one repository."
   @spec pollers() :: [module()]
-  def pollers, do: [Aiur.GitHub.Listeners, Aiur.Orchestrator | List.wrap(Aiur.BuildQueue.child(true))]
+  def pollers, do: [Aiur.GitHub.Listeners, Aiur.OverlapReviewer, Aiur.Orchestrator | List.wrap(Aiur.BuildQueue.child(true))]
 
   @doc "Called from the project root's `init/1`, so name helpers already see its context."
   @spec specs(Aiur.Project.t(), keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
@@ -31,6 +31,7 @@ defmodule Aiur.Application.ProjectChildren do
       # Seed the fail-closed admission table before the Orchestrator's first dispatch.
       Aiur.Orchestrator.SpendCap.Store,
       Aiur.GitHub.Listeners,
+      Aiur.OverlapReviewer,
       {Aiur.Orchestrator, name: Aiur.Project.name(Aiur.Orchestrator, id), initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(Keyword.get(opts, :recording?, true)),
       # Last, so its isolated restarts never cascade through `:rest_for_one`; idle until a dashboard subscribes.

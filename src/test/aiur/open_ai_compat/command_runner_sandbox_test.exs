@@ -3,10 +3,8 @@ defmodule Aiur.OpenAICompat.CommandRunnerSandboxTest do
 
   alias Aiur.Config.Schema.CommandSandbox
   alias Aiur.OpenAICompat.CommandRunner
-  alias Aiur.TestSupport.RuntimeChildren
 
   setup do
-    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
     root = Aiur.TestSupport.tmp_root!("aiur-command-sandbox")
     for dir <- ~w(workspace ro rw tools elsewhere), do: File.mkdir_p!(Path.join(root, dir))
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)

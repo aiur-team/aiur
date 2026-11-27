@@ -1,5 +1,5 @@
 defmodule AiurPushRelay.Store.SQLite do
-  @moduledoc "Single-owner SQLite connection with transactional writes and bounded retention."
+  @moduledoc "Owns the SQLite connection so registry, idempotency, and bucket writes stay atomic."
   use GenServer
   @behaviour AiurPushRelay.Store
   alias Exqlite.Sqlite3, as: DB
@@ -17,6 +17,10 @@ defmodule AiurPushRelay.Store.SQLite do
     do: GenServer.call(server, {:reserve, row, envelope, now})
 
   @impl true
+  def consume(server, key, capacity, per_hour, now),
+    do: GenServer.call(server, {:consume, key, capacity, per_hour, now})
+
+  @impl true
   def finish(server, handle, key, status),
     do: GenServer.call(server, {:finish, handle, key, status})
 
@@ -28,36 +32,42 @@ defmodule AiurPushRelay.Store.SQLite do
   @impl true
   def init(opts) do
     with {:ok, db} <- DB.open(Keyword.fetch!(opts, :path)),
-         :ok <- DB.execute(db, schema()) do
+         :ok <- DB.execute(db, AiurPushRelay.Store.SQLite.Schema.sql()) do
       Process.send_after(self(), :prune, 600_000)
-      {:ok, db}
+
+      {:ok,
+       %{
+         db: db,
+         log_retention_days: Keyword.get(opts, :log_retention_days, 7),
+         send_limits: Keyword.get(opts, :send_limits, %{burst: 10, per_hour: 60})
+       }}
     else
       {:error, _} -> {:stop, :store_unavailable}
     end
   end
 
   @impl true
-  def handle_call(operation, _, db) do
-    result = transaction(db, fn -> execute(db, operation) end)
-    {:reply, result, db}
+  def handle_call(operation, _, %{db: db} = state) do
+    result = transaction(db, fn -> execute(db, operation, state) end)
+    {:reply, result, state}
   end
 
   @impl true
-  def handle_info(:prune, db) do
-    transaction(db, fn -> prune(db, System.system_time(:second)) end)
+  def handle_info(:prune, %{db: db} = state) do
+    transaction(db, fn -> prune(db, System.system_time(:second), state.log_retention_days) end)
     Process.send_after(self(), :prune, 600_000)
-    {:noreply, db}
+    {:noreply, state}
   end
 
   @impl true
-  def terminate(_, db), do: DB.close(db)
+  def terminate(_, %{db: db}), do: DB.close(db)
 
-  defp execute(db, :health) do
+  defp execute(db, :health, _state) do
     [[1]] = query(db, "SELECT 1", [])
     :ok
   end
 
-  defp execute(db, {:create, row}) do
+  defp execute(db, {:create, row}, _state) do
     query(db, "INSERT INTO handles VALUES (?,?,?,?,?,?,?,?,?)", [
       row.handle,
       row.platform,
@@ -73,35 +83,38 @@ defmodule AiurPushRelay.Store.SQLite do
     :ok
   end
 
-  defp execute(db, {:get, handle}) do
+  defp execute(db, {:get, handle}, _state) do
     case query(db, "SELECT * FROM handles WHERE handle = ?", [handle]) do
       [] -> {:error, :handle_unknown}
       [values] -> {:ok, handle_row(values)}
     end
   end
 
-  defp execute(db, {:delete, handle}) do
+  defp execute(db, {:delete, handle}, _state) do
     query(db, "DELETE FROM handles WHERE handle = ?", [handle])
     query(db, "DELETE FROM sends WHERE handle = ?", [handle])
     :ok
   end
 
-  defp execute(db, {:reserve, row, envelope, now}) do
-    prune(db, now)
+  defp execute(db, {:reserve, row, envelope, now}, state) do
+    prune(db, now, state.log_retention_days)
 
-    case execute(db, {:get, row.handle}) do
-      {:ok, %{gone: false}} -> reserve_send(db, row.handle, envelope, now)
+    case execute(db, {:get, row.handle}, state) do
+      {:ok, %{gone: false}} -> reserve_send(db, row.handle, envelope, now, state)
       {:ok, %{gone: true}} -> {:error, :handle_gone}
       error -> error
     end
   end
 
-  defp execute(db, {:release, handle, key}) do
+  defp execute(db, {:consume, key, capacity, per_hour, now}, _state),
+    do: AiurPushRelay.Store.SQLite.Buckets.consume(db, key, capacity, per_hour, now)
+
+  defp execute(db, {:release, handle, key}, _state) do
     query(db, "DELETE FROM sends WHERE handle = ? AND idempotency_key = ?", [handle, key])
     :ok
   end
 
-  defp execute(db, {:finish, handle, key, status}) do
+  defp execute(db, {:finish, handle, key, status}, _state) do
     if status == :gone, do: query(db, "UPDATE handles SET gone = 1 WHERE handle = ?", [handle])
 
     query(db, "UPDATE sends SET delivery = ? WHERE handle = ? AND idempotency_key = ?", [
@@ -113,13 +126,27 @@ defmodule AiurPushRelay.Store.SQLite do
     :ok
   end
 
-  defp reserve_send(db, handle, envelope, now) do
+  defp reserve_send(db, handle, envelope, now, state) do
     case query(db, "SELECT status FROM sends WHERE handle = ? AND idempotency_key = ?", [
            handle,
            envelope["idempotency_key"]
          ]) do
-      [[status]] -> {:duplicate, status}
-      [] -> insert_send(db, handle, envelope, now)
+      [[status]] ->
+        {:duplicate, status}
+
+      [] ->
+        limits = state.send_limits
+
+        case AiurPushRelay.Store.SQLite.Buckets.consume(
+               db,
+               "handle:" <> handle,
+               limits.burst,
+               limits.per_hour,
+               now
+             ) do
+          :ok -> insert_send(db, handle, envelope, now)
+          limited -> limited
+        end
     end
   end
 
@@ -140,9 +167,9 @@ defmodule AiurPushRelay.Store.SQLite do
     :new
   end
 
-  defp prune(db, now) do
+  defp prune(db, now, retention_days) do
     query(db, "DELETE FROM sends WHERE created_at <= ?", [now - 86_400])
-    query(db, "DELETE FROM send_log WHERE at <= ?", [now - 604_800])
+    query(db, "DELETE FROM send_log WHERE at <= ?", [now - retention_days * 86_400])
     :ok
   end
 
@@ -186,22 +213,5 @@ defmodule AiurPushRelay.Store.SQLite do
     after
       DB.release(db, statement)
     end
-  end
-
-  defp schema do
-    """
-    PRAGMA journal_mode=WAL;
-    PRAGMA busy_timeout=100;
-    CREATE TABLE IF NOT EXISTS handles (
-      handle TEXT PRIMARY KEY, platform TEXT, push_token TEXT, app_topic TEXT,
-      environment TEXT, send_secret_sha256 BLOB, created_at INTEGER, last_used_at INTEGER,
-      gone INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS sends (
-      handle TEXT, idempotency_key TEXT, status INTEGER, created_at INTEGER, delivery TEXT,
-      PRIMARY KEY(handle, idempotency_key));
-    CREATE TABLE IF NOT EXISTS send_log (handle TEXT, at INTEGER, size INTEGER, status INTEGER);
-    CREATE INDEX IF NOT EXISTS sends_age ON sends(created_at);
-    CREATE INDEX IF NOT EXISTS send_log_age ON send_log(at);
-    """
   end
 end

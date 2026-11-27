@@ -150,11 +150,12 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur executor-attach --check [--json]` | Local-only, read-only checks for listener, binding, private credential files, harness hooks, hook age, transcript readability and format drift. Each row reports `ok`, `fail` or `unknown` with guidance. JSON emits an array of `{check, status, detail, observed_at}`. Exit 0 requires every check to be `ok`; otherwise exit 1. Requires the daemon. | `aiur executor-attach --check --json` |
 | `aiur executor-attach --harness claude\|codex [--takeover] [--print-config]` | Attaches an Executor binding to this instance. Requires a running dashboard listener. Claude installs hooks at the Git repository root (or current directory outside Git); `--print-config` prints them instead. Codex always prints config for interactive trust. A live binding refuses replacement (exit 75); `--takeover` names the superseded binding. | `aiur executor-attach --harness claude` |
 | `aiur executor-detach` | Ends the binding if needed, rotates its hook token, and removes marked Claude hooks at the Git repository root (or current directory outside Git). Cleanup also runs after SessionEnd and without a binding. | `aiur executor-detach` |
-| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, rejected foreign-session/not-attached counts, and `transcript_rejection` (null for no rejection, `unknown` when capture status is unavailable). Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
+| `aiur executor-session [--json]` | Shows the public hook binding, liveness, last hook age, `observed_at`, `age_ms`, `freshness`, rejected foreign-session/not-attached counts, `transcript_rejection` (null for no rejection, `unknown` when capture status is unavailable), and `read_capability` (`harness`, `cli_version`, `status`, `reason`, `tested_range`, `observed_at`). Counts come from hook ingestion; when ingestion is unavailable, `recording?` is false and counts are null. Before the first hook, age is null and freshness unknown. The previous wake-stream harness handle is retained under `harness_session`. | `aiur executor-session --json` |
 | `aiur executor-claim` | Claims the wake stream. Refused when a live, renewing owner holds it; the refusal names that owner so a takeover is an operator decision, never a silent steal. | `aiur executor-claim --as agent-a` |
 | `aiur executor-release` | Gives up this consumer's claim so a successor can take over immediately. | `aiur executor-release --as agent-a` |
 | `aiur executor-revoke <consumer-id>` | Operator-only revoke of the named live owner. Requires the owner's id, read from the roster first. | `aiur executor-revoke agent-a` |
 | `aiur executor-emit executor.note --payload '{"text":"ready"}'` | Publishes JSON on a nonempty `executor.` topic or the exact `system.newsletter.ready` topic. Empty segments and other topics are rejected. | `aiur executor-emit executor.note --payload '{"text":"ready"}'` |
+| `aiur notify <review_ready\|live\|stalled\|info> <text> [--ticket <N>] [--url <URL>]` | Publishes `operator.notify.<kind>` with `{title, body, ticket, url, created_at}` for a host app to push to the operator's devices. The text is the body; the title names the kind and ticket. With [`events.export.enabled`](/reference/configuration-daemon#events) it reaches events-feed subscribers and outbound webhooks. `POST /api/v1/operator/notify` with a write client token and `{kind, text, ticket?, url?}` does the same and answers 202 with the event id. Aiur sends `stalled` itself when a ticket's agent or the dispatch cycle starts stalling, once per stall. | `aiur notify review_ready "PR is green" --ticket 645 --url https://github.com/o/r/pull/1` |
 | `aiur executor-subscribe 'executor.#'` | Adds a persistent Executor event binding. Bindings accept `executor.*` and reviewed ticket/system patterns only; broader wildcards are rejected. | `aiur executor-subscribe 'executor.#'` |
 | `aiur executor-unsubscribe 'executor.#'` | Removes that exact persistent binding. | `aiur executor-unsubscribe 'executor.#'` |
 | `aiur executor-subscriptions` | Lists persistent Executor event bindings. | `aiur executor-subscriptions` |
@@ -308,6 +309,19 @@ entries beyond the 400 ms poll interval.
 
 If capture is busy with a large backfill or unavailable, `executor-session`
 retains the hook-derived binding and age and reports `transcript_rejection: "unknown"`.
+
+### Executor session JSON
+
+`aiur executor-session --json` includes the shared Executor snapshot and retains
+the top-level binding fields and recording diagnostics. The snapshot includes
+`attached`, `binding`, `harness_state`, `read_capability`, `background_agents`,
+`blockers`, `wakes`, `roster`, and `observed_at`.
+
+The binding and harness state report their own hook age and freshness. Failed
+or timed-out snapshot reads return `"unavailable"` for the affected field.
+Background agents return
+`{"status":"ok","agents":[…]}` or `{"status":"unsupported","reason":…}`. Blockers
+include per-source availability alongside the items read successfully.
 
 `executor-session --json` includes `transcript_format`: generation totals by record
 class (`mapped`, `ignored_known`, `unknown`) and version (`tested`, `untested`,

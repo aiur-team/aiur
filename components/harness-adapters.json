@@ -39,6 +39,7 @@
     "Aiur.CodexProber",
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",
+    "Aiur.CodingAgent.Backend.ToolInvocation",
     "Aiur.CodingAgent.CapacityGate",
     "Aiur.CodingAgent.CapacityReasonText",
     "Aiur.CodingAgent.HeadroomDispatch",

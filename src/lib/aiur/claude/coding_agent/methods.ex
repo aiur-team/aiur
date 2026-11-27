@@ -5,11 +5,11 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   # dispatches them on the backend module.
 
   require Logger
-  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, CodingAgent, NotificationPolicy}
   alias Aiur.Claude.CodingAgent.NativeQuestions
+  alias Aiur.CodingAgent.Backend.ToolInvocation
   alias Aiur.Commands.NativeCapture
 
   @doc false
@@ -155,7 +155,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
 
     execute = fn ->
       state.tool_executor
-      |> ToolExecutor.execute(tool_name, arguments, invocation_id)
+      |> ToolInvocation.execute(tool_name, arguments, invocation_id)
       |> Messages.normalize_tool_result(%{workspace: session.workspace, response_id: id})
     end
 

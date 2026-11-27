@@ -70,7 +70,7 @@ defmodule Aiur.Orchestrator.QueueSetNextTest do
 
   test "selection uses ordinary dispatch ordering when set order is none" do
     configure(nil, "none")
-    {model, runtime, _issues} = fixture()
+    {model, runtime, _issues} = fixture(priorities: %{"2" => 4, "3" => 1})
     pid = start_supervised!({Probe, %{model: model, runtime: runtime}})
     output = capture_io(fn -> BuildQueueCLI.run(server: pid, claim_probe: Probe) end)
     assert output =~ "NEXT  B  rank 1"
@@ -110,7 +110,8 @@ defmodule Aiur.Orchestrator.QueueSetNextTest do
     Aiur.WorkflowStore.force_reload()
   end
 
-  defp fixture do
+  defp fixture(opts \\ []) do
+    priorities = Keyword.get(opts, :priorities, %{})
     now = System.system_time(:millisecond)
     time = DateTime.from_unix!(now, :millisecond)
 
@@ -164,7 +165,7 @@ defmodule Aiur.Orchestrator.QueueSetNextTest do
             identifier: "repo##{id}",
             title: "ticket",
             state: "todo",
-            priority: if(id == "2", do: 4, else: 1),
+            priority: Map.get(priorities, id, 1),
             blocked_by: []
           }
 

@@ -58,6 +58,22 @@ defmodule Aiur.CodingAgent.Backend do
   @typedoc "The adapter-owned session map. See \"Session contract\"."
   @type session :: map()
 
+  @typedoc "Injected terminal I/O accepted by a provider-specific setup callback."
+  @type init_io :: %{
+          puts: (IO.chardata() -> :ok),
+          input: (String.t(), String.t() | nil, String.t() | nil -> String.t() | nil),
+          select: (String.t(), [String.t()], String.t() -> String.t()),
+          multiselect: (String.t(), [String.t()], [String.t()] -> [String.t()]),
+          confirm: (String.t(), boolean() -> boolean())
+        }
+
+  @typedoc "Usage family identity consumed by accounting without exposing its adapter modules."
+  @type usage_contract :: %{
+          required(:provider) => atom(),
+          optional(:backend) => atom(),
+          optional(:transport) => atom()
+        }
+
   @typedoc """
   One registry entry in `Aiur.CodingAgent.backends/0`. Required keys
   exist on every backend; optional keys are declared capabilities:
@@ -93,6 +109,8 @@ defmodule Aiur.CodingAgent.Backend do
       version itself). Defaults to `:native`.
     * `:recoverable_session_error` — provider-owned predicate for errors
       that can safely restore claimed work and replace the stale session.
+    * `:usage` — provider family and optional accounting backend/transport;
+      accounting owns the mapping from this family to its usage adapters.
     * Provider adapters may expose `restore_handoff_session/3`,
       `handoff_socket_name/1`, `restore_handoff_transport/3`,
       `adopt_handoff_turn/4`, and `compact_session/3` for provider-owned
@@ -130,7 +148,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:run_telemetry) => (map() -> term()),
           optional(:presentation) => map(),
           optional(:pricing) => map(),
-          optional(:usage) => map(),
+          optional(:usage) => usage_contract(),
           optional(:meter_identity_policy) => :account | :host_unverified,
           optional(:account_generation) => map(),
           optional(:accounts) => %{optional(atom()) => term()},

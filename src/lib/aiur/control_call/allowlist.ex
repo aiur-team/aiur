@@ -95,8 +95,8 @@ defmodule Aiur.ControlCall.Allowlist do
     {:epic, 0, &__MODULE__.epic_category/1, [], %{}},
     {:build_orders, 0, :read, [], %{}},
     {:build_orders, 1, :read, [:keyword], %{root: :non_empty_string, json: :boolean, contract: {:enum, ["build-order.v1"]}}},
-    {:queue, 0, &__MODULE__.queue_category/1, [], %{}},
-    {:queue, 1, &__MODULE__.queue_category/1, [:keyword],
+    {:queue, 0, :read, [], %{}},
+    {:queue, 1, &__MODULE__.queue_category/2, [:keyword],
      %{
        verb: {:enum, [:show, :order, :add, :set, :remove, :reorder, :hold, :release, :recover, :clear]},
        caller_agent_workspace: :string,
@@ -122,9 +122,9 @@ defmodule Aiur.ControlCall.Allowlist do
     {:github_cost, 0, :read, [], %{}},
     {:github_cost, 1, :read, [:keyword], %{budget: {:enum, ["graphql", "core", "all"]}, format: {:enum, [:auto, :table, :records]}, json: :boolean}},
     {:experiments, 0, &__MODULE__.experiment_category/1, [],
-     %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
+     %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :import_baseline, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
     {:experiments, 1, &__MODULE__.experiment_category/1, [:keyword],
-     %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
+     %{argv: :string_list, verb: {:enum, [:list, :show, :create, :metrics, :freeze, :import_baseline, :abandon, :events, :preregister, :report_submit, :stats, :analyze]}, json: :boolean}},
     {:capabilities, 1, :read, [:keyword], %{json: :boolean}},
     {:capabilities, 0, :read, [], %{}},
     {:github_usage, 0, :read, [], %{}},
@@ -214,6 +214,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_revoke, 1, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}], %{}},
     {:executor_revoke, 2, :executor, [{:regex, ~r/^[A-Za-z0-9._-]+$/}, :keyword], %{now: :integer}},
     {:executor_emit, 2, :executor, [:string, :string], %{}},
+    {:notify, 4, :executor, [:string, :string, :string, :string], %{}},
     {:executor_subscribe, 1, :executor, [:string], %{}},
     {:executor_unsubscribe, 1, :executor, [:string], %{}},
     {:executor_subscriptions, 0, :read, [], %{}},
@@ -287,6 +288,7 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@handoff, :agents, 0}, %{class: :read, positional: [], options: %{}}},
             {{@session, :rpc, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean}}},
+            {{[:Aiur, :Capacity, :View], :rpc, 1}, %{class: :read, positional: [:boolean], options: %{}}},
             {{@usage, :rpc, 2}, %{class: :read, positional: [{:nullable, :string}, :boolean], options: %{}}},
             {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},
@@ -301,6 +303,11 @@ defmodule Aiur.ControlCall.Allowlist do
   @doc "Permission categories a remote call can need. `:trust` is deliberately absent: nothing remote maps to it."
   @spec categories() :: [atom()]
   def categories, do: @categories
+
+  @spec category(atom() | function(), list(), boolean()) :: atom()
+  def category(class, args, remote?) when is_function(class, 2), do: class.(args, remote?)
+  def category(class, args, _remote?) when is_function(class, 1), do: class.(args)
+  def category(class, _args, _remote?), do: class
 
   @spec scope_of(atom()) :: :read | :write | :deny
   def scope_of(:read), do: :read
@@ -346,15 +353,14 @@ defmodule Aiur.ControlCall.Allowlist do
   @spec epic_category(list()) :: atom()
   def epic_category(args), do: lane_category(args)
 
-  @spec queue_category(list()) :: atom()
-  def queue_category(args) do
+  @spec queue_category(list(), boolean()) :: atom()
+  def queue_category(args, remote?) do
     verb = option(args, :verb, :show)
 
     cond do
-      verb in [:add, :set, :remove, :reorder, :hold, :release, :recover, :clear] -> :deny
-      verb == :order and (option(args, :queue) || option(args, :to)) -> :deny
-      verb == :order -> :read
       verb == :show -> :read
+      verb == :order and is_nil(option(args, :queue)) and is_nil(option(args, :to)) -> :read
+      remote? -> :deny
       true -> :tickets
     end
   end

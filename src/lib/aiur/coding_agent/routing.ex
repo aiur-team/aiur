@@ -17,8 +17,6 @@ defmodule Aiur.CodingAgent.Routing do
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
   alias Aiur.ModelDiscovery
-  alias Aiur.Usage.PriceTable.Data
-  alias Aiur.Usage.PriceTable.Window
 
   @type backend :: String.t()
 
@@ -96,8 +94,9 @@ defmodule Aiur.CodingAgent.Routing do
   defp apply_peak_pricing_policy(routes, opts) do
     if peak_pricing_avoidance?(opts) do
       now = Keyword.get(opts, :now, DateTime.utc_now())
-      schedule_for = Keyword.get(opts, :window_schedule_for, &Data.window_schedule/1)
-      kept = Enum.reject(routes, &peak_priced_route?(&1, now, schedule_for))
+      schedule_for = Keyword.fetch!(opts, :window_schedule_for)
+      classify_window = Keyword.fetch!(opts, :window_classifier)
+      kept = Enum.reject(routes, &peak_priced_route?(&1, now, schedule_for, classify_window))
 
       if kept == [], do: routes, else: kept
     else
@@ -128,20 +127,13 @@ defmodule Aiur.CodingAgent.Routing do
     _ -> false
   end
 
-  @doc """
-  Whether `avoid_peak_pricing` would drop `route` at `now` because its billing
-  provider is inside a peak-pricing window. `false` for routes whose provider
-  has no windowed schedule and for unknown windows (fail toward not rerouting).
-  """
-  @spec peak_priced_route?(String.t(), DateTime.t()) :: boolean()
-  def peak_priced_route?(route, now) when is_binary(route) and is_struct(now, DateTime) do
-    peak_priced_route?(route, now, &Data.window_schedule/1)
-  end
-
-  defp peak_priced_route?(route, now, schedule_for) do
+  @doc "Checks a route against caller-supplied pricing-window schedule and classification functions."
+  @spec peak_priced_route?(String.t(), DateTime.t(), (atom() -> term()), (DateTime.t(), term() -> atom())) :: boolean()
+  def peak_priced_route?(route, now, schedule_for, classify_window)
+      when is_binary(route) and is_struct(now, DateTime) and is_function(schedule_for, 1) and is_function(classify_window, 2) do
     case schedule_for.(route_price_identity(route).provider) do
       nil -> false
-      schedule -> Window.classify(now, schedule) == :peak
+      schedule -> classify_window.(now, schedule) == :peak
     end
   end
 

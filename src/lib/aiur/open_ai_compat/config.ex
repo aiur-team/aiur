@@ -4,7 +4,7 @@ defmodule Aiur.OpenAICompat.Config do
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.Schema.OpenRouterBackend
-  alias Aiur.Init.Dotenv
+  alias Aiur.Env.Dotenv
   alias Aiur.OpenAICompat.OutputTokens
 
   @required ~w(base_url api_key_env transport)a

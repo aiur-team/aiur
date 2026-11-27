@@ -15,11 +15,11 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.Prevalidated
+  alias Aiur.Orchestrator.Dispatcher.Selection
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.ListenerModes
-  alias Aiur.Orchestrator.MachineGrant
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
@@ -161,12 +161,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
 
-        state
+        Candidates.emit_dispatch_attempt_decline(state, issue, :worker_capacity, false)
 
       :preferred_worker_unavailable ->
         Logger.warning("Backend cannot use the preferred SSH worker for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
 
-        state
+        Candidates.emit_dispatch_attempt_decline(state, issue, :preferred_worker_unavailable, false)
 
       worker_host ->
         claim_ticket_for_worker(state, issue, attempt, recipient, worker_host, opts)
@@ -216,9 +216,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
      ), MapSet.member?(state.claimed, id), Map.get(state.auto_resume, id), Map.get(state.retry_attempts, id)}
   end
 
-  # Out of machine or project grant: start nothing, the next poll retries.
   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host, opts) do
-    MachineGrant.granted(issue.id, state, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end, MachineGrant.feature(issue))
+    Selection.start_with_grant(state, issue, opts, fn -> start_granted_worker(state, issue, attempt, recipient, worker_host, opts) end)
   end
 
   defp start_granted_worker(state, issue, attempt, recipient, worker_host, opts) do
@@ -327,7 +326,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
       {:error, reason} ->
         Logger.error("Unable to spawn agent for #{State.issue_context(issue)}: #{inspect(reason)}")
-
+        state = Candidates.emit_dispatch_attempt_decline(state, issue, :runner_start_failed, false)
         next_attempt = if is_integer(attempt), do: attempt + 1, else: nil
 
         RetryEngine.schedule_issue_retry(state, issue.id, next_attempt, %{
@@ -358,6 +357,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       rework_head_sha = capture_rework_head(issue, context.rework_head_sha, opts)
       maybe_report_rework_head(recipient, issue, rework_head_sha)
+      Aiur.OverlapReviewer.before_dispatch(issue)
 
       runner.(issue, recipient,
         attempt: context.attempt,

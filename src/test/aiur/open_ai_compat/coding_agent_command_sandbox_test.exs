@@ -8,6 +8,7 @@ defmodule Aiur.OpenAICompat.CodingAgentCommandSandboxTest do
 
   test "backend_config command_sandbox reaches the exec_command bwrap args", %{workspace: workspace} do
     parent = self()
+    task_supervisor = start_supervised!({Task.Supervisor, name: nil})
     ro = Path.join(workspace, "tools-ro")
     File.mkdir_p!(ro)
 
@@ -58,7 +59,8 @@ defmodule Aiur.OpenAICompat.CodingAgentCommandSandboxTest do
     assert {:ok, _} =
              CodingAgent.run_turn(session, "run it", issue(),
                sandbox_executable: "/usr/bin/bwrap",
-               system_cmd: runner
+               system_cmd: runner,
+               task_supervisor: task_supervisor
              )
 
     assert_receive {:bwrap_args, args}, 1000

@@ -3,7 +3,7 @@ defmodule Aiur.Claude.CodingAgent.NativeQuestions do
   alias Aiur.AppServer.{Messages, NativeReplies}
   alias Aiur.Claude.CodingAgent
   alias Aiur.Codex.UserInputAnswers
-  alias Aiur.Commands.NativeCapture.Claude
+  alias Aiur.Commands.NativeCapture
   alias Aiur.Config
 
   @spec handle(map(), map(), term(), map(), String.t()) :: {:continue, map()} | {:error, term()}
@@ -19,7 +19,7 @@ defmodule Aiur.Claude.CodingAgent.NativeQuestions do
   end
 
   defp capture(session, state, id, params) do
-    case Claude.handle(session.port, id, params, context(session, state)) do
+    case NativeCapture.handle_claude(session.port, id, params, context(session, state)) do
       {:held, ref, info} ->
         Messages.emit_message(state.on_message, :native_question_held, Map.take(info, [:decision_id, :native_ref, :since]), session.metadata)
         state = Map.update(state, :held_native_questions, %{ref => info}, &Map.put(&1, ref, info))

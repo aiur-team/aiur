@@ -53,9 +53,9 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   @doc "Takes a slot for `issue_id`; idempotent. A missing broker grants it; a slow one refuses."
-  @spec acquire(project_id(), term(), String.t() | :none) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
-  def acquire(project_id, issue_id, feature \\ :none),
-    do: call({:acquire, project_id, issue_id, feature, self()}, :ok, {:error, :broker_timeout})
+  @spec acquire(project_id(), term(), String.t() | :none, boolean()) :: :ok | {:error, :machine_full | :project_full | :yielded | :broker_timeout}
+  def acquire(project_id, issue_id, feature \\ :none, ordered_locally? \\ false),
+    do: call({:acquire, project_id, issue_id, feature, self(), ordered_locally?}, :ok, {:error, :broker_timeout})
 
   @doc "Replaces the project's holders with `issue_ids`, the issues now occupying slots."
   @spec sync(project_id(), Enumerable.t()) :: :ok
@@ -113,10 +113,10 @@ defmodule Aiur.Gateway.Capacity do
   end
 
   @impl true
-  def handle_call({:acquire, id, issue_id, feature, pid}, _from, %{projects: projects} = state) do
+  def handle_call({:acquire, id, issue_id, feature, pid, ordered_locally?}, _from, %{projects: projects} = state) do
     case projects do
       %{^id => project} ->
-        case admit(state, id, project, issue_id, feature) do
+        case admit(state, id, project, issue_id, feature, ordered_locally?) do
           :ok ->
             state = put_in(state.projects[id].features, Map.put(project.features, issue_id, feature))
             {:reply, :ok, put_holders(state, id, MapSet.put(project.holders, issue_id), pid)}
@@ -156,21 +156,23 @@ defmodule Aiur.Gateway.Capacity do
     {:noreply, state}
   end
 
-  defp admit(state, project_id, %{holders: holders, max: max}, issue_id, feature) do
+  defp admit(state, project_id, %{holders: holders, max: max}, issue_id, feature, ordered_locally?) do
     cond do
       MapSet.member?(holders, issue_id) -> :ok
       max && MapSet.size(holders) >= max -> {:error, :project_full}
       state.ceiling && total(state) >= state.ceiling -> {:error, :machine_full}
-      true -> priority_check(state, project_id, feature)
+      true -> priority_check(state, project_id, feature, ordered_locally?)
     end
   end
 
   # Would the priority walk give this ticket's group a new start? Other projects count
   # only by their fresh reported demand; this group counts at least this ask. Groups are
   # (project, feature): projects by priority, then a project's features in its feature_order.
-  defp priority_check(state, id, feature) do
+  # A caller that already ran ticket ordering can still yield to another
+  # project. Its own feature groups must not veto the chosen ticket.
+  defp priority_check(state, id, feature, ordered_locally?) do
     now = System.monotonic_time(:millisecond)
-    fresh = for {p, {by_feature, _order, at}} <- state.demands, now - at <= @demand_ttl_ms, do: {p, by_feature}
+    fresh = for {p, {by_feature, _order, at}} <- state.demands, now - at <= @demand_ttl_ms, not ordered_locally? or p != id, do: {p, by_feature}
 
     running = running_by_group(state)
     demands = demand_groups(fresh, id, feature)

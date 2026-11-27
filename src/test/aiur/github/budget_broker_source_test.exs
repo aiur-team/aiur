@@ -6,10 +6,10 @@ defmodule Aiur.GitHub.BudgetBrokerSourceTest do
 
   @moduletag :tmp_dir
 
-  test "assembled broker equals the pre-split github_budget.py", %{tmp_dir: root} do
-    # Pinned to the broker blob at main 61b3b853f002a2211fd3720849407954e3d9b63c.
+  test "assembled broker matches the reviewed source baseline", %{tmp_dir: root} do
+    # Pin the exact source installed by both the daemon and the workspace guard.
     assert Base.encode16(:crypto.hash(:sha256, BudgetBrokerSource.text()), case: :lower) ==
-             "abad07c169ebbb2363d3c7dae009d6ebd41fe3e971278a21a66d08db490e6ad1"
+             "a18067750a2e03466b30c9e30aa1722ca5f6ad867958478e4f1c71acd1e5829e"
 
     assert :ok = AgentGitHubGuard.install(root)
     assert File.read!(AgentGitHubGuard.budget_broker_path(root)) == BudgetBrokerSource.text()

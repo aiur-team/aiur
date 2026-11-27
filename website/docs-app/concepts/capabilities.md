@@ -88,6 +88,12 @@ presence does not promise that its feature is installed or enabled.
 
 `listener_modes` is available with a valid v1 specification; its `version` is the selected spec major (1).
 
+`executor.background_agents` reports `degraded/unknown` with `detail: "fields_unverified"`
+for a Codex binding until its local hook fields are verified. When the current
+harness does not expose background-agent hooks, it reports `unavailable/unknown`
+with `detail: "unsupported"`; a supported harness with no observed agents is
+available with an empty roster.
+
 Missing specifications report
 `unavailable/not_installed`, failed validation reports `unavailable/spec_invalid`,
 and unexpected status or read failures report `unknown/unknown`. Conversation sends

@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.BudgetBroker do
 
   require Logger
 
+  alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.BrokerTimeout
 
   @telemetry_event [:aiur, :github, :budget_broker, :command]
@@ -24,7 +25,17 @@ defmodule Aiur.GitHub.BudgetBroker do
   def init(opts) do
     Process.flag(:trap_exit, true)
     Process.send_after(self(), :report_stats, :timer.minutes(1))
-    {:ok, %{python: Keyword.get(opts, :python, System.find_executable("python3")), port: nil, pending: %{}, next_id: 0, buffer: "", stats: []}}
+
+    {:ok,
+     %{
+       python: Keyword.get(opts, :python, System.find_executable("python3")),
+       alert_fun: Keyword.get(opts, :alert_fun, &Settings.alert/2),
+       port: nil,
+       pending: %{},
+       next_id: 0,
+       buffer: "",
+       stats: []
+     }}
   end
 
   @impl true
@@ -128,6 +139,10 @@ defmodule Aiur.GitHub.BudgetBroker do
 
         state
 
+      {:ok, %{"event" => "sqlite_recovery", "path" => path, "action" => action, "problem" => problem, "archive" => archive}} ->
+        alert_recovery(state.alert_fun, path, action, problem, archive)
+        state
+
       {:ok, %{"id" => id, "output" => output, "status" => status} = reply} ->
         metrics =
           Map.take(reply, [
@@ -154,6 +169,19 @@ defmodule Aiur.GitHub.BudgetBroker do
         fail_pending(state, {:error, :invalid_broker_reply})
     end
   end
+
+  defp alert_recovery(alert_fun, path, action, problem, archive) do
+    message = "GitHub budget ledger recovery at #{path}: #{recovery_action(action, archive)}"
+    Logger.warning("#{message}. #{problem}")
+    alert_fun.("system.github.budget_ledger_recovery", message: message, reason: problem, severity: "warning", needs_attention: true)
+  rescue
+    error -> Logger.warning("Could not emit GitHub budget ledger recovery alert: #{Exception.message(error)}")
+  end
+
+  defp recovery_action("reindexed", _archive), do: "reindexed and passed integrity check"
+  defp recovery_action("rebuilt", archive), do: "rebuilt, with corrupt files saved in #{archive}"
+  defp recovery_action("archived", archive), do: "saved corrupt files in #{archive}, but could not initialize a new ledger"
+  defp recovery_action("failed", _archive), do: "recovery failed"
 
   defp emit_sqlite_wait(pending, id, wait_ms) do
     case Map.get(pending, id) do

@@ -14,8 +14,15 @@ defmodule Aiur.AgentEvents do
     * `"agents:status"` carries `t:status_change_message/0`
   """
 
+  alias Aiur.Events.AgentSubscriptionPolicy
+
   @typedoc "Stable per-agent identifier (the issue id string)."
   @type agent_identifier :: String.t()
+
+  @doc "Validates the literal-ticket scope accepted for an agent-created subscription."
+  @spec validate_agent_subscription_pattern(term()) :: :ok | {:error, :agent_subscription_scope_forbidden}
+  def validate_agent_subscription_pattern(pattern),
+    do: AgentSubscriptionPolicy.validate(pattern)
 
   @typedoc """
   Origin of a transcript line. `:user` and `:assistant` are
