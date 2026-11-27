@@ -4,6 +4,7 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    validate_review_handoff: {Aiur.Commands.OutcomeGate, :validate_handoff},
     override_rows: {Aiur.Commands.OverridePresentation, :rows},
     pending_override_status: {Aiur.Commands.OverridePresentation, :pending},
     notify_override_merge: {Aiur.DecisionStore.OverrideMerges, :notify},
