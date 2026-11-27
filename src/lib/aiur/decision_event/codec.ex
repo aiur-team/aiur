@@ -52,6 +52,9 @@ defmodule Aiur.DecisionEvent.Codec do
     end
   end
 
+  def normalize_data(:default_applied, raw, _decision_id, _version, _trusted_provenance) when is_map(raw),
+    do: EventData.normalize(:default_applied, raw)
+
   def normalize_data(:decision_dismissed, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, actor} <- normalize_actor(Validation.get(raw, :actor)) do
       {:ok, %{actor: actor}}
@@ -232,6 +235,7 @@ defmodule Aiur.DecisionEvent.Codec do
         active_action_id: nil,
         revision_sequence: 0,
         revisions: [],
+        default_applied: nil,
         overrides: [],
         revision_result: nil,
         revision_outcomes: %{},
@@ -254,7 +258,7 @@ defmodule Aiur.DecisionEvent.Codec do
 
   # Routing is projected from facts and must never alter frozen request hash material.
   defp request_json(decision) do
-    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at executor_claim))
+    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at executor_claim default_applied))
   end
 
   defp normalize_actor(actor) when is_map(actor) do

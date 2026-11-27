@@ -250,6 +250,11 @@ defmodule Aiur.Commands do
   defdelegate nonblocking_question_pause?(ticket_identifier, server, timeout),
     to: Aiur.DecisionStore
 
+  @doc false
+  @spec apply_optional_command_defaults(String.t()) :: :ok | {:error, term()}
+  def apply_optional_command_defaults(ticket_identifier),
+    do: Aiur.DecisionStore.apply_optional_command_defaults(ticket_identifier)
+
   @spec open_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate open_asks(repo), to: Aiur.Asks, as: :open
 

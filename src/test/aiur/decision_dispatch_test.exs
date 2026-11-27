@@ -8,9 +8,10 @@ defmodule Aiur.DecisionDispatchTest do
       DecisionValidation.normalize(
         %{
           "question" => "Should we deploy?",
-          "blocking" => true,
+          "blocking" => false,
           "source_id" => "dispatch-test",
-          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+          "options" => [%{"id" => "ship", "label" => "Ship it"}, %{"id" => "wait", "label" => "Wait"}],
+          "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
         },
         ticket: %{identifier: "981", title: "OCC-3", url: nil},
         source: %{agent_id: "agent-1", session_id: "session-1"},
@@ -109,5 +110,60 @@ defmodule Aiur.DecisionDispatchTest do
     assert String.length(payload.body) <= DecisionDispatch.max_message_chars()
     assert payload.body =~ "Custom response:"
     assert payload.body =~ "Decision lifecycle correlation:"
+  end
+
+  test "tells the worker when a late answer changes its recorded optional default" do
+    decision =
+      answered_decision(%{
+        "idempotency_key" => "override-default",
+        "expected_version" => 1,
+        "option_id" => "wait"
+      })
+      |> Map.merge(%{
+        blocking: false,
+        recommendation: %{option_id: "ship", reason: "Ship is reversible"},
+        default_applied: %{option_id: "ship", at: ~U[2026-07-12 10:01:00Z]}
+      })
+
+    assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
+  end
+
+  test "re-dispatches an idle ticket when a correlated answer is queued for its next worker" do
+    alias Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker
+
+    dir = Aiur.TestSupport.tmp_root!("optional-answer-redispatch")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
+    Application.put_env(:aiur, :pending_operator_messages_store_path, Path.join(dir, "pending.json"))
+    on_exit(fn -> Application.delete_env(:aiur, :pending_operator_messages_store_path) end)
+    parent = self()
+    queue_store = Aiur.AgentQueueStore.new()
+
+    state = %Aiur.Orchestrator.State{queue_store: queue_store, running: %{}}
+
+    request = %{
+      origin: :decision,
+      actor: "executor",
+      turn_id: nil,
+      action_id: "answer-action",
+      correlation: %{decision_id: "decision-1"},
+      mode: :correlated
+    }
+
+    enqueue_plain = fn store, attrs, _request ->
+      {next_store, item} = Aiur.AgentQueueStore.enqueue(store, attrs)
+      {:ok, next_store, item, :accepted}
+    end
+
+    record_evidence = fn _item -> :ok end
+
+    assert {{:ok, %{status: :accepted}}, _next_state} =
+             EnqueueNextWorker.enqueue(state, "979", "Answer", request, enqueue_plain, record_evidence,
+               redispatch_fun: fn identifier ->
+                 send(parent, {:redispatch, identifier})
+                 :ok
+               end
+             )
+
+    assert_receive {:redispatch, "979"}, 1_000
   end
 end

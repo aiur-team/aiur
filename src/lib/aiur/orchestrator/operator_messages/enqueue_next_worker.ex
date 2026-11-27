@@ -1,21 +1,21 @@
 defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
   @moduledoc false
 
-  alias Aiur.{AgentQueue, Orchestrator.LifecycleFence}
+  alias Aiur.{AgentQueue, Orchestrator.Client, Orchestrator.LifecycleFence}
   alias Aiur.Orchestrator.OperatorMessages.PendingStore
   alias Aiur.Orchestrator.OperatorMessages.Unread
 
-  @spec enqueue(map(), String.t(), String.t(), map(), function(), function()) ::
+  @spec enqueue(Aiur.Orchestrator.State.t(), String.t(), String.t(), map(), function(), function(), keyword()) ::
           {{:ok, integer()} | {:error, term()}, map()}
-  def enqueue(state, identifier, text, request, enqueue_plain, record_evidence) do
+  def enqueue(state, identifier, text, request, enqueue_plain, record_evidence, opts \\ []) do
     if PendingStore.active_count(state.queue_store) >= PendingStore.capacity() do
       {{:error, {:queue_full, PendingStore.capacity()}}, state}
     else
-      enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence)
+      enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence, opts)
     end
   end
 
-  defp enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence) do
+  defp enqueue_with_capacity(state, identifier, text, request, enqueue_plain, record_evidence, opts) do
     attrs =
       AgentQueue.operator_message(identifier, text,
         delivery_policy: :checkpoint,
@@ -35,7 +35,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
       {:ok, queue_store, item, status} ->
         case PendingStore.save(queue_store) do
           :ok ->
-            enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence)
+            enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence, opts)
 
           {:error, reason} ->
             {{:error, {:persistence_failed, reason}}, state}
@@ -46,11 +46,20 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
     end
   end
 
-  defp enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence) do
+  defp enqueue_succeeded(state, identifier, queue_store, item, request, status, record_evidence, opts) do
     Unread.broadcast_change(state.queue_store, queue_store, identifier)
     record_evidence.(item)
     next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(identifier, item)
+
+    if status == :accepted and correlated_answer?(request) do
+      redispatch = Keyword.get(opts, :redispatch_fun, &Client.redispatch/1)
+      _ = redispatch.(identifier)
+    end
+
     result = if request.mode == :correlated, do: %{status: status, item: item}, else: item.id
     {{:ok, result}, next_state}
   end
+
+  defp correlated_answer?(%{mode: :correlated, correlation: %{decision_id: id}}) when is_binary(id), do: true
+  defp correlated_answer?(_request), do: false
 end

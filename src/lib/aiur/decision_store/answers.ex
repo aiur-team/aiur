@@ -100,6 +100,7 @@ defmodule Aiur.DecisionStore.Answers do
   @spec require_answerable(term()) :: term()
   # An expired unanswered blocking Command remains actionable: the agent may
   # still be waiting on its answer, so expiry must not remove that path.
+  def require_answerable(%Decision{decision_status: :expired, answer: nil, blocking: false}), do: :ok
   def require_answerable(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: :ok
 
   def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved, :dismissed],
@@ -287,6 +288,7 @@ defmodule Aiur.DecisionStore.Answers do
 
         next_state =
           next_state
+          |> maybe_schedule_late_answer_corrective(updated, answer)
           |> Dispatch.maybe_schedule_after_answer(updated, false)
           |> Dedup.supersede_duplicates(updated)
           |> Siblings.moot_if_rejected(updated, answer)
@@ -304,6 +306,14 @@ defmodule Aiur.DecisionStore.Answers do
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
   end
+
+  defp maybe_schedule_late_answer_corrective(state, %Decision{blocking: false, default_applied: %{option_id: default}}, %DecisionAnswer{selected_option_id: selected} = answer)
+       when is_binary(selected) and selected != default do
+    send(self(), {:reconcile_late_answer_corrective, answer.action_id})
+    state
+  end
+
+  defp maybe_schedule_late_answer_corrective(state, _decision, _answer), do: state
 
   @doc false
   @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term()) | nil) :: :ok

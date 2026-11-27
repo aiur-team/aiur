@@ -5,6 +5,7 @@ defmodule Aiur.DecisionStore.Boot do
 
   alias Aiur.CodeHost
   alias Aiur.Commands.CorrectiveProvenance
+  alias Aiur.Commands.CorrectiveTicketBody
   alias Aiur.Config
   alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
@@ -88,6 +89,9 @@ defmodule Aiur.DecisionStore.Boot do
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
         answer_comment_publisher: Keyword.get(opts, :answer_comment_publisher, Application.get_env(:aiur, :decision_answer_comment_publisher, &DecisionAnswerComment.ensure/1)),
+        late_answer_corrective_reconciler: Keyword.get(opts, :late_answer_corrective_reconciler, &CorrectiveTicketBody.create_late_answer/4),
+        late_answer_corrective_find: Keyword.get(opts, :late_answer_corrective_find, &CorrectiveTicketBody.find_late_answer/2),
+        late_answer_corrective_jobs: %{},
         decision_dispatch_tasks: Keyword.get(opts, :decision_dispatch_tasks, DecisionDispatchTasks),
         decision_dispatch_monitor_pid: nil,
         decision_dispatch_monitor_ref: nil,

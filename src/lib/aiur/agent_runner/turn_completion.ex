@@ -229,11 +229,9 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   defp continue_after_optional_command(turn_context, issue, otherwise) do
     case Commands.nonblocking_question_pause?(issue.identifier) do
       {:ok, true} ->
-        reason = "An optional Command is still open; continue on your recommendation while awaiting the Executor's answer."
-
-        case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
+        case Commands.apply_optional_command_defaults(issue.identifier) do
           :ok -> TurnLoop.return_completed(turn_context, issue)
-          {:error, comment_reason} -> {:error, {:optional_command_requeue_comment_failed, comment_reason}}
+          {:error, reason} -> {:error, {:optional_command_default_failed, reason}}
         end
 
       _other ->

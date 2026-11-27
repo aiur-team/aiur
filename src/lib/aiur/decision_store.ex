@@ -458,6 +458,11 @@ defmodule Aiur.DecisionStore do
   defdelegate open_blocking_decision_ids(ticket_identifiers, server \\ __MODULE__, timeout \\ 1_000), to: Reads
   defdelegate open_blocking_decision_ids_by_ticket(ticket_identifiers, server \\ __MODULE__, timeout \\ 1_000), to: Reads
   defdelegate nonblocking_question_pause?(ticket_identifier, server \\ __MODULE__, timeout \\ 1_000), to: Reads
+  @doc false
+  @spec apply_optional_command_defaults(String.t(), GenServer.server()) :: :ok | term()
+  def apply_optional_command_defaults(ticket_identifier, server \\ __MODULE__),
+    do: GenServer.call(server, {:apply_optional_command_defaults, ticket_identifier}, @request_timeout)
+
   defdelegate recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__), to: Reads
   defdelegate history(decision_id, server \\ __MODULE__), to: Reads
   defdelegate all_history(server \\ __MODULE__), to: Reads
