@@ -97,8 +97,6 @@ defmodule AiurWeb.BuildOrderHostApi do
     end
   end
 
-  defp owns_ticket?(_registry, _number, _kind, _key, _features_opts), do: true
-
   defp ticket_rows(numbers, opts) do
     snapshots = Keyword.get(opts, :activity_fun, &Aiur.TicketActivity.snapshots/0).()
     entries = Map.get(snapshots, :entries, [])
