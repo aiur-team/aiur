@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
 
   import Aiur.Orchestrator.StatusReport.RowFacts
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.CodingAgent
   alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
@@ -82,6 +83,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       # Build CLI rows on demand on the reader, not on every publish (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
+      stalled_lists: stalled_queue_lists(state, DateTime.to_unix(now, :millisecond)),
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
       orphaned_agent_reap_count: state.orphaned_agent_reap_count,
@@ -163,6 +165,16 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   end
 
   defp dispatch_hold_payload(state, now_ms), do: Slots.dispatch_hold_status(state, now_ms)
+
+  defp stalled_queue_lists(state, now_ms) do
+    if Slots.available_slots(state) > 0 do
+      sets = Hints.sets() || %{}
+
+      for set <- Map.get(sets, :sets, []), set.kind == :list, set.unfinished and not set.started and not set.active, now_ms - set.created_at_ms >= 3_600_000, do: %{id: set.id, name: set.name}
+    else
+      []
+    end
+  end
 
   defp running_snapshot(
          %State{} = state,

@@ -2,6 +2,7 @@ defmodule Aiur.BuildQueue.ReadinessTest do
   use ExUnit.Case, async: true
   alias Aiur.BuildQueue.Model.{Edge, Item, Observation, Queue}
   alias Aiur.BuildQueue.{Readiness, ReadModel}
+  alias Aiur.BuildQueue.ReadModel.Eligibility
   alias Aiur.Config.Schema
   @opts [now_ms: 10_000, max_age_ms: 1_000, label_prefix: "worker"]
 
@@ -128,6 +129,15 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert projected.verdict == :unknown
     assert projected.reason == "GitHub dependencies unknown (blockers_not_observed)"
     assert hd(model.queues).waiting_reason == "GitHub dependencies unknown"
+  end
+
+  test "unknown GitHub blocker evidence does not permanently prevent starting" do
+    projection = %{issue_id: "11", state: :ready, verdict: :ready}
+    member = %Item{issue_id: "11", queue_id: "q", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: ~U[2026-10-15 00:00:00Z]}
+    state = %{native_blockers: %{"11" => {:unknown, :blockers_not_observed}}}
+
+    assert Eligibility.focus_startable?(projection, %{"11" => member}, %{}, nil, state)
+    refute Eligibility.focus_startable?(projection, %{"11" => member}, %{}, nil, %{state | native_blockers: %{"11" => {:ok, [%{open?: true}]}}})
   end
 
   # OGM's launch list sat at 0/4 for an hour: its members carried `needs-triage`,
