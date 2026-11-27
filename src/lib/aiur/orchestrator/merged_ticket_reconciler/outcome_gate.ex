@@ -4,7 +4,32 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.OutcomeGate do
   alias Aiur.Commands
   alias Aiur.Commands.OutcomeGate
   alias Aiur.Orchestrator.{Lifecycle, MergeStateWriter, Reconciler, TrackerTasks}
+  alias Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair
   alias Aiur.PostDeployChecklist
+
+  def hold_open(state, issue, merge, opts, retained, failed_fun) do
+    update =
+      Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
+        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
+      end)
+
+    case update.(issue.identifier, "human-review", expected_state(issue)) do
+      :ok -> {state, [issue | retained]}
+      {:error, reason} -> {failed_fun.(state, issue, merge, reason, opts), [issue | retained]}
+    end
+  end
+
+  def reconcile_closed(state, issues, merges, now, opts, closed_without_state_label_fun, merged_ticket_target_fun, failed_fun, reconciled_fun, record_fun) do
+    opts = Keyword.put_new(opts, :repair_outcome_gate_issue_fun, &closed_gate_required?/1)
+
+    target_fun = fn issue, opts ->
+      target_for_issue(issue, opts, closed_without_state_label_fun, merged_ticket_target_fun)
+    end
+
+    ClosedRepair.reconcile(state, issues, merges, now, opts, record_fun, fn state, issue, merge, opts ->
+      repair_closed_issue(state, issue, merge, opts, target_fun, failed_fun, reconciled_fun, record_fun)
+    end)
+  end
 
   @spec start_handoff(map(), map(), map(), keyword(), function()) :: map()
   def start_handoff(state, issue, merge, opts, failed_fun) do

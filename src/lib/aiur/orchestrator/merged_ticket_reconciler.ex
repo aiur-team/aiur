@@ -42,7 +42,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   }
 
   alias Aiur.Orchestrator.MergedTicketReconciler.{
-    ClosedRepair,
     NonClosingMerge,
     OpenPullRequestTarget
   }
@@ -78,22 +77,22 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         end
       end)
 
-    repair_recent_closed_tickets(state, issues, merges, now, opts)
+    OutcomeGateReconciler.reconcile_closed(
+      state,
+      issues,
+      merges,
+      now,
+      opts,
+      &closed_without_state_label?/1,
+      &merged_ticket_target/2,
+      &emit_failed_alert/5,
+      &emit_reconciled_alert/5,
+      &record_reconciled/3
+    )
     |> then(fn state -> {state, Enum.reverse(retained)} end)
   end
 
   def reconcile(%State{} = state, _issues, _opts), do: {state, []}
-
-  defp repair_recent_closed_tickets(state, issues, merges, now, opts) do
-    opts = Keyword.put_new(opts, :repair_outcome_gate_issue_fun, &OutcomeGateReconciler.closed_gate_required?/1)
-    ClosedRepair.reconcile(state, issues, merges, now, opts, &record_reconciled(&1, &2, &3), &repair_closed_issue(&1, &2, &3, &4))
-  end
-
-  defp repair_closed_issue(state, issue, merge, opts),
-    do: OutcomeGateReconciler.repair_closed_issue(state, issue, merge, opts, &closed_target/2, &emit_failed_alert/5, &emit_reconciled_alert/5, &record_reconciled/3)
-
-  defp closed_target(issue, opts),
-    do: OutcomeGateReconciler.target_for_issue(issue, opts, &closed_without_state_label?/1, &merged_ticket_target/2)
 
   defp reconcile_merged_ticket(state, %Issue{} = issue, merge, opts, retained) do
     Commands.notify_override_merge(issue.identifier)
@@ -176,7 +175,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_closing_merge_ticket(state, issue, merge, opts, retained) do
-    case closed_target(issue, opts) do
+    case OutcomeGateReconciler.target_for_issue(issue, opts, &closed_without_state_label?/1, &merged_ticket_target/2) do
       {:ok, {:outcome_gate, "human-review"}} ->
         reconcile_outcome_gate_held(state, issue, merge, opts, retained)
 
@@ -196,15 +195,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_outcome_gate_held(state, issue, merge, opts, retained) do
-    update =
-      Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
-        MergeStateWriter.write_reconciler_transition(identifier, target, expected, opts)
-      end)
-
-    case update.(issue.identifier, "human-review", expected_state(issue)) do
-      :ok -> {state, [issue | retained]}
-      {:error, reason} -> {emit_failed_alert(state, issue, merge, reason, opts), [issue | retained]}
-    end
+    OutcomeGateReconciler.hold_open(state, issue, merge, opts, retained, &emit_failed_alert/5)
   end
 
   defp reconcile_reference_only_ticket(state, issue, merge, opts, retained) do
@@ -219,7 +210,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
 
   # Repair a physical close with a missing state label from its branch merge;
   # other open PRs cannot make an already-closed issue dispatchable again.
-  defp merged_ticket_target_for_issue(%Issue{} = issue, opts), do: closed_target(issue, opts)
+  defp merged_ticket_target_for_issue(%Issue{} = issue, opts),
+    do: OutcomeGateReconciler.target_for_issue(issue, opts, &closed_without_state_label?/1, &merged_ticket_target/2)
 
   # The merge closed the ticket's last open PR: no other PR remains, so the
   defp reconcile_merged_ticket_to_done(state, %Issue{} = issue, merge, opts, retained) do
