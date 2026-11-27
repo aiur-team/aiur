@@ -11,7 +11,6 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseGuard, PauseResume, State, TicketTransition}
-  alias Aiur.Orchestrator.Client
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
@@ -139,15 +138,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   end
 
   defp enqueue_for_next_worker(state, issue_identifier, text, request) do
-    EnqueueNextWorker.enqueue(state, issue_identifier, text, request, &enqueue_plain/3, &record_operator_queued_evidence/1,
-      redispatch_fun: fn identifier ->
-        try do
-          Client.redispatch(identifier)
-        catch
-          :exit, _reason -> :ok
-        end
-      end
-    )
+    EnqueueNextWorker.enqueue(state, issue_identifier, text, request, &enqueue_plain/3, &record_operator_queued_evidence/1)
   end
 
   defp replay_existing_correlated_message(

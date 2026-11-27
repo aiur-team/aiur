@@ -49,12 +49,10 @@ while the worker keeps working; it must not trigger a self-pause. Bare coordinat
 pauses and explicit operator-decision pauses (including legacy attentions) remain
 valid.
 
-When a non-blocking Command includes a recommendation, the worker records that
-choice as the default it proceeded on. A later answer that picks another option
-is delivered with an instruction to change course. Such Commands remain answerable
-after their normal expiry. If the ticket's PR has already merged, Aiur creates a
-corrective ticket for a differing answer. An answer queued while no worker is
-running wakes the ticket for its next worker.
+Recommended non-blocking Commands record the default the worker proceeded on.
+Late answers stay answerable and tell the worker to change course when they differ.
+If the PR has merged, Aiur creates a corrective ticket. Answers queued while idle
+wake the ticket's next worker.
 
 Open blocking Commands count toward `waiting_for_human`. Expired unanswered blockers stay visible and answerable, and stop gating dispatch. A matching re-raise moots the stale record before opening its replacement. The Executor can moot or dismiss a blocker when its ticket closes or its question becomes moot.
 

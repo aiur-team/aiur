@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
     next_state = %{state | queue_store: queue_store} |> LifecycleFence.protect_queued_item(identifier, item)
 
     if status == :accepted and correlated_answer?(request) do
-      redispatch = Keyword.get(opts, :redispatch_fun, &Client.redispatch/1)
+      redispatch = Keyword.get(opts, :redispatch_fun, &redispatch/1)
       _ = redispatch.(identifier)
     end
 
@@ -62,4 +62,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker do
 
   defp correlated_answer?(%{mode: :correlated, correlation: %{decision_id: id}}) when is_binary(id), do: true
   defp correlated_answer?(_request), do: false
+
+  defp redispatch(identifier) do
+    Client.redispatch(identifier)
+  catch
+    :exit, _reason -> :ok
+  end
 end

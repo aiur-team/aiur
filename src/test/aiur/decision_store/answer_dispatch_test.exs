@@ -117,7 +117,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
                  "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
                })
 
-      assert :ok = DecisionStore.apply_optional_command_defaults("979", pid)
+      assert :ok = Aiur.DecisionStore.OptionalDefaults.apply("979", pid)
       assert {:ok, %{default_applied: %{option_id: "ship", at: %DateTime{}}}} = DecisionStore.get(decision.decision_id, pid)
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.map(audit, &audit_type/1) == [:requested, :default_applied]
@@ -148,7 +148,7 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
                  "recommendation" => %{"option_id" => "ship", "reason" => "Safe default"}
                })
 
-      assert :ok = DecisionStore.apply_optional_command_defaults("979", pid)
+      assert :ok = Aiur.DecisionStore.OptionalDefaults.apply("979", pid)
 
       assert {:ok, %{action: answer_action, status: :accepted}} =
                answer(pid, decision.decision_id, %{"idempotency_key" => "late-merged", "expected_version" => 1, "option_id" => "wait"})

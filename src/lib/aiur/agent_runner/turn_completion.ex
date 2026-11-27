@@ -229,7 +229,7 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   defp continue_after_optional_command(turn_context, issue, otherwise) do
     case Commands.nonblocking_question_pause?(issue.identifier) do
       {:ok, true} ->
-        case Commands.apply_optional_command_defaults(issue.identifier) do
+        case Aiur.DecisionStore.OptionalDefaults.apply(issue.identifier) do
           :ok -> TurnLoop.return_completed(turn_context, issue)
           {:error, reason} -> {:error, {:optional_command_default_failed, reason}}
         end
