@@ -23,12 +23,11 @@ Order element accepts `view="fit"` to render the review without its wide graph;
 this is suitable for narrow containers. Hosts should verify their exact content
 at 390×844 and 1440×900 because ticket titles and host fonts vary.
 
-Build Order embedding uses a short-lived feature or epic grant. The host server
-authenticates its viewer and asks Aiur to mint that grant. A creator gets a
-grant for their own game's feature or epic; an admin can receive a grant for
-any chosen feature or epic; a player receives no grant. Aiur validates the
-grant against current registry membership on every read. A missing or
-out-of-scope grant returns 404 with no view data.
+Build Order embedding uses a short-lived feature or epic grant. After
+authenticating its viewer, the host server asks Aiur to mint the grant. The host
+issues creators a grant for their game's scope, admins a grant for any selected
+scope, and players none. Aiur checks current membership on each read; missing
+or out-of-scope grants return 404 with no data.
 
 ```http
 POST /api/v1/build-order/scope
@@ -42,12 +41,11 @@ The browser receives the short-lived token, never the supervisor token, and
 uses it on `GET /api/v1/build-order/embed`. The package example at
 `packages/aiur-build-order/examples/host.html` shows host token styling.
 
-If a host wants a plain activity page instead, read
-`GET /api/v1/:issue_identifier/progress` with the ordinary dashboard/client
-credential. It returns the `aiur.ticket_progress` v1 contract: `phase`, current
-or retained `progress`, ordered progress/check-in/phase `events`, `sources`,
-and `generated_at`. Unknown progress remains unknown; the endpoint does not
-estimate a percentage.
+For a plain activity page, read `GET /api/v1/:issue_identifier/progress` with
+the dashboard/client credential. Its `aiur.ticket_progress` v1 response has
+`phase`, current or retained `progress`, ordered progress/check-in/phase
+`events`, `sources`, and `generated_at`. Unknown progress stays unknown; no
+percentage is estimated.
 
 ## Component contract
 
