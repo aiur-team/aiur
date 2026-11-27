@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   require Logger
 
   alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
-  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Epic, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
@@ -167,6 +167,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @type dispatch_decline_reason ::
           :invalid_issue
+          | :epic
           | :contradictory_state_labels
           | :not_routable
           | :unauthorized
@@ -201,6 +202,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # same order as `t:dispatch_decline_reason/0`.
   @dispatch_decline_reasons [
     :invalid_issue,
+    :epic,
     :contradictory_state_labels,
     :not_routable,
     :unauthorized,
@@ -363,15 +365,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp issue_identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue) do
-    # A ticket carrying two `agent:*` state labels is a broken lifecycle state:
-    # the fail-closed guard used to refuse it, silently dropping the ticket
-    # from dispatch with no error and no alert (#2075). Resolve the pair to a
-    # single deterministic state instead and continue the ordinary checks, so
-    # the ticket is dispatchable rather than stranded. `resolve_state_labels/1`
-    # makes `todo` win (a ticket that is also `todo` has no work for a `rework`
-    # verdict to mean anything about); the poll-time heal in
-    # `IssueSync.reconcile_contradictory_state_labels/3` also rewrites the
-    # tracker so GitHub stops carrying both labels.
+    # Resolve contradictory labels deterministically (`todo` wins) and keep
+    # dispatching while the poll-time tracker repair catches up (#2075).
     winner = resolve_state_labels(state_labels)
 
     Logger.info(
@@ -382,7 +377,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     issue_identity_decision(%{issue | state: winner, state_labels: [winner]})
   end
 
-  defp issue_identity_decision(%Issue{} = issue) do
+  defp issue_identity_decision(%Issue{} = issue),
+    do: if(Epic.issue?(issue), do: {:skip, :epic}, else: ordinary_issue_identity_decision(issue))
+
+  defp ordinary_issue_identity_decision(%Issue{} = issue) do
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
       foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
