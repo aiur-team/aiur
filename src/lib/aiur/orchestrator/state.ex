@@ -114,6 +114,7 @@ defmodule Aiur.Orchestrator.State do
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
           dispatch_selection_hold: map() | nil,
+          dispatch_selections: [map()],
           dispatch_declines: %{optional(String.t()) => term()},
           feature_supply: map(),
           dispatch_capacity_sample: %{
@@ -309,6 +310,7 @@ defmodule Aiur.Orchestrator.State do
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
     dispatch_selection_hold: nil,
+    dispatch_selections: [],
     dispatch_declines: %{},
     feature_supply: %{},
     dispatch_capacity_sample: %{

@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AdoptedBoot
-  alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.Dispatcher.{Launch, Selection}
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
@@ -182,8 +182,10 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
       {:dispatch, issue.id},
       fn -> fetch_dispatch_validation(blocked_ids, issue, opts) end,
       fn current, result ->
-        next = apply_current_dispatch_validation(current, expected, issue, attempt, preferred_worker_host, opts, result)
-        Keyword.get(opts, :dispatch_result_fun, &Function.identity/1).(next)
+        Selection.apply_in_priority_order(current, issue, opts, fn ready, dispatch_opts ->
+          next = apply_current_dispatch_validation(ready, expected, issue, attempt, preferred_worker_host, dispatch_opts, result)
+          Keyword.get(dispatch_opts, :dispatch_result_fun, &Function.identity/1).(next)
+        end)
       end
     )
   end
@@ -238,8 +240,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
     next =
       cond do
-        dispatch_input(current, issue.id) != expected -> current
+        dispatch_input(current, issue.id) != expected -> emit_dispatch_attempt_decline(current, issue, :dispatch_input_changed, false)
         PauseGuard.paused?(current) -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        opts[:automatic_recovery] == true and Selection.recovery_yields?(current, issue) -> emit_dispatch_attempt_decline(current, issue, :higher_priority_pending, false)
         true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
       end
 
@@ -260,7 +263,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
     case DispatchPolicy.dispatch_decision(refreshed, policy_state) do
       :dispatch -> state |> clear_dispatch_decline(refreshed) |> dispatch_with_dependency_gate(refreshed, attempt, host, Keyword.put(opts, :blocked_by_hydrator, fn _ -> hydration end))
-      {:skip, reason} -> maybe_emit_dispatch_decline(state, refreshed, reason)
+      {:skip, reason} -> emit_dispatch_attempt_decline(state, refreshed, reason, false)
     end
   end
 

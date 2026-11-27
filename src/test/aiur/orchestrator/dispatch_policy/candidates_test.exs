@@ -10,19 +10,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy.CandidatesTest do
   alias Aiur.Orchestrator.{DispatchPolicy, State}
 
   describe "sort_issues_for_dispatch/1" do
-    test "features precede higher-priority non-features while main-fix stays first" do
+    test "explicit priority beats work kind and a main fixer wins the priority tie" do
       content = File.read!(Workflow.workflow_file_path())
       write_workflow_file_atomic!(Workflow.workflow_file_path(), content <> "\nmerge_policy:\n  main_watch:\n    on_red: dispatch_fixer\n")
       :ok = Aiur.WorkflowStore.force_reload()
 
       non_feature = issue("fix", priority: 1, labels: ["bug"])
       feature = issue("feature", priority: 2, labels: ["feature:dispatch"])
-      fixer = issue("main-fix", priority: 4, labels: ["main-fix"])
+      fixer = issue("main-fix", priority: 1, labels: ["main-fix"])
       issues = [non_feature, feature, fixer]
       state = %State{max_concurrent_agents: 3}
       assert Enum.all?(issues, &DispatchPolicy.should_dispatch_issue?(&1, state))
 
-      assert DispatchPolicy.sort_issues_for_dispatch(issues) == [fixer, feature, non_feature]
+      assert DispatchPolicy.sort_issues_for_dispatch(issues) == [fixer, non_feature, feature]
     end
 
     # Compatibility guard: deliberately passes against the pre-hints implementation.

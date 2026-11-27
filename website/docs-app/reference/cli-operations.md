@@ -81,6 +81,8 @@ collector never substitutes the current checkout's commit or file time.
 
 ### Fleet status and messages
 
+`aiur agents` and `aiur status` show up to ten recent `DISPATCH` lines from the current daemon. Each line names the selected ticket and any higher-priority candidates skipped for that slot, with the reason recorded by the dispatcher.
+
 With [resource-based concurrency](/reference/configuration-agent#resource-based-dispatch-ceiling) enabled, `aiur status` and `aiur agents` print a `DISPATCH CEILING` line with the effective limit, binding signal, and sample age. In `status`, this replaces the `AIMD` line.
 
 `aiur status` prints [Executor status](./cli#executor-status) and a `TOOLCHAIN observed_at=… age_ms=…` section with one row per worker CLI: version, install kind, path, and `current`, `WARNING behind <latest>; update: …`, `BELOW MINIMUM <min>, <backend> dispatch held` or `latest unknown`. The first check starts at `TOOLCHAIN unavailable (not checked yet)`.

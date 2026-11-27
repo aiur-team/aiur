@@ -205,7 +205,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
       {:ready, state, selected_issue}
     else
       true ->
-        {:hold, state}
+        {:hold, Candidates.emit_dispatch_attempt_decline(state, issue, :handoff_hold, false)}
 
       {:hold, reason} ->
         {:declined, Candidates.emit_dispatch_attempt_decline(state, issue, {:capacity_held, reason}, false)}
@@ -215,7 +215,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
       {:all_limited, candidates} ->
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
-          {:hold, state}
+          {:hold, Candidates.emit_dispatch_attempt_decline(state, issue, :model_fallback_waiting, false)}
         else
           Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
@@ -224,7 +224,8 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
             severity: "warning"
           )
 
-          {:hold, %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}}
+          state = %{state | model_fallback_waiting: MapSet.put(state.model_fallback_waiting, issue.id)}
+          {:hold, Candidates.emit_dispatch_attempt_decline(state, issue, :model_fallback_waiting, false)}
         end
     end
   end

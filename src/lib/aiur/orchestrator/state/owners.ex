@@ -81,6 +81,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     observed_error_alert_causes: :dispatch,
     active_attention_topics: :dispatch,
     dispatch_selection_hold: :dispatch,
+    dispatch_selections: :dispatch,
     running: :lifecycle,
     claimed: :lifecycle,
     completed: :lifecycle,

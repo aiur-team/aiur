@@ -130,11 +130,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
 
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), work_kind_rank(issue), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue),
+        {priority_rank(issue.priority), if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, position, work_kind_rank(issue), issue_created_at_sort_key(issue),
          issue.identifier || issue.id || ""}
 
       _ ->
-        {1, 1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
+        {priority_rank(nil), 1, 0, 0, 1, issue_created_at_sort_key(nil), ""}
     end)
   end
 

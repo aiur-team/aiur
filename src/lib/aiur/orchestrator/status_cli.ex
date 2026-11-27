@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator.StatusCLI.AgentsTable
   alias Aiur.Orchestrator.StatusCLI.Capacity
   alias Aiur.Orchestrator.StatusCLI.Diagnostics
+  alias Aiur.Orchestrator.StatusCLI.DispatchSelections
   alias Aiur.Orchestrator.StatusCLI.Sections
   alias Aiur.Orchestrator.StatusCLI.StatusTable
   alias Aiur.Orchestrator.StatusCLI.Watch
@@ -131,6 +132,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    DispatchSelections.print(Map.get(snapshot, :capacity))
     Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
     print_usage_floor_holds()
     print_github_budget_scope()
@@ -298,6 +300,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
           Capacity.print_resource_ceiling(Map.get(snapshot, :capacity))
           AgentsTable.print_agents_table(running ++ retrying ++ visible_idle)
           AgentsTable.print_idle_count(length(idle) - length(visible_idle))
+          DispatchSelections.print(Map.get(snapshot, :capacity))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
