@@ -11,6 +11,17 @@ defmodule Aiur.Codex.LivenessProbe do
   `:liveness_probe_interval_ms` to shorten that interval; tests do, so they can
   prove a silent app-server is detected without waiting a full minute. Every
   real session keeps the 60-second default.
+
+  Any line from the app-server is liveness evidence too. A streaming turn is
+  never probed: an interval that saw a frame skips its read, and a read whose
+  deadline passes while frames kept arriving waits another deadline instead of
+  ending the turn. Under CPU load the read can miss its deadline while the turn
+  streams normally, and ending that turn made Codex kill every running command
+  (open-games 467, exit 137).
+
+  Every timer message carries the turn's `:liveness_probe_token`. A runner
+  process runs many turns, and a finished turn's timer can still fire after the
+  turn ends, so the receive loop acts only on its own turn's token (#7963).
   """
 
   alias Aiur.AppServer.Rpc
@@ -31,9 +42,15 @@ defmodule Aiur.Codex.LivenessProbe do
   @doc "Arms the next periodic probe and records its timer in `state`."
   @spec schedule(map(), map()) :: map()
   def schedule(state, session) do
-    timer = Process.send_after(self(), :codex_liveness_probe, interval_ms(session))
+    state = Map.put_new_lazy(state, :liveness_probe_token, &make_ref/0)
+    timer = Process.send_after(self(), {:codex_liveness_probe, state.liveness_probe_token}, interval_ms(session))
     Map.put(state, :liveness_probe_timer, timer)
   end
+
+  @doc "Records that the app-server sent a line since the last probe step, on turns the probe watches."
+  @spec note_frame(map()) :: map()
+  def note_frame(%{liveness_probe_token: _token} = state), do: Map.put(state, :liveness_frame_seen?, true)
+  def note_frame(state), do: state
 
   @doc false
   @spec run(map(), map()) :: {:continue, map()} | {:paused, map()} | {:error, term()}
@@ -48,9 +65,13 @@ defmodule Aiur.Codex.LivenessProbe do
         classify_timeout(session, state)
 
       {nil, false} ->
-        request_rate_limits(session, state)
+        if frame_seen?(state),
+          do: {:continue, state |> Map.delete(:liveness_frame_seen?) |> schedule(session)},
+          else: request_rate_limits(session, state)
     end
   end
+
+  defp frame_seen?(state), do: Map.get(state, :liveness_frame_seen?, false)
 
   @doc false
   @spec handle_response(map(), map(), map()) :: {:continue, map()} | {:paused, map()} | {:error, term()}
@@ -103,7 +124,7 @@ defmodule Aiur.Codex.LivenessProbe do
 
     case Rpc.send_line(session.port, frame) do
       true ->
-        timer = Process.send_after(self(), :codex_liveness_probe, probe_timeout_ms())
+        timer = Process.send_after(self(), {:codex_liveness_probe, state.liveness_probe_token}, probe_timeout_ms())
         {:continue, state |> Map.put(:liveness_probe_pending?, true) |> Map.put(:liveness_probe_timer, timer)}
     end
   rescue
@@ -111,8 +132,15 @@ defmodule Aiur.Codex.LivenessProbe do
   end
 
   @doc false
-  @spec timeout(map(), map()) :: {:paused, map()} | {:error, term()}
-  def timeout(session, state), do: classify_timeout(session, state)
+  @spec timeout(map(), map()) :: {:continue, map()} | {:paused, map()} | {:error, term()}
+  def timeout(session, state) do
+    if frame_seen?(state) do
+      timer = Process.send_after(self(), {:codex_liveness_probe, state.liveness_probe_token}, probe_timeout_ms())
+      {:continue, state |> Map.delete(:liveness_frame_seen?) |> Map.put(:liveness_probe_timer, timer)}
+    else
+      classify_timeout(session, state)
+    end
+  end
 
   @doc false
   @spec probe_timeout_ms() :: pos_integer()
