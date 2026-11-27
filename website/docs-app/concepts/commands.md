@@ -49,10 +49,7 @@ while the worker keeps working; it must not trigger a self-pause. Bare coordinat
 pauses and explicit operator-decision pauses (including legacy attentions) remain
 valid.
 
-Recommended non-blocking Commands record the default the worker proceeded on.
-Late answers stay answerable and tell the worker to change course when they differ.
-If the PR has merged, Aiur creates a corrective ticket. Answers queued while idle
-wake the ticket's next worker.
+Recommended non-blocking Commands record the default the worker proceeded on. Late answers stay answerable, tell the worker to change course when they differ, create a corrective ticket after merge, and wake the next worker when queued while idle.
 
 Open blocking Commands count toward `waiting_for_human`. Expired unanswered blockers stay visible and answerable, and stop gating dispatch. A matching re-raise moots the stale record before opening its replacement. The Executor can moot or dismiss a blocker when its ticket closes or its question becomes moot.
 

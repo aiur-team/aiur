@@ -251,7 +251,6 @@ defmodule Aiur.Commands do
     to: Aiur.DecisionStore
 
   @doc false
-
   @spec open_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate open_asks(repo), to: Aiur.Asks, as: :open
 
