@@ -366,6 +366,10 @@ defmodule Aiur.Config.AgentSettings do
   @spec ci_recovery_enabled?() :: boolean()
   def ci_recovery_enabled?, do: Aiur.Config.settings!().agent.ci_recovery_enabled
 
+  @doc "Whether a failed CI verdict sends the ticket to rework."
+  @spec ci_failed_rework?() :: boolean()
+  def ci_failed_rework?, do: Aiur.Config.settings!().agent.ci_failed_rework
+
   @doc "Maximum CI recovery reruns admitted from one CI poll."
   @spec ci_recovery_max_per_poll() :: pos_integer()
   def ci_recovery_max_per_poll, do: Aiur.Config.settings!().agent.ci_recovery_max_per_poll

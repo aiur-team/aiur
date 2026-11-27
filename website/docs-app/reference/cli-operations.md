@@ -7,6 +7,16 @@ pageClass: cli-reference
 
 `aiur status` and `aiur queue show` flag a named list as stalled when it has had no starts for over an hour while dispatch slots are available. Status raises a system attention for each observed stalled list.
 
+`aiur status` reports the running build as `build: <sha> (on main)` when its
+stamped commit is an ancestor of the stamped repository's tracked integration
+branch (`origin/main` in this repository). Otherwise it reports
+`build: <sha> NOT ON MAIN (<n> commits ahead)`.
+
+If the stamp, repository, or tracked main cannot be read, it reports
+`build: <sha> (unknown)`, or `build: unknown (unknown)` without a stamped SHA.
+`aiur status --json` includes the same finding in `build` as `{status, commit,
+commits_ahead, branch}`. `status` is `on_main`, `not_on_main`, or `unknown`.
+
 A `workspace_retained` row means provider exit is unproven, or the recovery audit could not be written. It reports the retention age (or `since unknown` for leases saved before retention tracking) and raises one `workspace_lease_retained` attention per lease.
 
 Time alone never releases the lease; a timed-out release returns `{:error, :release_timeout}`. Use `aiur stop` for graceful provider containment; restarting alone does not clear persisted ownership. Recover only a local hold with verified reboot or stale owner-PID proof using `aiur workspace-recover <ticket-identifier> <generation>`.
@@ -344,6 +354,8 @@ Quick creation accepts `--hypothesis`, `--draft`, `--no-freeze` and `--json`. Ma
 
 ### aiur queue
 `aiur queue show` reads the running daemon without refreshing upstream data. Human output shows source ages and freshness, `start on <trigger>` (`(default)` follows config), and items in start order with needed/current stages or `optimistic`. Missing evidence renders as `unknown`; stale evidence carries its age. Ready items held by active-set limits, spill reserves, or unknown earlier readiness show `queue_set_order` with the waiting set and cause. See [Start trigger](/concepts/build-orders#start-trigger) for the ladder and review-read cost. `--queue NAME` selects a queue by name; an unknown name is an error.
+
+`aiur queue show` flags a list as stalled when it has had no starts for over an hour while dispatch slots are available.
 
 `--json` emits schema version 1 (`page: "build-queue"`): instance, snapshot capture time, server status, sources, and queues with progress and item prerequisites, rank, promotion time, and attention. It includes no ticket titles or bodies.
 

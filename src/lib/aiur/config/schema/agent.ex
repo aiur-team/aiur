@@ -245,6 +245,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:unreviewed_pr_age_limit_minutes, :integer, default: 120)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_enabled | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
     field(:ci_recovery_enabled, :boolean, default: true)
+
+    # @config-reference config-configuration-agent-00 agent.ci_failed_rework | boolean | true | Reworks a ticket on a failed CI verdict; set `false` when CI runs outside hosted Actions. |
+    field(:ci_failed_rework, :boolean, default: true)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_poll | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
     field(:ci_recovery_max_per_poll, :integer, default: 5)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_hour | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
@@ -382,6 +385,7 @@ defmodule Aiur.Config.Schema.Agent do
         :non_closing_merge_marker,
         :unreviewed_pr_age_limit_minutes,
         :ci_recovery_enabled,
+        :ci_failed_rework,
         :ci_recovery_max_per_poll,
         :ci_recovery_max_per_hour,
         :max_cpu_pressure,

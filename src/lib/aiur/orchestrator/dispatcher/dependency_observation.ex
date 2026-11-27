@@ -17,9 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.DependencyObservation do
     end
   end
 
-  defp fetch(_hydrator, _issue, _opts, 0), do: {:error, :observation_attempts_exhausted}
-
-  defp fetch(hydrator, issue, opts, remaining) do
+  defp fetch(hydrator, issue, opts, remaining) when remaining in 1..3 do
     case Tracker.with_transient_retry(fn -> hydrator.(issue) end, opts) do
       {:error, _reason} when remaining > 1 -> fetch(hydrator, issue, opts, remaining - 1)
       result -> result

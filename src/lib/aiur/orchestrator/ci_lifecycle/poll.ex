@@ -381,6 +381,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         else
           result = classify_merge_queue_departure(state, issue, result)
           result = confirm_conflict_streak(state, issue, result)
+          result = GithubCIPoller.settle_early_failure(result, Transition.effective_ci_state(issue) == @ci_wait_state)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state

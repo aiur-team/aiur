@@ -206,6 +206,13 @@ count detached from ready work.
 ## Recovery ladder
 
 Prefer `aiurdev restart --keep-agents` for fleet upgrades. Save `aiurdev agents --json` before; afterward compare `aiurdev status --handoff --json`: every issue is adopted with the same provider pid and session id, or has a fallback reason. Verify `aiurdev alerts` records `system.restart.handoff.completed`, adopted tickets have no startup-claim release, and a ready ticket dispatches within one poll interval. [Restart semantics](../../../../website/docs-app/reference/cli.md#restart-semantics) cover failed-build recovery.
+
+Never build or run a release whose stamped commit is not an ancestor of the
+stamped repository's tracked `origin/main`. Changes reach the daemon only
+through ticket → branch → PR → merge → rebuild. Do not pin local branches,
+cherry-pick unmerged work, or merge open PR heads into the running checkout.
+This rule follows the November 2026 NUC incident, where 78 off-main commits ran
+for 17 days after local pins hid the divergence.
 A fleet-wide quiet board is a blockage, not idleness, and none of its causes
 log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
