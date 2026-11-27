@@ -1,8 +1,6 @@
 defmodule Aiur.Orchestrator.StatusCLI do
   @moduledoc false
   alias Aiur.Accounts.UsageReadings
-  alias Aiur.BuildQueue
-  alias Aiur.BuildQueue.SetSummary
   alias Aiur.CodingAgent.UsageFloorGate
   alias Aiur.Commands
   alias Aiur.Config
@@ -149,22 +147,12 @@ defmodule Aiur.Orchestrator.StatusCLI do
     available = get_in(snapshot, [:capacity, :available]) || 0
 
     if available > 0 do
-      case BuildQueue.show() do
-        %{queues: queues} ->
-          report_stalled_queues(queues, available)
-
-        _ ->
-          :ok
-      end
+      stalled = Aiur.QueueStallStatus.stalled_queues(snapshot, available)
+      Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
+      update_stalled_attention(stalled)
     end
   catch
     :exit, _reason -> :ok
-  end
-
-  defp report_stalled_queues(queues, available) do
-    stalled = Enum.filter(queues, &SetSummary.stalled?(&1, System.system_time(:millisecond), available))
-    Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
-    update_stalled_attention(stalled)
   end
 
   defp update_stalled_attention(stalled) do

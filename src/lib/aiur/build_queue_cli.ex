@@ -3,7 +3,6 @@ defmodule Aiur.BuildQueueCLI do
   alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.{BuildQueue, JSONSafe}
   alias Aiur.BuildQueue.{ClaimProbe, MutationCLI, SetSummary}
-  alias Aiur.Orchestrator.StatusReport
 
   @spec run(keyword()) :: 0 | 1 | 64 | 124
   def run(opts \\ [])
@@ -56,13 +55,7 @@ defmodule Aiur.BuildQueueCLI do
   defp select_next(envelope, _opts), do: envelope
 
   defp mark_stalled(envelope, opts) do
-    capacity = Keyword.get_lazy(opts, :capacity, fn -> StatusReport.snapshot_api() end)
-    free_slots = get_in(capacity, [:capacity, :available]) || 0
-    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
-
-    Map.update(envelope, :queues, [], fn queues ->
-      Enum.map(queues, &Map.put(&1, :stalled?, SetSummary.stalled?(&1, now, free_slots)))
-    end)
+    Aiur.QueueStallStatus.decorate(envelope, Keyword.get(opts, :capacity), Keyword.get(opts, :now_ms, System.system_time(:millisecond)))
   end
 
   defp default_error(message), do: IO.puts(:stderr, message)
