@@ -9,6 +9,7 @@ defmodule Aiur.AgentRunner.NoopFreshThreadTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.Orchestrator.{CommentWake, State}
   alias Aiur.SessionHandle
   alias Aiur.Workspace.Provisioner
 
@@ -73,7 +74,7 @@ defmodule Aiur.AgentRunner.NoopFreshThreadTest do
 
   test "rework feedback on an idle ticket forgets the stored thread", ctx do
     idle = %{ctx.issue | state: "human-review", labels: ["agent:human-review"]}
-    state = %Aiur.Orchestrator.State{running: %{}, completed: MapSet.new(), claimed: MapSet.new(), retry_attempts: %{}}
+    state = %State{running: %{}, completed: MapSet.new(), claimed: MapSet.new(), retry_attempts: %{}}
 
     event = %{
       author_trusted?: true,
@@ -87,7 +88,7 @@ defmodule Aiur.AgentRunner.NoopFreshThreadTest do
       end
     }
 
-    capture_log(fn -> Aiur.Orchestrator.CommentWake.maybe_transition_idle_issue_to_rework(state, ctx.issue.identifier, "issue comment", event, 1) end)
+    capture_log(fn -> CommentWake.maybe_transition_idle_issue_to_rework(state, ctx.issue.identifier, "issue comment", event, 1) end)
 
     identifier = ctx.issue.identifier
     assert_received {:comment_state_write, ^identifier, "rework"}
