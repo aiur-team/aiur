@@ -78,7 +78,7 @@ defmodule Aiur.Usage.Headless.Context do
     generation = account_generation(agent_family, usage_context.backend, opts)
 
     %__MODULE__{
-      user_id: string_or_nil(Keyword.get(opts, :user_id) || System.get_env("AIUR_USAGE_USER_ID")),
+      user_id: string_or_nil(Keyword.get(opts, :user_id)),
       run_id: Keyword.get(opts, :run_id) || Boot.run_id(),
       tracker_identity: tracker_identity(issue),
       attempt_id: string_or_nil(Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)),

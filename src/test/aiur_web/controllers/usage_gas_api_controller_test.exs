@@ -9,16 +9,13 @@ defmodule AiurWeb.UsageGasApiControllerTest do
     root = Aiur.TestSupport.tmp_root!("usage-gas-api")
     previous_server = Application.get_env(:aiur, :usage_gas_ledger_server)
     previous_budget = System.get_env("AIUR_GAS_BUDGET_USD")
-    previous_user = System.get_env("AIUR_USAGE_USER_ID")
     server_name = String.to_atom("usage_gas_api_#{System.unique_integer([:positive])}")
     {:ok, ledger} = GasLedger.start_link(name: server_name, state_dir: root)
     Application.put_env(:aiur, :usage_gas_ledger_server, ledger)
     System.put_env("AIUR_GAS_BUDGET_USD", "10.00")
-    System.put_env("AIUR_USAGE_USER_ID", "host-user-7")
 
     on_exit(fn ->
       restore_env("AIUR_GAS_BUDGET_USD", previous_budget)
-      restore_env("AIUR_USAGE_USER_ID", previous_user)
 
       if previous_server,
         do: Application.put_env(:aiur, :usage_gas_ledger_server, previous_server),
@@ -51,6 +48,29 @@ defmodule AiurWeb.UsageGasApiControllerTest do
     assert view.gas.spent_usd == "1.25"
     assert view.gas.remaining_usd == "8.75"
     assert Map.fetch!(view.gas.records, "fal") == [%{amount_usd: "1.25", occurred_at: "2026-11-27T12:00:00Z", basis: "actual", ticket: "8156", conversation_id: nil}]
+  end
+
+  test "rejects missing and blank user ids before recording spend" do
+    root = Aiur.TestSupport.tmp_root!("usage-gas-invalid-user")
+    server_name = String.to_atom("usage_gas_invalid_user_#{System.unique_integer([:positive])}")
+    {:ok, ledger} = GasLedger.start_link(name: server_name, state_dir: root)
+
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    base = %{
+      "id" => "fal-missing-user",
+      "api" => "fal",
+      "amount_usd" => "1.25",
+      "occurred_at" => "2026-11-27T12:00:00Z"
+    }
+
+    for params <- [base, Map.put(base, "user_id", "   ")] do
+      response = conn(:post, "/api/v1/usage/gas") |> UsageGasApiController.create(params)
+      assert response.status == 422
+      assert Jason.decode!(response.resp_body)["error"]["code"] == "invalid_user_id"
+    end
+
+    assert GasLedger.snapshot("host-user-7", ledger).record_count == 0
   end
 
   defp restore_env(name, nil), do: System.delete_env(name)

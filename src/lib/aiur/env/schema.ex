@@ -210,7 +210,6 @@ defmodule Aiur.Env.Schema do
     {"CODEX_HOME", type: :path, group: :runtime, purpose: "Persistent Codex credential directory; hosted Aiur sets this under AIUR_BG_STATE_DIR."},
     {"AIUR_CONTAINER", type: :string, validate: false, example: false, group: :runtime, purpose: "Container-mode marker set by the launcher."},
     {"AIUR_STATE_PERSISTENT", type: :boolean, group: :runtime, purpose: "Declare that the hosted state directory survives daemon restarts; otherwise env-only mode requires AIUR_SECRET_KEY_BASE."},
-    {"AIUR_USAGE_USER_ID", type: :string, group: :runtime, purpose: "Stable host-supplied user id used to attribute provider usage and paid API spend."},
     {"AIUR_GAS_BUDGET_USD", type: :string, group: :runtime, purpose: "Optional USD budget shown alongside recorded paid API spend."},
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},

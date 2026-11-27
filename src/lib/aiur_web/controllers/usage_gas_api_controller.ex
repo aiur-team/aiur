@@ -6,12 +6,20 @@ defmodule AiurWeb.UsageGasApiController do
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, params) do
-    if params["user_id"] == System.get_env("AIUR_USAGE_USER_ID") do
-      record(conn, params)
-    else
-      conn |> put_status(:not_found) |> json(%{error: %{code: "unknown_user"}})
+    case params["user_id"] do
+      user_id when is_binary(user_id) ->
+        if String.trim(user_id) == "" do
+          invalid_user_id(conn)
+        else
+          record(conn, params)
+        end
+
+      _missing_or_invalid ->
+        invalid_user_id(conn)
     end
   end
+
+  defp invalid_user_id(conn), do: conn |> put_status(:unprocessable_entity) |> json(%{error: %{code: "invalid_user_id"}})
 
   defp record(conn, params) do
     server = Application.get_env(:aiur, :usage_gas_ledger_server, GasLedger)
