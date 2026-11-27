@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Slots do
   import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, ReservedSlots, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
@@ -363,15 +363,29 @@ defmodule Aiur.Orchestrator.Slots do
   def resume_worker_slot_available?(%State{}, _worker_host), do: true
 
   @spec dispatch_slots_available?(Issue.t(), State.t()) :: boolean()
-  def dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
+  def dispatch_slots_available?(%Issue{} = issue, %State{} = state), do: dispatch_slot_decision(issue, state) == :dispatch
+
+  @doc "Whether `issue` may take a fleet slot now, and if not, whether a label reserve (`agent.reserved_slots`) is what refuses it."
+  @spec dispatch_slot_decision(Issue.t(), State.t()) :: :dispatch | {:skip, :fleet_capacity | :reserved_slot}
+  def dispatch_slot_decision(%Issue{} = issue, %State{} = state) do
     reservation_limit = Map.get(state.priority_dispatch_reservations, issue.id)
 
-    fleet_slot_available? =
+    fleet =
       if is_integer(reservation_limit),
-        do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0,
-        else: available_slots(state) > slot_waiters(state, issue.id)
+        do: if(used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0, do: :dispatch, else: {:skip, :fleet_capacity}),
+        else: unreserved_slot_decision(issue, state)
 
-    fleet_slot_available? and DispatchPolicy.state_slots_available?(issue, state)
+    if fleet == :dispatch and not DispatchPolicy.state_slots_available?(issue, state), do: {:skip, :fleet_capacity}, else: fleet
+  end
+
+  defp unreserved_slot_decision(issue, state) do
+    free = available_slots(state) - slot_waiters(state, issue.id)
+
+    cond do
+      free <= 0 -> {:skip, :fleet_capacity}
+      free <= ReservedSlots.held_for_others(issue, state) -> {:skip, :reserved_slot}
+      true -> :dispatch
+    end
   end
 
   # A usage-limit pause releases its slot, but once it is ready to reroute or

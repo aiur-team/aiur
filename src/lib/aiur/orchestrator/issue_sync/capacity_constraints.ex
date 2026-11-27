@@ -91,7 +91,8 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityConstraints do
       Map.get(state.dispatch_declines, issue.id) in [
         :dependency,
         :optimistic_share,
-        :queue_set_order
+        :queue_set_order,
+        :reserved_slot
       ]
 
   @doc false

@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.PauseGuard
   alias Aiur.Orchestrator.QueueSetSlots
+  alias Aiur.Orchestrator.ReservedSlots
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
@@ -126,6 +127,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   @spec maybe_emit_dispatch_decline(State.t(), Issue.t(), term()) :: State.t()
   def maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
     do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
+
+  def maybe_emit_dispatch_decline(state, issue, :reserved_slot),
+    do: record_dispatch_decline(state, issue, :reserved_slot, ReservedSlots.waiting_text(issue, state), false)
 
   # A ci-wait, human-review or error ticket rides the candidate list only as
   # label-repair evidence and is never authorized, so `:unauthorized` there

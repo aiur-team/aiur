@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages, as: OM
-  alias Aiur.Orchestrator.QueueSetSlots
+  alias Aiur.Orchestrator.ReservedSlots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.StatusReport.UsagePauseBackends
@@ -286,8 +286,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       reason:
         idle_reason(waiting_reason, identifier, fn ->
           cond do
-            waiting_reason in [:optimistic_share, :queue_set_order] ->
-              QueueSetSlots.waiting_reason(waiting_reason, issue.id, state)
+            waiting_reason in [:optimistic_share, :queue_set_order, :reserved_slot] ->
+              ReservedSlots.slot_wait_reason(waiting_reason, issue, state)
 
             owner = Issue.executor_owner(issue) ->
               {:executor_owned, owner}
@@ -381,6 +381,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           open_decision_count,
           queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
+          reserved_slot?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :reserved_slot,
           latched_lifetime: latch_status != :none,
           tracker_paused: Issue.paused?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,

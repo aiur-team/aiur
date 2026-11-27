@@ -127,6 +127,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents_by_state | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
     field(:max_concurrent_agents_by_state, :map, default: %{})
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.reserved_slots | map | `%{}` | Slots held for tickets carrying a label, as `label: count`. While a dispatchable ticket carries the label and fewer than `count` agents with it are running, that many slots go to no other ticket; the next such ticket takes the first free one. Labels match case-insensitively. A ticket held back this way waits as `reserved_slot`. |
+    field(:reserved_slots, :map, default: %{})
     # Provider settings are keyed by the backend's registry name. Built-in
     # schemas remain as typed compatibility views, while a new backend can keep
     # its section here without another Ecto embed; map paths: scripts/check-config-docs.py.
@@ -353,6 +356,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_retry_attempts,
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
+        :reserved_slots,
         :backend_configs,
         :routing,
         :accounts,

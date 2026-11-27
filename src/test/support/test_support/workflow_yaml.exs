@@ -167,6 +167,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
           "  max_dispatches_per_ticket: #{yaml_value(max_dispatches_per_ticket)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        if(Keyword.has_key?(config, :reserved_slots), do: "  reserved_slots: #{yaml_value(Keyword.get(config, :reserved_slots))}"),
         "  routing: #{yaml_value(agent_routing)}",
         "  turn_timeout_ms: #{yaml_value(Keyword.get(config, :agent_turn_timeout_ms))}",
         "  stall_timeout_ms: #{yaml_value(Keyword.get(config, :agent_stall_timeout_ms))}",
