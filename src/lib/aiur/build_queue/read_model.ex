@@ -386,13 +386,16 @@ defmodule Aiur.BuildQueue.ReadModel do
     }
   end
 
-  defp native_readiness(projection, prerequisites) do
+  # GitHub blockers only decide a member about to start; any other member keeps the planner's own reason.
+  defp native_readiness(%{state: state} = projection, prerequisites) when state in [:ready, :waiting] do
     case Enum.find(prerequisites, &(&1.source == :github and &1.verdict in [:pending, :unknown])) do
       nil -> {projection.state, verdict(projection.verdict), Map.get(projection, :reason)}
       %{verdict: :unknown, description: description} -> {waiting_state(projection.state), :unknown, description}
       %{description: description} -> {waiting_state(projection.state), :waiting, description}
     end
   end
+
+  defp native_readiness(projection, _prerequisites), do: {projection.state, verdict(projection.verdict), Map.get(projection, :reason)}
 
   defp waiting_state(:ready), do: :waiting
   defp waiting_state(state), do: state

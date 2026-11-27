@@ -14,6 +14,9 @@ defmodule Aiur.LocalBudgetHold do
   def reason({:workspace_github_connectivity_failed, _workspace, inner}),
     do: reason(inner)
 
+  # A hold that refused the between-turn issue-state refresh.
+  def reason({:issue_state_refresh_failed, inner}), do: reason(inner)
+
   def reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
     do: reason(Map.get(diagnostic, :detail))
 
