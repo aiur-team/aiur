@@ -10,6 +10,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.ExecutorCommandCLI
   alias Aiur.GitHubCostCLI
   alias Aiur.GitHubUsageCLI
+  alias Aiur.Orchestrator.StatusReport
   alias Aiur.Ownership.CLI, as: OwnershipCLI
   alias Aiur.Ownership.MigrateCLI
   alias Aiur.UnitsCLI
@@ -147,7 +148,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   def queue(opts \\ []),
     do:
       guarded("queue", fn ->
-        opts |> Keyword.put_new(:capacity, Aiur.Orchestrator.StatusReport.snapshot_api()) |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker()
+        opts |> Keyword.put_new(:capacity, StatusReport.snapshot_api()) |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker()
       end)
 
   @spec analytics(keyword()) :: :ok
