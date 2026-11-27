@@ -80,6 +80,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   end
 
   defp apply_retry_poll_result(current, issue_id, attempt, metadata, opts, {:ok, issue}) do
+    # GitHub answered, so any outage this retry was riding out is over.
+    metadata = Map.delete(metadata, :tracker_outage)
+
     if retry_capacity_available?(current, metadata) and not PauseGuard.paused?(current) do
       {:noreply, next} = handle_retry_issue_lookup(issue, current, issue_id, attempt, metadata, opts)
       next

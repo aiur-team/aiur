@@ -21,6 +21,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     RepeatedCommandStop,
     SessionResume,
     ToolExecutor,
+    TrackerOutage,
     TurnAlerts,
     TurnPrompt,
     TurnStreams
@@ -456,7 +457,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   def continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher, opts)
       when is_binary(issue_id) do
-    case issue_state_fetcher.([issue_id]) do
+    case TrackerOutage.refresh(issue, issue_state_fetcher) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         refreshed_issue = %{refreshed_issue | optimistic_start: issue.optimistic_start}
         # The paused override parks a ticket even when its underlying state is active.
