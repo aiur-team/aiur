@@ -42,7 +42,7 @@ defmodule Aiur.BuildQueue.Planner do
     open = for item <- input.items, match?(%Observation{open?: true}, input.observations[item.issue_id]), member?(input.observations[item.issue_id], opts), do: item.issue_id
 
     queues = Map.new(input.queues, &{&1.id, &1})
-    triggers = Map.new(input.items, &{&1.issue_id, queues[&1.queue_id].start_trigger || Keyword.get(opts, :start_trigger, :pr_merged)})
+    triggers = Map.new(input.items, &{&1.issue_id, queues[&1.queue_id].start_trigger || Keyword.get(opts, :start_trigger, :pr_opened)})
 
     %{
       triggers: triggers,

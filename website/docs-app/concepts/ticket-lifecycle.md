@@ -238,7 +238,7 @@ a new thread. Other backends pick up a label change at their next session start.
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-Promotion and dispatch follow the same ladder: `pr_opened` → `pr_ci_green` → `pr_approved` → `pr_merged` (default) → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
+Promotion and dispatch follow the same ladder: `pr_opened` (default) → `pr_ci_green` → `pr_approved` → `pr_merged` → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
 
 Item states are projections, not tracker labels:
 

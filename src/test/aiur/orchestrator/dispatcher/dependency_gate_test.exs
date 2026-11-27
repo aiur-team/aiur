@@ -1,8 +1,16 @@
 defmodule Aiur.Orchestrator.Dispatcher.DependencyGateTest do
   use Aiur.DispatcherTestSupport
 
+  alias Aiur.BuildQueue.Hints
+
+  setup do
+    Hints.create_table()
+    :ok
+  end
+
   describe "dispatch_issue blocked_by dependency gate" do
     test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
+      :ets.insert(Hints.table_name(), {"blocked-ticket", {0, 0}, false, :pr_merged})
       test_pid = self()
 
       issue = %Issue{
@@ -37,6 +45,8 @@ defmodule Aiur.Orchestrator.Dispatcher.DependencyGateTest do
     end
 
     test "the hold log names only the open blocker when the list leads with closed ones" do
+      :ets.insert(Hints.table_name(), {"blocked-ticket", {0, 0}, false, :pr_merged})
+
       issue = %Issue{
         id: "blocked-ticket",
         identifier: "repo#blocked-ticket",

@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
   import Aiur.TestSupport.DispatchPolicyFixture
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.{Issue, Workflow}
   alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
@@ -216,6 +217,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
     test "the hold description names only the blockers actually holding dispatch" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
 
       blocked =
         issue("blocked",
@@ -237,6 +239,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
     test "every open blocker is named when more than one holds dispatch" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
 
       blocked =
         issue("blocked", state: "todo", blocked_by: [blocker("7", "todo"), blocker("8", "rework")])
@@ -262,11 +265,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("9", nil), blocker("10", "Closed")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_merged"
+               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_opened"
     end
 
     test "a non-numeric blocker identifier is printed without a number sigil" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
       blocked = issue("blocked", state: "todo", blocked_by: [blocker("KHALA-41", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==

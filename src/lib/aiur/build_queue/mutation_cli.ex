@@ -46,7 +46,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp valid_options?(opts) do
-    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun, :settings])))
+    Enum.all?(Keyword.keys(opts), &(&1 in (allowed_options(opts[:verb]) ++ [:verb, :caller_agent_workspace, :server, :error_fun, :settings, :call_timeout])))
   end
 
   defp valid_queue?(nil), do: true
@@ -265,7 +265,13 @@ defmodule Aiur.BuildQueue.MutationCLI do
   end
 
   defp dispatch(:order, opts), do: {:ok, [{opts[:queue], call({:mutate, {:order, opts[:queue], opts[:to]}}, opts)}]}
-  defp dispatch(:set, opts), do: {:ok, [{opts[:queue], call({:mutate, {:set_trigger, opts[:queue], opts[:start_on]}}, opts)}]}
+
+  defp dispatch(:set, opts) do
+    result = call({:mutate, {:set_trigger, opts[:queue], opts[:start_on]}}, opts)
+    result = if result in [:ok, {:error, :outcome_unknown}], do: confirm_trigger(opts[:queue], opts[:start_on], opts), else: result
+    {:ok, [{opts[:queue], result}]}
+  end
+
   defp dispatch(:recover, opts), do: {:ok, [{"recover", call({:recover, Keyword.get(opts, :force, false)}, opts)}]}
   defp dispatch(:clear, opts), do: {:ok, [{"clear", call({:mutate, {:clear, Keyword.take(opts, [:remove_markers, :yes])}}, opts)}]}
   defp dispatch(:remove, opts), do: {:ok, Enum.map(opts[:ids], &{"##{&1}", call({:mutate, {:remove, &1}}, opts)})}
@@ -323,11 +329,22 @@ defmodule Aiur.BuildQueue.MutationCLI do
     end
   end
 
+  defp confirm_trigger(name, requested, opts) do
+    with %{queues: queues} <- BuildQueue.show(server(opts)),
+         %{start_trigger: trigger, start_trigger_override: override, start_trigger_source: source} <- Enum.find(queues, &(&1.name == name)),
+         true <- (is_nil(requested) and is_nil(override)) or (requested == trigger and source == :queue) do
+      {:ok, {:trigger_applied, trigger, source}}
+    else
+      _ -> {:error, :outcome_unknown}
+    end
+  end
+
   defp successful?({_id, :ok}), do: true
   defp successful?({_id, {:ok, {:not_observed, ids}}}) when is_list(ids), do: true
   defp successful?({_id, {:ok, unobserved}}) when is_list(unobserved), do: true
   defp successful?({_id, {:ok, {:marker_deferred, ids}}}) when is_list(ids), do: true
   defp successful?({_id, {:ok, {:owned_elsewhere, _name}}}), do: true
+  defp successful?({_id, {:ok, {:trigger_applied, _trigger, _source}}}), do: true
   defp successful?(_), do: false
 
   defp target(opts) do
@@ -358,7 +375,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp server(opts), do: Keyword.get(opts, :server, Aiur.Project.via(Aiur.BuildQueue.Server))
 
   defp call(command, opts) do
-    GenServer.call(server(opts), command, 30_000)
+    GenServer.call(server(opts), command, Keyword.get(opts, :call_timeout, 30_000))
   catch
     :exit, {:noproc, _} -> {:error, BuildQueue.show(server(opts)).status}
     :exit, {:timeout, _} -> {:error, :outcome_unknown}
@@ -370,6 +387,7 @@ defmodule Aiur.BuildQueue.MutationCLI do
   defp message({:error, :anchor_not_in_queue}), do: "--after anchor is not in this queue (add it in the same command or choose a queue member)"
   defp message({:error, :batch_aborted}), do: "not applied because another ID in this all-or-nothing batch was refused"
   defp message(:ok), do: "ok"
+  defp message({:ok, {:trigger_applied, trigger, source}}), do: "applied #{trigger} (#{if(source == :config, do: "config default", else: "queue override")})"
   defp message({:error, {:already_queued, name}}), do: "already in queue #{name}"
   defp message({:error, :agent_workspace}), do: "blocked in agent workspace"
   defp message({:error, :outcome_unknown}), do: "outcome unknown; run aiur queue show before retrying"
