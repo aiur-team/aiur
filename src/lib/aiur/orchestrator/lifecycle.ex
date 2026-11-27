@@ -137,8 +137,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       idle_poll_backoff: %{active?: false, factor: config.polling.idle_widen_factor},
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
-      # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
-      # holds without editing `.aiur/config`.
+      # precedence until the configured cap is edited; see
+      # `refresh_runtime_config/1`) so the cap holds without editing `.aiur/config`.
       session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override() || control_lifecycle.max_agents,
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
@@ -427,6 +427,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
         poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
+    |> Slots.release_session_cap_on_config_edit(state.max_concurrent_agents)
   end
 
   defp install_event_tracked_fn(tracked_issue?) do
