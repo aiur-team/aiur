@@ -7,9 +7,11 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   alias Aiur.AgentCompaction.Handoff
   alias Aiur.AgentRunner.{MergedNoop, NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, SessionIdentity, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.CodingAgent.CapacityGate
-  alias Aiur.{Commands, Config, Issue}
+  alias Aiur.{Commands, Config, Issue, SessionHandle}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
+
+  @fresh_thread_after_noops 2
 
   @spec finalize_turn_completion(map(), map(), map(), fun()) :: term()
   def finalize_turn_completion(turn_context, app_session, turn_session, message_handler) do
@@ -79,6 +81,8 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     cap = noop_turn_cap(opts)
 
     if verdict == :noop do
+      forget_concluded_thread(refreshed_issue)
+
       continue_after_optional_command(turn_context, refreshed_issue, fn ->
         handle_noop_turn(turn_context, app_session, refreshed_issue, progress, witness, cap, message_handler)
       end)
@@ -110,12 +114,40 @@ defmodule Aiur.AgentRunner.TurnCompletion do
       {:handoff, result} ->
         result
 
+      :none when progress.consecutive_noops >= @fresh_thread_after_noops and is_map_key(app_session, :resumed) and app_session.resumed ->
+        restart_on_fresh_thread(turn_context, issue, progress)
+
       :none when is_integer(cap) and progress.consecutive_noops >= cap ->
         stop_on_noop_bound(turn_context, issue, progress, witness, cap)
 
       :none ->
         NoopWait.park(turn_context, app_session, message_handler, issue, progress)
     end
+  end
+
+  # A thread whose last turn changed nothing has concluded its work, and
+  # resuming it reproduces the same empty turn: requeued tickets resumed such
+  # threads, each turn ended in seconds, and the no-op bound sent them to
+  # `agent:error` (OGM core #1433). Forget it so the next dispatch starts a
+  # fresh thread from the workpad and branch; the live session is unaffected.
+  defp forget_concluded_thread(%Issue{identifier: identifier}) when is_binary(identifier) do
+    SessionHandle.drop_thread(identifier)
+  rescue
+    error -> Logger.warning("Could not forget the concluded thread for #{identifier}: #{inspect(error)}")
+  end
+
+  defp forget_concluded_thread(_issue), do: :ok
+
+  # A resumed thread that has run consecutive empty turns ends the run before
+  # the no-op bound can fail the ticket. The thread is already forgotten, so
+  # the orchestrator's redispatch starts fresh; a fresh thread is never
+  # restarted this way, so the ordinary bound still ends a ticket with no work.
+  defp restart_on_fresh_thread(turn_context, issue, progress) do
+    Logger.warning(
+      "aiur_autonomous_loop phase=fresh_thread_restart identifier=#{issue.identifier} turn=#{turn_context.turn_number} noop_turns=#{progress.consecutive_noops}; resumed thread concluded with no work, returning control for a fresh thread"
+    )
+
+    TurnLoop.return_completed(turn_context, issue)
   end
 
   # The bound must leave a durable record, not a bare `Logger.info` (#2797): a

@@ -211,12 +211,23 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
     )
   end
 
+  defp forget_thread(issue_number) do
+    Aiur.SessionHandle.drop_thread(to_string(issue_number))
+  rescue
+    error -> Logger.warning("Could not forget the stored thread for #{issue_number}: #{inspect(error)}")
+  end
+
   defp apply_idle_rework_outcome(
          outcome,
          {attempt, event, issue_number, source}
        ) do
     case outcome do
       {:ok, state} ->
+        # Rework feedback changes the task, and the stored thread concluded it
+        # was done: the next dispatch starts a fresh thread from the workpad
+        # and branch instead of resuming that conclusion.
+        forget_thread(issue_number)
+
         # The transition landed, so any retry still pending from an earlier
         # comment on this issue is now moot — cancel it rather than let it fire.
         state
