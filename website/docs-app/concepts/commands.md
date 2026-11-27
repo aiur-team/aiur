@@ -185,31 +185,6 @@ answer. Human-required and Executor-originated Commands cannot defer. An accepte
 defer starts routing deadlines again and preserves first human visibility,
 without another `human_needed` notification.
 
-## Review and outcome gates
-
-Add the `creator-facing` issue label when a ticket needs creator review. Before
-an agent can hand it to `human-review`, the ticket must have an open Command
-routed to the creator; an absent or unavailable Command store refuses the
-handoff so the worker can retry after recording the card. Use
-`engineering-only` when review belongs to engineering: the handoff requires an
-open Command with `audience: executor`, keeping it out of creator inboxes.
-
-After merge, a `creator-facing` ticket stays open until a Command for that ticket
-has an answer recorded by an operator or Executor with a non-empty reason. The
-Command answer is the outcome record and carries its actor and timestamp. Merge
-reconciliation retries from that durable record; unavailable evidence holds the
-ticket in review. Any pending `Post-deploy check:` in the PR's `## Local tests`
-section also holds closure until the Executor marks it complete on `/post-deploy`.
-
-For epic tickets, add the `epic` label and list native issue references in the
-body, one field per line: `Children: #123, #124` and optionally
-`Follow-ups: #125`. Aiur keeps the epic open until every listed child and
-follow-up is closed and none carries `needs-triage`. Missing, incomplete, or
-unavailable relationship evidence holds closure for a later reconciliation.
-These labels and fields are the integration contract for systems such as Open
-Game Maker; Command creation and outcome confirmation use Aiur's existing
-durable Command APIs.
-
 ## Durability
 
 | Contract | Why it matters |
