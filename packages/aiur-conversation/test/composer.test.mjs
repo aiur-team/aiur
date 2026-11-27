@@ -253,7 +253,7 @@ test('sessions without mute support are stopped and reported', async () => {
   el.adapters = {
     dictation: { start: async () => ({
       stop: async () => { dictationStopped++; },
-      cancel: async () => { dictationCancelled++; },
+      cancel: () => { dictationCancelled++; },
     }) },
     voice: { start: async () => ({ stop: async () => { voiceStopped++; } }) },
   };
