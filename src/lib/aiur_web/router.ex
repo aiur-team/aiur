@@ -245,6 +245,11 @@ defmodule AiurWeb.Router do
   end
 
   scope "/", AiurWeb do
+    pipe_through(:client_token_read)
+    get("/api/v1/:issue_identifier/thread", ConversationApiController, :worker_thread)
+  end
+
+  scope "/", AiurWeb do
     pipe_through([:executor_thread_write, :require_writable])
     post("/api/v1/executor/thread/messages", ExecutorThreadController, :create)
   end
