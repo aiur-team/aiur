@@ -69,6 +69,7 @@
     "dashboard-ui",
     "executor-attention",
     "experiments-page",
+    "github",
     "github-listeners",
     "orchestration",
     "pairing-discovery",

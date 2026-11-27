@@ -190,7 +190,7 @@ before attempting repair; do not edit entry segments while the daemon runs.
 
 ## On-demand agent conversations
 
-A host app starts a worker conversation without filing a ticket itself with `POST /api/v1/agent-conversations` (write client token).
+A host app starts a worker conversation without filing a ticket itself with `POST /api/v1/agent-conversations` (write client token). This endpoint requires the GitHub tracker because each conversation runs under a GitHub issue.
 
 | Field | Meaning |
 | --- | --- |
