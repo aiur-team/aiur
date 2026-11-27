@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Sections do
   @type outcome :: {:ok, term()} | {:stale, term()} | :unavailable
 
   @spec start([{atom(), (-> term())}]) :: [{atom(), Task.t()}]
-  def start(sections), do: Enum.map(sections, fn {name, fun} -> {name, Task.async(fn -> capture(fun) end)} end)
+  def start(sections), do: Enum.map(sections, fn {name, fun} -> {name, Aiur.Project.Task.async(fn -> capture(fun) end)} end)
 
   @doc "Prints each section in order by `deadline_ms` (monotonic) and returns its outcome."
   @spec await([{atom(), Task.t()}], integer(), pos_integer()) :: [{atom(), outcome()}]

@@ -17,7 +17,7 @@ defmodule Aiur.Usage.Provider.OpenRouter do
   """
 
   alias Aiur.Config.{AgentSettings, RoutingValue}
-  alias Aiur.Usage.Provider.OpenRouter.Spend
+  alias Aiur.Usage.Provider.OpenRouter.{KeyLimits, Spend}
   alias Aiur.Usage.ProviderSupport
 
   defstruct [:provider, :observed_at, :age_ms, :freshness, :source, fields: %{}]
@@ -29,23 +29,46 @@ defmodule Aiur.Usage.Provider.OpenRouter do
   @spec read(keyword()) :: t()
   def read(opts) do
     view = meter_view(opts)
+    key = Keyword.get_lazy(opts, :openrouter_key_limits, fn -> KeyLimits.read(opts) end)
     spend = spend(opts)
     routes = routes(opts)
+    credits = credits(view) || key_credits(key)
+    {observed_at, freshness, source} = observation(view, key)
 
     ProviderSupport.record(
       __MODULE__,
       :openrouter,
-      Map.get(view, :observed_at),
-      Map.get(view, :freshness, :unknown),
+      observed_at,
+      freshness,
       %{
-        state: state(view, spend),
+        state: state(credits, key, spend),
         routes: route_entries(routes, spend),
-        credits: credits(view),
+        credits: credits,
+        key: key,
         spend_source: "usage.aggregate"
       },
-      "provider_meter_projection"
+      source
     )
   end
+
+  # The management-key meter is the account-wide authority; the route key's own
+  # reported reading stands in only when no meter observation exists.
+  defp observation(%{observed_at: %DateTime{} = at} = view, _key),
+    do: {at, Map.get(view, :freshness, :unknown), "provider_meter_projection"}
+
+  defp observation(_view, %{state: :reported, observed_at: at, source: source}), do: {at, :fresh, source}
+  defp observation(view, _key), do: {nil, Map.get(view, :freshness, :unknown), "provider_meter_projection"}
+
+  defp key_credits(%{state: :reported, limit: limit, limit_remaining: remaining}) when is_number(limit) do
+    %{remaining: remaining, limit: limit, used_percent: key_used_percent(limit, remaining), basis: "reported"}
+  end
+
+  defp key_credits(_key), do: nil
+
+  defp key_used_percent(limit, remaining) when limit > 0 and is_number(remaining),
+    do: ((limit - remaining) / limit * 100) |> max(0.0) |> min(100.0) |> Float.round(1)
+
+  defp key_used_percent(_limit, _remaining), do: nil
 
   # --- meter projection ---------------------------------------------------
 
@@ -77,9 +100,10 @@ defmodule Aiur.Usage.Provider.OpenRouter do
   defp number(value) when is_number(value), do: value
   defp number(_value), do: nil
 
-  defp state(view, spend) do
+  defp state(credits, key, spend) do
     cond do
-      credits(view) != nil -> :observed
+      credits != nil -> :observed
+      Map.get(key, :state) == :reported -> :observed
       spend_entries(spend) != [] -> :observed
       true -> :no_reading
     end

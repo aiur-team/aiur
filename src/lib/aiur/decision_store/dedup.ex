@@ -153,7 +153,9 @@ defmodule Aiur.DecisionStore.Dedup do
 
   defp expired_reraise_duplicate_of?(_candidate, _decision), do: false
 
-  defp creation_duplicate_of?(candidate, decision) do
+  @doc false
+  @spec creation_duplicate_of?(Decision.t(), Decision.t()) :: boolean()
+  def creation_duplicate_of?(candidate, decision) do
     # A blocking Command gates dispatch and a non-blocking one does not, so the
     # two are not interchangeable duplicates even when the question matches
     # (#1965): an agent that files a blocking Command after a non-blocking

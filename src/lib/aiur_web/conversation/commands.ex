@@ -3,9 +3,10 @@ defmodule AiurWeb.Conversation.Commands do
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias Aiur.Commands, as: CommandStore
   alias Aiur.Conversation.{History, Ref}
+  alias Aiur.Executor.Blockers
   alias AiurWeb.Conversation.CardRefresh
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{DecisionEvents, DecisionProvider}
+  alias AiurWeb.OperatorControlCenter.{DecisionEvents, DecisionPresenter, DecisionProvider}
 
   @spec init(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def init(socket), do: assign(socket, decision_page: %{decisions: []}, decision_actions: %{}, selected_decision_id: nil, selected_decision: nil, command_slots: %{}, commands_error: nil)
@@ -21,7 +22,7 @@ defmodule AiurWeb.Conversation.Commands do
 
   defp read(socket) do
     with {:ok, params} <- subject(socket.assigns.id),
-         {:ok, page} <- DecisionProvider.list(Map.merge(params, %{"lifecycle" => "open", "limit" => 100}), options()) do
+         {:ok, page} <- page(params, socket) do
       retained = retained(socket.assigns.decision_page.decisions, page.decisions)
       rows = page.decisions ++ retained
       slots = Map.new(rows, &{&1.decision_id, slot(&1, socket.assigns.id)})
@@ -40,6 +41,18 @@ defmodule AiurWeb.Conversation.Commands do
   catch
     :exit, _reason -> assign(socket, :commands_error, "Commands unavailable. Open the Commands list to retry.")
   end
+
+  # Filter before projecting: a page of fleet Commands can omit open Executor blockers.
+  defp page(%{"requester" => "executor"}, %{assigns: %{executor_footer?: true}}) do
+    store = Keyword.fetch!(options(), :decision_store)
+
+    with {:ok, decisions} <- Blockers.read_commands(store) do
+      rows = decisions |> Enum.filter(&Blockers.open_executor_command?/1) |> DecisionPresenter.rows()
+      {:ok, %{decisions: rows, partial_results?: false, pagination: %{next_cursor: nil}}}
+    end
+  end
+
+  defp page(params, _socket), do: DecisionProvider.list(Map.merge(params, %{"lifecycle" => "open", "limit" => 100}), options())
 
   defp subject(id) do
     case History.worker_identity(id) do

@@ -205,6 +205,15 @@ def parser():
 
 
 def execute(args):
+    try:
+        execute_one_shot(args)
+    except Exception as error:
+        if corruption_error(error):
+            recover_ledger(args.db, str(error))
+        raise
+
+
+def execute_one_shot(args):
     for attempt in range(6):
         try:
             args.fun(args)
@@ -213,6 +222,8 @@ def execute(args):
             if "locked" not in str(error).lower() or attempt == 5:
                 raise
             time.sleep(0.01 * (attempt + 1))
+        finally:
+            close_sessions()
 
 
 def read_requests(inbox):
@@ -238,7 +249,22 @@ def run_batch(requests, command_parser, queue_depth=0):
             else:
                 active.append((request, args))
         if active:
-            yield from run_transaction(db, active)
+            yield from run_resident_transaction(db, active)
+
+
+def run_resident_transaction(db, requests):
+    try:
+        return run_transaction(db, requests)
+    except Exception as error:
+        try:
+            if corruption_error(error):
+                recover_ledger(db, str(error))
+                if isinstance(error, LedgerNeedsRecovery):
+                    # Startup found damage before any command ran.
+                    return run_transaction(db, requests)
+        except Exception as recovery_error:
+            error = recovery_error
+        return broker_metrics.failed_replies(error, requests, isinstance(error, TimeoutError), 0, 0)
 
 
 COMMIT_MARGIN_MS = 50
@@ -275,6 +301,8 @@ def run_transaction(db, requests):
                 with contextlib.redirect_stdout(output):
                     args.fun(args)
             except Exception as error:
+                if corruption_error(error):
+                    raise
                 conn.conn.execute("ROLLBACK TO request")
                 status = 2 if isinstance(error, TimeoutError) else 1
                 output.write(str(error))
@@ -307,6 +335,8 @@ def run_transaction(db, requests):
             broker_metrics.complete_batch(db, conn.conn, checkpoint, requests),
         )
     except Exception as error:
+        if corruption_error(error):
+            raise
         if conn is not None and conn.in_transaction:
             conn.conn.execute("ROLLBACK")
             conn.prepared = False
@@ -322,8 +352,8 @@ def run_transaction(db, requests):
 
 
 def serve():
-    global SESSION_CONNECTIONS
-    SESSION_CONNECTIONS = {}
+    global RESIDENT
+    RESIDENT = True
     broker_metrics.start_checkpoint_worker()
     command_parser = parser()
     inbox = queue.Queue(maxsize=64)
@@ -331,7 +361,11 @@ def serve():
     finished = False
     try:
         while not finished:
-            request = inbox.get()
+            yield_ledger_for_recovery()
+            try:
+                request = inbox.get(timeout=0.25 if SESSION_CONNECTIONS else None)
+            except queue.Empty:
+                continue
             if request is None:
                 break
             batch = [request]
@@ -349,8 +383,7 @@ def serve():
             for reply in run_batch(batch, command_parser, inbox.qsize()):
                 print(json.dumps(reply), flush=True)
     finally:
-        for conn in SESSION_CONNECTIONS.values():
-            conn.conn.close()
+        close_sessions()
 
 
 def main():

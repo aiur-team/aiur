@@ -16,7 +16,7 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
   @attributes %{
     "run_context" => ~w(aiur_vsn config_hash capture_tags),
     "lifecycle" =>
-      ~w(event boundary ticket attempt_id complexity backend model effort feature epic work_kind tags blockers start_mode source source_timestamp author_trusted review_thread_id event_key source_id operation_id segment_continuation)
+      ~w(event boundary ticket attempt_id complexity backend model effort feature epic work_kind tags blockers start_mode start_trigger queue_id source source_timestamp author_trusted review_thread_id event_key source_id operation_id segment_continuation)
   }
 
   @spec load(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -254,7 +254,7 @@ defmodule Aiur.Experiments.Packs.DeliverySpeed.TelemetrySource do
   end
 
   defp cohort(dispatch, context) do
-    attrs = dispatch |> Map.take([:backend, :model, :effort, :feature, :epic, :start_mode]) |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    attrs = dispatch |> Map.take([:backend, :model, :effort, :feature, :epic, :start_mode, :start_trigger, :queue_id]) |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
 
     Map.merge(attrs, %{
       "complexity" => dispatch.complexity,

@@ -19,7 +19,11 @@ defmodule Aiur.ExperimentsCLI do
     hypothesis: :string,
     window: :string,
     reason: :string,
-    confirm: :boolean
+    confirm: :boolean,
+    source: :string,
+    source_base64: :string,
+    sha256: :string,
+    summary_path: :string
   ]
   @allowed %{
     analyze: [:mode, :local, :json],
@@ -28,6 +32,7 @@ defmodule Aiur.ExperimentsCLI do
     stats: [:json],
     events: [:json, :refresh],
     freeze: [:window, :reason, :json],
+    import_baseline: [:source, :source_base64, :sha256, :metric, :summary_path, :window, :reason, :json],
     abandon: [:reason, :confirm, :json],
     metrics: [:json],
     list: [:status, :kind, :json],
@@ -95,6 +100,25 @@ defmodule Aiur.ExperimentsCLI do
     end
   end
 
+  defp dispatch(:import_baseline, flags, [id]) do
+    with true <- is_binary(flags[:sha256]),
+         {:ok, bytes} <- source_bytes(flags),
+         [metric_ref] <- Keyword.get_values(flags, :metric),
+         {:ok, snapshot} <-
+           Experiments.import_baseline(id, bytes, flags[:sha256],
+             metric_ref: metric_ref,
+             summary_path: String.split(flags[:summary_path] || "primary.blocker_merge_to_dependent_start.all", "."),
+             window: flags[:window] || "before",
+             reason: flags[:reason],
+             source_path: if(is_binary(flags[:source]), do: Path.basename(flags[:source]))
+           ) do
+      result({:ok, snapshot}, flags, :freeze)
+    else
+      {:error, reason} -> result({:error, reason}, flags, :freeze)
+      _ -> usage(flags)
+    end
+  end
+
   defp dispatch(:abandon, flags, [id]) do
     if flags[:confirm] == true and is_binary(flags[:reason]) and String.trim(flags[:reason]) != "" do
       result(Experiments.abandon(id, flags[:reason], "operator"), flags, :abandon)
@@ -118,6 +142,13 @@ defmodule Aiur.ExperimentsCLI do
   end
 
   defp dispatch(_verb, flags, _positional), do: usage(flags)
+
+  defp source_bytes(flags) do
+    case Keyword.get(flags, :source_base64) do
+      encoded when is_binary(encoded) -> Base.decode64(encoded)
+      _ -> if(is_binary(flags[:source]), do: File.read(flags[:source]), else: {:error, :source_required})
+    end
+  end
 
   defp submit(:preregister, id, attrs), do: Experiments.put_preregistration(id, attrs)
   defp submit(:report_submit, id, attrs), do: Experiments.put_report(id, attrs)

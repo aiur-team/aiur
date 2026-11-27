@@ -88,7 +88,7 @@ defmodule Aiur.AgentRunner do
         Logger.error("Agent run exhausted automatic before_run timeout retries for #{issue_context(issue)}: #{inspect(reason)}")
         exit(reason)
 
-      local_budget_hold?(reason) ->
+      is_map(Aiur.LocalBudgetHold.reason(reason)) ->
         Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
         exit(reason)
 
@@ -98,13 +98,6 @@ defmodule Aiur.AgentRunner do
         raise RuntimeError, message
     end
   end
-
-  # Matched by shape: agent-runner may not depend on the github or orchestration
-  # components; `RetryEngine.AgentDown` does the full hold classification.
-  defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}), do: local_budget_hold?(inner)
-  defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
-  defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
-  defp local_budget_hold?(_reason), do: false
 
   # `:missing_tracker_identity` means the daemon could not decide which
   # repository an issue belongs to. Reported bare, it names no file, so the

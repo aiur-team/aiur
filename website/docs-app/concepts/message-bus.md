@@ -263,6 +263,9 @@ Event records contain the identifier-only external envelope: `v`, `instance`,
 `id`, `topic`, `class`, timestamps, `source`, `refs`, `attrs`, `payload_version`
 and `anchor`. They contain no transcript or message content.
 
+`operator.notify.*` records ([`aiur notify`](/reference/cli-decisions)) carry
+the notification's `title`, `body`, `ticket`, `url` and `created_at` in `attrs`.
+
 Omit `after` to get the current head with no backlog. Bootstrap by noting that
 head, reading the required snapshots, then following with `after=<head_seq>`.
 

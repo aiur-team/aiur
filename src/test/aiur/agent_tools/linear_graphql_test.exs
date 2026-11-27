@@ -1,7 +1,28 @@
 defmodule Aiur.AgentTools.LinearGraphQLTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.AgentTools.LinearGraphQL
+
+  test "uses the Linear client installed by the application composition root" do
+    old_client = Application.get_env(:aiur, :linear_graphql_client)
+
+    on_exit(fn ->
+      if is_nil(old_client),
+        do: Application.delete_env(:aiur, :linear_graphql_client),
+        else: Application.put_env(:aiur, :linear_graphql_client, old_client)
+    end)
+
+    Application.put_env(:aiur, :linear_graphql_client, fn query, variables, _opts ->
+      {:ok, %{"query" => query, "variables" => variables}}
+    end)
+
+    response = LinearGraphQL.execute("linear_graphql", %{"query" => "query { viewer { id } }"}, [])
+
+    assert Jason.decode!(response["output"]) == %{
+             "query" => "query { viewer { id } }",
+             "variables" => %{}
+           }
+  end
 
   describe "execute/3" do
     test "success on clean response" do

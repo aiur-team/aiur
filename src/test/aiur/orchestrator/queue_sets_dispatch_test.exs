@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   use Aiur.TestSupport
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
-  alias Aiur.BuildQueue.{Hints, Model, Reconcile}
+  alias Aiur.BuildQueue.{Hints, Model, Reconcile, Sets}
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   end
 
   test "six slots dispatch two A and four B members by set rank then position" do
-    {document, issues, projections} = fixture()
+    {document, issues, projections} = fixture(:equal_priority)
     publish(document, projections)
     final = dispatch(issues)
     assert Enum.sort(Map.keys(final.running)) == ~w(1 2 3 4 5 6)
@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
 
   test "max one active set starts only A and reports B waiting with four slots free" do
     configure(max_active_sets: 1)
-    {document, issues, projections} = fixture()
+    {document, issues, projections} = fixture(:equal_priority)
     publish(document, projections)
     final = dispatch(issues)
     assert Enum.sort(Map.keys(final.running)) == ~w(1 2)
@@ -161,6 +161,14 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     Hints.publish_sets(%{snapshot | sets: Enum.reject(snapshot.sets, &(&1.rank == 0))})
     assert QueueSetSlots.sort_key("1", QueueSetSlots.ordering()) == {1, 0, 0}
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(3 4 5 6 7 8)
+  end
+
+  test "queue snapshot keeps orphaned items with the configured start trigger" do
+    {document, _issues, projections} = fixture()
+    orphan = %{issue_id: "orphan", queue_id: "missing", position: 3}
+    snapshot = Sets.snapshot(%{document | items: [orphan]}, projections, Config.settings!(), nil)
+
+    assert snapshot.members["orphan"] == %{set_id: "missing", position: 3, start_trigger: :pr_merged}
   end
 
   test "review waits keep a started unfinished set active after all its runners exit" do
@@ -224,7 +232,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert {:ok, _} = Workflow.current()
   end
 
-  defp fixture do
+  defp fixture(mode \\ :mixed_priority) do
     now = DateTime.utc_now()
     queues = for rank <- 0..2, do: %Model.Queue{id: "q-000#{rank}", name: "set #{rank}", rank: rank, kind: :list, root: nil, held: false, generation: 0, created_at: now}
     groups = [Enum.to_list(1..2), Enum.to_list(3..7), Enum.to_list(8..12)]
@@ -234,7 +242,9 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
           {number, position} <- Enum.with_index(group),
           do: %Model.Item{issue_id: to_string(number), queue_id: "q-000#{rank}", position: position, hold: nil, override: nil, promoted_at: now, added_at: now}
 
-    issues = for n <- 1..12, do: %Issue{id: to_string(n), identifier: "repo##{n}", title: "ticket #{n}", state: "todo", priority: if(n <= 2, do: 4, else: 1), blocked_by: []}
+    issues =
+      for n <- 1..12, do: %Issue{id: to_string(n), identifier: "repo##{n}", title: "ticket #{n}", state: "todo", priority: if(mode == :mixed_priority and n <= 2, do: 4, else: 1), blocked_by: []}
+
     projections = for item <- items, do: %{issue_id: item.issue_id, state: :promoted, verdict: :ready, reason: nil, rank: {0, 1, item.position, 0, item.issue_id}}
     {%{queues: queues, items: items, edges: [], intents: [], latches: []}, issues, projections}
   end

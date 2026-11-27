@@ -25,6 +25,11 @@ const outputs = [
     refs: ['agents.v1.schema.json'],
   },
   {
+    name: 'CapacityContract',
+    target: new URL('../src/capacity.generated.ts', import.meta.url),
+    refs: ['capacity.v1.schema.json'],
+  },
+  {
     name: 'StatusContract',
     target: new URL('../src/status.generated.ts', import.meta.url),
     refs: [

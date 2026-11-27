@@ -156,6 +156,8 @@ defmodule Aiur.AppServer.NativeSteerTest do
   end
 
   test "rejected or malformed responses restore the claimed item for boundary delivery", ctx do
+    unless Process.whereis(Aiur.Opencode.ActiveTurns), do: start_supervised!(Aiur.Opencode.ActiveTurns)
+
     for response <- [%{"error" => %{"code" => -32_600, "message" => "turn mismatch"}}, %{"result" => %{}}] do
       next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
       frame = read_frame()

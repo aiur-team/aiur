@@ -29,6 +29,7 @@ defmodule Aiur.Executor.TranscriptFormat do
       "total" => 0,
       "types" => %{"mapped" => 0, "ignored_known" => 0, "unknown" => 0},
       "versions" => %{"tested" => 0, "untested" => 0, "absent" => 0},
+      "tested_version" => nil,
       "untested_version" => nil,
       "alerted" => false
     }
@@ -38,7 +39,12 @@ defmodule Aiur.Executor.TranscriptFormat do
     status = version_status(record)
     counts = counts |> Map.update!("total", &(&1 + 1)) |> update_in(["types", Atom.to_string(classify(record))], &(&1 + 1))
     counts = update_in(counts, ["versions", Atom.to_string(status)], &(&1 + 1))
-    if status == :untested, do: Map.put(counts, "untested_version", safe_version(record)), else: counts
+
+    case status do
+      :untested -> Map.put(counts, "untested_version", safe_version(record))
+      :tested -> Map.put(counts, "tested_version", safe_version(record))
+      :absent -> counts
+    end
   end
 
   @spec alert(map(), map(), (String.t(), keyword() -> term())) :: map()

@@ -10,6 +10,7 @@ the one-shot CLI against the same database.
 
 import argparse
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -19,6 +20,7 @@ import itertools
 import secrets
 import sqlite3
 import sys
+import tempfile
 import time
 sys.path.insert(0, os.path.dirname(__file__))
 import github_budget_metrics as broker_metrics
@@ -69,21 +71,42 @@ def clamp(value, minimum, maximum):
     return max(minimum, min(int(value), maximum))
 
 
-SESSION_CONNECTIONS = None
+SESSION_CONNECTIONS = {}
+RESIDENT = False
 
 
 def connection(path):
-    if SESSION_CONNECTIONS is not None and path in SESSION_CONNECTIONS:
+    if path in SESSION_CONNECTIONS:
         return SESSION_CONNECTIONS[path]
-    if SESSION_CONNECTIONS is not None:
-        for cached in SESSION_CONNECTIONS.values():
-            cached.conn.close()
-        SESSION_CONNECTIONS.clear()
+    close_sessions()
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
     os.chmod(directory, 0o700)
-    conn = sqlite3.connect(path, timeout=5, isolation_level=None)
-    os.chmod(path, 0o600)
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(broker_metrics.ledger_reader(path))
+        if os.path.isdir(path + ".recovery-pending"):
+            raise LedgerNeedsRecovery("an interrupted ledger archive is pending")
+        conn = stack.enter_context(contextlib.closing(open_ledger(path, check_existing=RESIDENT)))
+        wrapped = broker_metrics.SessionConnection(conn, stack.pop_all())
+        SESSION_CONNECTIONS[path] = wrapped
+        return wrapped
+
+
+def open_ledger(path, check_existing=False):
+    check_existing = check_existing and os.path.exists(path)
+    with contextlib.ExitStack() as stack:
+        conn = stack.enter_context(contextlib.closing(sqlite3.connect(path, timeout=5, isolation_level=None)))
+        os.chmod(path, 0o600)
+        if check_existing:
+            problem = check_integrity(conn)
+            if problem:
+                raise LedgerNeedsRecovery(problem)
+        initialize_ledger(conn)
+        stack.pop_all()
+        return conn
+
+
+def initialize_ledger(conn):
     # The daemon and up to sixteen agents open this file at once, and the claim
     # check added for #2073 U6 puts every cacheable agent read through it. Under
     # the rollback journal a reader blocks a writer and a writer blocks every
@@ -168,11 +191,6 @@ def connection(path):
         """
     )
     migrate(conn)
-    if SESSION_CONNECTIONS is not None:
-        wrapped = broker_metrics.SessionConnection(conn)
-        SESSION_CONNECTIONS[path] = wrapped
-        return wrapped
-    return conn
 
 
 # SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so adding one is a read

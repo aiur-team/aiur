@@ -143,7 +143,7 @@ defmodule Aiur.AgentRunner.TurnAlertsTest do
       # The next claim takes the next `agent.priority` route instead of retrying
       # the credit-limited one, and never becomes `agent:error` (#7514).
       assert {:ok, %Issue{selected_backend: "codex"}} =
-               Aiur.CodingAgent.select_for_dispatch(issue,
+               Aiur.Toolchain.select_for_dispatch(issue,
                  backends: ["openrouter:deepseek/deepseek-v4-flash", "codex"],
                  configured_backends: ["openrouter", "codex"],
                  state: ModelAvailability.load(path)

@@ -56,6 +56,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
     "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
     "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
+    "aiur/voice_conversation/briefing_source.ex" => ["ProgressRenderer.terminal("],
     "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
     "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
     "aiur/build_orders_cli.ex" => [

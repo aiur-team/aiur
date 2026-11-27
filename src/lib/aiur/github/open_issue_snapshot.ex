@@ -42,13 +42,13 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   end
 
   @doc "Records open issue numbers and label observations from a complete listing for `owner/repo`."
-  @spec put(String.t(), String.t(), [String.t() | integer()], Aiur.Tracker.open_issue_label_map(), DateTime.t() | nil) :: :ok
-  def put(owner, repo, numbers, labels_by_id \\ %{}, listed_from \\ nil) when is_binary(owner) and is_binary(repo) and is_list(numbers) and is_map(labels_by_id) do
+  @spec put(String.t(), String.t(), [String.t() | integer()], Aiur.Tracker.open_issue_label_map(), DateTime.t() | nil, [map()] | nil) :: :ok
+  def put(owner, repo, numbers, labels_by_id \\ %{}, listed_from \\ nil, issue_rows \\ nil) when is_binary(owner) and is_binary(repo) and is_list(numbers) and is_map(labels_by_id) do
     set = MapSet.new(numbers, &to_string/1)
     key = repo_key(owner, repo)
     taken_at_ms = now_ms()
     listed_from_ms = if match?(%DateTime{}, listed_from), do: DateTime.to_unix(listed_from, :millisecond)
-    :ets.insert(Table.ref(@table), [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}])
+    :ets.insert(Table.ref(@table), [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}, {{:rows, key}, issue_rows, taken_at_ms}])
     broadcast(taken_at_ms)
     :ok
   rescue
@@ -64,6 +64,15 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @spec fetch(String.t(), String.t(), pos_integer()) :: {:ok, MapSet.t(String.t()), integer()} | :none
   def fetch(owner, repo, max_age_ms) when is_binary(owner) and is_binary(repo) do
     fetch_snapshot(repo_key(owner, repo), max_age_ms)
+  end
+
+  @doc "Returns compact issue rows from the latest complete open-issue listing."
+  @spec fetch_issue_rows(String.t(), String.t(), pos_integer()) :: {:ok, [map()], integer()} | :none
+  def fetch_issue_rows(owner, repo, max_age_ms) do
+    case fetch_snapshot({:rows, repo_key(owner, repo)}, max_age_ms) do
+      {:ok, rows, taken_at_ms} when is_list(rows) -> {:ok, rows, taken_at_ms}
+      _ -> :none
+    end
   end
 
   @doc "Returns labels with the pre-request listing time, or `:none` if absent, stale or missing that provenance."

@@ -44,4 +44,37 @@ defmodule AiurPushRelay.StoreTest do
     File.write!(db, "not a database")
     assert {:error, {:store_unavailable, _}} = start_supervised({SQLite, path: db})
   end
+
+  test "prune applies configured log retention and always expires idempotency rows" do
+    path = Path.join(System.tmp_dir!(), "relay-retention-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(path)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+    db = Path.join(path, "db")
+    pid = start_supervised!({SQLite, path: db, log_retention_days: 2})
+
+    row = %{
+      handle: "h_retention",
+      platform: "apns",
+      push_token: "token",
+      app_topic: "test",
+      environment: "sandbox",
+      send_secret_sha256: :crypto.hash(:sha256, "secret"),
+      created_at: 1
+    }
+
+    assert SQLite.create(pid, row) == :ok
+    assert SQLite.reserve(pid, row, %{"idempotency_key" => "old", "sealed" => "x"}, 1) == :new
+
+    assert SQLite.reserve(pid, row, %{"idempotency_key" => "fresh", "sealed" => "x"}, 200_000) ==
+             :new
+
+    {:ok, conn} = Exqlite.Sqlite3.open(db)
+    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT count(*) FROM send_log")
+    assert Exqlite.Sqlite3.fetch_all(conn, stmt) == {:ok, [[1]]}
+    Exqlite.Sqlite3.release(conn, stmt)
+    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT count(*) FROM sends")
+    assert Exqlite.Sqlite3.fetch_all(conn, stmt) == {:ok, [[1]]}
+    Exqlite.Sqlite3.release(conn, stmt)
+    Exqlite.Sqlite3.close(conn)
+  end
 end

@@ -341,7 +341,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   end
 
   defp dispatch_with_resume_completion(state, issue, entry) do
-    Dispatcher.dispatch_issue(state, issue, nil, nil, dispatch_result_fun: fn current -> finish_dispatch(current, issue, entry) end)
+    Dispatcher.dispatch_issue(state, issue, nil, nil, automatic_recovery: true, dispatch_result_fun: fn current -> finish_dispatch(current, issue, entry) end)
   end
 
   @doc false
@@ -360,6 +360,9 @@ defmodule Aiur.Orchestrator.AutoResume do
       MapSet.member?(state.claimed, issue.id) or Map.has_key?(state.running, issue.id) ->
         Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
         %{state | auto_resume: Map.delete(state.auto_resume, issue.id), released_claims: Map.delete(state.released_claims, issue.id)}
+
+      Map.get(state.dispatch_declines, issue.id) == :higher_priority_pending ->
+        defer_for_admission(state, issue.id, entry, :higher_priority_pending)
 
       true ->
         Logger.info("Transient auto-resume deferred for #{State.issue_context(issue)} cause=#{entry.cause}")
