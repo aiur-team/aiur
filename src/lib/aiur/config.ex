@@ -252,6 +252,9 @@ defmodule Aiur.Config do
   @spec decisions_require_suggested_responses?() :: boolean()
   def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
 
+  @spec decisions_require_option_media?() :: boolean()
+  def decisions_require_option_media?, do: settings!().decisions.require_option_media
+
   @doc "Hosts allowed to serve `embed` Command media; `[]` (embeds off) when config cannot be read."
   @spec decisions_embed_hosts() :: [String.t()]
   def decisions_embed_hosts do
@@ -300,6 +303,7 @@ defmodule Aiur.Config do
   defdelegate max_agent_duration_minutes(), to: Aiur.Config.AgentSettings
   defdelegate ci_wait_rewake_minutes(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_enabled?(), to: Aiur.Config.AgentSettings
+  defdelegate ci_failed_rework?(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_poll(), to: Aiur.Config.AgentSettings
   defdelegate ci_recovery_max_per_hour(), to: Aiur.Config.AgentSettings
   defdelegate usage_floor_percent(), to: Aiur.Config.AgentSettings

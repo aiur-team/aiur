@@ -131,6 +131,7 @@ defmodule Aiur.Application do
       |> tap(fn
         {:ok, _supervisor} ->
           Machine.announce_degraded()
+          Aiur.MainLineBuild.announce()
           start_upgrade_check()
           start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 

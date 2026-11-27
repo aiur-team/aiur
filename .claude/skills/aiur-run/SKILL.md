@@ -5,6 +5,13 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
+Never build or run a release whose stamped commit is not an ancestor of the
+tracked `origin/main` in the stamped repository. Every fix reaches the daemon
+through ticket → branch → PR → merge → rebuild. Do not pin local branches,
+cherry-pick unmerged work, or merge open PR heads into the running checkout.
+The November 2026 NUC incident ran 78 commits outside main for 17 days because
+local pin branches bypassed review and keep-current stopped detecting drift.
+
 When publishing an `aiur-build` build order, publication registers one epic for
 the pack, one feature per product feature group inside that epic, and each
 feature's lanes. An epic holds features, a feature holds tickets, and a lane is
