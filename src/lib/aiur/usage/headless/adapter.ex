@@ -166,6 +166,7 @@ defmodule Aiur.Usage.Headless.Adapter do
 
   defp attribution(%Context{} = context) do
     %{
+      user_id: context.user_id,
       run_id: context.run_id,
       tracker_identity: context.tracker_identity,
       attempt_id: context.attempt_id,

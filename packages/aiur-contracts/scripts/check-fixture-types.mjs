@@ -10,7 +10,7 @@ const fixture = (name) => readFileSync(join(root, 'fixtures', name), 'utf8');
 const dir = mkdtempSync(join(tmpdir(), 'aiur-contracts-'));
 const probe = join(dir, 'fixtures.mts');
 writeFileSync(probe, [
-  `import type { EventsFeed, EventsCatalog, CommandV2, AgentsStatus, CapacityView, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketCancelResultEvent, TicketLifecycleChangedEvent, TicketProgress, TicketProgressChangedEvent, TicketSpendCap, TicketSpendCapReached, TicketSpendCapReachedEvent, TicketStatus, TicketUsage, TicketUsageChangedEvent, VoiceConverseFrame, BuildOrder } from ${JSON.stringify(join(root, 'src/index.js'))};`,
+  `import type { EventsFeed, EventsCatalog, CommandV2, AgentsStatus, CapacityView, UsageAccountingView, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketCancelResultEvent, TicketLifecycleChangedEvent, TicketProgress, TicketProgressChangedEvent, TicketSpendCap, TicketSpendCapReached, TicketSpendCapReachedEvent, TicketStatus, TicketUsage, TicketUsageChangedEvent, VoiceConverseFrame, BuildOrder } from ${JSON.stringify(join(root, 'src/index.js'))};`,
   `export const events: EventsFeed = ${fixture('events.v1.json')};`,
   `export const eventsReset: EventsFeed = ${fixture('events-reset.v1.json')};`,
   `export const eventsCatalog: EventsCatalog = ${fixture('events-catalog.v1.json')};`,
@@ -20,6 +20,7 @@ writeFileSync(probe, [
   `export const agents: AgentsStatus = ${fixture('agents.v1.json')};`,
   `export const capacity: CapacityView = ${fixture('capacity.v1.json')};`,
   `export const capacityUnknown: CapacityView = ${fixture('capacity-unknown.v1.json')};`,
+  `export const usageAccounting: UsageAccountingView = ${fixture('usage-accounting.v1.json')};`,
   `export const status: FleetStatus = ${fixture('status.v1.json')};`,
   `export const ticket: TicketStatus = ${fixture('ticket.v1.json')};`,
   `export const ticketCancel: TicketCancel = ${fixture('ticket-cancel.v1.json')};`,

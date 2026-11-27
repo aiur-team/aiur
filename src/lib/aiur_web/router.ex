@@ -217,9 +217,17 @@ defmodule AiurWeb.Router do
 
   # Account and rate-limit snapshot (#5697).
   scope "/" do
+    pipe_through([:client_token_write, :api_write, :require_writable])
+    post("/api/v1/usage/gas", AiurWeb.UsageGasApiController, :create)
+    match(:*, "/api/v1/usage/gas", AiurWeb.UsageGasApiController, :method_not_allowed)
+  end
+
+  scope "/" do
     pipe_through(:client_token_read)
     get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
     match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage/users/:user_id", AiurWeb.UsageAccountingApiController, :show)
+    match(:*, "/api/v1/usage/users/:user_id", AiurWeb.UsageAccountingApiController, :method_not_allowed)
     get("/api/v1/usage", AiurWeb.UsageApiController, :index)
     match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
     get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
