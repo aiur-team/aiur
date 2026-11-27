@@ -243,6 +243,26 @@ test('mute toggled before dictation startup applies when the session becomes rea
   await el.stopDictation();
 });
 
+test('sessions without mute support are stopped and reported', async () => {
+  const { el } = mount();
+  let dictationStopped = 0;
+  let voiceStopped = 0;
+  const errors = [];
+  el.addEventListener('aiur-composer-error', ({ detail }) => errors.push(detail.action));
+  el.adapters = {
+    dictation: { start: async () => ({ stop: async () => { dictationStopped++; } }) },
+    voice: { start: async () => ({ stop: async () => { voiceStopped++; } }) },
+  };
+
+  await el.startDictation();
+  assert.equal(dictationStopped, 1);
+  assert.equal(el.state.dictation, 'idle');
+  assert.equal(await el.startVoice(), false);
+  assert.equal(voiceStopped, 1);
+  assert.equal(el.state.voice, 'idle');
+  assert.deepEqual(errors, ['dictation', 'voice']);
+});
+
 test('holding the mic and letting go stops dictation', async () => {
   const { el, part } = mount();
   const mic = recorder({ final: 'jump' });

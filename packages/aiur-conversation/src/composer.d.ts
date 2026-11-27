@@ -32,7 +32,7 @@ export interface VoiceCallbacks {
 /** A live two-way voice conversation. */
 export interface VoiceSession {
   stop(): Promise<void>;
-  /** Optional host hook called when the user mutes or unmutes the microphone. */
+  /** Required host hook called when the user mutes or unmutes the microphone. */
   setMuted(muted: boolean): void;
 }
 

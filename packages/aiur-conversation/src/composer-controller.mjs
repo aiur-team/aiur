@@ -216,11 +216,16 @@ export class ComposerController extends EventTarget {
           if (this.#dictation === dictation && !dictation.end) this.#level(level);
         },
     })).then((session) => {
-      if (typeof session?.setMuted !== 'function') throw new TypeError('dictation session must provide setMuted');
       dictation.session = session;
+      if (typeof session?.setMuted !== 'function') throw new TypeError('dictation session must provide setMuted');
       if (dictation.muted) session.setMuted(true);
       return session;
-    }).catch((error) => {
+    }).catch(async (error) => {
+      if (dictation.session && typeof dictation.session.setMuted !== 'function') {
+        try {
+          await (dictation.session.cancel?.() ?? dictation.session.stop());
+        } catch { /* Keep the adapter contract error as the reported failure. */ }
+      }
       this.#dictation = null;
       this.#show(dictation, '');
       this.#fail('dictation', error);
@@ -333,6 +338,11 @@ export class ComposerController extends EventTarget {
       this.#change();
       return true;
     } catch (error) {
+      if (voice.session && typeof voice.session.setMuted !== 'function') {
+        try {
+          await voice.session.stop();
+        } catch { /* Keep the adapter contract error as the reported failure. */ }
+      }
       if (this.#voice === voice) {
         this.#voice = null;
         this.value = [draft, this.value].filter(Boolean).join(' ');
