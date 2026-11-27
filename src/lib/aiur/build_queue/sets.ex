@@ -23,6 +23,12 @@ defmodule Aiur.BuildQueue.Sets do
   end
 
   defp set(queue, items, projected, observations, now) do
+    created_at_ms =
+      case Map.get(queue, :created_at) do
+        %DateTime{} = created_at -> DateTime.to_unix(created_at, :millisecond)
+        _ -> 0
+      end
+
     items = Enum.filter(items, &(&1.queue_id == queue.id))
     states = Enum.map(items, &Map.get(projected, &1.issue_id, %{state: :unknown}))
     unfinished = Enum.any?(states, &(&1.state not in [:completed, :cancelled, :removed]))
@@ -30,9 +36,9 @@ defmodule Aiur.BuildQueue.Sets do
 
     %{
       id: queue.id,
-      name: queue.name,
-      kind: queue.kind,
-      created_at_ms: DateTime.to_unix(queue.created_at, :millisecond),
+      name: Map.get(queue, :name, queue.id),
+      kind: Map.get(queue, :kind),
+      created_at_ms: created_at_ms,
       rank: queue.rank,
       held: queue.held,
       unfinished: unfinished,
