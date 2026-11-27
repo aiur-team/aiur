@@ -80,29 +80,26 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 
 ## Review and outcome gates
 
-Add the `creator-facing` label when a ticket needs creator review. Before
-`human-review`, an open Command routed to the creator must exist for that ticket.
-If the card is missing or its store is unavailable, Aiur refuses the handoff so
-the agent can retry after the card is recorded.
+Use `creator-facing` when a ticket needs creator review. Before `human-review`,
+an open Command routed to the creator must exist. A missing card or unavailable
+Command store refuses handoff so the agent can retry after recording it.
 
-Engineering-only review uses the `engineering-only` label and an open Command
+Use `engineering-only` for engineering review; handoff requires an open Command
 with `audience: executor`.
 
 After merge, a creator-facing ticket stays in review until a human or Executor
-answers a ticket Command with a non-empty reason. The stored Command answer
-records the actor and timestamp. Reconciliation retries from that record and
-holds closure when evidence is unavailable.
+answers a ticket Command with a non-empty reason. Its answer records actor and
+time; reconciliation retries from it and holds closure when evidence is missing.
 
-An outstanding `Post-deploy check:` from the PR's `## Local tests` section also
-keeps the ticket open until the Executor marks it complete on `/post-deploy`.
-For an epic, add the `epic` label and list `Children: #123, #124` plus optional
-`Follow-ups: #125` fields in its body. The epic stays open until every listed
-issue is closed and clear of `needs-triage`.
+A pending PR `Post-deploy check:` keeps the ticket open until completed on
+`/post-deploy`. For an epic, add `epic` and list `Children: #123, #124` plus
+optional `Follow-ups: #125` in its body. Every listed issue must be closed and
+clear of `needs-triage`.
 
-These labels and body fields are the integration contract for systems such as
-Open Game Maker. Command creation and outcome confirmation use Aiur's durable
-Command APIs. Missing, incomplete, or unavailable evidence holds closure for a
-later retry.
+These labels and fields are the OGM integration contract. Use Aiur's Command APIs
+to create cards and confirm outcomes; missing or unavailable evidence holds
+closure for retry.
+
 
 When the no-op turn bound or normal turn limit stops an agent, a newly opened or
 moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
