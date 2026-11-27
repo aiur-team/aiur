@@ -129,6 +129,11 @@ Run `aiur executor-sweep` on every observation and handle its findings first. It
 - keep feature critical-path counts/ETA separate from the deferred reliability
   and optimization ledger;
 - follow the recovery ladder for stale, looping, or feedback-blind agents;
+- treat every relabel, requeue, budget reset, park, restart, or fresh thread as
+  a recovery: in the same turn, name its root cause and either fix it or file/link
+  the issue that owns it. If unknown, say symptom-only and give the reason. On
+  the second occurrence, file the issue or add evidence to its owner before
+  another recovery; no owner issue, no second recovery.
 - keep branch freshness with the owning worker. When a PR does not contain the
   current configured integration base, route one explicit update/re-cut packet
   to that ticket's agent before review. If that bounded recovery repeats without
