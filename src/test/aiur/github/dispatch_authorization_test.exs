@@ -132,11 +132,42 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     File.rm!(path)
   end
 
+  test "a single-account daemon login can apply a hand-triaged todo label" do
+    events = [labeled_event(10, "agent:todo", "operator", "2026-01-01T00:00:00Z")]
+
+    authorized =
+      authorize_with_events(issue(), events, ["operator"],
+        daemon_account: "operator",
+        bot_account: "operator",
+        dispatch_queue_provenance_file: "/missing/queue-provenance.ndjson"
+      )
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "label_applier"
+  end
+
+  test "a single-account daemon login can apply todo through the queue command" do
+    events = [labeled_event(10, "agent:todo", "operator", "2026-01-01T00:00:00Z")]
+    path = Path.join(System.tmp_dir!(), "dispatch-provenance-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(path, ~s|{"issue_id":"42","label":"agent:todo","written_at":"2026-01-01T00:00:00Z"}| <> "\n")
+
+    authorized =
+      authorize_with_events(issue(), events, ["operator"],
+        daemon_account: "operator",
+        bot_account: "operator",
+        dispatch_queue_provenance_file: path
+      )
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "label_applier"
+    File.rm!(path)
+  end
+
   test "a daemon login without a local queue receipt cannot authorize dispatch" do
     events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z")]
 
     denied =
-      authorize_with_events(issue(), events, ["trusted", "daemon[bot]"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: "/missing/queue-provenance.ndjson")
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: "/missing/queue-provenance.ndjson")
 
     refute denied.dispatch_authorized?
     assert denied.dispatch_authorization_reason == :label_applier_not_allowed
