@@ -139,7 +139,18 @@ defmodule Aiur.DecisionAttentionTest do
     {pid, name} =
       start_attention(
         decision_store: store,
-        decision_projector: fn payload, opts -> DecisionStore.project_attention(payload, opts, store) end,
+        decision_projector: fn payload, opts ->
+          DecisionStore.project_attention(
+            Map.merge(payload, %{
+              "audience" => :creator,
+              "authority" => "human_required",
+              "reversibility" => "irreversible",
+              "context" => %{"authority_basis" => "product"}
+            }),
+            opts,
+            store
+          )
+        end,
         alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end,
         resolution_emitter: fn attention -> send(test_pid, {:decision_resolved, attention}) end
       )

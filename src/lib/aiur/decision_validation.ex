@@ -29,8 +29,9 @@ defmodule Aiur.DecisionValidation do
   requests, PR/ticket sequencing — are exactly the Commands the Executor is
   positioned to answer, and a `human_required` default stranded agents until an
   operator appeared. Known Command types override the fallback through
-  `Aiur.DecisionCommandType` (re-review requests classify `supervisor_preferred`,
-  legacy-attention projections stay `human_required`). A Command that is
+  `Aiur.DecisionCommandType` (re-review requests classify `supervisor_preferred`).
+  Legacy-attention provenance records origin; it does not change consequence
+  classification. A Command that is
   genuinely irreversible, involves spend or external publication, or changes
   product direction must declare that explicitly or it will be Executor-answerable.
   """
