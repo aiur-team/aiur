@@ -35,6 +35,23 @@ defmodule Aiur.OrchestratorStatusCliCapacityTest do
     )
   end
 
+  test "status renders the reserved paused count with unknown age when paused_at is missing" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(%{reserved_paused: 1}),
+      reserved_paused_age_seconds: nil,
+      polling: %{}
+    }
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}})
+      end)
+
+    assert output =~ "PAUSED RESERVATIONS 1 oldest_age=unknown"
+  end
+
   # The core #2138 status defect: `binding: ticket supply` was reported while
   # claimable tickets existed, because the daemon had not polled recently enough
   # to see them. While idle backoff is active (or the candidate snapshot is not
