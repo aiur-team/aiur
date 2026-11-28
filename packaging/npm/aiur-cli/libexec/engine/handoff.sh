@@ -56,7 +56,13 @@ aiur_restart_start_with_retry() {
   while [ "$attempt" -le "$max_attempts" ]; do
     # Background startup failure exits from run_session, so contain that exit
     # here; otherwise it terminates cmd_restart before retry/report handling.
-    if ( dispatch_run --bg "${run_args[@]+"${run_args[@]}"}" ); then return 0; else status=$?; fi
+    # A subshell resets the parent's signal handlers, so hold signals here too:
+    # a signal that kills this boot would make the retry below reap a healthy
+    # successor.
+    if ( trap : INT TERM HUP; dispatch_run --bg "${run_args[@]+"${run_args[@]}"}" ); then return 0; else status=$?; fi
+    # The attempt's launch lock is owned by this pid (a subshell's $$ is ours),
+    # so a lock a dead attempt left behind would block every retry.
+    [ -z "${AIUR_BG_STATE_DIR:-}" ] || release_aiur_launch_lock "$(aiur_launch_lock_path)"
     [ "$attempt" -lt "$max_attempts" ] || break
     echo "aiur: restart startup attempt $attempt failed (exit $status); retrying after cleanup" >&2
     if [ -n "${release_bin:-}" ]; then

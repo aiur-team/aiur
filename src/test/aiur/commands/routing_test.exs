@@ -126,7 +126,12 @@ defmodule Aiur.Commands.RoutingTest do
   end
 
   test "legacy human-required Commands route simultaneously and never re-ask", ctx do
-    {:ok, %{decision: d}} = project_attention(ctx.store, minimal_attention("Need operator?"))
+    payload =
+      minimal_attention("Need operator?")
+      |> Map.put("authority", "human_required")
+      |> Map.put("reversibility", "irreversible")
+
+    {:ok, %{decision: d}} = project_attention(ctx.store, payload)
     pid = router(ctx)
     assert current(ctx, d).route_state == :with_both
     assert current(ctx, d).route_policy == :simultaneous

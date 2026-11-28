@@ -59,12 +59,36 @@ defmodule Aiur.GitHub.HoldPressure do
     end
   end
 
+  @doc "Per-credential core and GraphQL remaining-budget lines for `aiur status`."
+  @spec credential_budget_lines(keyword()) :: [String.t()]
+  def credential_budget_lines(opts \\ []) when is_list(opts) do
+    rows = Access.credential_headroom(opts)
+
+    if length(rows) > 1 do
+      Enum.map(rows, fn row ->
+        windows = row.windows
+        "GITHUB BUDGET #{row.id} core=#{remaining(windows["core"])} graphql=#{remaining(windows["graphql"])}"
+      end)
+    else
+      []
+    end
+  rescue
+    _error -> ["GITHUB BUDGET unavailable"]
+  catch
+    :exit, _reason -> ["GITHUB BUDGET unavailable"]
+  end
+
   @doc false
   @spec print_status() :: :ok
-  def print_status do
+  @spec print_status(keyword()) :: :ok
+  def print_status(opts \\ []) when is_list(opts) do
     Access.print_status()
     IO.puts(status_line())
+    Enum.each(credential_budget_lines(opts), &IO.puts/1)
   end
+
+  defp remaining(%{remaining: remaining, limit: limit}), do: "#{remaining}/#{limit} left"
+  defp remaining(_unobserved), do: "unknown"
 
   @doc """
   Records one hold-caused dispatch decline for `issue_id` and says whether the
