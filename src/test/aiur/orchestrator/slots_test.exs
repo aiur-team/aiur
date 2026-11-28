@@ -196,6 +196,38 @@ defmodule Aiur.Orchestrator.SlotsTest do
     end
   end
 
+  # open-games, 2026-11-24: priority:1 #4 failed and was retried 10 s later; in that
+  # gap its freed slot went to #996, and the retry then waited 7 minutes for capacity.
+  describe "dispatch_slots_available?/2 with a retry in backoff" do
+    test "a higher-priority retry due soon keeps the free slot from a lower-priority ticket" do
+      state = %State{max_concurrent_agents: 1, retry_attempts: %{"4" => retry(1, 10_000)}}
+
+      refute Slots.dispatch_slots_available?(%Issue{id: "996", state: "todo", priority: 2}, state)
+      refute Slots.dispatch_slots_available?(%Issue{id: "997", state: "todo", priority: nil}, state)
+    end
+
+    test "a ticket of the same or higher priority still takes the slot" do
+      state = %State{max_concurrent_agents: 1, retry_attempts: %{"4" => retry(2, 10_000)}}
+
+      assert Slots.dispatch_slots_available?(%Issue{id: "8", state: "todo", priority: 2}, state)
+      assert Slots.dispatch_slots_available?(%Issue{id: "9", state: "todo", priority: 1}, state)
+    end
+
+    test "a retry that waits longer than the window holds nothing" do
+      state = %State{max_concurrent_agents: 1, retry_attempts: %{"4" => retry(1, :timer.minutes(10))}}
+
+      assert Slots.dispatch_slots_available?(%Issue{id: "996", state: "todo", priority: 2}, state)
+    end
+
+    test "only the slots the retries need are held" do
+      state = %State{max_concurrent_agents: 2, retry_attempts: %{"4" => retry(1, 10_000)}}
+
+      assert Slots.dispatch_slots_available?(%Issue{id: "996", state: "todo", priority: 2}, state)
+    end
+  end
+
+  defp retry(priority, due_in_ms), do: %{attempt: 1, priority: priority, due_at_ms: System.monotonic_time(:millisecond) + due_in_ms}
+
   defp running_entry(status, worker_host \\ nil, paused_reason \\ nil) do
     entry = %{
       control: %{status: status},

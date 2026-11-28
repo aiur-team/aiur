@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Parking do
 
   alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, ControlLifecycle, PauseResume, State, TicketTransition, TrackerTasks}
+  alias Aiur.Orchestrator.PauseResume.PauseRequest
   require Logger
 
   @spec park_agent_call(State.t(), String.t()) :: term()
@@ -18,8 +19,10 @@ defmodule Aiur.Orchestrator.Parking do
         nil ->
           {:reply, {:error, :no_running_agent}, state}
 
-        _entry ->
-          {:reply, {:error, :agent_not_paused}, state}
+        # A pause is admitted before the worker acknowledges it; a park sent in that
+        # gap is told so, and the CLI waits for the acknowledgement.
+        entry ->
+          {:reply, {:error, if(PauseRequest.pending_pause_request?(state, entry), do: :pause_pending, else: :agent_not_paused)}, state}
       end
     end)
   end
