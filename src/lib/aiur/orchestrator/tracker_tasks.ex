@@ -36,6 +36,17 @@ defmodule Aiur.Orchestrator.TrackerTasks do
   @spec running?(State.t(), term()) :: boolean()
   def running?(state, key), do: Enum.any?(state.tracker_tasks, fn {_ref, job} -> job.key == key end)
 
+  @doc """
+  Whether an in-flight tracker job owns `id`'s dispatch claim: a rework claim
+  write, or a retry's tracker read. A retry pops its entry before that read, so
+  while it is in flight the claim has no runtime and no retry entry; releasing
+  it as orphaned then lost the retry and its worker (OGM #1422 and #1215, a 37s
+  read during a GitHub budget hold). The job's completion dispatches or
+  reschedules the ticket itself.
+  """
+  @spec claim_pending?(State.t(), term()) :: boolean()
+  def claim_pending?(state, id), do: running?(state, {:rework_claim, id}) or running?(state, {:retry_poll, id})
+
   @spec issue_pending?(State.t(), term()) :: boolean()
   def issue_pending?(state, id) do
     Enum.any?(state.tracker_tasks, fn

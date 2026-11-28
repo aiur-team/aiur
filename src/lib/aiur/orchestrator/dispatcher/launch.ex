@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   def recover_orphaned_claim(state, issue, active_states, terminal_states) do
     case DispatchPolicy.dispatch_decision(issue, state, active_states, terminal_states) do
       {:skip, :claimed_without_runtime} ->
-        if TrackerTasks.running?(state, {:rework_claim, issue.id}) do
+        if TrackerTasks.claim_pending?(state, issue.id) do
           {state, {:skip, :claimed_without_runtime}}
         else
           Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
