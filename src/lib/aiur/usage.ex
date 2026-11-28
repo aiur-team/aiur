@@ -10,7 +10,9 @@ defmodule Aiur.Usage do
     broker: Aiur.Usage.Provider.Broker,
     ticket: Aiur.Usage.Provider.Ticket,
     netlify: Aiur.Usage.Provider.Netlify,
-    openrouter: Aiur.Usage.Provider.OpenRouter
+    openrouter: Aiur.Usage.Provider.OpenRouter,
+    elevenlabs: Aiur.Usage.Provider.ElevenLabs,
+    fal: Aiur.Usage.Provider.Fal
   }
 
   @doc "Provider names served by this release. Add a provider adapter here."

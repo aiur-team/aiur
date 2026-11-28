@@ -140,9 +140,9 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 ### Shared provider usage
 
-The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
+ElevenLabs reports character quota use and reset from its subscription API. fal.ai's [billing API](https://fal.ai/docs/platform-apis/v1/account/billing) reports balance only; `FAL_KEY` needs `billing:usage:read`. Missing spend/reset and unsupported account quotas stay unknown. OpenAI, Anthropic, Gemini, Moonshot, and DeepSeek have no quota reader.
 
-Hosts pass `user_id` per run. Authenticated `GET /api/v1/usage/users/<user_id>` returns that user's provider-reported Minerals, costs, reset times, Gas and reusable SVG paths. Any host user id is accepted; users without records get an empty/unknown view. Requires client-token read scope.
+The APIs strip shows observation age and freshness; stale data is marked and missing values stay unknown. Hosts query per-user Minerals, costs, reset times, Gas and SVGs at authenticated `GET /api/v1/usage/users/<user_id>`; reads need client-token scope.
 
 Record charges via `POST /api/v1/usage/gas` with client-token write scope. Required JSON: `id`, non-empty `user_id`, `api`, `amount_usd`, `occurred_at`; optional: `basis`, `ticket`, `conversation_id`. Missing or blank IDs return `422 invalid_user_id`. Repeated IDs are idempotent; changed data conflict. `AIUR_GAS_BUDGET_USD` sets the optional budget.
 

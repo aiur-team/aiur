@@ -50,6 +50,7 @@
     "env": [
       "AIUR_GAS_BUDGET_USD",
       "DEEPSEEK_API_KEY",
+      "FAL_KEY",
       "MOONSHOT_API_KEY",
       "NETLIFY_AUTH_TOKEN",
       "OPENROUTER_API_KEY",
@@ -83,6 +84,7 @@
   "env": [
     "AIUR_GAS_BUDGET_USD",
     "DEEPSEEK_API_KEY",
+    "FAL_KEY",
     "MOONSHOT_API_KEY",
     "NETLIFY_AUTH_TOKEN",
     "OPENROUTER_API_KEY",

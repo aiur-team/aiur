@@ -9,6 +9,85 @@ defmodule AiurWeb.Build.UsageAPIs do
   @spec rows(term(), map(), integer(), integer() | nil) :: [map()]
   def rows(github, elevenlabs, now, github_snapshot_observed_at \\ nil), do: [github_row(github, now, github_snapshot_observed_at) | elevenlabs_rows(elevenlabs, now)]
 
+  @doc false
+  @spec provider_rows(map(), integer()) :: [map()]
+  def provider_rows(records, now) do
+    records
+    |> Enum.filter(fn {provider, record} ->
+      fields = Map.get(record, :fields) || %{}
+
+      (provider == :fal and fields[:state] != :unconfigured) or
+        (provider == :netlify and fields[:reason] != :not_observed and fields[:reason] != "not_observed")
+    end)
+    |> Enum.map(fn {_provider, record} -> provider_row(record, now) end)
+  end
+
+  defp provider_row(%{provider: :fal, fields: fields} = record, now) do
+    balance = fields[:balance]
+    remaining = if is_number(fields[:limit]) and fields[:limit] > 0 and is_number(balance), do: Usage.percent(balance / fields[:limit] * 100)
+
+    single_row(
+      "fal.ai",
+      "F",
+      remaining,
+      %{reset_at: fields[:reset_at], period: fields[:period], observed_at: SourceFreshness.ms(Map.get(record, :observed_at)), freshness: Map.get(record, :freshness)},
+      now,
+      [
+        ["Balance", amount(fields[:balance], fields[:currency])],
+        ["Actual balance", amount(fields[:actual], fields[:currency])],
+        ["Estimated balance", amount(fields[:estimate], fields[:currency])]
+      ]
+    )
+  end
+
+  defp provider_row(%{provider: :netlify, fields: fields} = record, now) do
+    credits = get_in(fields, [:credits]) || %{}
+    remaining = credits[:estimated_remaining]
+    limit = get_in(fields, [:account, :plan_credits])
+    percent = if is_number(remaining) and is_number(limit) and limit > 0, do: Usage.percent(remaining / limit * 100)
+
+    single_row("Netlify", "N", percent, %{period: "billing period", observed_at: SourceFreshness.ms(Map.get(record, :observed_at)), freshness: Map.get(record, :freshness)}, now, [
+      ["Estimated balance", amount(remaining, "credits")],
+      ["Actual balance", amount(credits[:anchor_balance], "credits")],
+      ["Estimate", credits[:estimate] || "unknown"]
+    ])
+  end
+
+  defp provider_row(record, now) do
+    fields = Map.get(record, :fields) || %{}
+    used = fields[:actual]
+    limit = fields[:limit]
+    percent = if is_number(used) and is_number(limit) and limit > 0, do: Usage.percent((limit - used) / limit * 100)
+
+    single_row(
+      Atom.to_string(Map.get(record, :provider)),
+      nil,
+      percent,
+      %{reset_at: fields[:reset_at], period: fields[:period], observed_at: SourceFreshness.ms(Map.get(record, :observed_at)), freshness: Map.get(record, :freshness)},
+      now,
+      [
+        ["Actual", number_text(used)],
+        ["Estimate", number_text(fields[:estimate])],
+        ["Status", fields[:reason] || "unknown"]
+      ]
+    )
+  end
+
+  defp single_row(name, mono, percent, meter, now, details) do
+    observed_at = Map.get(meter, :observed_at)
+    period = Map.get(meter, :period)
+    age = if is_integer(observed_at), do: max(now - observed_at, 0)
+    details = details ++ [["Period", period || "unknown"], ["Observed age", if(age, do: "#{div(age, 1000)}s", else: "unknown")], ["Freshness", to_string(Map.get(meter, :freshness) || :unknown)]]
+    reset_at = Map.get(meter, :reset_at)
+    line = %{tag: "usage", acc: [percent], reset_at: reset_at && SourceFreshness.ms(reset_at), win: period, tip: details, hold_until: nil}
+    %{Usage.row(name) | mono: mono, lines: [line], observed_at: observed_at, stale: ended?(line.reset_at, now)}
+  end
+
+  defp amount(value, unit) when is_number(value), do: "#{value} #{unit || ""}" |> String.trim()
+  defp amount(_, _), do: "unknown"
+  defp number_text(value) when is_number(value), do: to_string(value)
+  defp number_text(_), do: "unknown"
+
   defp github_row(input, now, snapshot_observed_at) do
     snapshot =
       case input do
@@ -62,21 +141,25 @@ defmodule AiurWeb.Build.UsageAPIs do
   defp elevenlabs_rows(%{state: :unconfigured}, _now), do: []
 
   defp elevenlabs_rows(snapshot, now) do
-    {percent, reset, text} =
+    {percent, reset, details} =
       case snapshot do
         %{state: :observed, window: window} ->
           {Usage.percent(RemainingMeter.percent(window.used_percent)), SourceFreshness.ms(window.reset_at),
-           "#{Usage.compact_number(window.remaining)} left · #{percent_text(RemainingMeter.percent(window.used_percent))}% left"}
+           [["Characters used", number_text(Map.get(window, :used))], ["Characters left", Usage.compact_number(window.remaining)], ["Quota", number_text(Map.get(window, :limit))]]}
 
         %{state: :failed, failure: failure} ->
-          {nil, nil, Usage.elevenlabs_failure(failure)}
+          {nil, nil, [["Status", Usage.elevenlabs_failure(failure)]]}
 
         _ ->
-          {nil, nil, "not observed yet"}
+          {nil, nil, [["Status", "not observed yet"]]}
       end
 
-    line = %{tag: "credits", acc: [percent], reset_at: reset, win: nil, tip: [["Credits left", text]], hold_until: nil}
-    [%{Usage.row("ElevenLabs") | mono: "E", lines: [line], observed_at: SourceFreshness.ms(Map.get(snapshot, :observed_at)), stale: ended?(reset, now)}]
+    observed_at = SourceFreshness.ms(Map.get(snapshot, :observed_at))
+    age = if is_integer(observed_at), do: max(now - observed_at, 0)
+    freshness = if snapshot.state == :observed, do: "fresh", else: "unknown"
+    details = details ++ [["Period", "character quota"], ["Observed age", if(age, do: "#{div(age, 1000)}s", else: "unknown")], ["Freshness", freshness]]
+    line = %{tag: "credits", acc: [percent], reset_at: reset, win: "character quota", tip: details, hold_until: nil}
+    [%{Usage.row("ElevenLabs") | mono: "E", lines: [line], observed_at: observed_at, stale: ended?(reset, now)}]
   end
 
   defp commas(number), do: number |> round() |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
