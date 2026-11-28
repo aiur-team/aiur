@@ -1,8 +1,8 @@
 defmodule Aiur.BuildQueue.ReadModel do
-  @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
+  @moduledoc "Version 1 queue view from held reconciliation evidence; refreshes unresolved native blocker cache misses."
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
-  alias Aiur.BuildQueue.ReadModel.{Eligibility, SetSources}
+  alias Aiur.BuildQueue.ReadModel.{Eligibility, NativeBlockers, SetSources}
   alias Aiur.BuildQueue.Sources.{BuildOrder, ProjectionRead}
 
   @spec build(map()) :: map()
@@ -182,50 +182,9 @@ defmodule Aiur.BuildQueue.ReadModel do
     end
   end
 
-  @doc "Returns cached-only blocker facts for queue members, with explicit misses."
+  @doc "Returns blocker facts for queue members, refreshing cache misses and preserving unresolved misses."
   @spec cached_native_blockers(map(), map(), module() | nil, MapSet.t(String.t())) :: map()
-  def cached_native_blockers(document, observations, tracker, terminal_states) do
-    build_order_ids =
-      for item <- document.items,
-          queue = Enum.find(document.queues, &(&1.id == item.queue_id)),
-          queue && queue.kind == :build_order,
-          do: item.issue_id
-
-    ids = document.items |> Enum.map(& &1.issue_id) |> Enum.uniq() |> Enum.reject(&(&1 in build_order_ids))
-
-    Map.new(ids, &{&1, cached_blocker_result(&1, observations, tracker, terminal_states)})
-    |> Map.reject(fn {_id, result} -> result == :skip end)
-  end
-
-  defp cached_blocker_result(id, observations, tracker, terminal_states) do
-    issue = %Aiur.Issue{id: id, identifier: id, title: "", state: "todo"}
-
-    case cached_blocker_fetch(issue, tracker) do
-      {:ok, hydrated} -> {:ok, Enum.map(hydrated.blocked_by, &cached_blocker(&1, observations, terminal_states))}
-      {:error, :cache_miss} -> {:unknown, :blockers_not_observed}
-      {:error, :unsupported} -> :skip
-      {:error, reason} -> {:unknown, reason}
-      :skip -> :skip
-    end
-  end
-
-  defp cached_blocker_fetch(issue, tracker) do
-    if tracker && Code.ensure_loaded?(tracker) && function_exported?(tracker, :cached_blocked_by, 1),
-      do: tracker.cached_blocked_by(issue),
-      else: :skip
-  end
-
-  defp cached_blocker(%{identifier: number, state: state}, observations, terminal_states) do
-    terminal? = is_binary(state) and MapSet.member?(terminal_states, String.downcase(String.trim(state)))
-    open? = not match?(%{open?: false}, Map.get(observations, to_string(number))) and not terminal?
-
-    %{number: String.to_integer(to_string(number)), state: state, open?: open?}
-  end
-
-  defp cached_blocker(%{identifier: number}, _observations, _terminal_states),
-    do: %{number: String.to_integer(to_string(number)), state: nil, open?: true}
-
-  defp cached_blocker(_blocker, _observations, _terminal_states), do: %{number: nil, state: nil, open?: true}
+  def cached_native_blockers(document, observations, tracker, terminal_states), do: NativeBlockers.read(document, observations, tracker, terminal_states)
 
   defp build_order_blockers(document, observations) do
     document.edges

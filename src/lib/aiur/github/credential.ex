@@ -23,7 +23,7 @@ defmodule Aiur.GitHub.Credential do
 
   @type kind :: :app_installation | :machine_user | :human
   @type source :: :legacy | :app | :env
-  @type intent :: :read | :write
+  @type intent :: :read | :write | :label_applier
   @type token_type :: :classic_pat | :fine_grained_pat | :oauth | :app_installation | :unknown
 
   @type t :: %__MODULE__{
@@ -98,6 +98,8 @@ defmodule Aiur.GitHub.Credential do
   """
   @spec eligible?(t(), intent()) :: boolean()
   def eligible?(%__MODULE__{}, :read), do: true
+  def eligible?(%__MODULE__{id: "primary", primary?: true}, :label_applier), do: true
+  def eligible?(%__MODULE__{}, :label_applier), do: false
   def eligible?(%__MODULE__{kind: :human}, :write), do: false
   def eligible?(%__MODULE__{writes?: writes?}, :write), do: writes?
 

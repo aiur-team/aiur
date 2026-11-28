@@ -22,6 +22,27 @@ return 409, and an unavailable conversation index returns 503.
 
 The route uses the dashboard's read authorization.
 
+## Ticket message thread
+
+`GET /api/v1/ID/thread?after=POS&limit=N` returns the worker conversation's
+agent messages and operator messages after position `after` (default 0),
+oldest first. `limit` defaults to 50 and allows at most 200.
+
+Command anchors in the same span appear as `command` entries carrying their
+`decision_id`, ordered by position with the messages.
+
+| Field | Meaning |
+| --- | --- |
+| `entries` | `pos`, `role`, `kind`, `text`, `at`, `delivery_id`; a `command` entry has `pos` and `decision_id` only. |
+| `delivery_id` | The operator message's send-receipt `request_id`. |
+| `next_after` | Pass as `after` for the next page; equals `head_pos` once caught up. |
+| `head_pos` | The conversation's latest position. |
+
+Text is masked the same way as the full conversation display, with no reveal
+option. A ticket without a worker conversation returns 404 `thread_not_found`,
+duplicate matches return 409, and a malformed `after` or `limit` returns 422.
+Poll it after each `ticket.ID.agent.thread.changed` event.
+
 ## Where transcripts live
 
 The daemon stores journals beneath its decision-state directory:

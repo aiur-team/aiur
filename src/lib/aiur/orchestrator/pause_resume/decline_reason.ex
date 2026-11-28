@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(reason, issue, state, opts \\ [])
 
   def resume_decline_reason(:invalid_issue, _issue, _state, _opts), do: :invalid_tracker_issue
+  def resume_decline_reason(:epic, _issue, _state, _opts), do: :epic_not_dispatchable
   def resume_decline_reason(:contradictory_state_labels, _issue, _state, _opts), do: :contradictory_tracker_state_labels
   def resume_decline_reason(:not_routable, _issue, _state, _opts), do: :not_routable_to_worker
   def resume_decline_reason(:unauthorized, _issue, _state, _opts), do: :dispatch_not_authorized
@@ -31,6 +32,8 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(:executor_owned, _issue, _state, _opts), do: :ticket_executor_owned
   def resume_decline_reason(:spend_cap_exhausted, _issue, _state, _opts), do: :ticket_spend_cap_exhausted
   def resume_decline_reason(:spend_cap_unavailable, _issue, _state, _opts), do: :ticket_spend_cap_unavailable
+  def resume_decline_reason({:foreign_owner, label}, _issue, _state, _opts), do: {:foreign_ticket_owned, label}
+  def resume_decline_reason(:foreign_owner, _issue, _state, _opts), do: :foreign_ticket_owned
 
   def resume_decline_reason(reason, issue, _state, _opts)
       when reason in [:inactive_state, :no_agent_work_state, :terminal_state],

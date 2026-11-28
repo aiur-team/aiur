@@ -383,6 +383,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
           :tracker_state,
           :backend,
           :agent_family,
+          :route,
           :requested_model,
           :resolved_model,
           :effort,

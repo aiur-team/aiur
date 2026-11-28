@@ -24,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
         identity: identity(),
         agent_family: :codex,
         backend: :codex,
+        route: "codex:gpt-5.6-terra:high",
         requested_model: "gpt-5.6-terra",
         resolved_model: "gpt-5.6-terra-2026",
         live_conversation: %{generation_handle: "conversation:" <> String.duplicate("a", 43)}
@@ -72,6 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
 
     metadata = Map.new(view.metadata, &{&1.key, &1.value})
     assert metadata.agent == "Codex"
+    assert metadata.route == "codex:gpt-5.6-terra:high"
     assert metadata.requested_model == "gpt-5.6-terra"
     assert metadata.resolved_model == "gpt-5.6-terra-2026"
     refute Map.has_key?(metadata, :generation)
@@ -81,13 +83,14 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
   test "labels unknown optional facts as unknown rather than fabricating them" do
     view =
       Presenter.present(
-        row(%{requested_model: nil, resolved_model: nil, agent_family: nil}),
+        row(%{route: nil, requested_model: nil, resolved_model: nil, agent_family: nil}),
         snapshot(%{source: %{worker_generation: nil, session_id: nil}})
       )
 
     metadata = Map.new(view.metadata, &{&1.key, &1.value})
     assert metadata.requested_model == "Unknown"
     assert metadata.resolved_model == "Unknown"
+    assert metadata.route == "Unknown"
     assert metadata.agent == "Unknown"
     refute Map.has_key?(metadata, :generation)
     refute Map.has_key?(metadata, :session)

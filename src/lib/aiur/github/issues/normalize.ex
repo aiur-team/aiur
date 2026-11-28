@@ -57,6 +57,7 @@ defmodule Aiur.GitHub.Issues.Normalize do
       executor_owner: IssueExecutorOwner.from_labels(label_names, prefix),
       queued: queued_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
+      sub_issues: normalized_sub_issues(gh_issue),
       label_descriptions:
         Map.new(labels, fn label -> {String.downcase(label["name"] || ""), label["description"]} end) |> Map.reject(fn {_name, description} -> not is_binary(description) or description == "" end),
       assigned_to_worker: true,
@@ -64,6 +65,10 @@ defmodule Aiur.GitHub.Issues.Normalize do
       updated_at: parse_datetime(gh_issue["updated_at"])
     }
   end
+
+  defp normalized_sub_issues(%{"sub_issues" => issues}) when is_list(issues), do: issues
+  defp normalized_sub_issues(%{"subIssues" => %{"nodes" => issues}}) when is_list(issues), do: issues
+  defp normalized_sub_issues(_issue), do: nil
 
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{} = issue) do
@@ -85,7 +90,13 @@ defmodule Aiur.GitHub.Issues.Normalize do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case Access.cycle_fetch({:blocked_by, id, opts[:record_max_age_ms]}, fn -> fetch_blocked_by(id, opts) end) do
+    fetch_and_hydrate_blocked_by(issue, opts)
+  end
+
+  def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  defp fetch_and_hydrate_blocked_by(%Issue{id: id} = issue, opts) do
+    case Access.cycle_fetch({:blocked_by, id, opts[:record_max_age_ms], opts[:revalidate]}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -96,8 +107,6 @@ defmodule Aiur.GitHub.Issues.Normalize do
         {:error, {:unexpected, other}}
     end
   end
-
-  def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
 
   defp fetch_blocked_by(id, opts) do
     case Keyword.get(opts, :revalidate) do

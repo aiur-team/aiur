@@ -131,6 +131,22 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert hd(model.queues).waiting_reason == "GitHub dependencies unknown"
   end
 
+  test "an unobserved cached blocker read falls back to tracker hydration" do
+    tracker = Module.concat(__MODULE__, CacheMissWithRefresh)
+
+    Code.compile_string("""
+    defmodule #{inspect(tracker)} do
+      def cached_blocked_by(_issue), do: {:error, :cache_miss}
+      def hydrate_blocked_by(issue), do: {:ok, %{issue | blocked_by: []}}
+    end
+    """)
+
+    queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
+    item = %Item{issue_id: "11", queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
+
+    assert %{"11" => {:ok, []}} = ReadModel.cached_native_blockers(%{queues: [queue], items: [item]}, %{}, tracker, MapSet.new(["closed"]))
+  end
+
   test "unknown GitHub blocker evidence does not permanently prevent starting" do
     projection = %{issue_id: "11", state: :ready, verdict: :ready}
     member = %Item{issue_id: "11", queue_id: "q", position: 0, hold: nil, override: nil, promoted_at: nil, added_at: ~U[2026-10-15 00:00:00Z]}

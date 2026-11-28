@@ -52,7 +52,22 @@ defmodule AiurWeb.Api.UsageControllerTest do
       fields: %{credits: %{estimated_remaining: nil}}
     }
 
-    opts = [meter_views: %{}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{}, ticket_usage: %{}, netlify_usage: netlify]
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    reset = DateTime.add(now, 86_400, :second)
+
+    opts = [
+      meter_views: %{},
+      github_quota: %{state: :unknown, windows: %{}},
+      broker_usage: %{},
+      ticket_usage: %{},
+      netlify_usage: netlify,
+      now: now,
+      elevenlabs_api_key: "test-key",
+      elevenlabs_request_fun: fn _ -> {:ok, %{status: 200, body: %{"character_count" => 15, "character_limit" => 100, "next_character_count_reset_unix" => DateTime.to_unix(reset)}}} end,
+      fal_api_key: "test-key",
+      fal_request_fun: fn _ -> {:ok, %{status: 200, body: %{"credits" => %{"current_balance" => 25.0, "currency" => "USD"}}}} end
+    ]
+
     previous = Application.get_env(:aiur, :usage_read_opts)
     Application.put_env(:aiur, :usage_read_opts, opts)
 
@@ -66,7 +81,12 @@ defmodule AiurWeb.Api.UsageControllerTest do
 
     summary = request(:get, "/api/v1/usage")
     assert summary.status == 200
-    assert Jason.decode!(summary.resp_body) == Aiur.Usage.json_snapshot(opts)
+    summary_body = Jason.decode!(summary.resp_body)
+    assert summary_body == Aiur.Usage.json_snapshot(opts)
+    assert summary_body["providers"]["elevenlabs"]["fields"]["actual"] == 15
+    assert summary_body["providers"]["elevenlabs"]["fields"]["period"] == "character quota"
+    assert summary_body["providers"]["elevenlabs"]["fields"]["reset_at"] == DateTime.to_iso8601(reset)
+    assert summary_body["providers"]["fal"]["fields"]["balance"] == 25.0
     netlify_response = request(:get, "/api/v1/usage/netlify")
     assert netlify_response.status == 200
     assert Jason.decode!(netlify_response.resp_body) == elem(CLI.payload("netlify", opts), 1)

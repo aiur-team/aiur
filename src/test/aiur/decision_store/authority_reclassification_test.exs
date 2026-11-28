@@ -83,7 +83,7 @@ defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
              )
   end
 
-  test "Executor cannot reclassify legacy attention Commands", %{dir: dir} do
+  test "Executor can answer an engineering attention without reclassification", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
     assert {:ok, %{decision: decision}} =
@@ -97,10 +97,14 @@ defmodule Aiur.DecisionStore.AuthorityReclassificationTest do
                }
              )
 
-    assert {:error, :human_required_basis_cannot_be_reclassified} =
-             DecisionStore.reclassify_authority(
+    assert decision.authority == :supervisor_allowed
+    assert decision.reversibility == :reversible
+
+    assert {:ok, %{status: :accepted, decision: %{answer: %{actor: %{kind: :executor, id: "executor-1"}}}}} =
+             DecisionStore.answer(
                decision.decision_id,
-               %{expected_version: decision.version, executor_id: "executor-1", rationale: "No operator needed."},
+               %{"expected_version" => decision.version, "idempotency_key" => "attention-engineering-answer", "custom_response" => "Use the accepted format."},
+               [actor: %{kind: :executor, id: "executor-1"}],
                pid
              )
   end

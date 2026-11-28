@@ -14,21 +14,19 @@ defmodule Aiur.GitHub.CredentialSelector do
      (`:read` or `:write`). Core and GraphQL are separate GitHub budgets on
      separate windows and are therefore selected independently: REST core sitting
      near-idle is not headroom a GraphQL query can spend.
-  2. Filters the registry to credentials eligible for that intent.
-     Reads may use the whole pool; writes may only use credentials explicitly
-     marked `writes: true`, which never includes a `human` credential.
+  2. Filters the registry to credentials eligible for that intent. The order
+     is App installations, machine users, then human read-only tokens. Dispatch
+     label provenance uses only the legacy daemon identity.
   3. Drops credentials that are **blocked**: observed `remaining == 0` inside a
-     window that has not yet reset. If that leaves nothing, the block is ignored
-     and the primary is used — a request refused locally and a request refused by
-     GitHub cost the same nothing, but only one of them tells us the window
+     window that has not yet reset. If every eligible identity is blocked, the
+     primary eligible identity is tried so GitHub can confirm whether the window
      rolled.
   4. Scores each survivor by **remaining budget for that resource**:
      an observed fresh window contributes its `remaining`; a credential with no
      observation contributes an optimistic `@assumed_remaining`, because a
      credential the daemon has not called is the one most likely to be full.
-  5. Picks the highest score. **Ties break toward the primary**, then by registry
-     order. This is what makes the single-credential case bit-identical: one
-     candidate, no comparison, the legacy token.
+  5. Picks the highest score in the highest tier that has usable headroom. Ties
+     break toward the primary, then by registry order.
 
   ## What it does not do
 
@@ -112,11 +110,51 @@ defmodule Aiur.GitHub.CredentialSelector do
   end
 
   defp choose_from(credentials, resource, intent, opts) do
-    credentials
-    |> Enum.filter(&Credential.eligible?(&1, intent))
-    |> select_from(resource, opts)
-    |> only_eligible(intent)
+    eligible = Enum.filter(credentials, &Credential.eligible?(&1, intent))
+
+    case select_tier(eligible, resource, intent, opts) do
+      nil -> exhausted_fallback(eligible)
+      selected -> only_eligible(selected, intent)
+    end
   end
+
+  defp select_tier([], _resource, _intent, _opts), do: nil
+
+  defp select_tier(eligible, resource, intent, opts) do
+    tier = eligible |> Enum.map(&tier/1) |> Enum.min()
+    candidates = Enum.filter(eligible, &(tier(&1) == tier))
+    selected = select_from(candidates, resource, opts)
+
+    if exhausted_tier?(selected, candidates, resource, opts) do
+      remaining = Enum.reject(eligible, &(tier(&1) == tier))
+
+      select_tier(remaining, resource, intent, opts)
+    else
+      selected
+    end
+  end
+
+  defp select_from([], _resource, _opts), do: nil
+  defp select_from([only], _resource, _opts), do: only
+
+  defp select_from(eligible, resource, opts) do
+    primary = fallback(eligible)
+    best(eligible, resource, primary, opts, exhausted_fallback?: false)
+  end
+
+  defp tier(%Credential{kind: :app_installation}), do: 0
+  defp tier(%Credential{kind: :machine_user}), do: 1
+  defp tier(%Credential{kind: :human}), do: 2
+
+  defp exhausted_tier?(nil, _candidates, _resource, _opts), do: true
+
+  defp exhausted_tier?(_selected, candidates, resource, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    Enum.all?(candidates, &(score(&1, resource, now, opts) == :blocked))
+  end
+
+  defp exhausted_fallback([]), do: nil
+  defp exhausted_fallback(eligible), do: Enum.find(eligible, & &1.primary?) || List.first(eligible)
 
   # Every candidate list below is already filtered by intent, and the
   # exhausted-credential fallback is drawn from that same filtered list rather
@@ -125,10 +163,6 @@ defmodule Aiur.GitHub.CredentialSelector do
   # credential in every ordinary deployment — and therefore write-eligible — but
   # becomes whatever happens to be first when the legacy credential does not
   # resolve. A pool whose legacy token was missing could hand a write to a human.
-  defp select_from([], _resource, _opts), do: nil
-  defp select_from([only], _resource, _opts), do: only
-  defp select_from(eligible, resource, opts), do: best(eligible, resource, fallback(eligible), opts)
-
   defp fallback(eligible), do: Enum.find(eligible, & &1.primary?) || List.first(eligible)
 
   # The boundary. Selection above may be reordered, extended or rewritten; no
@@ -157,6 +191,7 @@ defmodule Aiur.GitHub.CredentialSelector do
   credential and leave the pool idle.
   """
   @spec intent(map()) :: intent()
+  def intent(%{github_intent: :label_applier}), do: :label_applier
   def intent(%{method: :get}), do: :read
 
   def intent(%{url: url} = request) when is_binary(url) do
@@ -229,7 +264,7 @@ defmodule Aiur.GitHub.CredentialSelector do
 
   defp resource(request), do: Budget.request_resource(request)
 
-  defp best(credentials, resource, primary, opts) do
+  defp best(credentials, resource, primary, opts, selection_opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     scored = Enum.map(credentials, &{&1, score(&1, resource, now, opts)})
     open = Enum.reject(scored, fn {_credential, score} -> score == :blocked end)
@@ -239,17 +274,18 @@ defmodule Aiur.GitHub.CredentialSelector do
       # request locally, hand it to the fallback and let GitHub be the authority
       # on whether the window has rolled. `primary` here is the fallback drawn
       # from the eligible list, never the registry's first entry.
-      [] -> primary
+      [] -> if(Keyword.get(selection_opts, :exhausted_fallback?, true), do: primary || List.first(credentials), else: nil)
       candidates -> pick(candidates, primary)
     end
   end
 
-  defp pick(candidates, primary) do
+  defp pick(candidates, _primary) do
     {best_credential, best_score} = Enum.max_by(candidates, fn {_credential, score} -> score end)
 
-    if primary && Enum.any?(candidates, fn {credential, score} -> credential.id == primary.id and score == best_score end),
-      do: primary,
-      else: best_credential
+    case Enum.find(candidates, fn {credential, score} -> credential.primary? and score == best_score end) do
+      {%Credential{} = preferred, _score} -> preferred
+      nil -> best_credential
+    end
   end
 
   # `:blocked` when the credential's own window says it has nothing left and has

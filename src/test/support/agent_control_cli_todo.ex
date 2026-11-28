@@ -58,6 +58,10 @@ defmodule Aiur.AgentControlCLITodoSupport do
         send(parent, {:todo_add_label, id, label})
         add_result.(id, label)
       end,
+      record_queue_write: fn id, label ->
+        send(parent, {:todo_record_queue_write, id, label})
+        :ok
+      end,
       remove_label: fn id, label ->
         send(parent, {:todo_remove_label, id, label})
         remove_result.(id, label)

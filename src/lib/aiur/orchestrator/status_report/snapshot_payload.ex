@@ -382,6 +382,9 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
       dispatch_decline_reason: Map.get(state.dispatch_declines, issue.id),
+      dispatch_authorization: issue.dispatch_authorization,
+      dispatch_authorization_actor: issue.dispatch_authorization_actor,
+      dispatch_authorization_reason: issue.dispatch_authorization_reason,
       waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
       capacity_reason: capacity_waiting(state, idle_evidence_waiting_reason(idle_evidence, release)),
       claim_released?: not is_nil(release),
@@ -419,6 +422,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     %{
       backend: backend,
       agent_family: CodingAgent.family_for(backend),
+      route: Map.get(execution, :route),
       requested_model: Map.get(execution, :requested_model),
       resolved_model: Map.get(execution, :resolved_model),
       effort: Map.get(execution, :effort),

@@ -9,6 +9,9 @@ defmodule Aiur.AgentTools.Errors do
   @spec payload(term()) :: map()
   def payload({:history_export, reason}), do: HistoryExportErrors.payload(reason)
 
+  def payload({:no_change, reason}),
+    do: %{"error" => %{"reason" => "no_change_#{reason_code(reason)}", "message" => no_change_message(reason)}}
+
   def payload(:invalid_epic_arguments),
     do: %{
       "error" => %{
@@ -458,4 +461,13 @@ defmodule Aiur.AgentTools.Errors do
   end
 
   defp feature_error(code, message), do: %{"error" => %{"code" => code, "message" => message}}
+
+  defp reason_code({:missing, key}), do: "missing_#{key}"
+  defp reason_code(reason), do: to_string(reason)
+
+  defp no_change_message({:missing, key}), do: "`aiur_finish_no_change.#{key}` is required; no handoff was made."
+  defp no_change_message(:invalid_commit), do: "Commit must be a full 40-character SHA; no handoff was made."
+  defp no_change_message(:invalid_arguments), do: "`aiur_finish_no_change` expects commit, command, and output evidence."
+  defp no_change_message(:unavailable), do: "No-change handoff is unavailable in this runtime."
+  defp no_change_message(reason), do: "No-change handoff failed: #{inspect(reason)}"
 end

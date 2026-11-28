@@ -77,6 +77,10 @@ defmodule Aiur.Orchestrator.ResumeDeclineReasonTest do
     assert translate(:parked) == :ticket_parked
   end
 
+  test "epics get a named refusal" do
+    assert translate(:epic) == :epic_not_dispatchable
+  end
+
   test "an unknown decline reason is a named refusal, not a crash" do
     log =
       capture_log(fn ->
@@ -88,4 +92,6 @@ defmodule Aiur.Orchestrator.ResumeDeclineReasonTest do
 
   defp union_atoms({:type, _line, :union, members}), do: Enum.flat_map(members, &union_atoms/1)
   defp union_atoms({:atom, _line, atom}), do: [atom]
+  defp union_atoms({:type, _line, :tuple, members}), do: Enum.flat_map(members, &union_atoms/1)
+  defp union_atoms(_other), do: []
 end

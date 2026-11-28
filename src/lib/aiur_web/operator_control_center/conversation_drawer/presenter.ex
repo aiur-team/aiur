@@ -167,6 +167,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
     [
       %{key: :agent, label: "Agent", value: known_label(Map.get(row, :agent_family))},
       %{key: :backend, label: "Backend", value: known_label(Map.get(row, :backend))},
+      %{key: :route, label: "Route", value: known(Map.get(row, :route))},
       %{key: :requested_model, label: "Requested model", value: known(Map.get(row, :requested_model))},
       %{key: :resolved_model, label: "Resolved model", value: known(Map.get(row, :resolved_model))}
     ]

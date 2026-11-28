@@ -1,6 +1,7 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
 Aiur.AgentGitMergeQueuePushGuardTest	refuses detached pushes to a branch ref after handoff	#6538	2026-12-31
+Aiur.AppServer.AgentRelayScriptTest	detached relay passes its socket, journal and process lifecycle contracts	#8210	2026-12-12
 Aiur.AppServer.TurnLoopTest	active relay turn keeps a sustained output flood below one hundred mailbox messages	#6476	2026-12-31
 Aiur.BuildPriorityTest	admitted commands and nested leases inherit priority once and preserve exit status	#7291	2026-11-13
 Aiur.BuildQueue.BuildOrderSourceTest	an unresponsive projection is tried once per cycle while an independent list promotes	#7861	2026-11-22
@@ -27,5 +28,7 @@ Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalida
 Aiur.Scripts.AgentWorktreeTest	create checks out the PR head in a unique worktree with a unique branch	#7539	2026-11-20
 Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding pane ids	#7282	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
+AiurWeb.DashboardLive.RetainedActionsTest	a revision uses the rendered retained version when the overview has an older same-ID row	#8218	2026-12-12
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
+AiurWeb.StreamdeckChannelTurnsTest	real transcript turns appear on pushed keys, selection scrolls and LIVE restores the newest entry	#8232	2026-12-12
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13

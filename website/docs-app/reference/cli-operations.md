@@ -153,6 +153,17 @@ The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashb
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
 
+`POST /api/v1/:issue_identifier/messages` also takes two optional fields:
+
+| Field | Effect |
+| --- | --- |
+| `delivery` | `steer` or `sync` for this message only. `steer` delivers mid-turn when the worker supports it and otherwise waits for the next turn; the ticket's listen mode is unchanged, and a muted ticket stays muted. |
+| `attachments` | Up to 8 `{name, mime_type, data}` items, `data` base64, with Command media types and size caps. Each file is written to `.aiur/inbox/<message_id>/` in the worker's workspace and named in the message text. They need a running worker whose workspace is on this host (409 `attachments_need_local_worker`). |
+
+`GET /api/v1/:issue_identifier/messages/:request_id` returns that message's receipt: `queue_status`, `receipt` (`accepted`, `held_async`, `harness_queued`, `read` or `failed`), the `listener_mode` it was delivered under, and its `delivered_at`, `read_at` and `consumed_at`.
+
+A request id sent to another ticket returns 404. Receipts of messages to a running worker do not survive a daemon restart.
+
 ### Restart semantics
 
 | Restart case | Result |
@@ -162,7 +173,8 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 | Refreshed release fails during startup | When `aiurdev restart` rebuilds and the new release exits before becoming ready, restart restores the saved previous release at the configured release path before booting it with the same keep-agents handoff. This keeps its runtime assets available to the running daemon. It reports the previous build SHA and first startup error, and raises a critical `system.restart.rollback` alert. |
 | Installed `aiur` | Bounces the pinned release without building. |
 | Development release | Refreshes between stop and start, then boots current code. |
-| Daemon already stopped | Starts it. |
+| Daemon already stopped | Starts it, with or without `--keep-agents` (there are no agents to hand off). |
+| Interrupted (`SIGINT`, `SIGTERM`, `SIGHUP`, for example a caller's `timeout`) | Before the stop: aborts with nothing changed. After the stop: finishes the start, then exits 128 + the signal number. |
 | Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
 | Startup boot fails | Cleans up and retries once; exits nonzero if the retry also fails. |
 
@@ -254,7 +266,7 @@ The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` 
 
 Routing sends these Commands directly to the human with cause `executor_originated`.
 
-Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
+Executors cannot answer Commands they raised through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
 ## Build history commands — [epic, feature, lane and history export commands](/reference/build-history-commands)
 

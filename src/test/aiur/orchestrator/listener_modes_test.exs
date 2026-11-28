@@ -50,6 +50,12 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     assert File.read!(ModeStore.path_for(id)) == bytes
   end
 
+  test "session execution info retains the route for status reporting", %{state: state, issue: issue} do
+    {:noreply, updated} = State.handle_session_execution_info(state, issue.id, %{backend: "codex", route: "codex:gpt-5.5:high"})
+
+    assert updated.running[issue.id].session_execution.route == "codex:gpt-5.5:high"
+  end
+
   test "same backend and resolved model updates do not rebroadcast", %{state: state, id: id, issue: issue} do
     {:noreply, first} = State.handle_session_execution_info(state, issue.id, %{backend: "claude"})
     assert_received {:listen_mode_changed, ^id, _}
