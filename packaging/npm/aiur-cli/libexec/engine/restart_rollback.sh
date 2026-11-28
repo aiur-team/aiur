@@ -119,7 +119,7 @@ restart_after_start_attempt() {
     aiur_restart_daemon_state="running"
     [ "$keep_agents" -eq 0 ] || report_restart_handoff
     aiur_restart_cleanup_artifacts
-    trap - EXIT INT TERM
+    trap - EXIT
     return 0
   fi
 
@@ -143,5 +143,5 @@ restart_after_start_attempt() {
   fi
   [ "$keep_agents" -eq 0 ] || report_restart_handoff
   aiur_restart_cleanup_artifacts
-  trap - EXIT INT TERM
+  trap - EXIT
 }
