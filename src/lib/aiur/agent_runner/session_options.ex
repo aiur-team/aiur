@@ -16,6 +16,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
   @spec resolve_session_options(Issue.t(), keyword(), worker_host()) ::
           {String.t(), boolean(), keyword()}
   def resolve_session_options(issue, opts, worker_host) do
+    issue = maybe_apply_conversation_route(issue, opts)
     backend = CodingAgent.backend_for(issue)
     effort = CodingAgent.effort_for(issue)
 
@@ -55,6 +56,23 @@ defmodule Aiur.AgentRunner.SessionOptions do
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}
+  end
+
+  # A new on-demand conversation has no complexity label. Resolve its default
+  # route from the lowest complexity entry, matching the default route used
+  # for the least complex ticket. Existing ticket routing remains untouched.
+  defp maybe_apply_conversation_route(issue, opts) do
+    if Keyword.get(opts, :on_demand_conversation, false) and is_nil(CodingAgent.complexity_level(issue)) do
+      route = Keyword.get(opts, :conversation_route) || Config.agent_routing()[1] || List.first(Config.agent_priority())
+
+      if is_binary(route) do
+        %{issue | dispatch_selection: %{route: route}}
+      else
+        issue
+      end
+    else
+      issue
+    end
   end
 
   defp config_for_accounts(opts), do: Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)

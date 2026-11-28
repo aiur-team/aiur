@@ -63,7 +63,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert :ok = SessionLifecycle.report_session_execution(self(), issue, session)
 
-      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", requested_model: "opus", effort: nil}}, 1000
+      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", route: "claude-repl:opus", requested_model: "opus", effort: nil}}, 1000
     end
   end
 
@@ -149,6 +149,25 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "model resolution in resolve_session_options/3" do
+    test "on-demand conversations use the complexity-one route for model and effort defaults" do
+      route = "codex:gpt-5.5:high"
+
+      issue = %Issue{id: "conversation-route", identifier: "CONVERSATION-ROUTE"}
+
+      {backend, false, session_opts} =
+        SessionLifecycle.resolve_session_options(issue, [on_demand_conversation: true, conversation_route: route], nil)
+
+      assert backend == Aiur.Config.RoutingValue.routing_backend(route)
+      assert Keyword.fetch!(session_opts, :effort) == Aiur.Config.RoutingValue.routing_effort(route)
+
+      expected_model =
+        route
+        |> Aiur.Config.RoutingValue.routing_model()
+        |> then(&CodingAgent.resolve_model(backend, &1))
+
+      assert Keyword.fetch!(session_opts, :model) == expected_model
+    end
+
     test "deployment auth env contains only the selected backend credential" do
       inherited = %{
         "CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token",
