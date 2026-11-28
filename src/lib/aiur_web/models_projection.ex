@@ -2,7 +2,6 @@ defmodule AiurWeb.ModelsProjection do
   @moduledoc "Configured model routes and their current dispatch and usage state."
 
   alias Aiur.{Accounts, CodingAgent, Config, ModelAvailability}
-  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.Config.RoutingValue
 
   @windows ["five_hour", "seven_day", "hourly", "weekly", "monthly"]
@@ -78,9 +77,9 @@ defmodule AiurWeb.ModelsProjection do
   end
 
   defp dispatch_state(route, backend, availability, now, opts) do
-    dispatchable = safe(fn -> CodingAgent.RouteCredentials.usable?(route) end, false)
+    dispatchable = safe(fn -> CodingAgent.route_usable?(route) end, false)
     limited = not ModelAvailability.available?(backend, state: availability, now: now)
-    missing_key = CodingAgent.RouteCredentials.missing_key_env(route)
+    missing_key = CodingAgent.route_missing_key_env(route)
     capacity = Keyword.get_lazy(opts, :capacity, fn -> capacity_status(route) end)
 
     %{
@@ -164,7 +163,7 @@ defmodule AiurWeb.ModelsProjection do
   end
 
   defp capacity_status(route) do
-    case safe(fn -> CapacityGate.record([route]) end, nil) do
+    case safe(fn -> CodingAgent.capacity_record([route]) end, nil) do
       %{candidates: [%{status: status, reason: reason}]} when status in [:allow, :hold, :defer] -> %{status: status, reason: reason}
       _ -> nil
     end

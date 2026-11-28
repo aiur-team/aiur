@@ -497,4 +497,4 @@ The daemon records intervals between successful dispatch observations;
 transitions between polls have poll-cadence precision.
 ## Models
 
-The **Models** dashboard view lists configured backend/model/effort routes in dispatch order, configured accounts and their freshness, usage-window percentages, reset times and observation freshness. Missing meter data is shown as unknown. A route can be unavailable when its credential is missing or a provider limit is in effect. See the [Models API](/apis/models) for the JSON contract.
+The **Models** view lists configured routes in dispatch order, their accounts, usage windows, resets and freshness. Missing meter data stays unknown. It also shows routes held by missing credentials, capacity reserve or provider limits. See the [Models API](/apis/models) for JSON details.
