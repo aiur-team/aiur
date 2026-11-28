@@ -50,6 +50,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.main.ci.flake_rerun", "ci:auto"},
     {"system.main.ci.canary", "attention:auto"},
     {"system.main.ci.unavailable", "attention:auto"},
+    {"system.release.failed", "attention:auto"},
+    {"system.release.failed.resolved", "attention:auto"},
     {"system.main.fixer.*", "attention:auto"},
     {"system.agent.synthetic_load_cap", "attention:auto"},
     {"ticket.*.ci.passed", "ci:auto"},

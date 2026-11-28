@@ -326,6 +326,8 @@ defmodule Aiur.MainWatch do
       |> Map.put(:last_error, nil)
 
     data = observe(data, result.observations, now)
+    {release_runs, release_events} = observe_release_runs(Map.get(result, :release_runs, []), data.release_runs)
+    data = %{data | release_runs: release_runs, pending: data.pending ++ release_events}
     data = %{data | commits: retained_commits(data.commits, data.state.history)}
     data = %{data | pending: data.pending ++ result.flake_events, last_completed_at: completed_at(result, server.data)}
     data = canary(data, result, now, server)
@@ -345,6 +347,37 @@ defmodule Aiur.MainWatch do
       end
 
     save(%{server | data: data})
+  end
+
+  defp observe_release_runs(runs, previous) do
+    runs = Enum.sort_by(runs, & &1.id)
+
+    Enum.reduce(runs, {previous, []}, &observe_release_run/2)
+  end
+
+  defp observe_release_run(run, {states, events}) do
+    current = Map.get(states, run.name, %{failures: 0, active: false, last_run_id: 0})
+
+    cond do
+      run.id <= current.last_run_id -> {states, events}
+      run.conclusion in ["failure", "cancelled"] -> release_failure(run, current, states, events)
+      run.conclusion == "success" -> release_success(run, current, states, events)
+      true -> {states, events}
+    end
+  end
+
+  defp release_failure(run, current, states, events) do
+    failures = current.failures + 1
+    alert = failures == 2 and not current.active
+    payload = %{workflow: run.name, run_id: run.id, conclusion: run.conclusion, url: run.url}
+    emitted = if alert, do: events ++ [{"system.release.failed", payload}], else: events
+    next = %{failures: failures, active: current.active or alert, last_run_id: run.id}
+    {Map.put(states, run.name, next), emitted}
+  end
+
+  defp release_success(run, current, states, events) do
+    emitted = if current.active, do: events ++ [{"system.release.failed.resolved", %{workflow: run.name, run_id: run.id, url: run.url}}], else: events
+    {Map.put(states, run.name, %{failures: 0, active: false, last_run_id: run.id}), emitted}
   end
 
   defp status_error({:github, :auth, %{status: 401, caller: caller, credential: credential}}),
@@ -409,7 +442,9 @@ defmodule Aiur.MainWatch do
   defp outcome_payload(outcomes) when is_list(outcomes), do: Enum.map(outcomes, fn {id, result} -> %{run_id: id, result: outcome_payload(result)} end)
 
   defp attention?("system.main.ci.flake_rerun", %{outcome: outcome}) when is_list(outcome), do: Enum.any?(outcome, &(&1.result.status != "ok"))
-  defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]
+
+  defp attention?(topic, _payload),
+    do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun", "system.release.failed"]
 
   defp publication_key(topic, payload) do
     id = :crypto.hash(:sha256, :erlang.term_to_binary({topic, payload})) |> Base.encode16(case: :lower)
