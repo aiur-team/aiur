@@ -272,6 +272,7 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       # The sweep saves and deletes in one task, off the Orchestrator (#2743).
       assert_receive {:workspace_cleanup_finished, "610", :ok}, 10_000
       refute File.exists?(terminal_workspace)
+      refute_receive {:workspace_cleanup_finished, "611", _result}, 500
       assert File.read!(Path.join(active_workspace, "dirty.txt")) == "keep"
       archived_transcript = Path.wildcard(Path.join([workspace_root, "log", "closed-ticket-transcripts", "610", "*", "agent.ndjson"]))
       assert [_] = archived_transcript

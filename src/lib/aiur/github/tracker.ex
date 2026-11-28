@@ -251,11 +251,6 @@ defmodule Aiur.GitHub.Tracker do
     StateLabels.foreign_candidate_state_label?(labels, Config.label_prefix(), active_states)
   end
 
-  @impl Aiur.Tracker.IssueTracker
-  @spec foreign_active_state_label([String.t()], MapSet.t(), MapSet.t()) :: String.t() | nil
-  def foreign_active_state_label(labels, active_states, terminal_states),
-    do: StateLabels.foreign_active_state_label(labels, Config.label_prefix(), active_states, terminal_states)
-
   @doc """
   Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
   Dependencies API. Called only on the dispatch path (the issue actually being
