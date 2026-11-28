@@ -89,6 +89,10 @@ mic and send remain at the right edge while dictating; the recognized text
 fills the space to their left. The two-way button slides in immediately left
 of the mic. During a two-way session the mic mutes/unmutes, and the composer
 shows the live waveform plus a running transcript for both speakers.
+Transcript bubbles use a full-width row above the controls: your words align
+right in the host accent, and agent replies align left on the host button
+surface. The bubbles have no visible speaker labels. Muting changes the mic to
+a slashed icon; transcript, send and active controls share the host accent.
 
 | Button | Adapter | Behaviour |
 | --- | --- | --- |
@@ -199,9 +203,9 @@ custom properties on the composer or on an ancestor:
 | `--aiur-composer-fg` | `--aiur-color-fg` |
 | `--aiur-composer-muted` (placeholder) | `--aiur-color-muted` |
 | `--aiur-composer-line` | `--aiur-color-line` |
-| `--aiur-composer-button-bg` | `--aiur-color-surface-2` |
-| `--aiur-composer-accent` (send, waveform, active voice) | `--aiur-color-accent` |
-| `--aiur-composer-on-accent` | `AccentColorText` |
+| `--aiur-composer-button-bg` (agent bubble) | `--aiur-color-surface-2` |
+| `--aiur-composer-accent` (user bubble, send, waveform, active voice) | `--aiur-color-accent` |
+| `--aiur-composer-on-accent` (user bubble text) | `AccentColorText` |
 | `--aiur-composer-focus` | `--aiur-color-focus` |
 | `--aiur-composer-radius` | `--aiur-radius-xl` |
 | `--aiur-composer-font` | `--aiur-font-body` |

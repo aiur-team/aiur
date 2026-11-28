@@ -201,6 +201,7 @@ export class AiurComposer extends HTMLElementBase {
       button.disabled = control.disabled;
       button.setAttribute('aria-label', control.label);
       if (control.pressed !== undefined) button.setAttribute('aria-pressed', String(control.pressed));
+      if (slot.name === 'mic') button.innerHTML = iconMarkup(control.label === 'Unmute microphone' ? 'micMuted' : 'mic');
     }
     controls.find((slot) => slot.name === 'voice').hidden = !(recording || state.voice !== 'idle') || !this.adapters.voice;
 
@@ -217,7 +218,7 @@ export class AiurComposer extends HTMLElementBase {
     transcript.replaceChildren(...state.voiceTranscript.map(({ speaker, text }) => {
       const line = this.ownerDocument.createElement('p');
       line.dataset.speaker = speaker;
-      line.textContent = `${speaker === 'agent' ? 'Agent' : 'You'}: ${text}`;
+      line.textContent = text;
       return line;
     }));
     bars.forEach((bar, index) => {

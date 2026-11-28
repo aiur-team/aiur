@@ -6,6 +6,7 @@ export const BARS = 24;
 const ICONS = {
   attach: '<path d="M12 5v14M5 12h14"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  micMuted: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18"/>',
   voice: '<path d="M3 6.5A3.5 3.5 0 0 1 6.5 3h5A3.5 3.5 0 0 1 15 6.5v3a3.5 3.5 0 0 1-3.5 3.5H9l-3 2v-2.2A3.5 3.5 0 0 1 3 9.5z" fill="currentColor" stroke="none"/><path d="M10 14v1.5A3.5 3.5 0 0 0 13.5 19H15l3 2v-2.2a3.5 3.5 0 0 0 3-3.3v-3A3.5 3.5 0 0 0 17.5 9H17"/>',
   send: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   cancel: '<path d="M6 6l12 12M18 6L6 18"/>',
@@ -66,10 +67,11 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .chip svg { width: 14px; height: 14px; }
 .wave { display: flex; flex: 1 1 0; min-width: 0; height: var(--_button); align-items: center; justify-content: center; gap: 3px; overflow: hidden; color: var(--_accent); }
 .row > .wave { display: none; position: absolute; left: var(--_button); right: calc(var(--_button) * 2 + var(--_gap) * 2); top: calc(50% - var(--_button) / 2); }
-.transcript { display: grid; gap: 4px; max-height: 30vh; overflow: auto; padding: 4px 8px; }
+.transcript { display: grid; gap: 6px; width: 100%; max-height: 30vh; overflow: auto; padding: 4px 8px; }
 .transcript:empty { display: none; }
-.transcript p { margin: 0; overflow-wrap: anywhere; }
-.transcript [data-speaker="agent"] { text-align: right; }
+.transcript p { width: fit-content; max-width: 85%; margin: 0; padding: 6px 10px; border-radius: 14px; overflow-wrap: anywhere; }
+.transcript [data-speaker="user"] { justify-self: end; color: var(--_on-accent); background: var(--_accent); border-bottom-right-radius: 4px; }
+.transcript [data-speaker="agent"] { justify-self: start; color: var(--_fg); background: var(--_button-bg); border-bottom-left-radius: 4px; }
 slot[name="cancel"] { order: 1; }
 slot[name="voice"] { order: 2; }
 slot[name="mic"] { order: 3; }
@@ -96,7 +98,7 @@ export const TEMPLATE = `
 <div class="card" part="card">
   <div class="attachments" part="attachments"></div>
   <div class="transcript" part="transcript" aria-live="polite"></div>
-<div class="row" part="actions">
+  <div class="row" part="actions">
     <slot name="attach" hidden><button type="button" class="attach" part="attach" aria-label="Attach files">${icon('attach')}</button></slot>
     <slot name="input"><textarea part="input" rows="1" enterkeyhint="send"></textarea></slot>
     <slot name="cancel" hidden><button type="button" class="cancel" part="cancel" aria-label="Cancel dictation">${icon('cancel')}</button></slot>
