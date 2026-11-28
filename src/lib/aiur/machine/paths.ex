@@ -3,7 +3,7 @@ defmodule Aiur.Machine.Paths do
 
   alias Aiur.Identity.Store, as: IdentityStore
 
-  @spec paths() :: %{dir: Path.t(), identity: Path.t(), store: Path.t(), machine_key: Path.t(), machine_public_key: Path.t()}
+  @spec paths() :: %{atom() => Path.t()}
   def paths do
     dir = IdentityStore.dir()
 
@@ -12,7 +12,10 @@ defmodule Aiur.Machine.Paths do
       identity: Path.join(dir, "identity.json"),
       store: Path.join(dir, "store.json"),
       machine_key: Path.join(dir, "machine_key"),
-      machine_public_key: Path.join(dir, "machine_key.pub")
+      machine_public_key: Path.join(dir, "machine_key.pub"),
+      devices: Path.join(dir, "devices.json"),
+      pairing: Path.join(dir, "pairing.json"),
+      known_instances: Path.join(dir, "known_instances.json")
     }
   end
 end
