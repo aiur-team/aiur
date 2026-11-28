@@ -140,7 +140,7 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: darwin-arm64
           # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
           # are unavailable and queue indefinitely. Re-enable when an Intel runner
@@ -218,7 +218,7 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: darwin-arm64
           # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
           # are unavailable and queue indefinitely. Re-enable when an Intel runner
@@ -429,3 +429,28 @@ jobs:
           VERSION: ${{ needs.setup.outputs.version }}
           DIST_TAG: ${{ needs.setup.outputs.dist_tag }}
         run: bash packaging/scripts/release-npm/verify-registry.sh
+
+  alert-consecutive-failures:
+    name: alert after consecutive nightly failures
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.channel == 'nightly' && needs.publish.result == 'failure' }}
+    needs: [setup, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    steps:
+      - name: Check previous nightly run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          runs=$(gh run list --workflow release-npm.yml --event workflow_dispatch --limit 10 --json databaseId,conclusion,createdAt,headBranch)
+          consecutive=$(jq -r --arg id "$CURRENT_RUN_ID" '[.[] | select((.databaseId|tostring) != $id and (.headBranch | startswith("nightly/aiur/")))] | .[0].conclusion == "failure"' <<< "$runs")
+          if [ "$consecutive" = true ]; then
+            {
+              echo "## NPM nightly release alert"
+              echo "Two consecutive nightly release runs failed."
+              echo "Inspect https://github.com/$GH_REPO/actions/workflows/release-npm.yml"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Consecutive npm nightly failures::The current and previous nightly release failed; inspect the release workflow."
+          fi
