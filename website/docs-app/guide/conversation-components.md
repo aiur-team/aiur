@@ -56,7 +56,9 @@ percentage is estimated.
   shadow part, with CSS custom properties for color, spacing, radius and
   typography. Composer transcripts occupy a full-width row above the controls;
   user bubbles align right in the host accent and agent bubbles align left on
-  the host surface. Named slots let a host supply its own controls.
+  the host surface. The shared `transcript-bubble` part and speaker-specific
+  parts let hosts style bubble shape. Named slots let a host supply its own
+  controls.
 - **Shared commands.** Default and host controls use the same commands, state
   events and attributes. A custom send button calls `send()`, just like the
   default button.

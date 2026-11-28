@@ -212,7 +212,8 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   part('mic').click();
   assert.equal(mic.muted, true, 'the visible mic toggles mute while dictating');
   assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
-  assert.ok(part('mic').querySelector('[part="micMuted-icon"]'), 'muted state has a distinct microphone icon');
+  const mutedIcon = part('mic').querySelector('[part="mic-icon"]');
+  assert.ok(mutedIcon.querySelector('path:last-of-type').getAttribute('d').includes('M3 3l18 18'), 'muted icon adds a slash without changing its styling part');
   assert.deepEqual(visible(el), ['input', ...RECORDING], 'the input stays above the recording row');
 
   mic.say('with a');
@@ -225,6 +226,7 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   assert.deepEqual(mic.calls, ['start', 'stop']);
   assert.equal(el.value, 'Make the hero with a double jump.', 'the recognizer\'s final text wins');
   assert.deepEqual(visible(el), IDLE);
+  assert.equal(part('mic').querySelector('[part="mic-icon"] path:last-of-type').getAttribute('d').includes('M3 3l18 18'), false);
   assert.deepEqual(sent, [], 'stop leaves the words to edit; it never sends');
 });
 
@@ -363,6 +365,10 @@ test('two-way transcript stays above controls and renders right/left speaker bub
   assert.deepEqual(bubbles.map((bubble) => [bubble.dataset.speaker, bubble.textContent]), [
     ['user', 'Could you help me?'],
     ['agent', 'Of course.'],
+  ]);
+  assert.deepEqual(bubbles.map((bubble) => bubble.getAttribute('part')), [
+    'transcript-bubble transcript-bubble-user',
+    'transcript-bubble transcript-bubble-agent',
   ]);
   assert.match(style, /\.transcript \{[^}]*width: 100%/);
   assert.match(style, /\.transcript \[data-speaker="user"\] \{[^}]*justify-self: end;[^}]*background: var\(--_accent\)/);

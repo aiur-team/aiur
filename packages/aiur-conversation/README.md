@@ -221,8 +221,10 @@ custom properties on the composer or on an ancestor:
 Use `::part()` for individual pieces. Parts include `card`, `input`,
 `actions`, `status`, `file-input`, `waveform`, `waveform-bar`,
 `attachments`, `attachment`, `attachment-name`, `remove-attachment`,
+`transcript-bubble`, `transcript-bubble-user`, `transcript-bubble-agent`,
 and `attach`, `mic`, `send`, `cancel`, `voice` and `stop`. The button
-icons add an `-icon` suffix to their respective button parts.
+icons add an `-icon` suffix to their respective button parts; the mic keeps
+the `mic-icon` part when muted.
 
 ### OGM-style reskinning
 
