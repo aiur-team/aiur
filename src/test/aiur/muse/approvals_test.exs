@@ -11,7 +11,8 @@ defmodule Aiur.Muse.ApprovalsTest do
 
   setup do
     port = Port.open({:spawn_executable, System.find_executable("cat")}, [:binary, {:line, 16_384}, :exit_status])
-    on_exit(fn -> if Port.info(port), do: Port.close(port) end)
+    # The test process owns the port, so it closes automatically on exit.
+    # Closing it from on_exit races that owner shutdown.
     %{port: port, state: Approvals.new(%{thread_id: @session, port: port})}
   end
 
