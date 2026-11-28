@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, QueueProvenance, StatePolicy, TimelineCache}
-  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, StateLabels, Timeline}
+  alias Aiur.GitHub.{Access, Config, QueueProvenance, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.DispatchAuthorization.{Decision, MissingTriggerLabel, StateLabels, Timeline}
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -109,7 +109,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
     daemon_triage = Enum.find(prefix_appliers, &(daemon_actor?(&1, opts) and daemon_receipt?))
 
-    {authorized?, source} = authorization_decision(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts)
+    {authorized?, source} = Decision.decide(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts)
 
     log_decision(if(authorized?, do: :allow, else: :deny), issue, source, actor, event_id)
     clear_deferrals(issue)
@@ -149,33 +149,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred, dispatch_authorization_reason: reason}
   end
 
-  defp authorization_decision(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts) do
-    {authorized?, source} =
-      cond do
-        main_fixer_actor?(issue, actor, opts) -> {true, "main_watch_fixer"}
-        daemon_queue_authorized?(actor, daemon_triage, opts) -> {true, "daemon_label_applier"}
-        trusted_label_applier?(actor, allowed_users, opts) -> {true, "label_applier"}
-        prior_aiur_triage?(actor, daemon_triage, triaged_by, opts) -> {true, prior_triage_source(daemon_triage, triaged_by)}
-        true -> LocalProvenance.decision(issue, actor, label_actors, opts)
-      end
-
-    {authorized?, source}
-  end
-
-  defp daemon_queue_authorized?(actor, daemon_triage, opts),
-    do: not is_nil(daemon_triage) and daemon_actor?(actor, opts)
-
-  defp main_fixer_actor?(issue, actor, opts), do: MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts)
-
-  defp trusted_label_applier?(actor, allowed_users, opts),
-    do: not daemon_actor?(actor, opts) and member?(allowed_users, actor)
-
-  defp prior_aiur_triage?(actor, daemon_triage, triaged_by, opts),
-    do: aiur_actor?(actor, opts) and (not is_nil(daemon_triage) or not is_nil(triaged_by))
-
-  defp prior_triage_source(daemon_triage, _triaged_by) when is_binary(daemon_triage), do: "prior_daemon_triage:#{daemon_triage}"
-  defp prior_triage_source(_daemon_triage, triaged_by), do: "prior_triage:#{triaged_by}"
-
   # A denial that comes from OUR OWN read limits reads identically to a denial
   # that comes from provenance unless it is labelled: both just stop dispatching.
   # khala#257 cost an hour of investigation for exactly that reason. `cause=` is
@@ -190,15 +163,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp maybe_alert_deferral(_issue, _cause, _reason), do: :ok
 
-  # The daemon and agent may authenticate as different GitHub identities.
-  # Both are Aiur actors for lifecycle carry-forward, but only the daemon
-  # identity authorizes a new queue action.
-  defp aiur_actor?(actor, opts) do
-    trimmed = actor |> String.trim() |> String.downcase()
-
-    trimmed != "" and trimmed in aiur_logins(opts)
-  end
-
   defp daemon_actor?(actor, opts) do
     daemon = Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)
     normalized_login(actor) != "" and normalized_login(actor) == normalized_login(daemon)
@@ -206,17 +170,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp normalized_login(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
   defp normalized_login(_value), do: ""
-
-  defp aiur_logins(opts) do
-    [
-      Keyword.get_lazy(opts, :bot_account, &Config.bot_account/0),
-      Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)
-    ]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
 
   defp fetch_decision(issue, label, prefix, owner, repo, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
