@@ -83,6 +83,13 @@ shared [dictated-input note](dictated-input.md).
 - **Events:** `emit_event(name, message, payload?)` publishes to
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
   `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
+- **Verified no-change completion:** when the requested bug is reproduced as
+  fixed on the current integration branch and the worker has no change to make,
+  call `aiur_finish_no_change` with the full commit SHA, the exact verification
+  command and its relevant output. Aiur verifies the commit is on the configured
+  base, records the evidence on the ticket, and finishes without consuming the
+  no-op limit. Missing or unverified evidence is refused. Ordinary tickets move
+  to `done`; `creator-facing` tickets move to `human-review` for Executor review.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with
