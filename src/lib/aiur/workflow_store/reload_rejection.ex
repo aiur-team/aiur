@@ -18,6 +18,7 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
   require Logger
 
   alias Aiur.{Alerts, Config}
+  alias Aiur.Config.Schema
   alias Aiur.Project.Context
   alias Aiur.WorkflowStore.Cache
 
@@ -30,7 +31,7 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
   @spec validate(map()) :: :ok | {:error, term()}
   def validate(workflow) do
     case Config.settings_from({:ok, workflow}) do
-      {:ok, settings} -> Config.validate_settings(settings)
+      {:ok, settings} -> Schema.validate_turn_sandbox_policy(settings)
       {:error, reason} -> {:error, reason}
     end
   rescue

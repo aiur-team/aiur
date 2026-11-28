@@ -249,7 +249,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
     write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
 
     assert {:ok, settings} = Config.settings_uncached()
-    assert {:error, {:unsafe_turn_sandbox_policy, root_error}} = Config.validate_settings(settings)
+    assert {:error, {:unsafe_turn_sandbox_policy, root_error}} = Schema.validate_turn_sandbox_policy(settings)
     assert inspect(root_error) =~ nonexistent_root
     assert inspect(root_error) =~ "agent.codex.turn_sandbox_policy.writableRoots"
 
@@ -262,7 +262,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
     write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
 
     assert {:ok, settings} = Config.settings_uncached()
-    assert {:error, {:unsafe_turn_sandbox_policy, regular_file_error}} = Config.validate_settings(settings)
+    assert {:error, {:unsafe_turn_sandbox_policy, regular_file_error}} = Schema.validate_turn_sandbox_policy(settings)
     assert inspect(regular_file_error) =~ regular_file
     assert inspect(regular_file_error) =~ "not_a_directory"
 
@@ -276,7 +276,7 @@ defmodule Aiur.Config.SandboxPolicyTest do
     write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
 
     assert {:ok, settings} = Config.settings_uncached()
-    assert {:error, {:unsafe_turn_sandbox_policy, read_only_error}} = Config.validate_settings(settings)
+    assert {:error, {:unsafe_turn_sandbox_policy, read_only_error}} = Schema.validate_turn_sandbox_policy(settings)
     assert inspect(read_only_error) =~ read_only_root
     assert inspect(read_only_error) =~ "not_writable"
 

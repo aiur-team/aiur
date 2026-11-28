@@ -351,13 +351,9 @@ defmodule Aiur.Config do
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
     with {:ok, settings} <- settings() do
-      validate_settings(settings)
+      SemanticChecks.validate(settings)
     end
   end
-
-  @doc false
-  @spec validate_settings(Schema.t()) :: :ok | {:error, term()}
-  def validate_settings(settings), do: SemanticChecks.validate(settings)
 
   defp prepare_config(config) do
     tracker = map_section(config, "tracker")
