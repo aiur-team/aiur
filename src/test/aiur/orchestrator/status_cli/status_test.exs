@@ -19,6 +19,20 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
 
   alias Aiur.Orchestrator.StatusCLI, as: AgentControlCLI
 
+  test "status includes held paused reservations in its report" do
+    snapshot = %{
+      statuses: [],
+      paused_reservations: %{count: 1, oldest_age_seconds: 600}
+    }
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}})
+      end)
+
+    assert output =~ "1 slots held by paused agents (oldest 10m)"
+  end
+
   test "status prints the instance roster section when the lease store is configured" do
     previous_url = Application.get_env(:aiur, :lease_database_url)
     previous_roster = Application.get_env(:aiur, :instance_roster_fun)
