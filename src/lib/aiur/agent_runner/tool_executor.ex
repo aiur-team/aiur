@@ -13,6 +13,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     ToolEvents
   }
 
+  alias Aiur.AgentRunner.NoChangeHandoff
   alias Aiur.AgentRunner.ToolExecutor.TicketStateSetter
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
@@ -158,6 +159,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
             &ToolCoordination.ticket_coordination_key/1,
             &ToolCoordination.coordination_operation_opts/1
           )
+        end,
+        no_change_finisher: fn evidence, _tool_opts ->
+          NoChangeHandoff.finish(issue, evidence, workspace, opts)
         end
       )
     end
