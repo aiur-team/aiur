@@ -11,7 +11,7 @@ defmodule Aiur.Muse.ApprovalsTest do
 
   setup do
     port = Port.open({:spawn_executable, System.find_executable("cat")}, [:binary, {:line, 16_384}, :exit_status])
-    on_exit(fn -> if Port.info(port), do: Port.close(port) end)
+    on_exit(fn -> close_port(port) end)
     %{port: port, state: Approvals.new(%{thread_id: @session, port: port})}
   end
 
@@ -167,5 +167,11 @@ defmodule Aiur.Muse.ApprovalsTest do
     assert Port.command(port, "approval-test-barrier\n")
     receive_barrier({^port, {:data, {:eol, line}}})
     assert line == "approval-test-barrier"
+  end
+
+  defp close_port(port) do
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
   end
 end
