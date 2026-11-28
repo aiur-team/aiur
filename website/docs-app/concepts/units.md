@@ -7,7 +7,9 @@ been retired; `/units` redirects permanently to `/`, preserving its query.
 The [Build page](/concepts/build-history) is the dashboard home.
 
 Paused agents remain listed. Only pauses that reserve capacity count as occupied
-slots; a provider usage-limit pause releases its slot while it waits.
+slots; operator-decision and provider usage-limit waits release their slots while
+they wait. `aiur status` reports long-held paused reservations and raises an
+attention when one has lasted 30 minutes.
 
 Use `aiur set max-agents <n>` to adjust fleet capacity and
 `aiur --todo <ticket-id>` to queue a ticket. The retired board's routing preview,

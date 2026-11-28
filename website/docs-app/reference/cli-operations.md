@@ -29,6 +29,10 @@ Before release, the daemon appends and fsyncs an audit record with actor, ticket
 
 If writing fails, the lease stays held and status names `aiur workspace-recover <ticket-identifier> <generation>` as the retry command; legacy receipts and remote providers are ineligible, while same-boot recovery needs stale owner-PID proof.
 
+When paused agents reserve worker slots, `aiur status` reports their count and
+the oldest reservation age. It raises a system attention when a reservation
+reaches 30 minutes.
+
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur help` | Prints the current launcher usage. | `aiur help` |
