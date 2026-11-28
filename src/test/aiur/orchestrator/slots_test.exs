@@ -149,7 +149,9 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert Enum.any?(AlertFeed.list(), &(&1["topic"] == "#{topic}.resolved"))
     end
 
-    test "counts a reserved paused entry without paused_at" do
+    # Future regression guard: reserved slot accounting already includes this
+    # entry shape on the integration base; the age renderer must keep it unknown.
+    test "keeps counting reserved paused entries when paused_at is absent" do
       entry = running_entry(:paused)
       state = %State{max_concurrent_agents: 2, running: %{"paused" => entry}}
 
