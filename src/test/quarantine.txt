@@ -30,4 +30,5 @@ Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding p
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.DashboardLive.RetainedActionsTest	a revision uses the rendered retained version when the overview has an older same-ID row	#8218	2026-12-12
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
+AiurWeb.StreamdeckChannelTurnsTest	real transcript turns appear on pushed keys, selection scrolls and LIVE restores the newest entry	#8232	2026-12-12
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13
