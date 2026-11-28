@@ -110,6 +110,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ticket owner <id> [--json]  show owner, epoch, actor, age and liveness
        aiur ownership migrate --map <prefix>=<gateway> [--map ...] [--apply] [--json]  claim tickets from state labels
        aiur ticket assign <id> --to <gateway> --reason <text> [--force] [--as <id>] [--json]  transfer ownership
+       aiur blocker confirm|dismiss <ticket> <blocker>  hold a ticket on a worker-declared blocker, or keep it advisory
        aiur lane set <lane> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur lane clear <ids...> [--as <who>] [--json]
        aiur lane confirm <ids...> [--lane <key>] [--as <who>] [--json]
@@ -211,7 +212,6 @@ dispatch_run() {
       args+=("$arg")
     fi
   done
-
   # bash 3.2 (macOS default) errors on "${args[@]}" when args is empty under
   # `set -u` — happens for a bare `--bg` run. Guard the expansion.
   run_session "$mode" "${args[@]+"${args[@]}"}"
@@ -221,7 +221,6 @@ aiur_engine_main() {
   # cleared first) or name a request id; see engine/remote_request_id.sh.
   aiur_parse_remote_flags "$@" || return $?
   aiur_project_args "$@" || return $? && set -- "${AIUR_ARGS[@]+"${AIUR_ARGS[@]}"}"
-
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
   # which command failed instead of a generic "control rpc" (#1684).
@@ -355,6 +354,7 @@ aiur_engine_main() {
       cmd_queue "$@"
       ;;
     ticket) shift; cmd_ticket "$@" ;;
+    blocker) shift; cmd_blocker "$@" ;;
     ownership) shift; cmd_ownership "$@" ;;
     lane) shift; cmd_lane "$@" ;;
     epic) shift; cmd_epic "$@" ;;

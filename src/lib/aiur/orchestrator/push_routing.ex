@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
+  alias Aiur.AgentRunner.DeclaredBlockers
   alias Aiur.{Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
@@ -105,20 +106,27 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp request_agent_pause(state, running_entry, identifier, event) do
     {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
 
-    if nonblocking_question_pause?(identifier, pause_reason, event) do
-      state
-    else
-      {_reply, state} =
-        PauseResume.request_pause(
-          state,
-          running_entry,
-          Map.get(running_entry, :issue),
-          pause_reason
-        )
+    cond do
+      advisory_dependency_pause?(identifier, running_entry, pause_reason) ->
+        state
 
-      state
+      nonblocking_question_pause?(identifier, pause_reason, event) ->
+        state
+
+      true ->
+        {_reply, state} = PauseResume.request_pause(state, running_entry, Map.get(running_entry, :issue), pause_reason)
+        state
     end
   end
+
+  # A worker-declared blocker never pauses its worker until the Executor confirms it.
+  defp advisory_dependency_pause?(identifier, %{blocker_pause: %{blocker_identifier: blocker}}, :blocker_dependency) do
+    status = DeclaredBlockers.status(identifier, blocker)
+    if status == "declared", do: DeclaredBlockers.alert(identifier, blocker)
+    status in ["declared", "dismissed"]
+  end
+
+  defp advisory_dependency_pause?(_identifier, _entry, _pause_reason), do: false
 
   defp nonblocking_question_pause?(identifier, :agent_pause_request, event) do
     payload = event_payload(event)

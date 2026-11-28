@@ -91,7 +91,9 @@ shared [dictated-input note](dictated-input.md).
   no-op limit. Missing or unverified evidence is refused. Ordinary tickets move
   to `done`; `creator-facing` tickets move to `human-review` for Executor review.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
-  `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
+  `ticket.N.*` and never pauses you unless the Executor confirms it, so keep
+  working and don't emit a dependency pause; `blocked` / `unblocked` are
+  single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with
   `ticket.<literal-id>.` — `executor.*`, `system.*`, bare wildcards, and
   wildcard ticket ids are refused before the binding is created.
