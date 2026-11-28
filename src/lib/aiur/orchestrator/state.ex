@@ -424,6 +424,9 @@ defmodule Aiur.Orchestrator.State do
   defdelegate non_reserving_pause_reason?(reason), to: __MODULE__.RunningEntries
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   defdelegate reserved_paused_running_count(running), to: __MODULE__.RunningEntries
+
+  @spec reserved_paused_entries(term()) :: [{term(), map()}]
+  defdelegate reserved_paused_entries(running), to: __MODULE__.RunningEntries
   @spec active_running_entry?(term()) :: boolean()
   defdelegate active_running_entry?(entry), to: __MODULE__.RunningEntries
   @spec paused_running_entry?(term()) :: boolean()

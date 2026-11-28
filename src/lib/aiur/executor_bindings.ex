@@ -15,6 +15,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.fleet.capacity.starved.resolved", "dispatch:auto"},
     {"system.dispatch.prewarm_blocked", "dispatch:auto"},
     {"system.dispatch.prewarm_blocked.resolved", "dispatch:auto"},
+    {"system.dispatch.paused_reservations", "dispatch:auto"},
+    {"system.dispatch.paused_reservations.resolved", "dispatch:auto"},
     {"system.dispatch.todo_capacity_exceeded", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},

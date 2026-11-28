@@ -10,20 +10,28 @@ defmodule Aiur.Orchestrator.StatusCLI.Capacity do
 
   @doc false
   @spec print_capacity_status(term(), term()) :: term()
+  def print_capacity_status(capacity, polling), do: print_capacity_status(capacity, polling, nil)
+
+  @spec print_capacity_status(term(), term(), non_neg_integer() | nil) :: term()
   def print_capacity_status(
         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
-        polling
+        polling,
+        reserved_paused_age_seconds
       )
       when is_integer(occupied) and is_integer(max) and is_integer(effective) and
              is_integer(configured) do
     binding = capacity_binding(capacity, polling)
     resume = if is_integer(capacity[:resume_level]) and elem(binding, 0) != :envelope, do: "; #{EnvelopeResume.label(capacity)}", else: ""
     IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})#{resume}#{OptimisticSlots.label(capacity)}")
+    if capacity.reserved_paused > 0, do: IO.puts("PAUSED RESERVATIONS #{capacity.reserved_paused} oldest_age=#{format_age(reserved_paused_age_seconds)}")
     print_envelope_status(capacity)
     print_resource_ceiling(capacity)
   end
 
-  def print_capacity_status(_capacity, _polling), do: :ok
+  def print_capacity_status(_capacity, _polling, _reserved_paused_age_seconds), do: :ok
+
+  defp format_age(seconds) when is_integer(seconds), do: "#{seconds}s"
+  defp format_age(_seconds), do: "unknown"
 
   @spec print_resource_ceiling(term()) :: :ok
   def print_resource_ceiling(%{effective: effective} = capacity) do

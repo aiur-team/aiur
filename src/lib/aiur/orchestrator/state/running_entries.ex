@@ -68,6 +68,15 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
 
   def reserved_paused_running_count(_running), do: 0
 
+  @spec reserved_paused_entries(term()) :: [{term(), map()}]
+  def reserved_paused_entries(running) when is_map(running) do
+    Enum.filter(running, fn {_issue_id, entry} ->
+      reserved_paused_running_count(%{"entry" => entry}) == 1
+    end)
+  end
+
+  def reserved_paused_entries(_running), do: []
+
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do
     not (completed_running_entry?(entry) or paused_running_entry?(entry) or

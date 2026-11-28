@@ -1,8 +1,11 @@
 defmodule Aiur.Orchestrator.SlotsTest do
   use Aiur.TestSupport
 
+  alias Aiur.AlertFeed
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.StatusReport.SnapshotPayload
 
   describe "max_concurrent_agent_limit/1" do
     test "prefers session override over state field" do
@@ -127,6 +130,34 @@ defmodule Aiur.Orchestrator.SlotsTest do
   end
 
   describe "max_concurrent_agent_status/1" do
+    test "daemon capacity snapshots alert once for old paused reservations and resolve on release" do
+      paused_at = DateTime.add(DateTime.utc_now(), -31 * 60, :second)
+      entry = Map.put(running_entry(:paused), :paused_at, paused_at)
+      state = %State{max_concurrent_agents: 2, running: %{"paused" => entry}}
+      topic = "system.dispatch.paused_reservations"
+
+      assert :ok = StatusReport.publish_snapshot(state)
+      assert :ok = StatusReport.publish_snapshot(state)
+      assert [alert] = Enum.filter(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
+      assert alert["reason"] =~ "age"
+
+      mixed = %{state | running: Map.put(state.running, "unknown", running_entry(:paused))}
+      assert SnapshotPayload.reserved_paused_age_seconds(mixed) == nil
+
+      assert :ok = StatusReport.publish_snapshot(%{state | running: %{}})
+      refute Enum.any?(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
+      assert Enum.any?(AlertFeed.list(), &(&1["topic"] == "#{topic}.resolved"))
+    end
+
+    # Future regression guard: reserved slot accounting already includes this
+    # entry shape on the integration base; the age renderer must keep it unknown.
+    test "keeps counting reserved paused entries when paused_at is absent" do
+      entry = running_entry(:paused)
+      state = %State{max_concurrent_agents: 2, running: %{"paused" => entry}}
+
+      assert %{paused: 1, reserved_paused: 1, occupied: 1} = Slots.max_concurrent_agent_status(state)
+    end
+
     test "reports draining when active is above max" do
       state = %State{
         session_max_concurrent_agents: 1,

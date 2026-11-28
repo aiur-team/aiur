@@ -196,6 +196,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     # runs inside SnapshotStore rather than on the Orchestrator's dispatch
     # critical path. Project only the bounded dashboard input, not the entire
     # orchestration state.
+    :ok = Slots.update_paused_reservations_attention(state)
+
     SnapshotPublisher.write(
       state.snapshot_key || self(),
       state.snapshot_generation,

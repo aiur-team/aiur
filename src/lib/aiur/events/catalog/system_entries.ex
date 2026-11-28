@@ -93,6 +93,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.dispatch.prewarm_blocked", "orchestration"},
     # aiur/orchestrator/dispatcher/holds_and_alerts.ex
     {"system.dispatch.prewarm_blocked.resolved", "orchestration"},
+    # aiur/orchestrator/slots.ex
+    {"system.dispatch.paused_reservations", "orchestration"},
+    # aiur/orchestrator/slots.ex
+    {"system.dispatch.paused_reservations.resolved", "orchestration"},
     # aiur/orchestrator/issue_sync/capacity_starvation.ex
     {"system.dispatch.todo_capacity_exceeded", "orchestration"},
     # aiur/executor/transcript_format.ex
