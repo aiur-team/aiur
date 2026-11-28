@@ -84,6 +84,9 @@ defmodule Aiur.ControlCLI.Reasons do
   def format_reason({:dispatch_failed, :thrash_circuit_open}),
     do: "dispatch failed because the restart circuit is open; retry after the restart window resets or run `aiurdev reset-budget <id>`"
 
+  def format_reason({:dispatch_failed, {:dispatch_declined, :epic}}),
+    do: "epics cannot be dispatched"
+
   def format_reason({:dispatch_failed, {:dispatch_declined, reason}}),
     do: "dispatch was declined (#{inspect(reason)}); retry after the ticket state, labels, or tracker visibility becomes dispatchable"
 

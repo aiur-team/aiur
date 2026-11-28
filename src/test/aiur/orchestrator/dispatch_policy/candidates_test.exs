@@ -100,6 +100,67 @@ defmodule Aiur.Orchestrator.DispatchPolicy.CandidatesTest do
   end
 
   describe "candidate_issue?/3" do
+    test "epic labels and child issues are never dispatchable" do
+      active_states = MapSet.new(["todo", "rework"])
+      terminal_states = MapSet.new(["done"])
+
+      for state <- ["todo", "rework"] do
+        assert {:skip, :epic} =
+                 DispatchPolicy.dispatch_decision(
+                   issue("epic-#{state}", state: state, labels: ["epic"]),
+                   %State{},
+                   active_states,
+                   terminal_states
+                 )
+
+        assert {:skip, :epic} =
+                 DispatchPolicy.dispatch_decision(
+                   issue("children-#{state}", state: state, sub_issues: [%{"number" => 7}]),
+                   %State{},
+                   active_states,
+                   terminal_states
+                 )
+
+        assert {:skip, :epic} =
+                 DispatchPolicy.dispatch_decision(
+                   issue("build-order-#{state}", state: state, build_order_role: :epic),
+                   %State{},
+                   active_states,
+                   terminal_states
+                 )
+
+        assert DispatchPolicy.dispatch_decision(
+                 issue("normal-#{state}", state: state, labels: ["feature:work"]),
+                 %State{},
+                 active_states,
+                 terminal_states
+               ) == :dispatch
+      end
+    end
+
+    test "configured epic label is excluded while same-state ordinary issue remains eligible" do
+      active_states = MapSet.new(["todo"])
+      terminal_states = MapSet.new(["done"])
+
+      assert {:skip, :epic} =
+               DispatchPolicy.dispatch_candidate_decision(
+                 issue("configured-epic", labels: ["agent:epic"]),
+                 %State{},
+                 active_states,
+                 terminal_states,
+                 MapSet.new()
+               )
+
+      assert :dispatch =
+               DispatchPolicy.dispatch_candidate_decision(
+                 issue("ordinary", labels: ["bug"]),
+                 %State{},
+                 active_states,
+                 terminal_states,
+                 MapSet.new()
+               )
+    end
+
     test "requires binary id, identifier, title, and state" do
       active_states = MapSet.new(["todo"])
       terminal_states = MapSet.new(["done"])

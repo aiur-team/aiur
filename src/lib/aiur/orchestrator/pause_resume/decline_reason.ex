@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(reason, issue, state, opts \\ [])
 
   def resume_decline_reason(:invalid_issue, _issue, _state, _opts), do: :invalid_tracker_issue
+  def resume_decline_reason(:epic, _issue, _state, _opts), do: :epic_not_dispatchable
   def resume_decline_reason(:contradictory_state_labels, _issue, _state, _opts), do: :contradictory_tracker_state_labels
   def resume_decline_reason(:not_routable, _issue, _state, _opts), do: :not_routable_to_worker
   def resume_decline_reason(:unauthorized, _issue, _state, _opts), do: :dispatch_not_authorized

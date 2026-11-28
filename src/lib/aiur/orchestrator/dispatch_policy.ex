@@ -3,8 +3,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Dispatch and load policy; dependency holds follow the effective start trigger.
   """
 
-  require Logger
-
   alias Aiur.{BuildQueue.Hints, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
@@ -167,6 +165,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @type dispatch_decline_reason ::
           :invalid_issue
+          | :epic
           | :contradictory_state_labels
           | :foreign_owner
           | {:foreign_owner, String.t()}
@@ -203,6 +202,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # same order as `t:dispatch_decline_reason/0`.
   @dispatch_decline_reasons [
     :invalid_issue,
+    :epic,
     :contradictory_state_labels,
     :foreign_owner,
     :not_routable,

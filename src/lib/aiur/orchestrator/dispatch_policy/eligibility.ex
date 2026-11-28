@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Commands, Config, Issue}
-  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy.IssueStates, DispatchPolicy.SpendCap, Slots, State}
+  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy.Epic, DispatchPolicy.IssueStates, DispatchPolicy.SpendCap, Slots, State}
 
   require Logger
 
@@ -30,6 +30,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   def identity_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      Epic.issue?(issue) -> {:skip, :epic}
+      true -> ordinary_identity_decision(issue, active_states, terminal_states)
+    end
+  end
+
+  defp ordinary_identity_decision(issue, active_states, terminal_states) do
+    cond do
       foreign_label = foreign_active_state_label(issue, active_states, terminal_states) -> {:skip, {:foreign_owner, foreign_label}}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
@@ -40,19 +47,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
     end
   end
 
-  def identity_decision(_issue, _active_states, _terminal_states), do: {:skip, :invalid_issue}
-
   defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
     is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
   end
 
   defp valid_issue_shape?(_issue), do: false
 
-  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) when is_list(labels) do
+  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) do
     IssueStates.foreign_active_state_label(labels, Aiur.GitHub.Config.label_prefix(), active_states, terminal_states)
   end
-
-  defp foreign_active_state_label(_issue, _active_states, _terminal_states), do: nil
 
   @spec state_slots_available?(term(), term()) :: boolean()
   def state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
