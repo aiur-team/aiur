@@ -39,7 +39,7 @@ defmodule Aiur.CommandsCLITest do
 
   test "lists the dashboard's open rows with blocking filtering and stable snapshot metadata", %{store: store} do
     blocking = request!(store, "blocking", true)
-    ordinary = request!(store, "ordinary", false)
+    ordinary = request!(store, "ordinary", false, ticket: "1593")
 
     assert {:ok, envelope} = CommandsCLI.build(decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: ~U[2026-08-08 12:00:00Z])
 
@@ -277,10 +277,10 @@ defmodule Aiur.CommandsCLITest do
 
   test "routing filters return exactly human-visible or Executor-owned open Commands", %{store: store} do
     human = request!(store, "human", false)
-    both = request!(store, "both", false)
-    executor = request!(store, "executor", false)
-    resolved = request!(store, "answered-human", false)
-    request!(store, "unknown", false)
+    both = request!(store, "both", false, ticket: "1593")
+    executor = request!(store, "executor", false, ticket: "1594")
+    resolved = request!(store, "answered-human", false, ticket: "1595")
+    request!(store, "unknown", false, ticket: "1596")
     at = ~U[2026-08-08 10:00:00Z]
 
     for {decision, state, policy} <- [{human, :with_human, :human_only}, {both, :with_both, :simultaneous}, {executor, :with_executor, :executor_first}, {resolved, :with_human, :human_only}] do
@@ -308,7 +308,7 @@ defmodule Aiur.CommandsCLITest do
 
   test "bare commands keeps open work visible and excludes answered history", %{store: store} do
     open = request!(store, "default-open", true)
-    historic = request!(store, "default-historic", false)
+    historic = request!(store, "default-historic", false, ticket: "1593")
 
     assert {:ok, _} =
              DecisionStore.answer(
@@ -358,10 +358,18 @@ defmodule Aiur.CommandsCLITest do
                  "context" => %{"authority_basis" => "security"},
                  "options" => [%{"id" => "ship", "label" => "Ship", "description" => "Deploy the change.", "risk" => "low"}]
                },
-               Keyword.merge([ticket: @ticket, source: @source, now: ~U[2026-08-08 10:00:00Z]], Keyword.take(extra, [:requester])),
+               Keyword.merge([ticket: ticket(extra), source: @source, now: ~U[2026-08-08 10:00:00Z]], Keyword.take(extra, [:requester])),
                store
              )
 
     decision
+  end
+
+  # A ticket keeps one open creator question, so tests that need several open at once spread them over tickets.
+  defp ticket(extra) do
+    case Keyword.get(extra, :ticket) do
+      nil -> @ticket
+      identifier -> %{@ticket | identifier: identifier, url: "https://example.test/issues/#{identifier}"}
+    end
   end
 end
