@@ -77,7 +77,7 @@ test('two-way upgrades dictation and keeps mute, waveform, transcript, and right
   starts[0].onPartial('agent', 'Hi!');
   starts[0].onPartial('user', 'hello there again');
   assert.deepEqual([...el.shadowRoot.querySelectorAll('[part="transcript"] p')].map((p) => p.textContent), [
-    'You: hello there again', 'Agent: Hi!',
+    'hello there again', 'Hi!',
   ]);
   part('mic').click();
   assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');

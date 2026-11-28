@@ -212,6 +212,8 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   part('mic').click();
   assert.equal(mic.muted, true, 'the visible mic toggles mute while dictating');
   assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
+  const mutedIcon = part('mic').querySelector('[part="mic-icon"]');
+  assert.ok(mutedIcon.querySelector('path:last-of-type').getAttribute('d').includes('M3 3l18 18'), 'muted icon adds a slash without changing its styling part');
   assert.deepEqual(visible(el), ['input', ...RECORDING], 'the input stays above the recording row');
 
   mic.say('with a');
@@ -224,6 +226,7 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   assert.deepEqual(mic.calls, ['start', 'stop']);
   assert.equal(el.value, 'Make the hero with a double jump.', 'the recognizer\'s final text wins');
   assert.deepEqual(visible(el), IDLE);
+  assert.equal(part('mic').querySelector('[part="mic-icon"] path:last-of-type').getAttribute('d').includes('M3 3l18 18'), false);
   assert.deepEqual(sent, [], 'stop leaves the words to edit; it never sends');
 });
 
@@ -339,6 +342,37 @@ test('send in the recording row stops dictation and sends the final words once',
   assert.deepEqual(mic.calls, ['start', 'stop']);
   assert.deepEqual(sent, ['ship it']);
   assert.equal(el.value, '');
+});
+
+test('two-way transcript stays above controls and renders right/left speaker bubbles without labels', async () => {
+  const { el, part } = mount();
+  el.adapters = {
+    voice: {
+      start: async ({ onPartial }) => {
+        onPartial('user', 'Could you help me?');
+        onPartial('agent', 'Of course.');
+        return { stop: async () => {}, setMuted: () => {} };
+      },
+    },
+  };
+
+  await el.startVoice();
+
+  const transcript = part('transcript');
+  const bubbles = Array.from(transcript.children);
+  const style = el.shadowRoot.querySelector('style').textContent;
+  assert.equal(transcript.nextElementSibling, part('actions'), 'transcript owns a full-width card row above controls');
+  assert.deepEqual(bubbles.map((bubble) => [bubble.dataset.speaker, bubble.textContent]), [
+    ['user', 'Could you help me?'],
+    ['agent', 'Of course.'],
+  ]);
+  assert.deepEqual(bubbles.map((bubble) => bubble.getAttribute('part')), [
+    'transcript-bubble transcript-bubble-user',
+    'transcript-bubble transcript-bubble-agent',
+  ]);
+  assert.match(style, /\.transcript \{[^}]*width: 100%/);
+  assert.match(style, /\.transcript \[data-speaker="user"\] \{[^}]*justify-self: end;[^}]*background: var\(--_accent\)/);
+  assert.match(style, /\.transcript \[data-speaker="agent"\] \{[^}]*justify-self: start;[^}]*background: var\(--_button-bg\)/);
 });
 
 test('a voice session that fails to start gives the words back', async () => {
