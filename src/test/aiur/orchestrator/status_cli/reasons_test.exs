@@ -112,6 +112,27 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
     assert output =~ "dispatch_decline=blocked_on_decision"
   end
 
+  test "status shows the denied dispatch label actor and reason", %{orchestrator: pid} do
+    issue = %Issue{
+      id: "issue-auth-denied",
+      identifier: "repo#auth-denied",
+      state: "todo",
+      title: "Denied label",
+      dispatch_authorized?: false,
+      dispatch_authorization: :denied,
+      dispatch_authorization_actor: "its-applekid",
+      dispatch_authorization_source: "label_applier",
+      dispatch_authorization_reason: :label_applier_not_allowed
+    }
+
+    :sys.replace_state(pid, fn state -> %{state | last_polled_issues: %{issue.id => issue}, dispatch_declines: %{issue.id => :unauthorized}} end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "dispatch_decline=unauthorized"
+    assert output =~ "dispatch_authorization=denied actor=its-applekid reason=label_applier_not_allowed"
+  end
+
   test "status renders a stale revalidation dispatch decline without failing", %{orchestrator: pid} do
     issue = %Issue{id: "issue-2832", identifier: "repo#2832", state: "todo", title: "Stale dispatch"}
 

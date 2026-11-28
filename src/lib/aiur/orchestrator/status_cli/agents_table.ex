@@ -33,10 +33,18 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
         agents_activity(agent),
         if(agent[:repl_attach_command], do: " | " <> agent.repl_attach_command, else: ""),
         skills_suffix(agent),
-        WaitingReason.render_wait(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
+        WaitingReason.render_wait(agent) <> authorization_suffix(agent) <> StatusObservation.row_label(agent) <> DispatchAccount.suffix(agent)
       ])
     end)
   end
+
+  defp authorization_suffix(%{dispatch_authorization: :denied} = agent) do
+    actor = Map.get(agent, :dispatch_authorization_actor) || "unknown"
+    reason = Map.get(agent, :dispatch_authorization_reason) || :not_authorized
+    " dispatch_authorization=denied actor=#{actor} reason=#{reason}"
+  end
+
+  defp authorization_suffix(_agent), do: ""
 
   # Which skills the worker loaded first and why. Compact by design: the full
   # resolution lives in the ticket's dispatch record (logs/agent.ndjson).
@@ -58,7 +66,8 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   def idle_attention_row?(agent) do
     Map.get(agent, :work_state) in [:paused, "paused"] or
       Map.get(agent, :waiting_reason) not in [nil, :active, :awaiting_dispatch] or
-      Map.get(agent, :queue_depth, 0) > 0 or Map.get(agent, :claim_released?, false) == true
+      Map.get(agent, :queue_depth, 0) > 0 or Map.get(agent, :claim_released?, false) == true or
+      Map.get(agent, :dispatch_authorization) == :denied
   end
 
   # The STATE and ACTIVITY columns read the human wait from the row's derived

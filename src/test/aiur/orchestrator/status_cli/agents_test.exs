@@ -114,7 +114,13 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
         idle.(504) |> Map.put(:waiting_reason, :waiting_for_human),
         idle.(505) |> Map.put(:queue_depth, 1),
         idle.(506) |> Map.put(:claim_released?, true),
-        idle.(507) |> Map.put(:waiting_reason, :waiting_for_dependency)
+        idle.(507) |> Map.put(:waiting_reason, :waiting_for_dependency),
+        idle.(508)
+        |> Map.merge(%{
+          dispatch_authorization: :denied,
+          dispatch_authorization_actor: "its-applekid",
+          dispatch_authorization_reason: :label_applier_not_allowed
+        })
       ]
 
       running = [
@@ -127,13 +133,15 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       view = {:ok, snapshot, freshness}
 
       default_output = capture_io(fn -> AgentControlCLI.agents(fleet_view: view) end)
-      assert length(Regex.scan(~r/^#\d+\s/m, default_output)) == 7
+      assert length(Regex.scan(~r/^#\d+\s/m, default_output)) == 8
       refute default_output =~ "#3"
       assert Enum.all?(503..507, &(default_output =~ "##{&1}"))
+      assert default_output =~ "#508"
+      assert default_output =~ "dispatch_authorization=denied actor=its-applekid reason=label_applier_not_allowed"
       assert default_output =~ "(500 idle tickets hidden; use --all to show)"
 
       all_output = capture_io(fn -> AgentControlCLI.agents(all: true, fleet_view: view) end)
-      assert length(Regex.scan(~r/^#\d+\s/m, all_output)) == 507
+      assert length(Regex.scan(~r/^#\d+\s/m, all_output)) == 508
       assert all_output =~ "#507"
       refute all_output =~ "idle tickets hidden"
     end

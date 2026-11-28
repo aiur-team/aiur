@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
-  alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, StateLabels, Timeline}
-  alias Aiur.{Issue, Signal}
+  alias Aiur.GitHub.{Access, Config, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.DispatchAuthorization.{Decision, MissingTriggerLabel, StateLabels, Timeline}
+  alias Aiur.{Issue, Signal, Tracker.QueueProvenance}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -91,47 +91,37 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     cached_decision(issue, label) || cached_deferred_authorization(issue, label, opts) || fetch_decision(issue, label, prefix, owner, repo, opts)
   end
 
-  # The trigger label is the issue's CURRENT state label, and Aiur moves that
-  # label itself on every transition (`agent:todo` → `agent:in-progress` → …)
-  # using the bot credential. So the latest applier of the current state label
-  # is routinely Aiur, not the human who triaged the ticket.
-  #
-  # Requiring the applier to be in `allowed_users` and stopping there would mean
-  # every ticket loses authorization the moment Aiur advances its state, and
-  # `Orchestrator.Reconciler` terminates the running agent with "dispatch
-  # authorization was revoked" on the next poll. The old `trusted_creator`
-  # short-circuit hid that for operator-filed tickets; removing it exposed it
-  # for all of them.
-  #
-  # So: an Aiur-applied state label carries forward the triage decision instead
-  # of replacing it — authorized only if some allowed user applied a
-  # `<prefix>:*` label to this issue at some point. That keeps the invariant
-  # that a human put this ticket into the pipeline, while letting Aiur drive its
-  # own state machine. Note this deliberately does NOT extend to any other
-  # actor: an outsider re-labelling a ticket still revokes, because "latest
-  # applier wins" is what stops a hostile relabel from riding a stale approval.
-  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors}, issue, allowed_users, opts) do
-    triaged_by = Enum.find(prefix_appliers, &member?(allowed_users, &1))
+  # The latest state-label applier is often Aiur itself. A verified daemon
+  # label authorizes its queue action; agent transitions carry that decision
+  # forward. Trusted-user triage remains valid, while third-party relabels
+  # revoke authorization.
+  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors, label, event_created_at, prefix_events}, issue, allowed_users, opts) do
+    triaged_by = Enum.find(prefix_appliers, &(member?(allowed_users, &1) and not daemon_actor?(&1, opts)))
 
-    {authorized?, source} =
-      cond do
-        MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
-        member?(allowed_users, actor) -> {true, "label_applier"}
-        aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
-        true -> LocalProvenance.decision(issue, actor, label_actors, opts)
+    daemon_receipt? =
+      if issue.state == "todo" do
+        daemon_actor?(actor, opts) and QueueProvenance.matches?(issue.id, label, event_created_at, opts)
+      else
+        Enum.any?(prefix_events, fn event ->
+          daemon_actor?(event.actor, opts) and QueueProvenance.matches?(issue.id, event.label, event.created_at, opts)
+        end)
       end
 
-    log_decision(
-      if(authorized?, do: :allow, else: :deny),
-      issue,
-      source,
-      actor,
-      event_id
-    )
+    daemon_triage = Enum.find(prefix_appliers, &(daemon_actor?(&1, opts) and daemon_receipt?))
 
-    authorization = if authorized?, do: :authorized, else: :denied
+    {authorized?, source} = Decision.decide(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts)
+
+    log_decision(if(authorized?, do: :allow, else: :deny), issue, source, actor, event_id)
     clear_deferrals(issue)
-    %{issue | dispatch_authorized?: authorized?, dispatch_authorization: authorization}
+
+    %{
+      issue
+      | dispatch_authorized?: authorized?,
+        dispatch_authorization: if(authorized?, do: :authorized, else: :denied),
+        dispatch_authorization_actor: actor,
+        dispatch_authorization_source: source,
+        dispatch_authorization_reason: if(authorized?, do: nil, else: :label_applier_not_allowed)
+    }
   end
 
   defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users, _opts), do: deny_ambiguous(issue, reason)
@@ -156,7 +146,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     maybe_alert_deferral(issue, cause, reason)
     note_deferral(issue, cause, reason)
 
-    %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred}
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred, dispatch_authorization_reason: reason}
   end
 
   # A denial that comes from OUR OWN read limits reads identically to a denial
@@ -173,31 +163,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp maybe_alert_deferral(_issue, _cause, _reason), do: :ok
 
-  # Aiur's own identity, never a human decision. Both logins count, and it has
-  # to be both: the state label above is written with the *daemon's* credential,
-  # so under GitHub App auth the actor on the timeline event is the App bot —
-  # while an agent moving a label with its own credential appears as the bot
-  # account. Matching only one of them makes the other's transition read as a
-  # third party relabelling the ticket, which denies authorization and gets the
-  # running agent killed on the next reconcile. When neither is configured
-  # nothing carries forward and the stricter latest-applier rule applies
-  # unchanged.
-  defp aiur_actor?(actor, opts) do
-    trimmed = actor |> String.trim() |> String.downcase()
-
-    trimmed != "" and trimmed in aiur_logins(opts)
+  defp daemon_actor?(actor, opts) do
+    daemon = Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)
+    normalized_login(actor) != "" and normalized_login(actor) == normalized_login(daemon)
   end
 
-  defp aiur_logins(opts) do
-    [
-      Keyword.get_lazy(opts, :bot_account, &Config.bot_account/0),
-      Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)
-    ]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
+  defp normalized_login(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  defp normalized_login(_value), do: ""
 
   defp fetch_decision(issue, label, prefix, owner, repo, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
@@ -239,7 +211,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     decision = Timeline.decision(issue, label, prefix, events)
 
     case decision do
-      {:verified, _actor, event_id, _prefix_appliers, _label_actors} ->
+      {:verified, _actor, event_id, _prefix_appliers, _label_actors, _label, _created_at, _prefix_events} ->
         cache_decision(issue, label, event_id, decision)
 
       {:deferred, reason} ->
@@ -337,7 +309,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     log_decision(:deny, issue, "ambiguous", nil, nil, reason)
     maybe_alert_ambiguity(issue, reason)
     clear_deferrals(issue)
-    %{issue | dispatch_authorized?: false, dispatch_authorization: :denied}
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :denied, dispatch_authorization_reason: reason}
   end
 
   defp maybe_alert_ambiguity(issue, reason), do: maybe_alert_once(issue, reason, &alert_ambiguity/2)
