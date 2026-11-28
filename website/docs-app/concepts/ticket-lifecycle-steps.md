@@ -201,7 +201,7 @@ Everything else — `human_required`, `irreversible`, `partially_reversible`, an
 
 Classification is consequence-based and defaults delegable: a request that omits `authority`/`reversibility` becomes `supervisor_allowed` + `reversible` (`src/lib/aiur/decision_validation.ex`), so reversible engineering calls stay inside the Executor floor.
 
-Known Command types carry an explicit policy in `src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` → `supervisor_preferred`; sequencing `kind: "sequencing"` → `supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
+Known Command types carry an explicit policy in `src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` → `supervisor_preferred`; sequencing `kind: "sequencing"` → `supervisor_allowed`). Legacy attention origin does not override consequence-based authority defaults.
 
 An irreversible, spend, publication, product, or security Command must declare `authority: human_required` and a `context.authority_basis` of `product`, `spend`, `external_publication`, or `security`; a missing or unknown basis is rejected. An Executor may reclassify an open decision without that basis or legacy attention, recording a reason.
 

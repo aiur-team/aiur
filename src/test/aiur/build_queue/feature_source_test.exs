@@ -3,6 +3,7 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
   import ExUnit.CaptureIO
   alias Aiur.BuildQueue.{Hints, Model, MutationCLI, Server}
   alias Aiur.BuildQueue.Sources.Feature
+  alias Aiur.Commands.OutcomeGate
   alias Aiur.Config.Schema
 
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
@@ -160,8 +161,9 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     assert {:remove, "102", "agent:queued"} in get(:calls)
   end
 
-  test "a blocked feature member is not promoted until its blocker closes" do
+  test "a feature member blocked on a creator outcome is promoted when the merge closes its blocker" do
     set_registry({:ok, registry("combat", [101, 102])})
+    update(:labels, Map.put(get(:labels), "101", ["creator-facing"]))
     update(:dependencies, %{"102" => ["101"]})
     pid = server()
     assert {:ok, _results} = adopt(pid)
@@ -170,8 +172,11 @@ defmodule Aiur.BuildQueue.FeatureSourceTest do
     assert {:add, "101", "agent:todo"} in get(:calls)
     refute {:add, "102", "agent:todo"} in get(:calls)
 
+    target = OutcomeGate.merge_target(["creator-facing"], "101", [%{decision_status: :open}])
+    assert target == "done"
+
     update(:labels, Map.delete(get(:labels), "101"))
-    update(:closures, %{"101" => {:ok, %{open?: false, state_reason: "completed"}}})
+    update(:closures, %{"101" => {:ok, %{open?: target != "done", state_reason: "completed"}}})
     clear_calls()
     reconcile(pid)
 

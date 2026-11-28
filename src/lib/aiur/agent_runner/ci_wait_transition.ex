@@ -1,16 +1,40 @@
 defmodule Aiur.AgentRunner.CiWaitTransition do
   @moduledoc false
 
-  alias Aiur.Orchestrator.ReworkGate
+  alias Aiur.{Commands, Orchestrator.ReworkGate}
 
   @spec write(map(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def write(coordination, issue_id, state_name) do
     with {:ok, draft_handoff} <- verify_pr(coordination, issue_id, state_name),
+         :ok <- validate_outcome_handoff(coordination, state_name),
          :ok <- coordination.set_ticket_state.(issue_id, state_name) do
       {:ok, Map.merge(%{state: state_name, issue: issue_id}, draft_handoff)}
     else
       {:error, reason} -> {:error, reason}
       other -> {:error, other}
+    end
+  end
+
+  defp validate_outcome_handoff(_coordination, state_name) when state_name != "human-review", do: :ok
+
+  defp validate_outcome_handoff(coordination, _state_name) do
+    labels = Map.get(coordination, :outcome_gate_labels, [])
+
+    if Enum.any?(labels, &(&1 in ["creator-facing", "engineering-only"])) do
+      decisions_fun = Map.get(coordination, :outcome_decisions_fun, &Commands.list_decisions/0)
+
+      try do
+        case Commands.validate_review_handoff(labels, Map.get(coordination, :outcome_gate_identifier), decisions_fun.()) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:creator_review_gate, reason}}
+        end
+      rescue
+        _error -> {:error, {:creator_review_gate, :outcome_evidence_unavailable}}
+      catch
+        :exit, _reason -> {:error, {:creator_review_gate, :outcome_evidence_unavailable}}
+      end
+    else
+      :ok
     end
   end
 

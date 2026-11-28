@@ -343,7 +343,7 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         dashboard_cache_children(dashboard?, opts) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
-        [Aiur.Netlify.Usage] ++
+        [Aiur.Netlify.Usage, Aiur.Usage.GasLedger] ++
         Aiur.VoiceConversation.child_specs() ++
         [toolchain_child()] ++
         dashboard_final_children(dashboard?, opts) ++

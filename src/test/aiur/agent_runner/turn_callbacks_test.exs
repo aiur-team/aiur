@@ -44,6 +44,27 @@ defmodule Aiur.AgentRunner.TurnCallbacksTest do
       assert envelope.provider == :claude
       assert envelope.resolved_model == "sonnet-4-6"
     end
+
+    test "attributes provider usage to the host-supplied user id for this run" do
+      parent = self()
+
+      opts =
+        opts()
+        |> Keyword.put(:user_id, "creator-42")
+        |> Keyword.put(:usage_publisher, fn envelope -> send(parent, {:published, envelope}) end)
+
+      callbacks = TurnCallbacks.build(session("claude", "sonnet-4-6"), issue(), opts)
+
+      payload = %{
+        "method" => "turn/completed",
+        "params" => %{"usage" => %{"input_tokens" => 9, "output_tokens" => 4}}
+      }
+
+      callbacks.on_message.(%{event: :turn_completed, payload: payload, raw: Jason.encode!(payload)})
+
+      assert_receive {:published, %UsageEnvelope{} = envelope}, 1000
+      assert envelope.attribution.user_id == "creator-42"
+    end
   end
 
   defp session(backend, model), do: %{backend: backend, model: model}

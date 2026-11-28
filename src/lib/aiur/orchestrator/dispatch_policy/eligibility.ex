@@ -7,11 +7,52 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Commands, Config, Issue}
-  alias Aiur.Orchestrator.{DependencyGate, Slots, State}
+  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy.IssueStates, DispatchPolicy.SpendCap, Slots, State}
+
+  require Logger
 
   # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
   # blocker, so an unreadable hold still reads as a hold.
   @unknown_dependency_hold "blocked by a non-terminal dependency"
+
+  @spec identity_decision(Issue.t(), MapSet.t(), MapSet.t()) :: :dispatch | {:skip, term()}
+  def identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue, active_states, terminal_states) do
+    winner = resolve_state_labels(state_labels)
+
+    Logger.info(
+      "Dispatch resolved contradictory state labels for issue_id=#{inspect(issue.id)} " <>
+        "labels=#{inspect(state_labels)} -> #{inspect(winner)}"
+    )
+
+    identity_decision(%{issue | state: winner, state_labels: [winner]}, active_states, terminal_states)
+  end
+
+  def identity_decision(%Issue{} = issue, active_states, terminal_states) do
+    cond do
+      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_label = foreign_active_state_label(issue, active_states, terminal_states) -> {:skip, {:foreign_owner, foreign_label}}
+      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
+      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
+      not issue_not_paused?(issue) -> {:skip, :paused}
+      not issue_not_parked?(issue) -> {:skip, :parked}
+      not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
+      true -> SpendCap.decision(issue)
+    end
+  end
+
+  def identity_decision(_issue, _active_states, _terminal_states), do: {:skip, :invalid_issue}
+
+  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
+    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
+  end
+
+  defp valid_issue_shape?(_issue), do: false
+
+  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) when is_list(labels) do
+    IssueStates.foreign_active_state_label(labels, Aiur.GitHub.Config.label_prefix(), active_states, terminal_states)
+  end
+
+  defp foreign_active_state_label(_issue, _active_states, _terminal_states), do: nil
 
   @spec state_slots_available?(term(), term()) :: boolean()
   def state_slots_available?(%Issue{state: issue_state}, %State{} = state) do

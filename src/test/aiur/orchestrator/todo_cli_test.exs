@@ -93,6 +93,7 @@ defmodule Aiur.Orchestrator.TodoCLITest do
     assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
     assert stdout =~ "__AIUR_CONTROL_EXIT__:0"
     assert_received {:todo_add_label, "11", "sym:todo"}
+    assert_received {:todo_record_queue_write, "11", "sym:todo"}
   end
 
   test "emits a failure marker when tracker mutation fails" do
@@ -133,6 +134,7 @@ defmodule Aiur.Orchestrator.TodoCLITest do
     assert stdout =~ "✓ #13 → sym:todo"
     assert stdout =~ "queued 3 ticket(s); cleared 0 other(s)"
     assert_received {:todo_add_label, "11", "sym:todo"}
+    assert_received {:todo_record_queue_write, "11", "sym:todo"}
     assert_received {:todo_add_label, "12", "sym:todo"}
     assert_received {:todo_add_label, "13", "sym:todo"}
   end

@@ -4,6 +4,7 @@ defmodule AiurWeb.ConversationApiController do
 
   alias Aiur.Conversation.{History, Ref, Session}
   alias Aiur.Executor.HarnessSession
+  alias Aiur.GitHub.Config
   alias AiurWeb.{ConversationApiParams, EndpointConfig}
   alias AiurWeb.OperatorControlCenter.PayloadLoader
   alias Plug.Conn
@@ -45,6 +46,27 @@ defmodule AiurWeb.ConversationApiController do
       {:ok, {owner, repository, identifier}} -> resolved(conn, resolve_worker(owner, repository, identifier), "worker")
       error -> failure(conn, error)
     end
+  end
+
+  @spec worker_thread(Conn.t(), map()) :: Conn.t()
+  def worker_thread(conn, %{"issue_identifier" => identifier} = params) do
+    with {:ok, {owner, repository}} <- worker_repository(),
+         {:ok, opts} <- ConversationApiParams.entries(Map.drop(params, ["issue_identifier"])),
+         {:ok, id} <- History.resolve_worker(owner, repository, identifier),
+         {:ok, page} <- History.list_entries(id, opts ++ [principal: principal(conn), reveal: params["reveal"] == "true"]) do
+      json(conn, Map.put(page, :conversation_id, id) |> Map.update!(:sessions, &Enum.map(&1, fn session -> Session.to_json(session) end)))
+    else
+      {:error, :not_found} -> failure(conn, {:error, :subject_not_found})
+      {:error, reason} -> failure(conn, {:error, reason})
+    end
+  end
+
+  defp worker_repository do
+    EndpointConfig.get(:conversation_worker_repository_fun, &Config.configured_repo/0).()
+  rescue
+    _error -> {:error, :unavailable}
+  catch
+    :exit, _reason -> {:error, :unavailable}
   end
 
   defp resolve_executor do
