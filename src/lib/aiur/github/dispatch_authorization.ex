@@ -5,8 +5,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   alias Aiur.GitHub.{Access, Config, StatePolicy, TimelineCache}
   alias Aiur.GitHub.DispatchAuthorization.{Decision, MissingTriggerLabel, StateLabels, Timeline}
-  alias Aiur.Tracker.QueueProvenance
-  alias Aiur.{Issue, Signal}
+  alias Aiur.{Issue, Signal, Tracker.QueueProvenance}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
