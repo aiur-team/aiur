@@ -53,6 +53,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
   @spec fetch((map() -> term()), String.t(), String.t(), String.t(), Issue.t(), keyword()) :: term()
   def fetch(request_fun, token, owner, repo, issue, opts) do
+    request_fun = fn request -> request_fun.(Map.put(request, :github_intent, :label_applier)) end
     TimelineFetch.run(&fetch_label_evidence/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts)
   end
 
