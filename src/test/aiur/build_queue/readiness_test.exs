@@ -131,6 +131,42 @@ defmodule Aiur.BuildQueue.ReadinessTest do
     assert hd(model.queues).waiting_reason == "GitHub dependencies unknown"
   end
 
+  test "a budget-held blocker hydration renders an unknown reason instead of crashing" do
+    tracker = Module.concat(__MODULE__, CacheMissBudgetHold)
+
+    Code.compile_string("""
+    defmodule #{inspect(tracker)} do
+      def cached_blocked_by(_issue), do: {:error, :cache_miss}
+
+      def hydrate_blocked_by(_issue) do
+        {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, %{reason: :shared_budget, resource: "core", reset_at: ~U[2026-11-28 12:22:49Z]}}}}}
+      end
+    end
+    """)
+
+    queue = %Queue{id: "q-0001", name: "focus", kind: :list, root: nil, held: false, generation: 0, created_at: ~U[2026-10-15 00:00:00Z]}
+    item = %Item{issue_id: "11", queue_id: queue.id, position: 0, hold: nil, override: nil, promoted_at: nil, added_at: queue.created_at}
+    observation = %Observation{issue_id: "11", open?: true, labels: ["agent:queued"], state_reason: nil, pr: nil, observed_at_ms: 10_000}
+    terminal_states = MapSet.new(["closed", "done", "completed"])
+
+    native_blockers = ReadModel.cached_native_blockers(%{queues: [queue], items: [item]}, %{"11" => observation}, tracker, terminal_states)
+    assert %{"11" => {:unknown, :github_budget_hold}} = native_blockers
+
+    model =
+      ReadModel.build(%{
+        status: :running,
+        clock: fn -> 10_000 end,
+        document: %{queues: [queue], items: [item], edges: [], latches: []},
+        settings: %Schema{build_queue: %Schema.BuildQueue{}, tracker: %Schema.Tracker{}, polling: %Schema.Polling{}},
+        projections: [%{issue_id: "11", state: :ready, verdict: :ready, reason: nil, rank: {0, 5, 0, 0, "11"}}],
+        observations: %{"11" => observation},
+        native_blockers: native_blockers
+      })
+
+    [projected] = hd(model.queues).items
+    assert projected.reason == "GitHub dependencies unknown (github_budget_hold)"
+  end
+
   test "an unobserved cached blocker read falls back to tracker hydration" do
     tracker = Module.concat(__MODULE__, CacheMissWithRefresh)
 

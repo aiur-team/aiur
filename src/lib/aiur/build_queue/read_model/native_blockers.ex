@@ -23,10 +23,17 @@ defmodule Aiur.BuildQueue.ReadModel.NativeBlockers do
       {:ok, hydrated} -> {:ok, Enum.map(hydrated.blocked_by, &blocker(&1, observations, terminal_states))}
       {:error, :cache_miss} -> {:unknown, :blockers_not_observed}
       {:error, :unsupported} -> :skip
-      {:error, reason} -> {:unknown, reason}
+      {:error, reason} -> {:unknown, unknown_reason(reason)}
       :skip -> :skip
     end
   end
+
+  # The read model renders this reason into a string, so collapse it here: a tracker
+  # error tuple (a budget hold carries maps and DateTimes) crashed the queue server.
+  defp unknown_reason(reason) when is_atom(reason), do: reason
+  defp unknown_reason({:github, :local_hold, _hold}), do: :github_budget_hold
+  defp unknown_reason({:aiur, :locally_held, _hold}), do: :github_budget_hold
+  defp unknown_reason(_reason), do: :unknown
 
   defp cached_or_hydrated_blockers(issue, tracker) do
     if tracker && Code.ensure_loaded?(tracker) && function_exported?(tracker, :cached_blocked_by, 1) do
