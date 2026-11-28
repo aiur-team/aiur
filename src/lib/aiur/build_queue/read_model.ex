@@ -1,5 +1,5 @@
 defmodule Aiur.BuildQueue.ReadModel do
-  @moduledoc "Version 1 queue view from held reconciliation evidence; never performs tracker reads."
+  @moduledoc "Version 1 queue view from held reconciliation evidence; refreshes unresolved native blocker cache misses."
   alias Aiur.BuildQueue.Model.Edge
   alias Aiur.BuildQueue.{Progress, Readiness, SetSummary, Settings}
   alias Aiur.BuildQueue.ReadModel.{Eligibility, NativeBlockers, SetSources}
