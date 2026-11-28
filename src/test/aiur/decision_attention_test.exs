@@ -142,6 +142,7 @@ defmodule Aiur.DecisionAttentionTest do
         decision_projector: fn payload, opts ->
           DecisionStore.project_attention(
             Map.merge(payload, %{
+              "audience" => :creator,
               "authority" => "human_required",
               "reversibility" => "irreversible",
               "context" => %{"authority_basis" => "product"}
