@@ -84,18 +84,20 @@ and import `composer.mjs` from there.
 Every adapter is optional. A button whose adapter is missing is not shown,
 so a host without voice gets a composer without the voice buttons.
 
-Idle, the composer is one row: + (attach), the text input, mic and send.
-Tapping the mic starts dictation and the row becomes a recording row, with
-the input above it: cancel ✕, a live waveform, two-way voice, stop ■ and send.
-The two-way voice button appears while dictating or during a voice session.
+Idle, the composer is one row: + (attach), the text input, mic and send. The
+mic and send remain at the right edge while dictating; the recognized text
+fills the space to their left. The two-way button slides in immediately left
+of the mic. During a two-way session the mic mutes/unmutes, and the composer
+shows the live waveform plus a running transcript for both speakers.
 
 | Button | Adapter | Behaviour |
 | --- | --- | --- |
 | + (attach) | `upload(file) → Promise<{ name, … }>` | Opens the file picker. Each file shows as a chip while it uploads. Send waits until every upload finishes. |
-| Mic | `dictation.start({ onPartial, onLevel }) → Promise<{ stop() → Promise<text>, cancel?() }>` | A tap starts dictation and it runs until stop, send or cancel. Holding the mic for 300 ms or more also works: letting go stops. The words go in at the cursor as they are heard. Enter or Space start it from the keyboard. |
+| Mic | `dictation.start({ onPartial, onLevel }) → Promise<{ stop() → Promise<text>, cancel?(), setMuted(muted) }>` | A tap starts dictation and it runs until stop, send or cancel. Holding the mic for 300 ms or more also works: letting go stops. The words go in at the cursor as they are heard. Enter or Space start it from the keyboard. |
 | ✕ (cancel) | `dictation` | Discards the dictated words, keeps what was typed and calls `cancel`. Escape does the same. |
 | ■ (stop) | `dictation` | Calls `stop` and leaves the final text in the input to edit. It never sends. |
-| Two-way voice | `voice.start({ onEnd, initialText }) → Promise<{ stop() }>` | In the recording row, it stops dictation and starts a live conversation. The draft so far moves out of the input into `initialText`, to send as the first turn. While the conversation is live the button replaces the mic, and a tap ends it. Call `onEnd` if the session closes by itself. If `start` rejects, the text goes back into the input. |
+| Mic | `voice.start` session | During a two-way session, toggles microphone mute without ending the conversation. The required session `setMuted(muted)` hook is called. |
+| Two-way voice | `voice.start({ onEnd, onPartial, onLevel, initialText }) → Promise<{ stop(), setMuted(muted) }>` | Beside the mic while dictating, upgrades dictation into a live conversation. The draft moves into `initialText` as the first turn. During voice, `onPartial('user' | 'agent', text)` updates that speaker's transcript and `onLevel(level)` drives the waveform. The two-way button ends the session. Call `onEnd` when it closes by itself; if `start` rejects, the text returns to the input. |
 | Send | `onSend(text, attachments)` | Enter sends and Shift+Enter adds a new line. In the recording row it stops dictation and sends the final text. If `onSend` returns a promise, the draft stays until it resolves. A rejection keeps the draft. |
 
 #### Dictation callbacks

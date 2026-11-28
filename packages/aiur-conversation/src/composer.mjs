@@ -31,6 +31,7 @@ export class AiurComposer extends HTMLElementBase {
       bars: Array.from(root.querySelectorAll('.wave i')),
       file: root.querySelector('input[type="file"]'),
       status: root.querySelector('[part="status"]'),
+      transcript: root.querySelector('[part="transcript"]'),
     };
     this.#wire();
   }
@@ -74,6 +75,7 @@ export class AiurComposer extends HTMLElementBase {
   cancelDictation() { return this.#controller.cancelDictation(); }
   startVoice() { return this.#controller.startVoice(); }
   stopVoice() { return this.#controller.stopVoice(); }
+  toggleMicMute() { return this.#controller.toggleMicMute(); }
 
   #draftControl() {
     return this.#el.inputSlot.assignedElements()[0] ?? this.#el.input;
@@ -132,6 +134,10 @@ export class AiurComposer extends HTMLElementBase {
     mic.addEventListener('pointerdown', (event) => {
       if (event.button > 0 || mic.disabled) return;
       event.preventDefault();
+      if (this.state.dictation === 'recording' || this.state.voice === 'live') {
+        this.toggleMicMute();
+        return;
+      }
       const pressedAt = Date.now();
       this.startDictation();
       if (this.state.dictation !== 'recording') return;
@@ -154,6 +160,10 @@ export class AiurComposer extends HTMLElementBase {
     mic.addEventListener('contextmenu', (event) => event.preventDefault());
     mic.addEventListener('click', (event) => {
       if (event.detail > 0) return;
+      if (this.state.dictation === 'recording' || this.state.voice === 'live') {
+        this.toggleMicMute();
+        return;
+      }
       this.startDictation();
       if (this.state.dictation === 'recording') {
         const stop = this.#el.controls.find((slot) => slot.name === 'stop');
@@ -178,7 +188,7 @@ export class AiurComposer extends HTMLElementBase {
   }
 
   #render(state) {
-    const { input, wave, bars, status, attachments, controls } = this.#el;
+    const { input, wave, bars, status, attachments, controls, transcript } = this.#el;
     const recording = state.dictation === 'recording';
     const active = this.shadowRoot.activeElement ?? this.ownerDocument.activeElement;
     const activeSlot = active?.assignedSlot ?? active?.closest('slot');
@@ -192,6 +202,7 @@ export class AiurComposer extends HTMLElementBase {
       button.setAttribute('aria-label', control.label);
       if (control.pressed !== undefined) button.setAttribute('aria-pressed', String(control.pressed));
     }
+    controls.find((slot) => slot.name === 'voice').hidden = !(recording || state.voice !== 'idle') || !this.adapters.voice;
 
     if (input.value !== state.value) {
       input.value = state.value;
@@ -202,7 +213,13 @@ export class AiurComposer extends HTMLElementBase {
     input.readOnly = state.readOnly;
     input.setAttribute('aria-label', state.inputLabel);
     if (activeSlot?.hidden) this.focus();
-    wave.hidden = !recording;
+    wave.hidden = !recording && state.voice !== 'live';
+    transcript.replaceChildren(...state.voiceTranscript.map(({ speaker, text }) => {
+      const line = this.ownerDocument.createElement('p');
+      line.dataset.speaker = speaker;
+      line.textContent = `${speaker === 'agent' ? 'Agent' : 'You'}: ${text}`;
+      return line;
+    }));
     bars.forEach((bar, index) => {
       bar.style.transform = `scaleY(${Math.max(0.1, state.levels[index]).toFixed(2)})`;
     });

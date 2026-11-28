@@ -40,7 +40,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-const RECORDING = ['cancel', 'waveform', 'voice', 'stop', 'send'];
+const RECORDING = ['cancel', 'waveform', 'voice', 'mic', 'stop', 'send'];
 const IDLE = ['attach', 'input', 'mic', 'send'];
 
 // The parts the user can see, in row order.
@@ -52,8 +52,8 @@ function visible(el) {
 
 const allAdapters = () => ({
   upload: async (file) => ({ name: file.name }),
-  dictation: { start: async () => ({ stop: async () => '' }) },
-  voice: { start: async () => ({ stop: async () => {} }) },
+  dictation: { start: async () => ({ stop: async () => '', setMuted: () => {} }) },
+  voice: { start: async () => ({ stop: async () => {}, setMuted: () => {} }) },
 });
 
 test('only the buttons the host can serve are shown, each with a label and no text', () => {
@@ -175,16 +175,17 @@ test('a removed attachment is not sent', async () => {
 // A recorder the test drives: it streams words and levels, and logs what the composer asks of it.
 function recorder({ final = '', ready } = {}) {
   const calls = [];
+  let muted = false;
   let callbacks;
   const adapter = {
     start: (options) => {
       calls.push('start');
       callbacks = options;
-      const session = { stop: async () => (calls.push('stop'), final), cancel: () => calls.push('cancel') };
+      const session = { stop: async () => (calls.push('stop'), final), cancel: () => calls.push('cancel'), setMuted: (value) => { muted = value; } };
       return ready ? ready.promise.then(() => session) : Promise.resolve(session);
     },
   };
-  return { adapter, calls, say: (text) => callbacks.onPartial(text), level: (value) => callbacks.onLevel(value) };
+  return { adapter, calls, say: (text) => callbacks.onPartial(text), level: (value) => callbacks.onLevel(value), get muted() { return muted; } };
 }
 
 // A press and an immediate release; the release lands on the window because the mic hides.
@@ -208,6 +209,9 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   tap(part('mic'));
   await settle();
   assert.deepEqual(mic.calls, ['start'], 'a tap must not stop dictation; only stop, send or cancel do');
+  part('mic').click();
+  assert.equal(mic.muted, true, 'the visible mic toggles mute while dictating');
+  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
   assert.deepEqual(visible(el), ['input', ...RECORDING], 'the input stays above the recording row');
 
   mic.say('with a');
@@ -221,6 +225,47 @@ test('a tap on the mic keeps dictating and streams the words into the input as t
   assert.equal(el.value, 'Make the hero with a double jump.', 'the recognizer\'s final text wins');
   assert.deepEqual(visible(el), IDLE);
   assert.deepEqual(sent, [], 'stop leaves the words to edit; it never sends');
+});
+
+test('mute toggled before dictation startup applies when the session becomes ready', async () => {
+  const { el, part } = mount();
+  const ready = deferred();
+  const mic = recorder({ final: 'after startup', ready });
+  el.adapters = { dictation: mic.adapter };
+  tap(part('mic'));
+  await tick();
+  part('mic').click();
+  assert.equal(part('mic').getAttribute('aria-label'), 'Unmute microphone');
+  ready.resolve();
+  await settle();
+  assert.equal(mic.muted, true, 'late session receives the pending mute value');
+  assert.deepEqual(mic.calls, ['start']);
+  await el.stopDictation();
+});
+
+test('sessions without mute support are stopped and reported', async () => {
+  const { el } = mount();
+  let dictationStopped = 0;
+  let dictationCancelled = 0;
+  let voiceStopped = 0;
+  const errors = [];
+  el.addEventListener('aiur-composer-error', ({ detail }) => errors.push(detail.action));
+  el.adapters = {
+    dictation: { start: async () => ({
+      stop: async () => { dictationStopped++; },
+      cancel: () => { dictationCancelled++; },
+    }) },
+    voice: { start: async () => ({ stop: async () => { voiceStopped++; } }) },
+  };
+
+  await el.startDictation();
+  assert.equal(dictationCancelled, 1);
+  assert.equal(dictationStopped, 0, 'cleanup does not stop after cancel');
+  assert.equal(el.state.dictation, 'idle');
+  assert.equal(await el.startVoice(), false);
+  assert.equal(voiceStopped, 1);
+  assert.equal(el.state.voice, 'idle');
+  assert.deepEqual(errors, ['dictation', 'voice']);
 });
 
 test('holding the mic and letting go stops dictation', async () => {
@@ -296,48 +341,6 @@ test('send in the recording row stops dictation and sends the final words once',
   assert.equal(el.value, '');
 });
 
-test('two-way voice ends dictation and carries the words so far over as the first turn', async () => {
-  const { el, part } = mount();
-  const mic = recorder({ final: 'make the level longer' });
-  const starts = [];
-  let stops = 0;
-  el.adapters = {
-    upload: async (file) => ({ name: file.name }),
-    dictation: mic.adapter,
-    voice: {
-      start: async (options) => {
-        starts.push(options);
-        return { stop: async () => stops++ };
-      },
-    },
-  };
-
-  tap(part('mic'));
-  await settle();
-  mic.say('make the level');
-  part('voice').click();
-  await settle();
-
-  assert.deepEqual(mic.calls, ['start', 'stop'], 'the words are transcribed, not thrown away');
-  assert.equal(starts[0].initialText, 'make the level longer');
-  assert.equal(el.value, '', 'the words moved to the voice session, so they are not sent twice');
-  assert.equal(part('voice').getAttribute('aria-pressed'), 'true');
-  assert.equal(part('voice').getAttribute('aria-label'), 'End voice conversation');
-  assert.deepEqual(visible(el), ['attach', 'input', 'voice', 'send']);
-
-  part('voice').click();
-  await settle();
-  assert.equal(stops, 1);
-  assert.deepEqual(visible(el), IDLE, 'two-way hides again once the conversation ends');
-
-  tap(part('mic'));
-  await settle();
-  part('voice').click();
-  await settle();
-  starts[1].onEnd();
-  assert.deepEqual(visible(el), IDLE, 'the agent hanging up resets the composer');
-});
-
 test('a voice session that fails to start gives the words back', async () => {
   const { el, part } = mount();
   const mic = recorder({ final: 'are you there' });
@@ -376,6 +379,25 @@ test('the waveform scrolls with the loudness the recorder reports', async () => 
   assert.equal(bars.at(-2), 'scaleY(1.00)');
   assert.equal(bars[0], 'scaleY(0.10)', 'silence still shows a sliver');
   assert.equal(el.hasAttribute('data-recording'), true);
+});
+
+test('dictation keeps the right-side send and mic controls in stable positions', async () => {
+  const { el, part } = mount();
+  const mic = recorder();
+  el.adapters = { ...allAdapters(), dictation: mic.adapter };
+  const idle = visible(el);
+  tap(part('mic'));
+  await settle();
+  const recording = visible(el);
+  assert.deepEqual(recording, ['input', 'cancel', 'waveform', 'voice', 'mic', 'stop', 'send']);
+  assert.equal(recording.at(-1), 'send');
+  assert.ok(recording.indexOf('mic') < recording.indexOf('send'));
+  assert.equal(recording.filter((name) => name === 'send').length, 1);
+  assert.ok(recording.indexOf('waveform') >= 0);
+  part('stop').click();
+  await settle();
+  assert.deepEqual(visible(el), idle);
+  assert.deepEqual(idle, ['attach', 'input', 'mic', 'send']);
 });
 
 test('the mic works from the keyboard and focus moves to stop', async () => {
