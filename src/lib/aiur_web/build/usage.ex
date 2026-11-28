@@ -1,11 +1,9 @@
 defmodule AiurWeb.Build.Usage do
   @moduledoc "Protected, per-connection quota facts for the build home usage strip."
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
-  alias Aiur.Accounts.EnvKey
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Access
-  alias Aiur.Usage
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
@@ -51,11 +49,11 @@ defmodule AiurWeb.Build.Usage do
     # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
     {github, github_snapshot_observed_at} = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
-    provider_usage = isolated(fn -> Usage.snapshot(Keyword.get(opts, :provider_usage_opts, [])) end, %{})
+    provider_usage = isolated(fn -> UsageAPIs.provider_usage_snapshot(Keyword.get(opts, :provider_usage_opts, [])) end, %{})
     routed = isolated(Keyword.get(opts, :configured_fun, &ModelProviders.configured_families/0), [])
     # A keyed OpenAI-compatible family is configured by its key; a session-login family by routing.
     configured = Enum.filter(families, &(&1 in routed or compat(&1) != nil))
-    api_keys = for {key, env} <- @api_key_envs, is_binary(EnvKey.read(env)), EnvKey.read(env) != "", do: key
+    api_keys = UsageAPIs.configured_api_keys(@api_key_envs)
 
     %{
       families: families,
@@ -182,6 +180,7 @@ defmodule AiurWeb.Build.Usage do
           do: %{
             row(name)
             | mono: initials,
+              note: "No account quota API is configured",
               lines: [
                 %{
                   tag: "usage",

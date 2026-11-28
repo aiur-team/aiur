@@ -1,9 +1,24 @@
 defmodule AiurWeb.Build.UsageAPIs do
   @moduledoc false
+  alias Aiur.Accounts.EnvKey
   alias Aiur.BuildOrder.SourceFreshness
+  alias Aiur.Usage, as: ProviderUsage
   alias AiurWeb.Build.Usage
   alias AiurWeb.RemainingMeter
   @labels %{"core" => {"core", "Requests left"}, "graphql" => {"gql", "Points left"}}
+
+  @doc false
+  @spec configured_api_keys([{atom(), String.t()}]) :: [atom()]
+  def configured_api_keys(envs) do
+    for {key, env} <- envs,
+        value = EnvKey.read(env),
+        is_binary(value) and value != "",
+        do: key
+  end
+
+  @doc false
+  @spec provider_usage_snapshot(keyword()) :: map()
+  def provider_usage_snapshot(opts), do: ProviderUsage.snapshot(opts)
 
   @spec rows(term(), map(), integer()) :: [map()]
   @spec rows(term(), map(), integer(), integer() | nil) :: [map()]
