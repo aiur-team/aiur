@@ -140,7 +140,7 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: darwin-arm64
           # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
           # are unavailable and queue indefinitely. Re-enable when an Intel runner
@@ -218,7 +218,7 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: darwin-arm64
           # darwin-x64 (Intel Mac) temporarily disabled: macos-13 hosted runners
           # are unavailable and queue indefinitely. Re-enable when an Intel runner
@@ -429,3 +429,4 @@ jobs:
           VERSION: ${{ needs.setup.outputs.version }}
           DIST_TAG: ${{ needs.setup.outputs.dist_tag }}
         run: bash packaging/scripts/release-npm/verify-registry.sh
+
