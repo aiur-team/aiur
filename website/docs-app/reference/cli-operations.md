@@ -254,7 +254,7 @@ The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` 
 
 Routing sends these Commands directly to the human with cause `executor_originated`.
 
-Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
+Executors cannot answer Commands they raised through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
 ## Build history commands — [epic, feature, lane and history export commands](/reference/build-history-commands)
 
