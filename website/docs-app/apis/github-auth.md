@@ -7,7 +7,7 @@
 | Comment commands and review-driven rework | Accepted only from configured trusted/daemon/bot accounts, the repository owner, or CODEOWNERS logins verified in the current refresh. |
 | Unresolvable CODEOWNERS | Failed teams contribute no members, including previously trusted members. Status/dashboard show the cause and age; sanitized comments remain visible to the Executor but untrusted bodies never enter agent digests or commands. Incomplete path ownership is unknown. |
 | The agent bot identity | Cannot trigger its own work; its state labels need a prior trusted triage or daemon queue action. |
-| The daemon identity | A verified `agent:*` label applied by the configured daemon identity is an explicit queue or lifecycle action and can authorize dispatch without `tracker.github.allowed_users`. This includes labels written by `aiur --todo`. |
+| The daemon identity | A daemon label event authorizes dispatch only when it matches a successful `aiur --todo` queue write recorded in daemon-private local state. The daemon login alone does not authorize dispatch; an unrecorded daemon event is treated like any other non-allowlisted label event. |
 
 
 A daemon-filed `experiment-analysis` ticket can dispatch after normal label authorization fails only when its body marker matches an **open local analysis request**, including a constant-time nonce check. The request must name that exact issue number and URL and record its daemon author login.

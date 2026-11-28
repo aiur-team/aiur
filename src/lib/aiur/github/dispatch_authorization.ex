@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, QueueProvenance, StatePolicy, TimelineCache}
   alias Aiur.GitHub.DispatchAuthorization.{MissingTriggerLabel, StateLabels, Timeline}
   alias Aiur.{Issue, Signal}
 
@@ -95,9 +95,20 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # label authorizes its queue action; agent transitions carry that decision
   # forward. Trusted-user triage remains valid, while third-party relabels
   # revoke authorization.
-  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors}, issue, allowed_users, opts) do
-    triaged_by = Enum.find(prefix_appliers, &member?(allowed_users, &1))
-    daemon_triage = Enum.find(prefix_appliers, &daemon_actor?(&1, opts))
+  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors, label, event_created_at, prefix_events}, issue, allowed_users, opts) do
+    triaged_by = Enum.find(prefix_appliers, &(member?(allowed_users, &1) and not daemon_actor?(&1, opts)))
+
+    daemon_receipt? =
+      if issue.state == "todo" do
+        daemon_actor?(actor, opts) and QueueProvenance.matches?(issue.id, label, event_created_at, opts)
+      else
+        Enum.any?(prefix_events, fn event ->
+          daemon_actor?(event.actor, opts) and QueueProvenance.matches?(issue.id, event.label, event.created_at, opts)
+        end)
+      end
+
+    daemon_triage = Enum.find(prefix_appliers, &(daemon_actor?(&1, opts) and daemon_receipt?))
+
     {authorized?, source} = authorization_decision(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts)
 
     log_decision(if(authorized?, do: :allow, else: :deny), issue, source, actor, event_id)
@@ -142,14 +153,17 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     {authorized?, source} =
       cond do
         MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
-        member?(allowed_users, actor) -> {true, "label_applier"}
-        daemon_actor?(actor, opts) -> {true, "daemon_label_applier"}
+        daemon_actor?(actor, opts) and daemon_queue_authorized?(actor, daemon_triage, opts) -> {true, "daemon_label_applier"}
+        not daemon_actor?(actor, opts) and member?(allowed_users, actor) -> {true, "label_applier"}
         aiur_actor?(actor, opts) and (not is_nil(daemon_triage) or not is_nil(triaged_by)) -> {true, prior_triage_source(daemon_triage, triaged_by)}
         true -> LocalProvenance.decision(issue, actor, label_actors, opts)
       end
 
     {authorized?, source}
   end
+
+  defp daemon_queue_authorized?(actor, daemon_triage, opts),
+    do: not is_nil(daemon_triage) and daemon_actor?(actor, opts)
 
   defp prior_triage_source(daemon_triage, _triaged_by) when is_binary(daemon_triage), do: "prior_daemon_triage:#{daemon_triage}"
   defp prior_triage_source(_daemon_triage, triaged_by), do: "prior_triage:#{triaged_by}"
@@ -236,7 +250,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     decision = Timeline.decision(issue, label, prefix, events)
 
     case decision do
-      {:verified, _actor, event_id, _prefix_appliers, _label_actors} ->
+      {:verified, _actor, event_id, _prefix_appliers, _label_actors, _label, _created_at, _prefix_events} ->
         cache_decision(issue, label, event_id, decision)
 
       {:deferred, reason} ->
