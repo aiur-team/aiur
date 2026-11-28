@@ -11,6 +11,7 @@ export const reportSchema = read('schemas/capabilities.v1.schema.json');
 export const errorSchema = read('schemas/capability-error.v1.schema.json');
 export const agentsSchema = read('schemas/agents.v1.schema.json');
 export const capacitySchema = read('schemas/capacity.v1.schema.json');
+export const usageAccountingSchema = read('schemas/usage-accounting.v1.schema.json');
 export const statusSchema = read('schemas/status.v1.schema.json');
 export const ticketSchema = read('schemas/ticket.v1.schema.json');
 export const ticketCancelSchema = read('schemas/ticket-cancel.v1.schema.json');
@@ -32,6 +33,7 @@ export const error = read('fixtures/capability-error.v1.json');
 export const agents = read('fixtures/agents.v1.json');
 export const capacity = read('fixtures/capacity.v1.json');
 export const capacityUnknown = read('fixtures/capacity-unknown.v1.json');
+export const usageAccounting = read('fixtures/usage-accounting.v1.json');
 export const status = read('fixtures/status.v1.json');
 export const ticket = read('fixtures/ticket.v1.json');
 export const ticketCancel = read('fixtures/ticket-cancel.v1.json');
@@ -58,6 +60,7 @@ for (const schema of [
   reportSchema,
   agentsSchema,
   capacitySchema,
+  usageAccountingSchema,
   statusSchema,
   ticketSchema,
   ticketCancelSchema,
@@ -85,6 +88,7 @@ export const validateReport = ajv.getSchema(reportSchema.$id);
 export const validateError = ajv.compile(errorSchema);
 export const validateAgents = ajv.getSchema(agentsSchema.$id);
 export const validateCapacity = ajv.getSchema(capacitySchema.$id);
+export const validateUsageAccounting = ajv.getSchema(usageAccountingSchema.$id);
 export const validateStatus = ajv.getSchema(statusSchema.$id);
 export const validateTicket = ajv.getSchema(ticketSchema.$id);
 export const validateTicketCancel = ajv.getSchema(ticketCancelSchema.$id);
@@ -104,6 +108,7 @@ export const validateVoiceConverse = (frames) => Array.isArray(frames) && frames
 export const contractCases = [
   { name: 'agents', schema: agentsSchema, fixture: agents, validate: validateAgents },
   { name: 'capacity', schema: capacitySchema, fixture: capacity, validate: validateCapacity },
+  { name: 'usage accounting', schema: usageAccountingSchema, fixture: usageAccounting, validate: validateUsageAccounting },
   { name: 'capacity unknown', schema: capacitySchema, fixture: capacityUnknown, validate: validateCapacity },
   { name: 'status', schema: statusSchema, fixture: status, validate: validateStatus },
   { name: 'ticket', schema: ticketSchema, fixture: ticket, validate: validateTicket },

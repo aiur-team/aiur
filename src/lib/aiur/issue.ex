@@ -52,6 +52,9 @@ defmodule Aiur.Issue do
     # (fail-closed) but is deliberately NOT treated as revoked, so the
     # orchestrator never kills a running agent over a 30-second throttle (#2409).
     dispatch_authorization: :authorized,
+    dispatch_authorization_actor: nil,
+    dispatch_authorization_source: nil,
+    dispatch_authorization_reason: nil,
     # Explicit operator-held marker (`agent:parked`): dispatch ignores the
     # ticket and comment-driven rework is refused, even when an `agent:*` state
     # label is present. `false` for every tracker backend that lacks the marker.
@@ -100,6 +103,9 @@ defmodule Aiur.Issue do
           paused: boolean(),
           dispatch_authorized?: boolean(),
           dispatch_authorization: :authorized | :denied | :deferred,
+          dispatch_authorization_actor: String.t() | nil,
+          dispatch_authorization_source: String.t() | nil,
+          dispatch_authorization_reason: term(),
           parked: boolean(),
           executor_owner: String.t() | nil,
           queued: boolean(),

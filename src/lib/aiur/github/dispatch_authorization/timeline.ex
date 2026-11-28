@@ -53,6 +53,7 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
   @spec fetch((map() -> term()), String.t(), String.t(), String.t(), Issue.t(), keyword()) :: term()
   def fetch(request_fun, token, owner, repo, issue, opts) do
+    request_fun = fn request -> request_fun.(Map.put(request, :github_intent, :label_applier)) end
     TimelineFetch.run(&fetch_label_evidence/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts)
   end
 
@@ -254,9 +255,11 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
   @spec decision(Issue.t(), String.t(), String.t(), list()) :: tuple()
   def decision(issue, label, prefix, events) do
     case latest_label_event(events, label) do
-      %{id: event_id, actor: actor} ->
+      %{id: event_id, actor: actor, created_at: created_at} ->
         if is_binary(actor) do
-          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix), LocalProvenance.label_actors(events, prefix)}
+          decision =
+            {:verified, actor, event_id, prefix_label_appliers(events, prefix), LocalProvenance.label_actors(events, prefix), label, created_at, prefix_label_events(events, prefix)}
+
           decision
         else
           {:ambiguous, :missing_timeline_actor}
@@ -302,6 +305,19 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
   defp prefixed_label?(_name, _label_prefix), do: false
 
+  defp prefix_label_events(events, prefix) do
+    label_prefix = String.downcase(prefix) <> ":"
+
+    events
+    |> Enum.filter(fn event ->
+      is_map(event) and (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and
+        prefixed_label?(get_in(event, ["label", "name"]), label_prefix)
+    end)
+    |> Enum.map(fn event ->
+      %{actor: get_in(event, ["actor", "login"]), label: get_in(event, ["label", "name"]), created_at: Map.get(event, "created_at")}
+    end)
+  end
+
   defp latest_label_event(events, label) do
     if Enum.all?(events, &is_map/1), do: matching_label_event(events, label), else: :invalid
   end
@@ -327,7 +343,12 @@ defmodule Aiur.GitHub.DispatchAuthorization.Timeline do
 
   defp latest_matching_event({:ok, matching}) do
     {_sort_key, %{"id" => id} = event} = Enum.max_by(matching, &elem(&1, 0))
-    %{id: to_string(id), actor: get_in(event, ["actor", "login"])}
+
+    %{
+      id: to_string(id),
+      actor: get_in(event, ["actor", "login"]),
+      created_at: Map.get(event, "created_at")
+    }
   end
 
   defp latest_matching_event(:invalid), do: :invalid

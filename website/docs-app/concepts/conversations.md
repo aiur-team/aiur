@@ -187,3 +187,28 @@ gaps after recovery; it cannot promise to recover every missing entry.
 `system.conversation.journal.degraded.resolved` reports recovery. Corrupt
 journals become read-only. Stop the daemon and preserve the files for diagnosis
 before attempting repair; do not edit entry segments while the daemon runs.
+
+## On-demand agent conversations
+
+A host app starts a worker conversation without filing a ticket itself with `POST /api/v1/agent-conversations` (write client token).
+
+| Field | Meaning |
+| --- | --- |
+| `text` | The request (required, up to 20,000 bytes). |
+| `owner` | The host's user id (required). |
+| `path` | A relative path the work is scoped to, such as one game in a monorepo. |
+| `skills` | Up to 8 skill names the agent should use. |
+| `logs` | Text logs for context (up to 50,000 bytes). |
+| `images` | Up to 8 `{url, alt_text?}` objects. URLs must be stable HTTPS GitHub image URLs; signed/private URLs are rejected. |
+| `complexity` | 1–5; selects the route like a `complexity:N` ticket. Without it, the default route applies. |
+| `client_request_id` | Makes the start idempotent: a retry returns the first ticket. |
+
+This endpoint requires the GitHub tracker because each conversation runs under a GitHub issue.
+
+Aiur files a ticket labelled `<prefix>:todo` and `<prefix>:conversation` and polls at once. The conversation runs as an ordinary worker on its own branch and keeps running after the host disconnects.
+
+The response (201, or 200 for a retry) names `conversation_id`, `ticket`, `thread` and `messages`. `conversation_id` echoes `client_request_id`, or a generated id when omitted.
+
+`thread` reads the worker transcript (`GET /api/v1/:ticket/thread`); `messages` sends follow-ups (`POST /api/v1/:ticket/messages`). Each image appears in the initial ticket context as a Markdown image.
+
+Each start wakes the Executor with `executor.agent_conversation.started` and publishes `operator.notify.info` for host feeds. To promote a conversation to an ordinary ticket, remove its `conversation` label: its history is that ticket's.

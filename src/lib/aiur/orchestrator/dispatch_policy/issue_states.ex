@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
   # be blocking anything.
   @always_terminal_states ~w(closed budget-exhausted)
+  @known_state_labels ~w(todo in-progress rework ci-wait human-review error done cancelled canceled budget-exhausted merging)
 
   @doc """
   True when the state is terminal: either configured in `tracker.terminal_states`
@@ -80,6 +81,46 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # as 'not active' so the reconcile cond falls through to the
   # catch-all instead of crashing the orchestrator GenServer.
   def active_issue_state?(_state_name, _active_states), do: false
+
+  @spec foreign_active_state_label([String.t()], String.t(), MapSet.t(), MapSet.t()) ::
+          String.t() | nil
+  def foreign_active_state_label(labels, prefix, active_states, terminal_states) do
+    normalized_prefix = normalize_issue_state(prefix)
+    known_states = MapSet.union(active_states, MapSet.new(@known_state_labels))
+
+    Enum.find_value(labels, fn label ->
+      case label |> String.trim() |> String.downcase() |> String.split(":", parts: 2) do
+        [other_prefix, state] ->
+          foreign_active_label(
+            other_prefix,
+            state,
+            normalized_prefix,
+            known_states,
+            terminal_states
+          )
+
+        _other ->
+          nil
+      end
+    end)
+  end
+
+  defp foreign_active_label(other_prefix, state, normalized_prefix, active_states, terminal_states) do
+    normalized_state = normalize_issue_state(state)
+
+    case {
+      other_prefix != normalized_prefix,
+      MapSet.member?(active_states, normalized_state),
+      foreign_terminal_state?(normalized_state, terminal_states)
+    } do
+      {true, true, false} -> "#{other_prefix}:#{normalized_state}"
+      _other -> nil
+    end
+  end
+
+  defp foreign_terminal_state?(state, terminal_states) do
+    MapSet.member?(terminal_states, state) or state in ~w(done closed cancelled canceled budget-exhausted)
+  end
 
   @spec normalize_issue_state(term()) :: String.t()
   def normalize_issue_state(state_name) when is_binary(state_name) do

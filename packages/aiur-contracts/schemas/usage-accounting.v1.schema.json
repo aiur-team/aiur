@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/usage-accounting.v1.schema.json",
+  "title": "UsageAccountingView",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["contract", "contract_version", "observed_at", "user_id", "icons", "minerals", "gas"],
+  "properties": {
+    "contract": { "const": "aiur.usage.accounting" },
+    "contract_version": { "const": 1 },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "user_id": { "type": "string", "minLength": 1 },
+    "icons": { "type": "object", "additionalProperties": { "type": "object", "required": ["logo", "token"], "properties": { "logo": { "type": "string" }, "token": { "type": "string" } } } },
+    "minerals": {
+      "type": "object",
+      "required": ["basis", "status", "providers", "allocation_periods"],
+      "properties": {
+        "basis": { "const": "provider_reported" },
+        "status": { "enum": ["actual", "unavailable"] },
+        "providers": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provider" } },
+        "allocation_periods": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/period" } } },
+        "coverage": { "type": "object" }
+      }
+    },
+    "gas": { "$ref": "#/$defs/gas" },
+    "coverage": { "type": "object" }
+  },
+  "$defs": {
+    "period": {
+      "type": "object",
+      "required": ["used_percent", "resets_at", "observed_at", "age_ms", "freshness"],
+      "properties": {
+        "used_percent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "resets_at": { "type": ["string", "null"], "format": "date-time" },
+        "observed_at": { "type": ["string", "null"], "format": "date-time" },
+        "age_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "freshness": { "type": "string" }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "required": ["tokens", "money_estimate", "by_ticket", "by_run"],
+      "properties": {
+        "tokens": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "money_estimate": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$" } },
+        "by_ticket": { "type": "object" },
+        "by_run": { "type": "object" }
+      }
+    },
+    "gasRecord": {
+      "type": "object",
+      "required": ["amount_usd", "occurred_at", "basis", "ticket", "conversation_id"],
+      "properties": {
+        "amount_usd": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$" },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "basis": { "enum": ["actual", "estimate"] },
+        "ticket": { "type": ["string", "null"] },
+        "conversation_id": { "type": ["string", "null"] }
+      }
+    },
+    "gas": {
+      "type": "object",
+      "required": ["budget_usd", "spent_usd", "remaining_usd", "records", "status"],
+      "properties": {
+        "budget_usd": { "type": ["string", "null"], "pattern": "^[0-9]+(?:\\.[0-9]+)?$" },
+        "spent_usd": { "type": ["string", "null"], "pattern": "^[0-9]+(?:\\.[0-9]+)?$" },
+        "remaining_usd": { "type": ["string", "null"], "pattern": "^[0-9]+(?:\\.[0-9]+)?$" },
+        "records": { "type": "object", "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/gasRecord" } } },
+        "status": { "enum": ["available", "budget_unconfigured", "unavailable"] }
+      }
+    }
+  }
+}

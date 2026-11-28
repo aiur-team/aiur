@@ -3,7 +3,7 @@ defmodule Aiur.AgentTools.Errors do
   Error payload catalog for dynamic tool failures.
   """
 
-  alias Aiur.AgentTools.{AgentLifecycleErrors, HistoryExportErrors}
+  alias Aiur.AgentTools.{AgentEventErrors, AgentLifecycleErrors, HistoryExportErrors}
   alias Aiur.AgentTools.Response
 
   @spec payload(term()) :: map()
@@ -260,68 +260,20 @@ defmodule Aiur.AgentTools.Errors do
 
   def payload(:no_issue_identifier), do: AgentLifecycleErrors.payload(:no_issue_identifier)
 
-  def payload(:invalid_event_arguments) do
-    %{
-      "error" => %{
-        "message" => "`emit_event` expects an object with non-empty `name` and `message` strings and optional `payload` object."
-      }
-    }
-  end
-
-  def payload(:missing_event_name),
-    do: %{"error" => %{"message" => "`emit_event.name` is required."}}
-
-  def payload(:missing_event_message),
-    do: %{"error" => %{"message" => "`emit_event.message` is required."}}
-
-  def payload(:invalid_report_progress),
-    do: %{"error" => %{"message" => "`report_progress` requires an integer percent from 0 to 100 and a non-empty one-line step no longer than 120 characters."}}
-
-  def payload(:event_name_not_in_allowlist) do
-    %{
-      "error" => %{
-        "message" =>
-          "`emit_event.name` must match the agent vocabulary: report_progress, progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
-        "examples" => [
-          "progress",
-          "progress.brainstorm-end",
-          "decision.use-amqp-matcher",
-          "blocked",
-          "attention.scope-question",
-          "custom.heartbeat"
-        ]
-      }
-    }
-  end
-
-  def payload(:missing_topic_pattern),
-    do: %{"error" => %{"message" => "`topic_pattern` is required."}}
-
-  def payload(:invalid_topic_pattern),
-    do: %{
-      "error" => %{
-        "message" => "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
-      }
-    }
-
-  def payload(:agent_subscription_scope_forbidden),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_subscribe.topic_pattern` must name one literal ticket, for example `ticket.42.#`; Executor, system, bare-wildcard, and wildcard-ticket patterns are unavailable to agents."
-      }
-    }
-
-  def payload(:subscriber_unavailable),
-    do: %{
-      "error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}
-    }
-
-  def payload(:unsubscriber_unavailable),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_unsubscribe` is unavailable in the current runtime context."
-      }
-    }
+  def payload(reason)
+      when reason in [
+             :invalid_event_arguments,
+             :missing_event_name,
+             :missing_event_message,
+             :invalid_report_progress,
+             :event_name_not_in_allowlist,
+             :missing_topic_pattern,
+             :invalid_topic_pattern,
+             :agent_subscription_scope_forbidden,
+             :subscriber_unavailable,
+             :unsubscriber_unavailable
+           ],
+      do: AgentEventErrors.payload(reason)
 
   def payload(:missing_issue_number),
     do: %{"error" => %{"message" => "`issue_number` is required."}}

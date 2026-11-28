@@ -85,7 +85,13 @@ defmodule Aiur.GitHub.Issues.Normalize do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case Access.cycle_fetch({:blocked_by, id, opts[:record_max_age_ms]}, fn -> fetch_blocked_by(id, opts) end) do
+    fetch_and_hydrate_blocked_by(issue, opts)
+  end
+
+  def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  defp fetch_and_hydrate_blocked_by(%Issue{id: id} = issue, opts) do
+    case Access.cycle_fetch({:blocked_by, id, opts[:record_max_age_ms], opts[:revalidate]}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -96,8 +102,6 @@ defmodule Aiur.GitHub.Issues.Normalize do
         {:error, {:unexpected, other}}
     end
   end
-
-  def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
 
   defp fetch_blocked_by(id, opts) do
     case Keyword.get(opts, :revalidate) do

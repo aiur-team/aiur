@@ -142,7 +142,9 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
-Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+Hosts pass `user_id` per run. Authenticated `GET /api/v1/usage/users/<user_id>` returns that user's provider-reported Minerals, costs, reset times, Gas and reusable SVG paths. Any host user id is accepted; users without records get an empty/unknown view. Requires client-token read scope.
+
+Record charges via `POST /api/v1/usage/gas` with client-token write scope. Required JSON: `id`, non-empty `user_id`, `api`, `amount_usd`, `occurred_at`; optional: `basis`, `ticket`, `conversation_id`. Missing or blank IDs return `422 invalid_user_id`. Repeated IDs are idempotent; changed data conflict. `AIUR_GAS_BUDGET_USD` sets the optional budget.
 
 Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the same as `aiur capacity --json`: one "Energy" figure and each source's state, accounts, reserve, holds and limits, as dispatch computes them. Each figure carries `observed_at`, `age_ms` and `freshness`; show a `null` `energy.level` as unknown, never as full.
 
@@ -166,11 +168,7 @@ At zero, daemon requests are rejected locally and agent-launched `gh` commands w
 
 Aiur also coordinates request *shape* across all local instances that share a credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state by SHA-256 fingerprints, never the token or consumer identity itself. It enforces a shared requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and jittered admission starts.
 
-A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands.
-
-The broker is optional: without `python3`, metering fails open to unmetered
-requests (announced once at boot). `claude-repl` agents require `python3` for
-their durable lifecycle-hook spool, independently of the broker.
+A primary exhaustion holds its resource globally. Secondary limits and `Retry-After` hold every consumer of that token, including separate daemons and agent `gh` commands. Without `python3`, the optional broker fails open; `claude-repl` still needs it for lifecycle-hook spooling.
 
 The defaults are deliberately conservative and can be tuned per workflow:
 

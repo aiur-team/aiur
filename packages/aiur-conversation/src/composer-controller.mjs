@@ -14,6 +14,7 @@ export class ComposerController extends EventTarget {
   #dictation = null;
   #levels = new Array(WAVEFORM_SIZE).fill(0);
   #voice = null;
+  #voiceTranscript = [];
   #sending = false;
   #error = null;
 
@@ -58,7 +59,12 @@ export class ComposerController extends EventTarget {
     const control = (label, hidden = false, disabled = this.disabled) => ({ label, hidden, disabled });
     const controls = {
       attach: control('Attach files', recording || typeof this.adapters.upload !== 'function'),
-      mic: control('Dictate', dictation !== 'idle' || voice !== 'idle' || !this.adapters.dictation),
+      mic: {
+        ...control((voice === 'live' || recording)
+          ? ((voice === 'live' ? this.#voice.muted : this.#dictation.muted) ? 'Unmute microphone' : 'Mute microphone')
+          : 'Dictate', voice === 'idle' ? dictation === 'stopping' || dictation === 'idle' && !this.adapters.dictation : voice !== 'live'),
+        pressed: voice === 'live' ? !this.#voice.muted : recording && !this.#dictation.muted,
+      },
       cancel: control('Cancel dictation', !recording, false),
       voice: {
         ...control(voice === 'live' ? 'End voice conversation' : 'Switch to voice conversation',
@@ -78,6 +84,7 @@ export class ComposerController extends EventTarget {
       caret: this.#caret,
       dictation,
       voice,
+      voiceTranscript: this.#voiceTranscript.map((turn) => ({ ...turn })),
       sending: this.#sending,
       readOnly: dictation !== 'idle',
       attachments,
@@ -208,7 +215,18 @@ export class ComposerController extends EventTarget {
         onLevel: (level) => {
           if (this.#dictation === dictation && !dictation.end) this.#level(level);
         },
-    })).then((session) => (dictation.session = session)).catch((error) => {
+    })).then((session) => {
+      dictation.session = session;
+      if (typeof session?.setMuted !== 'function') throw new TypeError('dictation session must provide setMuted');
+      if (dictation.muted) session.setMuted(true);
+      return session;
+    }).catch(async (error) => {
+      if (dictation.session && typeof dictation.session.setMuted !== 'function') {
+        try {
+          if (dictation.session.cancel) await dictation.session.cancel();
+          else await dictation.session.stop();
+        } catch { /* Keep the adapter contract error as the reported failure. */ }
+      }
       this.#dictation = null;
       this.#show(dictation, '');
       this.#fail('dictation', error);
@@ -284,20 +302,34 @@ export class ComposerController extends EventTarget {
     if (this.#dictation) return false;
 
     // Fence callbacks and late starts by the identity of their own session.
-    const voice = { state: 'starting', session: null };
+    const voice = { state: 'starting', session: null, muted: false };
     const draft = this.value;
     this.#error = null;
+    this.#voiceTranscript = [];
     this.#voice = voice;
     this.value = '';
     try {
       voice.session = await adapter.start({
         initialText: draft.trim(),
+        onPartial: (speaker, text) => {
+          if (this.#voice !== voice || voice.state === 'stopping') return;
+          const turn = { speaker: speaker === 'agent' ? 'agent' : 'user', text: String(text ?? '') };
+          const last = [...this.#voiceTranscript].reverse().find((item) => item.speaker === turn.speaker);
+          if (last) last.text = turn.text;
+          else this.#voiceTranscript.push(turn);
+          this.#change();
+        },
+        onLevel: (level) => {
+          if (this.#voice === voice && voice.state !== 'stopping') this.#level(level);
+        },
         onEnd: () => {
           if (this.#voice !== voice) return;
           this.#voice = null;
           this.#change();
         },
       });
+      if (typeof voice.session?.setMuted !== 'function') throw new TypeError('voice session must provide setMuted');
+      if (voice.muted) voice.session.setMuted(true);
       if (this.#voice !== voice) return false;
       if (voice.state === 'stopping') {
         await this.#finishVoice(voice);
@@ -307,6 +339,11 @@ export class ComposerController extends EventTarget {
       this.#change();
       return true;
     } catch (error) {
+      if (voice.session && typeof voice.session.setMuted !== 'function') {
+        try {
+          await voice.session.stop();
+        } catch { /* Keep the adapter contract error as the reported failure. */ }
+      }
       if (this.#voice === voice) {
         this.#voice = null;
         this.value = [draft, this.value].filter(Boolean).join(' ');
@@ -314,6 +351,20 @@ export class ComposerController extends EventTarget {
       }
       return false;
     }
+  }
+
+  toggleMicMute() {
+    const voice = this.#voice;
+    const dictation = this.#dictation;
+    if (voice?.state === 'live') {
+      voice.muted = !voice.muted;
+      voice.session?.setMuted(voice.muted);
+    } else if (this.#recording()) {
+      dictation.muted = !dictation.muted;
+      dictation.session?.setMuted(dictation.muted);
+    } else return false;
+    this.#change();
+    return voice?.state === 'live' ? voice.muted : dictation.muted;
   }
 
   async stopVoice() {
