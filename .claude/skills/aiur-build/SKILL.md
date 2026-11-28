@@ -113,6 +113,8 @@ pack as `serializes_with` (Aiur does not enforce it), and an advisory order
 becomes queue position. Mark the top fan-out spine for first-slot staffing in
 the handoff.
 
+Place each ticket at the most general layer that can reuse it: work any Aiur-run project could use is an Aiur ticket, work every app on a shared platform could use belongs to that platform, and only the rest stays in the one app's repository.
+
 Include an audit/ADR gate when ownership is uncertain and an explicit
 integration/feature-acceptance capstone from day one. Preserve planned versus
 discovered ticket provenance as `plan_version` evolves.
