@@ -12,8 +12,11 @@ defmodule AiurWeb.DashboardLive.Session do
   alias AiurWeb.DashboardLive.Voice
   alias AiurWeb.DashboardLive.VoicePanel
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.FinancialDataAccess
+  alias AiurWeb.ModelsProjection
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
+  alias AiurWeb.OperatorControlCenter.ProviderMeterSource
   alias AiurWeb.OperatorControlCenter.RouteRegistry
 
   @runtime_tick_ms 1_000
@@ -78,6 +81,13 @@ defmodule AiurWeb.DashboardLive.Session do
      |> assign(:table_sort, nil)
      |> assign(:current_route, RouteRegistry.current_route(:voice))
      |> VoicePanel.assign_workers()}
+  end
+
+  def handle_params(_params, _uri, %{assigns: %{live_action: :models}} = socket) do
+    context = FinancialDataAccess.context(socket)
+    _ = ProviderMeterSource.subscribe(context)
+    meters = ProviderMeterSource.load(context)
+    {:noreply, assign(socket, :models_projection, ModelsProjection.snapshot(meters: meters))}
   end
 
   def handle_params(params, _uri, socket) do

@@ -495,3 +495,6 @@ boots for a daily report. No observations means unavailable, not zero.
 
 The daemon records intervals between successful dispatch observations;
 transitions between polls have poll-cadence precision.
+## Models
+
+The **Models** dashboard view lists configured backend/model/effort routes in dispatch order, configured accounts and their freshness, usage-window percentages, reset times and observation freshness. Missing meter data is shown as unknown. A route can be unavailable when its credential is missing or a provider limit is in effect. See the [Models API](/apis/models) for the JSON contract.

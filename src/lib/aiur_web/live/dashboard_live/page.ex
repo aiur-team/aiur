@@ -59,6 +59,7 @@ defmodule AiurWeb.DashboardLive.Page do
       <Overview.dispatch_ceiling capacity={@payload.fleet[:capacity]} />
 
       <VoicePanel.panel :if={@live_action == :voice} {assigns} />
+      <AiurWeb.DashboardLive.ModelsPanel.panel :if={@live_action == :models} {assigns} />
 
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and Commands.partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
