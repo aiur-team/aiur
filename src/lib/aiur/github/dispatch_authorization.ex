@@ -152,10 +152,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp authorization_decision(issue, actor, triaged_by, daemon_triage, label_actors, allowed_users, opts) do
     {authorized?, source} =
       cond do
-        MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
-        daemon_actor?(actor, opts) and daemon_queue_authorized?(actor, daemon_triage, opts) -> {true, "daemon_label_applier"}
-        not daemon_actor?(actor, opts) and member?(allowed_users, actor) -> {true, "label_applier"}
-        aiur_actor?(actor, opts) and (not is_nil(daemon_triage) or not is_nil(triaged_by)) -> {true, prior_triage_source(daemon_triage, triaged_by)}
+        main_fixer_actor?(issue, actor, opts) -> {true, "main_watch_fixer"}
+        daemon_queue_authorized?(actor, daemon_triage, opts) -> {true, "daemon_label_applier"}
+        trusted_label_applier?(actor, allowed_users, opts) -> {true, "label_applier"}
+        prior_aiur_triage?(actor, daemon_triage, triaged_by, opts) -> {true, prior_triage_source(daemon_triage, triaged_by)}
         true -> LocalProvenance.decision(issue, actor, label_actors, opts)
       end
 
@@ -164,6 +164,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp daemon_queue_authorized?(actor, daemon_triage, opts),
     do: not is_nil(daemon_triage) and daemon_actor?(actor, opts)
+
+  defp main_fixer_actor?(issue, actor, opts), do: MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts)
+
+  defp trusted_label_applier?(actor, allowed_users, opts),
+    do: not daemon_actor?(actor, opts) and member?(allowed_users, actor)
+
+  defp prior_aiur_triage?(actor, daemon_triage, triaged_by, opts),
+    do: aiur_actor?(actor, opts) and (not is_nil(daemon_triage) or not is_nil(triaged_by))
 
   defp prior_triage_source(daemon_triage, _triaged_by) when is_binary(daemon_triage), do: "prior_daemon_triage:#{daemon_triage}"
   defp prior_triage_source(_daemon_triage, triaged_by), do: "prior_triage:#{triaged_by}"
