@@ -1,8 +1,9 @@
 defmodule Aiur.Config.SandboxPolicyTest do
   use Aiur.TestSupport
   alias Aiur.AgentEnvironment
-  alias Aiur.Config.{RoutingValue, Schema}
-  alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
+  alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.Codex
+  alias Aiur.TestSupport.WorkflowYaml
 
   test "schema parse normalizes policy keys and env-backed fallbacks" do
     missing_workspace_env = "SYMP_MISSING_WORKSPACE_#{System.unique_integer([:positive])}"
@@ -242,28 +243,26 @@ defmodule Aiur.Config.SandboxPolicyTest do
 
     nonexistent_root = Path.join(test_root, "does-not-exist")
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{
-        type: "workspaceWrite",
-        writableRoots: [nonexistent_root]
-      }
-    )
+    {yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [nonexistent_root]})
 
-    assert {:error, {:unsafe_turn_sandbox_policy, root_error}} = Config.validate!()
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
+
+    assert {:ok, settings} = Config.settings_uncached()
+    assert {:error, {:unsafe_turn_sandbox_policy, root_error}} = Config.validate_settings(settings)
     assert inspect(root_error) =~ nonexistent_root
     assert inspect(root_error) =~ "agent.codex.turn_sandbox_policy.writableRoots"
 
     regular_file = Path.join(test_root, "regular-file")
     File.write!(regular_file, "not a directory")
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{
-        type: "workspaceWrite",
-        writableRoots: [regular_file]
-      }
-    )
+    {yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [regular_file]})
 
-    assert {:error, {:unsafe_turn_sandbox_policy, regular_file_error}} = Config.validate!()
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
+
+    assert {:ok, settings} = Config.settings_uncached()
+    assert {:error, {:unsafe_turn_sandbox_policy, regular_file_error}} = Config.validate_settings(settings)
     assert inspect(regular_file_error) =~ regular_file
     assert inspect(regular_file_error) =~ "not_a_directory"
 
@@ -271,14 +270,13 @@ defmodule Aiur.Config.SandboxPolicyTest do
     File.mkdir_p!(read_only_root)
     File.chmod!(read_only_root, 0o555)
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{
-        type: "workspaceWrite",
-        writableRoots: [read_only_root]
-      }
-    )
+    {yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [read_only_root]})
 
-    assert {:error, {:unsafe_turn_sandbox_policy, read_only_error}} = Config.validate!()
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), yaml)
+
+    assert {:ok, settings} = Config.settings_uncached()
+    assert {:error, {:unsafe_turn_sandbox_policy, read_only_error}} = Config.validate_settings(settings)
     assert inspect(read_only_error) =~ read_only_root
     assert inspect(read_only_error) =~ "not_writable"
 

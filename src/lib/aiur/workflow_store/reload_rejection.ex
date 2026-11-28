@@ -30,7 +30,7 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
   @spec validate(map()) :: :ok | {:error, term()}
   def validate(workflow) do
     case Config.settings_from({:ok, workflow}) do
-      {:ok, _settings} -> :ok
+      {:ok, settings} -> Config.validate_settings(settings)
       {:error, reason} -> {:error, reason}
     end
   rescue
