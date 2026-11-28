@@ -134,7 +134,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     end
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
-    Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling), Map.get(snapshot, :reserved_paused_age_seconds))
     DispatchSelections.print(Map.get(snapshot, :capacity))
     Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
     print_usage_floor_holds()

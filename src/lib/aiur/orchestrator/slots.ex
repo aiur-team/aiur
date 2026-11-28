@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Slots do
 
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, ResourceEnvelope, State, StatusReport}
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
@@ -263,6 +264,60 @@ defmodule Aiur.Orchestrator.Slots do
       draining?: active > max
     })
     |> Map.merge(envelope_status(state, max))
+  end
+
+  @doc false
+  @spec update_paused_reservations_attention(State.t()) :: :ok | {:error, term()}
+  def update_paused_reservations_attention(%State{} = state) do
+    entries = State.reserved_paused_entries(state.running)
+    count = length(entries)
+    age_seconds = reserved_paused_age_seconds(entries)
+    topic = "system.dispatch.paused_reservations"
+
+    if count == 0 do
+      resolve_paused_reservation_attention(topic)
+    else
+      raise_paused_reservation_attention(topic, count, age_seconds)
+    end
+  end
+
+  defp raise_paused_reservation_attention(topic, count, age_seconds) do
+    if is_integer(age_seconds) and age_seconds >= 30 * 60 and not AttentionSnapshot.active_system_attention?(topic) do
+      Aiur.Signal.alert(topic,
+        message: "Paused reservations are holding dispatch slots.",
+        reason: "#{count} paused reservation(s) are holding dispatch slots; oldest age #{age_seconds}s.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    else
+      :ok
+    end
+  end
+
+  defp resolve_paused_reservation_attention(topic) do
+    if AttentionSnapshot.active_system_attention?(topic) do
+      Aiur.Signal.alert("#{topic}.resolved",
+        message: "Paused reservations released.",
+        reason: "No paused reservations remain holding dispatch slots.",
+        needs_attention: false,
+        severity: "info"
+      )
+    else
+      :ok
+    end
+  end
+
+  @doc false
+  @spec reserved_paused_age_seconds([{term(), map()}]) :: non_neg_integer() | nil
+  def reserved_paused_age_seconds([]), do: nil
+
+  def reserved_paused_age_seconds(entries) do
+    timestamps = Enum.map(entries, fn {_issue_id, entry} -> Map.get(entry, :paused_at) end)
+    dated = Enum.filter(timestamps, &match?(%DateTime{}, &1))
+
+    if length(dated) == length(entries) do
+      DateTime.diff(DateTime.utc_now(), Enum.min_by(dated, &DateTime.to_unix/1), :second)
+    end
   end
 
   defp session_limit_binding?(state, limit) do

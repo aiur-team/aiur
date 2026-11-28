@@ -83,6 +83,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       # Build CLI rows on demand on the reader, not on every publish (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
+      reserved_paused_age_seconds: reserved_paused_age_seconds(state),
       stalled_lists: stalled_queue_lists(state, DateTime.to_unix(now, :millisecond)),
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
@@ -112,6 +113,13 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       }
     }
     |> StatusObservation.attach(state, now)
+  end
+
+  @doc false
+  @spec reserved_paused_age_seconds(State.t()) :: non_neg_integer() | nil
+  def reserved_paused_age_seconds(state) do
+    entries = State.reserved_paused_entries(state.running)
+    Slots.reserved_paused_age_seconds(entries)
   end
 
   defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms),
