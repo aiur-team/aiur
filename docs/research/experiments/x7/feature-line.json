@@ -1,0 +1,132 @@
+{
+  "epic": 3755,
+  "subissues": [
+    3757,
+    3758,
+    3759,
+    3760,
+    3761,
+    3762,
+    3763,
+    3764,
+    3765,
+    3766,
+    3767,
+    3768,
+    3769,
+    3770,
+    3771,
+    3772,
+    3820
+  ],
+  "merges": [
+    {
+      "issue": 3757,
+      "number": 4254,
+      "url": "https://github.com/aiur-team/aiur/pull/4254",
+      "mergedAt": "2026-10-11T14:14:04Z"
+    },
+    {
+      "issue": 3758,
+      "number": 3884,
+      "url": "https://github.com/aiur-team/aiur/pull/3884",
+      "mergedAt": "2026-10-09T23:18:56Z"
+    },
+    {
+      "issue": 3759,
+      "number": 3810,
+      "url": "https://github.com/aiur-team/aiur/pull/3810",
+      "mergedAt": "2026-10-09T18:18:48Z"
+    },
+    {
+      "issue": 3760,
+      "number": 4255,
+      "url": "https://github.com/aiur-team/aiur/pull/4255",
+      "mergedAt": "2026-10-11T23:54:21Z"
+    },
+    {
+      "issue": 3761,
+      "number": 4323,
+      "url": "https://github.com/aiur-team/aiur/pull/4323",
+      "mergedAt": "2026-10-12T05:34:06Z"
+    },
+    {
+      "issue": 3762,
+      "number": 4368,
+      "url": "https://github.com/aiur-team/aiur/pull/4368",
+      "mergedAt": "2026-10-14T07:39:25Z"
+    },
+    {
+      "issue": 3763,
+      "number": 3833,
+      "url": "https://github.com/aiur-team/aiur/pull/3833",
+      "mergedAt": "2026-10-09T20:16:27Z"
+    },
+    {
+      "issue": 3764,
+      "number": 3867,
+      "url": "https://github.com/aiur-team/aiur/pull/3867",
+      "mergedAt": "2026-10-10T07:15:00Z"
+    },
+    {
+      "issue": 3765,
+      "number": 3990,
+      "url": "https://github.com/aiur-team/aiur/pull/3990",
+      "mergedAt": "2026-10-11T10:41:23Z"
+    },
+    {
+      "issue": 3766,
+      "number": 4253,
+      "url": "https://github.com/aiur-team/aiur/pull/4253",
+      "mergedAt": "2026-10-11T13:26:15Z"
+    },
+    {
+      "issue": 3767,
+      "number": 4257,
+      "url": "https://github.com/aiur-team/aiur/pull/4257",
+      "mergedAt": "2026-10-12T02:26:23Z"
+    },
+    {
+      "issue": 3768,
+      "number": 3921,
+      "url": "https://github.com/aiur-team/aiur/pull/3921",
+      "mergedAt": "2026-10-10T01:23:14Z"
+    },
+    {
+      "issue": 3769,
+      "number": 3818,
+      "url": "https://github.com/aiur-team/aiur/pull/3818",
+      "mergedAt": "2026-10-09T19:12:10Z"
+    },
+    {
+      "issue": 3770,
+      "number": 3819,
+      "url": "https://github.com/aiur-team/aiur/pull/3819",
+      "mergedAt": "2026-10-09T21:20:46Z"
+    },
+    {
+      "issue": 3771,
+      "number": 3896,
+      "url": "https://github.com/aiur-team/aiur/pull/3896",
+      "mergedAt": "2026-10-09T23:07:02Z"
+    },
+    {
+      "issue": 3772,
+      "number": 3984,
+      "url": "https://github.com/aiur-team/aiur/pull/3984",
+      "mergedAt": "2026-10-11T10:24:59Z"
+    },
+    {
+      "issue": 3820,
+      "number": 3910,
+      "url": "https://github.com/aiur-team/aiur/pull/3910",
+      "mergedAt": "2026-10-10T03:29:48Z"
+    }
+  ],
+  "latest": {
+    "issue": 3762,
+    "number": 4368,
+    "url": "https://github.com/aiur-team/aiur/pull/4368",
+    "mergedAt": "2026-10-14T07:39:25Z"
+  }
+}

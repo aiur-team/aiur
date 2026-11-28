@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "id": "optimistic-start",
+  "version": "1",
+  "auto": false,
+  "metrics": [
+    {
+      "id": "chain_lead_time",
+      "label": "chain lead time",
+      "description": "dependent.pr_merged - max(blocker.pr_opened), in hours; cluster by weakly connected graph component.",
+      "unit": "h",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/chain_lead_time.ndjson"
+      }
+    },
+    {
+      "id": "blocker_merge_to_dependent_start",
+      "label": "blocker merge to dependent start",
+      "description": "dependent.first_start - max(blocker.pr_merged), in hours; retain negative gaps. Built-in delivery-speed duration drops negative values, so it cannot measure optimistic starts.",
+      "unit": "h",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/blocker_merge_to_dependent_start.ndjson"
+      }
+    },
+    {
+      "id": "optimistic_headroom_used",
+      "label": "optimistic headroom used",
+      "description": "Overlap of dependent work with [max(blocker.pr_opened), max(blocker.pr_merged)] divided by that interval; zero-length headroom is unavailable.",
+      "unit": "share",
+      "unit_of_analysis": "ticket",
+      "kind": "rate",
+      "better": "higher",
+      "default_direction": "increase",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/optimistic_headroom_used.ndjson"
+      }
+    },
+    {
+      "id": "optimistic_discard_rate",
+      "label": "optimistic discard rate",
+      "description": "Per optimistic start: 1 if optimistic_outcome is discarded, 0 for a known retained outcome; missing outcomes are unavailable.",
+      "unit": "share",
+      "unit_of_analysis": "ticket",
+      "kind": "binary",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/optimistic_discard_rate.ndjson"
+      }
+    },
+    {
+      "id": "dependent_rework_rate",
+      "label": "dependent rework rate",
+      "description": "Per dependent: 1 if any rework cycle, otherwise 0 when lifecycle capture is complete; baseline 0.265.",
+      "unit": "share",
+      "unit_of_analysis": "ticket",
+      "kind": "binary",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/dependent_rework_rate.ndjson"
+      }
+    },
+    {
+      "id": "merge_order_violations",
+      "label": "merge order violations",
+      "description": "Per merged dependent: 1 if it merged before any blocker, otherwise 0 when every blocker merge is known.",
+      "unit": "violations",
+      "unit_of_analysis": "ticket",
+      "kind": "binary",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/merge_order_violations.ndjson"
+      }
+    },
+    {
+      "id": "main_red_rate",
+      "label": "main red rate",
+      "description": "Per completed main ci push run in the trailing 24 hours: 1 for failure, 0 for success. Exclude cancelled runs; baseline 0.385.",
+      "unit": "share",
+      "unit_of_analysis": "ci_run",
+      "kind": "binary",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/main_red_rate.ndjson"
+      }
+    },
+    {
+      "id": "redo_rate",
+      "label": "redo rate",
+      "description": "Per optimistic start: 1 if optimistic_outcome is redone, 0 for a known other outcome. Report only.",
+      "unit": "share",
+      "unit_of_analysis": "ticket",
+      "kind": "binary",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/redo_rate.ndjson"
+      }
+    },
+    {
+      "id": "wasted_agent_hours",
+      "label": "wasted agent hours",
+      "description": "Sum measured active agent time on discarded or redone optimistic attempts, in hours. Report only; missing accounting is unavailable.",
+      "unit": "agent-hours",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "none",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/wasted_agent_hours.ndjson"
+      }
+    },
+    {
+      "id": "dependent_start_to_merge",
+      "label": "dependent start to merge",
+      "description": "dependent.pr_merged - dependent.first_start, in hours; increase is the expected cost of starting earlier.",
+      "unit": "h",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "increase",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/dependent_start_to_merge.ndjson"
+      }
+    },
+    {
+      "id": "start_to_pr_open",
+      "label": "start to pr open",
+      "description": "dependent.pr_opened - dependent.first_start, in hours.",
+      "unit": "h",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/start_to_pr_open.ndjson"
+      }
+    },
+    {
+      "id": "pr_open_to_merge",
+      "label": "pr open to merge",
+      "description": "dependent.pr_merged - dependent.pr_opened, in hours.",
+      "unit": "h",
+      "unit_of_analysis": "ticket",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/pr_open_to_merge.ndjson"
+      }
+    },
+    {
+      "id": "merged_per_hour",
+      "label": "merged per hour",
+      "description": "Eligible merged tickets per active hour in the assigned queue. Attribute each period to its queue and start trigger.",
+      "unit": "tickets/hour",
+      "unit_of_analysis": "hour",
+      "kind": "bucketed",
+      "better": "higher",
+      "default_direction": "increase",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/merged_per_hour.ndjson"
+      }
+    },
+    {
+      "id": "agents_vs_cap",
+      "label": "agents vs cap",
+      "description": "Active agents assigned to this queue divided by the shared fleet cap, by hour. Shared-cap context, not an independent treatment effect.",
+      "unit": "ratio",
+      "unit_of_analysis": "hour",
+      "kind": "bucketed",
+      "better": "higher",
+      "default_direction": "increase",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/agents_vs_cap.ndjson"
+      }
+    },
+    {
+      "id": "idle_slot_hours",
+      "label": "idle slot hours",
+      "description": "Measured idle slot-hours during this queue observation period. Shared-fleet context; do not duplicate pooled hours as independent arm samples.",
+      "unit": "slot-hours",
+      "unit_of_analysis": "hour",
+      "kind": "bucketed",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "experiment",
+      "requires": [],
+      "source": {
+        "kind": "ndjson",
+        "path": "state:experiments/optimistic-start/observations/idle_slot_hours.ndjson"
+      }
+    }
+  ]
+}

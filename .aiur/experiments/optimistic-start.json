@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "id": "optimistic-start",
+  "key": "experiment:optimistic-start",
+  "title": "Optimistic dependent start",
+  "hypothesis": "Starting a dependent at blocker PR open reduces chain lead time by one third, with the signed gap decreasing and start-to-merge increasing, within the registered guardrails.",
+  "status": "draft",
+  "owner": {
+    "kind": "human",
+    "id": "operator"
+  },
+  "design": {
+    "kind": "ab",
+    "cohorts": [
+      {
+        "id": "control",
+        "label": "Control",
+        "where": {
+          "all": [
+            {
+              "attr": "queue_id",
+              "op": "in",
+              "value": []
+            },
+            {
+              "attr": "start_trigger",
+              "op": "eq",
+              "value": "pr_merged"
+            }
+          ]
+        }
+      },
+      {
+        "id": "treatment",
+        "label": "Treatment",
+        "where": {
+          "all": [
+            {
+              "attr": "queue_id",
+              "op": "in",
+              "value": []
+            },
+            {
+              "attr": "start_trigger",
+              "op": "eq",
+              "value": "pr_opened"
+            }
+          ]
+        }
+      }
+    ],
+    "control": "control"
+  },
+  "metrics": [
+    {
+      "ref": "optimistic-start/chain_lead_time",
+      "direction": "decrease",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/blocker_merge_to_dependent_start",
+      "direction": "decrease",
+      "primary": true
+    },
+    {
+      "ref": "optimistic-start/dependent_start_to_merge",
+      "direction": "increase",
+      "primary": true
+    },
+    {
+      "ref": "optimistic-start/optimistic_headroom_used",
+      "direction": "increase",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/optimistic_discard_rate",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/dependent_rework_rate",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/merge_order_violations",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/main_red_rate",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/redo_rate",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/wasted_agent_hours",
+      "direction": "none",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/start_to_pr_open",
+      "direction": "decrease",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/pr_open_to_merge",
+      "direction": "decrease",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/merged_per_hour",
+      "direction": "increase",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/agents_vs_cap",
+      "direction": "increase",
+      "primary": false
+    },
+    {
+      "ref": "optimistic-start/idle_slot_hours",
+      "direction": "decrease",
+      "primary": false
+    }
+  ],
+  "min_samples": 20,
+  "alpha": 0.05,
+  "power_target": 0.8,
+  "filters": {
+    "attr": "tags.late_linked",
+    "op": "eq",
+    "value": false
+  },
+  "stratify_by": [
+    "complexity",
+    "tags.gate_shape"
+  ],
+  "tags": [
+    "experiment:optimistic-start",
+    "measures:3755"
+  ],
+  "notes": "Protocol decided 2026-10-09, before treatment enrollment. This fixture is awaiting enrollment: both queue_id lists are intentionally empty. Record real queue IDs, seed, graph revision and component assignments in an audited amendment before starting either arm. Never substitute queue display names for IDs.\nDecision metric: optimistic-start/chain_lead_time decreases; target a one-third reduction. Primary metrics: optimistic-start/blocker_merge_to_dependent_start decreases to median <= 0 h; optimistic-start/dependent_start_to_merge increases (the expected cost, not failure).\nGuardrails: optimistic discard rate > 0.20 after >= 10 optimistic starts; dependent rework rate > 0.265 + 0.20; any merge-order violation; main-red rate > 0.385 + 0.15 over 24 h. Recommend stopping treatment; Executor acts. Redo rate and wasted agent hours are report-only.\nPopulation: exclude late-linked dependents (blocker linked after first start). Require 20 eligible chain-gated dependents per arm; target 40 per arm. Require 10 per arm within each reported complexity stratum. Separate hub-gated (any blocker releases >= 10 dependents) from chain-gated. Tag observations with late_linked, gate_shape and graph_component; missing eligibility is excluded.\nAnalysis: Mann-Whitney U within strata; cluster bootstrap by weakly connected graph component; Holm correction across decision and both primary metrics, alpha 0.05. One confirmatory analysis at target n; earlier reports descriptive and below minimum say not enough data. Frozen power.json on research/refactor-findings supplied the target 40 for 80% power at a one-third chain-lead-time reduction; no readiness forecast is available before enrollment.\nArm setup: remove review gates from assignment, preserve live prerequisites/sign-off, sort weak components and flip one seeded coin per component. Record the generator version and assignment before outcomes; never reroll an empty arm. Current-graph dry run: docs/research/experiments/x7/arm-dry-run-2026-11-26.md (seed 3812, empty control, no enrollment).\nBaseline: import the original bytes of docs/research/experiments/x7/baseline-2026-10-09/baseline.json, SHA-256 e88e475b38f1abf9ec2f70016453129904b2357f668290b21fd8991da1cde4cb, never recompute. The repository carries a lossless gzip copy to keep the frozen 761-line source within the text-file size gate. Gap baseline n=27, median=0.775 h (display 0.78). Summary-only coverage; no invented per-unit rows.\nContext line: companion experiment optimistic-start-default-path at 2026-10-14T07:39:25Z (latest #3755 sub-issue PR merge, #4368, sub-issue #3762). The epic closed later; use merge evidence, not its closure timestamp. The default-path before/after is context only; A/B supplies the verdict.\nRecord confounders: daemon restarts, max_agents changes, backend/model mix, provider pauses, main-red incidents, dispatch/queue/CI changes and G5 landings. Derived metric files are declared observation inputs, not fabricated measurements; absent inputs remain unavailable and must be supplied before enrollment."
+}

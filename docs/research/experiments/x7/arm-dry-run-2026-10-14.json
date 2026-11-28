@@ -1,0 +1,371 @@
+{
+  "observed_at": "2026-10-14T15:44:24.732290+00:00",
+  "root": 3774,
+  "subissues": [
+    {
+      "number": 3779,
+      "title": "EXP-X4-1: Add the stdlib statistics core for experiments",
+      "state": "closed"
+    },
+    {
+      "number": 3780,
+      "title": "EXP-X4-2: Add the experiment analysis driver, result schema and CLI",
+      "state": "open"
+    },
+    {
+      "number": 3781,
+      "title": "EXP-X4-3: Treat open tickets as right-censored durations in experiment stats",
+      "state": "open"
+    },
+    {
+      "number": 3782,
+      "title": "EXP-X4-4: Stratify experiment comparisons by complexity and other strata",
+      "state": "open"
+    },
+    {
+      "number": 3783,
+      "title": "EXP-X4-5: Estimate power, minimum detectable effect and samples needed",
+      "state": "open"
+    },
+    {
+      "number": 3784,
+      "title": "EXP-X4-6: Ship the stats engine with the release and add the runner port",
+      "state": "open"
+    },
+    {
+      "number": 3785,
+      "title": "EXP-X3-1: Add the auto-line foundation and deploy ledger for experiments",
+      "state": "open"
+    },
+    {
+      "number": 3786,
+      "title": "EXP-X3-2: Create experiments automatically on version bumps and releases",
+      "state": "open"
+    },
+    {
+      "number": 3787,
+      "title": "EXP-X3-3: Create experiments automatically when a measured feature epic goes live",
+      "state": "open"
+    },
+    {
+      "number": 3788,
+      "title": "EXP-X3-4: Manage after windows and wake the analyst when an experiment has enough data",
+      "state": "open"
+    },
+    {
+      "number": 3789,
+      "title": "EXP-X5-1: Add the Experiments page with index tabs and detail shell",
+      "state": "open"
+    },
+    {
+      "number": 3790,
+      "title": "EXP-X5-2: Render experiment charts with CIs, distributions, time series and power",
+      "state": "open"
+    },
+    {
+      "number": 3791,
+      "title": "EXP-X5-3: Render the analyst report with Markdown tables on the Experiments page",
+      "state": "open"
+    },
+    {
+      "number": 3792,
+      "title": "EXP-X5-4: Add Experiments page visual baselines and responsive checks",
+      "state": "open"
+    },
+    {
+      "number": 3793,
+      "title": "EXP-X1-1: Make PR-open time correct and visible in analytics",
+      "state": "closed"
+    },
+    {
+      "number": 3794,
+      "title": "EXP-X1-2: Record cohort attributes on run context and dispatch",
+      "state": "closed"
+    },
+    {
+      "number": 3795,
+      "title": "EXP-X1-6: Keep analytics capture default-on and user-deactivatable",
+      "state": "closed"
+    },
+    {
+      "number": 3796,
+      "title": "EXP-X1-3: Record daemon-side metric events for review, CI, blockers and usage",
+      "state": "open"
+    },
+    {
+      "number": 3797,
+      "title": "EXP-X1-4: Capture GitHub PR facts and a repo timeline",
+      "state": "closed"
+    },
+    {
+      "number": 3798,
+      "title": "EXP-X1-5: Write a durable cross-launch ticket ledger",
+      "state": "open"
+    },
+    {
+      "number": 3799,
+      "title": "EXP-X6-1: Write the aiur-experiment analyst skill",
+      "state": "open"
+    },
+    {
+      "number": 3800,
+      "title": "EXP-X6-2: Collect the window-event ledger for confounder review",
+      "state": "open"
+    },
+    {
+      "number": 3801,
+      "title": "EXP-X6-3: Add the pre-registration and report contract with submit validation",
+      "state": "open"
+    },
+    {
+      "number": 3802,
+      "title": "EXP-X6-4: Trigger and run the Experiment analyst",
+      "state": "open"
+    },
+    {
+      "number": 3803,
+      "title": "EXP-X6-5: Authorize daemon-filed analysis tickets by local provenance",
+      "state": "open"
+    },
+    {
+      "number": 3804,
+      "title": "EXP-X6-6: Prove the analyst loop end to end on a fixture experiment",
+      "state": "open"
+    },
+    {
+      "number": 3806,
+      "title": "EXP-X2-1: Add the experiments component, spec v1 and state-node store",
+      "state": "closed"
+    },
+    {
+      "number": 3807,
+      "title": "EXP-X2-2: Add the metric-pack model and consumer-defined packs",
+      "state": "closed"
+    },
+    {
+      "number": 3808,
+      "title": "EXP-X2-3: Ship the built-in delivery-speed metric pack",
+      "state": "closed"
+    },
+    {
+      "number": 3809,
+      "title": "EXP-X2-4: Freeze baselines, checkpoint running windows and assign arms",
+      "state": "closed"
+    },
+    {
+      "number": 3811,
+      "title": "EXP-X7-0: Freeze the optimistic-start baseline",
+      "state": "closed"
+    },
+    {
+      "number": 3812,
+      "title": "EXP-X7-1: Write the optimistic-start experiment spec into the experiment store",
+      "state": "open"
+    }
+  ],
+  "blocked_by": {
+    "3779": [],
+    "3780": [
+      3779,
+      3806,
+      3798
+    ],
+    "3781": [
+      3780,
+      3798
+    ],
+    "3782": [
+      3780
+    ],
+    "3783": [
+      3780
+    ],
+    "3784": [
+      3780,
+      3809
+    ],
+    "3785": [
+      3806,
+      3808
+    ],
+    "3786": [
+      3785
+    ],
+    "3787": [
+      3785,
+      3788,
+      3797
+    ],
+    "3788": [
+      3785
+    ],
+    "3789": [
+      3806,
+      3780
+    ],
+    "3790": [
+      3789,
+      3806,
+      3780,
+      3782,
+      3783
+    ],
+    "3791": [
+      3789,
+      3806
+    ],
+    "3792": [
+      3789,
+      3790,
+      3791
+    ],
+    "3793": [],
+    "3794": [],
+    "3795": [],
+    "3796": [],
+    "3797": [
+      3795
+    ],
+    "3798": [
+      3793
+    ],
+    "3799": [
+      3801
+    ],
+    "3800": [
+      3797,
+      3806,
+      3808
+    ],
+    "3801": [
+      3806,
+      3780
+    ],
+    "3802": [
+      3806,
+      3788
+    ],
+    "3803": [
+      3802
+    ],
+    "3804": [
+      3799,
+      3800,
+      3801,
+      3802,
+      3803,
+      3789,
+      3791
+    ],
+    "3806": [],
+    "3807": [
+      3806
+    ],
+    "3808": [
+      3807,
+      3793
+    ],
+    "3809": [
+      3807
+    ],
+    "3811": [],
+    "3812": [
+      3806,
+      3794,
+      3808,
+      3809
+    ]
+  },
+  "seed": 3812,
+  "generator": "Python random.Random.getrandbits(1)",
+  "components": [
+    {
+      "component": [
+        3779,
+        3780,
+        3781,
+        3782,
+        3783,
+        3784,
+        3785,
+        3786,
+        3787,
+        3788,
+        3789,
+        3790,
+        3791,
+        3792,
+        3793,
+        3794,
+        3795,
+        3797,
+        3798,
+        3799,
+        3800,
+        3801,
+        3802,
+        3803,
+        3804,
+        3806,
+        3807,
+        3808,
+        3809,
+        3812
+      ],
+      "arm": "treatment",
+      "open_tickets": [
+        3780,
+        3781,
+        3782,
+        3783,
+        3784,
+        3785,
+        3786,
+        3787,
+        3788,
+        3789,
+        3790,
+        3791,
+        3792,
+        3798,
+        3799,
+        3800,
+        3801,
+        3802,
+        3803,
+        3804,
+        3812
+      ]
+    },
+    {
+      "component": [
+        3796
+      ],
+      "arm": "treatment",
+      "open_tickets": [
+        3796
+      ]
+    },
+    {
+      "component": [
+        3811
+      ],
+      "arm": "treatment",
+      "open_tickets": []
+    }
+  ],
+  "commands": [
+    {
+      "arm": "control",
+      "command": null
+    },
+    {
+      "arm": "treatment",
+      "command": "aiur queue add 3780 3781 3782 3783 3784 3785 3786 3787 3788 3789 3790 3791 3792 3796 3798 3799 3800 3801 3802 3803 3804 3812 --queue optimistic-start-treatment --start-on pr_opened"
+    }
+  ],
+  "scope": "Read-only planned-graph dry run, not enrollment. Includes started tickets; do not execute.",
+  "generator_version": "3.14.6",
+  "removed_review_gates": [],
+  "assignment_status": "insufficient: empty control arm; no reroll and no enrollment"
+}
