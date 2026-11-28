@@ -196,8 +196,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # call that re-stats and re-reads the config file, so resolving it per idle
   # row turned one status render into one round-trip per backlog ticket, all
   # serialized inside this handle_call. That is why `status` and `agents` were
-  # slow (and `alerts`, which never touches the orchestrator, was not) — #1684.
-  # Read it once per snapshot.
+  # slow (and `alerts`, which never touches the orchestrator, was not) — #1684. Read it once per snapshot.
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase, decision_counts) do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
     terminal_states = DispatchPolicy.terminal_state_set()
@@ -312,6 +311,9 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
       dispatch_decline_reason: Map.get(state.dispatch_declines, Map.get(issue, :id)),
+      dispatch_authorization: Map.get(issue, :dispatch_authorization),
+      dispatch_authorization_actor: Map.get(issue, :dispatch_authorization_actor),
+      dispatch_authorization_reason: Map.get(issue, :dispatch_authorization_reason),
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,

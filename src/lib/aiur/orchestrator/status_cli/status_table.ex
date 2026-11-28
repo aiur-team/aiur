@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
       [
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
+        dispatch_authorization_detail(status),
         pause_reason_detail(status),
         executor_owner_detail(status),
         blocked_by_detail(status),
@@ -80,6 +81,14 @@ defmodule Aiur.Orchestrator.StatusCLI.StatusTable do
     do: "dispatch_decline=#{inspect(reason)}"
 
   defp dispatch_decline_detail(_status), do: nil
+
+  defp dispatch_authorization_detail(%{dispatch_authorization: :denied} = status) do
+    actor = Map.get(status, :dispatch_authorization_actor) || "unknown"
+    reason = Map.get(status, :dispatch_authorization_reason) || :not_authorized
+    "dispatch_authorization=denied actor=#{actor} reason=#{reason}"
+  end
+
+  defp dispatch_authorization_detail(_status), do: nil
 
   defp pause_reason_detail(%{pause_reason: reason}) when not is_nil(reason),
     do: "pause_reason=#{reason}"
