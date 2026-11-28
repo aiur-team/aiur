@@ -4,8 +4,8 @@ defmodule Aiur.Orchestrator.SlotsTest do
   alias Aiur.AlertFeed
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
-  alias Aiur.Orchestrator.StatusReport.SnapshotPayload
   alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.StatusReport.SnapshotPayload
 
   describe "max_concurrent_agent_limit/1" do
     test "prefers session override over state field" do
