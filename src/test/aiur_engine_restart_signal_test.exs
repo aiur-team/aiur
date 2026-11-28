@@ -121,6 +121,7 @@ defmodule AiurEngineRestartSignalTest do
         resolve_release() { :; }
         prepare_distribution() { :; }
         resolve_control_identity_from_records() { :; }
+        release_bin=/test/release/bin/aiur
         probe_node_liveness() { printf down; }
         run_control_rpc() { echo "RPC:$1" >>"$EVENTS"; return 1; }
         cmd_stop() { echo STOP >>"$EVENTS"; AIUR_STOP_FOUND_NOTHING=1; return 1; }

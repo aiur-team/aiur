@@ -328,6 +328,10 @@ cmd_restart() {
 restart_daemon_confirmed_down() {
   # Only epmd answering without our node counts; an unreachable epmd or an
   # unresolvable instance keeps the keep-agents preflight and its refusal.
+  # A resolved release is required before an empty liveness result can be
+  # trusted. This also keeps callers with a stubbed release resolver from
+  # turning an incomplete probe into a false "down" result.
+  [ -n "${release_bin:-}" ] || return 1
   local state
   state="$({ resolve_release && prepare_distribution && resolve_control_identity_from_records &&
     { [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -ne 1 ] || prepare_distribution; } && probe_node_liveness; } 2>/dev/null)" || return 1
