@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.TodoCLI do
   alias Aiur.{Config, Orchestrator, Tracker}
   alias Aiur.ControlCLI.Reasons
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.QueueProvenance
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Tracker.QueueProvenance
   import Aiur.ControlCLI.Protocol, only: [application_started?: 0, exit_marker: 1, not_running_message: 0]
 
   # `--todo` is the one control command whose runtime scales with its arguments

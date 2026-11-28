@@ -1,4 +1,4 @@
-defmodule Aiur.GitHub.QueueProvenance do
+defmodule Aiur.Tracker.QueueProvenance do
   @moduledoc false
 
   alias Aiur.{Config.Paths, Journal}

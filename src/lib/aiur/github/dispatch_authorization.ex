@@ -3,8 +3,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Access, Config, QueueProvenance, StatePolicy, TimelineCache}
+  alias Aiur.GitHub.{Access, Config, StatePolicy, TimelineCache}
   alias Aiur.GitHub.DispatchAuthorization.{Decision, MissingTriggerLabel, StateLabels, Timeline}
+  alias Aiur.Tracker.QueueProvenance
   alias Aiur.{Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}

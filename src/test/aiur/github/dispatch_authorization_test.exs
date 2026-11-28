@@ -115,6 +115,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :denied
   end
 
+  # Future-regression guard: a locally recorded daemon queue operation remains dispatchable.
   test "a recorded daemon queue write dispatches when daemon identity is not allowlisted" do
     events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z")]
 
