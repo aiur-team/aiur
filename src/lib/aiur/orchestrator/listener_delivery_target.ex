@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
       message_id: Keyword.get(opts, :client_request_id, opts[:message_id])
     }
 
-    payload = Map.merge(payload, Map.new(Keyword.take(opts, [:actor, :correlation])))
+    payload = Map.merge(payload, Map.new(Keyword.take(opts, [:actor, :correlation, :queue_when_full])))
     Orchestrator.send_operator_message(queue_target(target), payload)
   end
 

@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.AgentQueueStore.Correlation
   alias Aiur.AgentQueueStore.TargetIndex
   alias Aiur.Listener.{Effective, Scheduler}
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseGuard, PauseResume, State, TicketTransition}
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, OverrideRecovery, PauseGuard, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
   @doc false
@@ -103,6 +103,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
       message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
       delivery_mode: Map.get(payload, :delivery_mode),
+      queue_when_full: Map.get(payload, :queue_when_full) == true,
       mode: mode
     }
 
@@ -306,10 +307,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
 
         do_enqueue_running_operator_message(next_state, reactivated_entry, issue_identifier, text, request)
 
-      {{:error, _reason} = error, next_state} ->
-        {error, next_state}
+      {{:error, reason} = error, next_state} ->
+        queue_when_full(state, running_entry, issue_identifier, text, request, reason, {error, next_state})
     end
   end
+
+  defp queue_when_full(state, entry, identifier, text, request, reason, error),
+    do: if(OverrideRecovery.queue_when_full?(request, reason), do: do_enqueue_running_operator_message(state, entry, identifier, text, request), else: error)
 
   defp enqueue_after_resume(state, running_entry, issue_identifier, text, request) do
     with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
@@ -322,7 +326,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
            TicketTransition.apply_effect(queued_state, {:resume_paused, queued_entry, true}) do
       {queued, resumed_state}
     else
-      {:error, reason} -> {{:error, reason}, state}
+      {:error, reason} -> queue_when_full(state, running_entry, issue_identifier, text, request, reason, {{:error, reason}, state})
       {{:error, _reason} = error, next_state} -> {error, next_state}
       _missing_entry -> {{:error, :no_running_agent}, state}
     end

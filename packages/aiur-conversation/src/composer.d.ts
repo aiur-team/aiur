@@ -9,6 +9,8 @@ export interface DictationSession {
   stop(): Promise<string | void>;
   /** Discards the recording. The composer removes the dictated words itself. */
   cancel?(): void;
+  /** Required host hook called when the user mutes or unmutes the microphone. */
+  setMuted(muted: boolean): void;
 }
 
 /** What the composer hands `dictation.start`. Call both as often as the recognizer allows. */
@@ -19,9 +21,19 @@ export interface DictationCallbacks {
   onLevel(level: number): void;
 }
 
+/** Voice-session transcript and microphone-level updates. */
+export interface VoiceCallbacks {
+  /** Full current partial for this speaker; repeated updates replace that speaker's latest line. */
+  onPartial(speaker: 'user' | 'agent', text: string): void;
+  /** Microphone loudness from 0 to 1. */
+  onLevel(level: number): void;
+}
+
 /** A live two-way voice conversation. */
 export interface VoiceSession {
   stop(): Promise<void>;
+  /** Required host hook called when the user mutes or unmutes the microphone. */
+  setMuted(muted: boolean): void;
 }
 
 export interface VoiceStartOptions {
@@ -29,6 +41,8 @@ export interface VoiceStartOptions {
   onEnd(): void;
   /** The draft at the moment the user switched from dictation to voice; send it as the first turn. Empty if there was none. */
   initialText: string;
+  onPartial: VoiceCallbacks['onPartial'];
+  onLevel: VoiceCallbacks['onLevel'];
 }
 
 export interface ComposerAdapters {
@@ -36,7 +50,7 @@ export interface ComposerAdapters {
   upload?: (file: File) => Promise<ComposerAttachment>;
   /** Starts recording when the mic is tapped or pressed. Without it the mic button is not shown. */
   dictation?: { start(callbacks: DictationCallbacks): Promise<DictationSession> };
-  /** Starts a live voice conversation from the recording row. Without it the two-way voice button is not shown. */
+  /** Starts or upgrades to a live two-way conversation. Without it the two-way button is not shown. */
   voice?: { start(options: VoiceStartOptions): Promise<VoiceSession> };
 }
 
@@ -69,6 +83,7 @@ export interface ComposerState {
   caret: number | null;
   dictation: 'idle' | 'recording' | 'stopping';
   voice: 'idle' | 'starting' | 'live' | 'stopping';
+  voiceTranscript: { speaker: 'user' | 'agent'; text: string }[];
   sending: boolean;
   readOnly: boolean;
   attachments: { id: number; name: string; state: 'uploading' | 'ready' }[];
@@ -104,6 +119,7 @@ interface ComposerCommands {
   cancelDictation(): Promise<boolean>;
   startVoice(): Promise<boolean>;
   stopVoice(): Promise<void>;
+  toggleMicMute(): boolean;
 }
 
 export interface ComposerController extends ComposerCommands {
@@ -124,6 +140,7 @@ export declare class AiurComposer extends HTMLElement {
   /** Defaults to the current input selection. */
   startDictation(start?: number, end?: number): Promise<void>;
   openFilePicker(): void;
+  toggleMicMute(): boolean;
 }
 
 /** Registers `<aiur-composer>` (or `tag`) once and returns the element class. */

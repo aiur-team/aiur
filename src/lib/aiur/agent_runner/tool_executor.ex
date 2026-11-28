@@ -60,6 +60,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           :ticket_state_writer,
           &TicketTransition.write_state(&1, &2, writer: :agent_tool)
         ),
+      outcome_gate_labels: Map.get(issue, :labels, []) || [],
+      outcome_gate_identifier: issue.identifier,
+      outcome_decisions_fun: Keyword.get(opts, :outcome_decisions_fun, &Commands.list_decisions/0),
       ci_wait_pr_fetcher:
         Keyword.get(
           opts,
