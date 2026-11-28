@@ -27,7 +27,9 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/', '/build', '/route-shell', '/commands', '/build-orders', '/analytics', '/experiments']) {
+  for (const path of [
+    '/', '/build', '/route-shell', '/commands', '/models', '/build-orders', '/analytics', '/experiments'
+  ]) {
     await page.goto(path)
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   }
