@@ -184,7 +184,7 @@ export declare class AiurBuildOrderElement extends HTMLElement {
   static readonly observedAttributes: string[];
   json: string | object | null;
   fetch: ((input: string, init?: object) => Promise<unknown>) | null;
-  readonly view: 'review' | 'graph' | 'both';
+  readonly view: 'review' | 'graph' | 'both' | 'fit';
   readonly document: BuildOrderDocument | null;
   readonly error: BuildOrderError | null;
   load(): Promise<void>;

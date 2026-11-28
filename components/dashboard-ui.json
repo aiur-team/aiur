@@ -4,7 +4,6 @@
   "layer": 4,
   "kind": "in-app",
   "paths": [
-    "src/lib/aiur/post_deploy_checklist.ex",
     "src/lib/aiur_web/**",
     "src/lib/aiur_web/operator_control_center/gateway_grant_commands.ex",
     "src/lib/aiur_web/routes/dashboard_pages.ex",

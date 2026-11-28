@@ -30,6 +30,11 @@ const outputs = [
     refs: ['capacity.v1.schema.json'],
   },
   {
+    name: 'UsageAccountingContract',
+    target: new URL('../src/usage-accounting.generated.ts', import.meta.url),
+    refs: ['usage-accounting.v1.schema.json'],
+  },
+  {
     name: 'StatusContract',
     target: new URL('../src/status.generated.ts', import.meta.url),
     refs: [

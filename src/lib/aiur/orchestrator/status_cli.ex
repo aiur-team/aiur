@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Instance.Roster.Presentation
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
+  alias Aiur.Orchestrator.IssueSync.AttentionSnapshot
   alias Aiur.Orchestrator.StatusObservation
   alias Aiur.SystemLoad
   alias Aiur.WorkflowStore.ReloadRejection
@@ -105,6 +106,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_status_report(statuses, snapshot, opts) do
+    IO.puts(Aiur.MainLineBuild.line(Aiur.MainLineBuild.current()))
     bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
     deadline_ms = System.monotonic_time(:millisecond) + bound_ms
     # Start every daemon read now so they overlap the table rendering (#5817).
@@ -123,6 +125,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     StatusTable.print_status_table(visible_statuses)
+    print_stalled_lists(snapshot)
     CiWait.print(snapshot)
 
     if released_claims > 0 do
@@ -139,6 +142,29 @@ defmodule Aiur.Orchestrator.StatusCLI do
     print_polling_status(Map.get(snapshot, :polling))
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
     exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
+  end
+
+  defp print_stalled_lists(snapshot) do
+    stalled = Map.get(snapshot, :stalled_lists, [])
+    Enum.each(stalled, &IO.puts("QUEUE STALLED >1h with free slots: #{&1.name}"))
+    update_stalled_attention(stalled)
+  end
+
+  defp update_stalled_attention(stalled) do
+    topic = "system.queue.stalled_list"
+    active? = AttentionSnapshot.active_system_attention?(topic)
+
+    cond do
+      stalled != [] and not active? ->
+        names = Enum.map_join(stalled, ", ", & &1.name)
+        Aiur.Signal.alert(topic, reason: "Queue lists stalled over one hour with free slots: #{names}", needs_attention: true, severity: "warning")
+
+      stalled == [] and active? ->
+        Aiur.Signal.alert("#{topic}.resolved", reason: "No queue lists remain stalled with free slots", needs_attention: false, severity: "info")
+
+      true ->
+        :ok
+    end
   end
 
   defp print_instance_roster(opts) do

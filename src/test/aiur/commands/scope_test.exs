@@ -78,6 +78,24 @@ defmodule Aiur.Commands.ScopeTest do
     refute MapSet.member?(scope.label_set, "game:checkers")
   end
 
+  test "a build-order grant round-trips one feature or epic scope" do
+    assert {:ok, %{token: feature_token, scope: minted}} =
+             Scope.mint("creator-7", [], secret: @secret, now: @now, build_order: %{kind: "feature", key: "game-board"})
+
+    assert minted.build_order == %{kind: :feature, key: "game-board"}
+    assert {:ok, verified} = Scope.verify(feature_token, secret: @secret, now: @now)
+    assert verified.build_order == %{kind: :feature, key: "game-board"}
+
+    assert {:ok, %{token: epic_token}} = Scope.mint("admin-2", [], secret: @secret, now: @now, build_order: %{kind: "epic", key: "game-launch"})
+    assert {:ok, %{build_order: %{kind: :epic, key: "game-launch"}}} = Scope.verify(epic_token, secret: @secret, now: @now)
+  end
+
+  test "a build-order grant cannot be widened with tickets or labels" do
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret, build_order: %{kind: "feature", key: ""})
+    assert {:error, :invalid_scope} = Scope.mint("player-7", ["42"], secret: @secret, build_order: %{kind: "feature", key: "game-board"})
+    assert {:error, :invalid_scope} = Scope.mint("player-7", [], secret: @secret, labels: ["game:chess"], build_order: %{kind: "epic", key: "game-launch"})
+  end
+
   test "minting downcases the ticket identifiers so authorization cannot miss on case" do
     assert {:ok, %{token: token, scope: minted}} = Scope.mint("player-7", [" AbC "], secret: @secret, now: @now)
     assert minted.tickets == ["abc"]
@@ -102,5 +120,10 @@ defmodule Aiur.Commands.ScopeTest do
              "label" => "Ticket-scoped Commands",
              "tickets" => ["42"]
            }
+  end
+
+  test "to_public describes build-order grants without a ticket scope" do
+    assert {:ok, %{scope: scope}} = Scope.mint("creator-7", [], secret: @secret, build_order: %{kind: "feature", key: "game-board"})
+    assert Scope.to_public(scope) == %{"kind" => "build_order", "label" => "Build Order", "tickets" => [], "build_order" => %{"kind" => "feature", "key" => "game-board"}}
   end
 end

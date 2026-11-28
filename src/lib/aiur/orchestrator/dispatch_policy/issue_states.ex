@@ -6,7 +6,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   alias Aiur.Config
 
   # States in which, by definition, there is no agent work: the PR is sitting in
-  # GitHub's merge queue (`merging`) or CI is in flight (`ci-wait`). Dispatching
+  # GitHub's merge queue (`merging`), CI is in flight (`ci-wait`), or the work
+  # waits on a human verdict (`human-review`). Dispatching
   # into them cannot produce progress, only cost — and every committed dispatch
   # bills a lifetime unit, so a ticket can burn the terminal (self-declared
   # unrecoverable) latch while waiting for the merge queue, *after* its work was
@@ -14,7 +15,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # `merging` with an approved, queued PR).
   #
   # This is a code-level refusal rather than an `active_states` edit because
-  # `merging` must stay an active state for comment polling
+  # `merging` and `human-review` must stay active states for comment polling
   # (`Listeners.Comments.TargetSelection`), the paused-agent sweep, and terminal-fence
   # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
   # sweep as legitimate waiting; refusing it here makes the two beliefs
@@ -23,8 +24,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # Neither state strands a ticket: leaving `ci-wait` (the CI result delivery and
   # the `ci_wait_rewake` fallback) and leaving `merging` (a trusted comment
   # promoting the ticket to `rework`) both transition the tracker label *first*,
-  # so dispatch is re-evaluated against the new state.
-  @no_agent_work_states ["merging", "ci-wait"]
+  # so dispatch is re-evaluated against the new state. A trusted comment on a
+  # `human-review` ticket promotes it to `rework` the same way (#713); listing
+  # `human-review` as active instead ran the handed-off worker into no-op turns
+  # until `agent:error` (open-games #293, #368).
+  @no_agent_work_states ["merging", "ci-wait", "human-review"]
 
   # A tracker-closed ticket is terminal no matter what `tracker.terminal_states`
   # lists. The GitHub tracker resolves a `state: "closed"` payload to the state
@@ -34,6 +38,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
   # be blocking anything.
   @always_terminal_states ~w(closed budget-exhausted)
+  @known_state_labels ~w(todo in-progress rework ci-wait human-review error done cancelled canceled budget-exhausted merging)
 
   @doc """
   True when the state is terminal: either configured in `tracker.terminal_states`
@@ -76,6 +81,46 @@ defmodule Aiur.Orchestrator.DispatchPolicy.IssueStates do
   # as 'not active' so the reconcile cond falls through to the
   # catch-all instead of crashing the orchestrator GenServer.
   def active_issue_state?(_state_name, _active_states), do: false
+
+  @spec foreign_active_state_label([String.t()], String.t(), MapSet.t(), MapSet.t()) ::
+          String.t() | nil
+  def foreign_active_state_label(labels, prefix, active_states, terminal_states) do
+    normalized_prefix = normalize_issue_state(prefix)
+    known_states = MapSet.union(active_states, MapSet.new(@known_state_labels))
+
+    Enum.find_value(labels, fn label ->
+      case label |> String.trim() |> String.downcase() |> String.split(":", parts: 2) do
+        [other_prefix, state] ->
+          foreign_active_label(
+            other_prefix,
+            state,
+            normalized_prefix,
+            known_states,
+            terminal_states
+          )
+
+        _other ->
+          nil
+      end
+    end)
+  end
+
+  defp foreign_active_label(other_prefix, state, normalized_prefix, active_states, terminal_states) do
+    normalized_state = normalize_issue_state(state)
+
+    case {
+      other_prefix != normalized_prefix,
+      MapSet.member?(active_states, normalized_state),
+      foreign_terminal_state?(normalized_state, terminal_states)
+    } do
+      {true, true, false} -> "#{other_prefix}:#{normalized_state}"
+      _other -> nil
+    end
+  end
+
+  defp foreign_terminal_state?(state, terminal_states) do
+    MapSet.member?(terminal_states, state) or state in ~w(done closed cancelled canceled budget-exhausted)
+  end
 
   @spec normalize_issue_state(term()) :: String.t()
   def normalize_issue_state(state_name) when is_binary(state_name) do

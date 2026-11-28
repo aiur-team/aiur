@@ -129,7 +129,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
       # 30-second throttle into a terminal `agent:error` via retry exhaustion,
       # so the running agent stays and the next poll re-verifies from a fresh
       # timeline once the cause clears (#2409).
-      !DispatchPolicy.issue_dispatch_authorized?(issue) ->
+      keep_unverified_agent?(state, issue, active_states) ->
         Logger.info([
           "Issue dispatch authorization is temporarily unverifiable (deferred); ",
           "keeping active agent: ",
@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
       # fleet on a store outage would be worse than letting a blocked agent run
       # one more cycle. Fail-closed is the dispatch side's job.
       match?(%MapSet{}, state.blocked_ticket_ids) and
-          MapSet.member?(state.blocked_ticket_ids, issue.id) ->
+          DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids) ->
         Logger.info([
           "Issue has an open blocking Command: ",
           State.issue_context(issue),
@@ -178,6 +178,19 @@ defmodule Aiur.Orchestrator.Reconciler.Nonterminal do
         )
     end
   end
+
+  # Only active states are authorized at all, so a ci-wait, human-review or
+  # error ticket stays `:deferred` for good. When its runner has already ended,
+  # or human review deactivated it, there is no agent to protect: skipping the
+  # state handling below kept the ended runner's slot and claim until an
+  # operator stepped in.
+  defp keep_unverified_agent?(state, issue, active_states) do
+    not DispatchPolicy.issue_dispatch_authorized?(issue) and
+      not (ended_runner?(Map.get(state.running, issue.id)) and
+             not DispatchPolicy.active_issue_state?(issue.state, active_states))
+  end
+
+  defp ended_runner?(entry), do: State.completed_running_entry?(entry) or State.deactivated_running_entry?(entry)
 
   defp reconcile_routable_nonterminal_issue_state(
          state,

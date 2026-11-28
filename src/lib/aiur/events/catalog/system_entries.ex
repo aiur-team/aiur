@@ -10,6 +10,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   @alerts [
     {"system.feature_supply_low", "orchestration"},
     {"system.feature_supply_low.resolved", "orchestration"},
+    {"system.queue.stalled_list", "orchestration"},
+    {"system.queue.stalled_list.resolved", "orchestration"},
     {"system.gateway.*.offline", "executor-attention"},
     {"system.gateway.*.offline.resolved", "executor-attention"},
     {"system.claude_account.*.usage_probe_failing", "executor-attention"},
@@ -211,6 +213,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.completed", "orchestration"},
     # aiur/handoff/report.ex
     {"system.restart.handoff.fallback", "orchestration"},
+    # aiur/main_line_build.ex
+    {"system.build.not_on_main", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
     # aiur/orchestrator/spend_cap/health.ex

@@ -3,10 +3,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Dispatch and load policy; dependency holds follow the effective start trigger.
   """
 
-  require Logger
-
-  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
-  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Epic, Gates, IssueStates, SpendCap}
+  alias Aiur.{BuildQueue.Hints, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors}
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
@@ -169,6 +167,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           :invalid_issue
           | :epic
           | :contradictory_state_labels
+          | :foreign_owner
+          | {:foreign_owner, String.t()}
           | :not_routable
           | :unauthorized
           | :paused
@@ -204,6 +204,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :invalid_issue,
     :epic,
     :contradictory_state_labels,
+    :foreign_owner,
     :not_routable,
     :unauthorized,
     :paused,
@@ -353,52 +354,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       ),
       do: {:skip, :invalid_issue}
 
-  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
-    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
-  end
-
   defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
-    case issue_identity_decision(issue) do
+    case Eligibility.identity_decision(issue, active_states, terminal_states) do
       :dispatch -> issue_state_decision(issue, active_states, terminal_states)
       {:skip, _reason} = declined -> declined
     end
   end
-
-  defp issue_identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue) do
-    # Resolve contradictory labels deterministically (`todo` wins) and keep
-    # dispatching while the poll-time tracker repair catches up (#2075).
-    winner = resolve_state_labels(state_labels)
-
-    Logger.info(
-      "Dispatch resolved contradictory state labels for issue_id=#{inspect(issue.id)} " <>
-        "labels=#{inspect(state_labels)} -> #{inspect(winner)}"
-    )
-
-    issue_identity_decision(%{issue | state: winner, state_labels: [winner]})
-  end
-
-  defp issue_identity_decision(%Issue{} = issue),
-    do: if(Epic.issue?(issue), do: {:skip, :epic}, else: ordinary_issue_identity_decision(issue))
-
-  defp ordinary_issue_identity_decision(%Issue{} = issue) do
-    cond do
-      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
-      foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
-      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
-      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
-      not issue_not_paused?(issue) -> {:skip, :paused}
-      not issue_not_parked?(issue) -> {:skip, :parked}
-      not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
-      true -> SpendCap.decision(issue)
-    end
-  end
-
-  defp foreign_tracker_state_label?(%Issue{labels: labels})
-       when is_list(labels) and labels != [] do
-    Config.tracker_kind() == "github" and Tracker.foreign_state_label?(labels)
-  end
-
-  defp foreign_tracker_state_label?(_issue), do: false
 
   defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do

@@ -28,6 +28,28 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
              poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:error, :denied} end)
   end
 
+  # The worker gets its next turn from this verdict; a required job that already
+  # failed must not wait behind slower jobs (a browser suite) on the same head.
+  test "a ready PR fails on a failed required check while other checks still run" do
+    required = [%{name: "workspace", app_id: 15_368}, %{name: "browser", app_id: 15_368}]
+    failed = %{"name" => "workspace", "status" => "completed", "conclusion" => "failure", "app" => %{"id" => 15_368}}
+    running = %{"name" => "browser", "status" => "in_progress", "conclusion" => nil, "app" => %{"id" => 15_368}}
+    lint = %{"name" => "lint", "status" => "completed", "conclusion" => "failure", "app" => %{"id" => 15_368}}
+    pr = %{"number" => 71, "head" => pr_head("aiur/42", "current-head"), "base" => %{"ref" => "main"}, "draft" => false}
+    fetch_required = fn _ -> {:ok, required} end
+
+    ci = fn pr, checks -> %{"42" => %{pull_request: pr, check_runs: checks, commit_status: %{"statuses" => []}}} end
+
+    assert {:ok, %{results: [%{decision: :failed, checks_incomplete: true, failures: [%{name: "workspace"}]}]}} =
+             poll(["42"], ci_batch: ci.(pr, [failed, running]), required_check_fetcher: fetch_required)
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :check_runs_incomplete}]}} =
+             poll(["42"], ci_batch: ci.(%{pr | "draft" => true}, [failed, running]), required_check_fetcher: fetch_required)
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :check_runs_incomplete}]}} =
+             poll(["42"], ci_batch: ci.(pr, [lint, running]), required_check_fetcher: fetch_required)
+  end
+
   test "approved PRs stay in ci-wait while queued and fail when the queue marks them unmergeable" do
     required = [%{name: "test", app_id: 15_368}]
     green = %{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}

@@ -11,7 +11,7 @@ defmodule Aiur.BuildStamp do
 
   defp entry(line) do
     case String.split(line, "=", parts: 2) do
-      [key, value] when key in ["source_sha", "package_version"] and value != "" -> [{key, value}]
+      [key, value] when key in ["source_sha", "package_version", "repo_root"] and value != "" -> [{key, value}]
       _other -> []
     end
   end

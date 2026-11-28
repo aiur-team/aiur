@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
   alias AiurWeb.Presenter
 
@@ -30,6 +31,28 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
     assert StatusReport.snapshot_payload(input).orphaned_agent_reap_count == 17
     assert StatusReport.snapshot_payload(input).capacity.load == 7.0
+  end
+
+  test "status snapshot flags an hour-old list while a slot is free" do
+    created_at_ms = System.system_time(:millisecond) - 3_600_001
+
+    Hints.publish_sets(%{
+      sets: [
+        %{
+          id: "launch-list",
+          name: "Monday launch list",
+          kind: :list,
+          created_at_ms: created_at_ms,
+          unfinished: true,
+          started: false,
+          active: false
+        }
+      ]
+    })
+
+    snapshot = StatusReport.snapshot_payload(%State{effective_concurrent_agents: 1})
+
+    assert [%{id: "launch-list", name: "Monday launch list"}] = snapshot.stalled_lists
   end
 
   test "snapshot retains same-head rework attempt counts for the Executor sweep" do

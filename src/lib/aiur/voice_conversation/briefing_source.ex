@@ -170,8 +170,11 @@ defmodule Aiur.VoiceConversation.BriefingSource do
     reader = Keyword.get(opts, :blocked_tickets, fn -> Aiur.Commands.blocked_ticket_ids() end)
 
     case reader.() do
-      {:ok, identifiers} when is_struct(identifiers, MapSet) -> identifiers |> MapSet.to_list() |> Enum.sort() |> Enum.take(n) |> Enum.join(", ") |> empty_as("No blocked tickets.")
-      _ -> "Blocker data unavailable."
+      {:ok, identifiers} when is_struct(identifiers, MapSet) ->
+        identifiers |> MapSet.to_list() |> Enum.map(&format_blocked_ticket/1) |> Enum.sort() |> Enum.take(n) |> Enum.join(", ") |> empty_as("No blocked tickets.")
+
+      _ ->
+        "Blocker data unavailable."
     end
   rescue
     _error -> "Blocker data unavailable."
@@ -183,6 +186,10 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   end
 
   defp read_section(_section, _n, _opts), do: "Unknown detail section."
+
+  defp format_blocked_ticket({:github, owner, repository, identifier}), do: "#{owner}/#{repository}##{identifier}"
+  defp format_blocked_ticket(identifier) when is_binary(identifier), do: identifier
+  defp format_blocked_ticket(other), do: inspect(other)
 
   defp executor_commands({:ok, %{health: %{status: status}, decisions: decisions}}, n) when status in [:available, :partial] do
     open = Enum.filter(decisions, &(Map.get(&1, :decision_status) in [:open, :deferred]))

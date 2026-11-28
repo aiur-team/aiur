@@ -8,15 +8,15 @@ defmodule Aiur.DecisionStore.Reads do
   @recent_decision_limit 50
 
   @doc """
-  Returns the set of ticket identifiers that currently have an open blocking
-  Command, from one serialized store snapshot.
+  Returns the set of ticket identifiers or repository-qualified ticket keys
+  that currently have an open blocking Command, from one serialized snapshot.
 
   A Decision gates dispatch when it is both `blocking` and still open or
   deferred. Internal delivery/persistence alerts are deliberately excluded,
   mirroring `Aiur.DecisionStore.RetainedIndex.operator_command?/1`.
   """
   @spec blocked_ticket_ids(GenServer.server()) ::
-          {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+          {:ok, MapSet.t(term())} | {:error, :store_unavailable}
   def blocked_ticket_ids(server \\ Aiur.DecisionStore) do
     GenServer.call(server, :blocked_ticket_ids)
   catch

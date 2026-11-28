@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AdoptedBoot
-  alias Aiur.Orchestrator.Dispatcher.{Launch, Selection}
+  alias Aiur.Orchestrator.Dispatcher.{DependencyObservation, Launch, Selection}
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, refreshed} ->
-        {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
+        {:validated, refreshed, DependencyObservation.observe(hydrator, refreshed, opts)}
 
       {:error, reason} = error ->
         if broker_timeout?(reason), do: validate_from_cached_dependencies(issue, error), else: error

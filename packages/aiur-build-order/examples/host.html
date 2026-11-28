@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Host-styled Build Order</title>
+  <link rel="stylesheet" href="../../aiur-style/dist/tokens.css">
+  <link rel="stylesheet" href="../dist/aiur-build-order.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0 auto; max-width: 70rem; padding: 1rem; }
+    aiur-build-order { display: block; width: 100%; }
+    .aiur-bo { --aiur-color-accent: #536b3f; --aiur-radius-lg: 8px; font-family: Georgia, serif; }
+    @media (max-width: 640px) { body { padding: .5rem; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Game plan</h1>
+    <aiur-build-order src="/api/v1/build-order/embed" view="fit"></aiur-build-order>
+  </main>
+  <script type="module">
+    import '../src/index.js';
+    const grant = new URLSearchParams(location.search).get('grant');
+    const view = document.querySelector('aiur-build-order');
+    if (!grant) {
+      view.json = {
+        contract: 'aiur.build_order',
+        contract_version: 1,
+        title: 'Build Order grant required',
+        tickets: [], epics: [], features: [], lanes: [], edges: [], gates: [], waves: [],
+      };
+    } else {
+      view.fetch = (url) => fetch(url, {
+        headers: { authorization: `Bearer ${grant}` },
+      });
+    }
+  </script>
+</body>
+</html>

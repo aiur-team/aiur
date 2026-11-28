@@ -28,6 +28,8 @@ defmodule Aiur.Orchestrator.DispatchTriggerIntegrationTest do
     state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1, last_polled_issues: %{candidate.id => candidate}}
     terminal = DispatchPolicy.terminal_state_set()
 
+    :ets.insert(Hints.table_name(), {candidate.id, {0, 0}, false, :pr_merged})
+
     assert DispatchCandidates.order([other, candidate], terminal) == [other, candidate]
     assert [held] = StatusReport.agent_statuses(state)
     assert held.waiting_reason == :waiting_for_dependency

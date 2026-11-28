@@ -5,6 +5,7 @@ defmodule Aiur.ExecutorListenerWakeTest do
   alias Aiur.BuildQueue.Attention, as: BuildQueueAttention
   alias Aiur.Events.Publisher
   alias Aiur.ExecutorBindings
+  alias Aiur.ExecutorEvents
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
 
@@ -13,6 +14,33 @@ defmodule Aiur.ExecutorListenerWakeTest do
 
   defp start_listener(opts) do
     start_supervised!({ExecutorListener, Keyword.merge([name: @listener_name, resubscribe_interval_ms: 100], opts)})
+  end
+
+  test "an on-demand conversation start reaches the durable Executor wake inbox" do
+    inbox = start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["executor.#"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
+    assert {:ok, _id, _count} =
+             ExecutorEvents.publish(
+               "executor.agent_conversation.started",
+               %{ticket: "8154-test", conversation_id: "conv-test", owner: "test-user"},
+               source: :internal
+             )
+
+    assert is_map(:sys.get_state(listener))
+    send(inbox, :flush)
+    assert is_map(:sys.get_state(inbox))
+
+    assert {:ok, records} = ExecutorWakeInbox.wait(0, @inbox_name)
+    assert [%{"topic" => "executor.agent_conversation.started", "action" => "started"}] = records
   end
 
   test "attention alerts wake the Executor when their ticket has no running agent" do

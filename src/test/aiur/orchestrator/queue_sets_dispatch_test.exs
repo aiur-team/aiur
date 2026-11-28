@@ -168,7 +168,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     orphan = %{issue_id: "orphan", queue_id: "missing", position: 3}
     snapshot = Sets.snapshot(%{document | items: [orphan]}, projections, Config.settings!(), nil)
 
-    assert snapshot.members["orphan"] == %{set_id: "missing", position: 3, start_trigger: :pr_merged}
+    assert snapshot.members["orphan"] == %{set_id: "missing", position: 3, start_trigger: :pr_opened}
   end
 
   test "review waits keep a started unfinished set active after all its runners exit" do

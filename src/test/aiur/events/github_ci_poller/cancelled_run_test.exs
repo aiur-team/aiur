@@ -43,4 +43,27 @@ defmodule Aiur.Events.GithubCIPoller.CancelledRunTest do
 
     refute CancelledRun.cancelled?(%{"event" => "merge_group"}, real_failure_with_cancelled)
   end
+
+  # open-game-maker run 44060173589: every job was cancelled and the aggregate
+  # `required` job failed only because of them. Two reworks sent the worker
+  # non-failures before it ended in agent:error.
+  test "an aggregate gate of any name that failed after its jobs were cancelled is a cancelled run" do
+    jobs = [
+      %{"name" => "detect changes", "conclusion" => "success", "started_at" => "2026-11-17T09:56:32Z", "completed_at" => "2026-11-17T09:56:40Z"},
+      %{"name" => "ops shell tests", "conclusion" => "cancelled", "started_at" => "2026-11-17T09:56:32Z", "completed_at" => "2026-11-17T09:56:46Z"},
+      %{"name" => "workspace", "conclusion" => "cancelled", "started_at" => "2026-11-17T09:56:43Z", "completed_at" => "2026-11-17T10:01:44Z"},
+      %{"name" => "browser tests", "conclusion" => "cancelled", "started_at" => "2026-11-17T09:56:44Z", "completed_at" => "2026-11-17T10:01:44Z"},
+      %{"name" => "required", "conclusion" => "failure", "started_at" => "2026-11-17T10:01:47Z", "completed_at" => "2026-11-17T10:01:53Z"}
+    ]
+
+    assert CancelledRun.cancelled?(%{"event" => "pull_request"}, jobs)
+
+    # A job that fails on its own starts before the cancellations it causes.
+    fail_fast = List.replace_at(jobs, 2, %{"name" => "workspace", "conclusion" => "failure", "started_at" => "2026-11-17T09:56:43Z", "completed_at" => "2026-11-17T09:58:00Z"})
+    refute CancelledRun.cancelled?(%{"event" => "pull_request"}, fail_fast)
+
+    # Without timestamps a failed job is never taken for a gate.
+    untimed = Enum.map(jobs, &Map.drop(&1, ["started_at", "completed_at"]))
+    refute CancelledRun.cancelled?(%{"event" => "pull_request"}, untimed)
+  end
 end
