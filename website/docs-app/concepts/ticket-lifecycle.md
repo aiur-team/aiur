@@ -199,6 +199,8 @@ body-only fix; a `fixed` item still needs its commit.
 The write is also refused while GitHub reports the PR conflicting. The verified answers
 are posted as a `## Rework checklist` ticket comment for the re-review.
 
+When the stall watchdog kills a worker that made no progress, messages already handed to that session, such as a rework reason, go back to the ticket's queue. The retry, or a later dispatch after a claim release, receives them.
+
 Harmless base movement needs no merge or CI rerun. Workers check before handoff
 and after CI. Up to three integrations per handoff
 need no approval; each runs local tests and format, size and components gates,
