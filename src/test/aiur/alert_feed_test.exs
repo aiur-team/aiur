@@ -203,6 +203,28 @@ defmodule Aiur.AlertFeedTest do
       assert ["ticket.42.agent.attention.scope", "ticket.42.agent.phase.work.end"] == ledger_topics(ledger)
     end
 
+    # open-games and open-game-maker, 2026-11-20 (#8051): compaction kept history
+    # right up to the ceiling, so once the ledger was full every alert re-read,
+    # re-decoded and fsync-rewrote all 8 MiB, often inside the orchestrator.
+    test "compaction leaves headroom so the next alerts append without rewriting", %{ledger: ledger} do
+      lines = for n <- 1..40, do: alert_line("ticket.#{n}.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("h", 60))
+      max_bytes = lines |> Enum.map(&byte_size/1) |> Enum.sum()
+      write_ledger!(ledger, Enum.join(lines))
+
+      first = alert("ticket.41.agent.progress", "2026-06-25T01:01:00Z", false, String.duplicate("h", 60))
+      assert :ok = AlertLedger.append(first, ledger_path: ledger, max_bytes: max_bytes)
+      assert File.stat!(ledger).size <= div(max_bytes * 3, 4)
+      compacted = File.stat!(ledger).inode
+
+      for n <- 42..46 do
+        record = alert("ticket.#{n}.agent.progress", "2026-06-25T01:02:00Z", false, String.duplicate("h", 60))
+        assert :ok = AlertLedger.append(record, ledger_path: ledger, max_bytes: max_bytes)
+      end
+
+      assert File.stat!(ledger).inode == compacted, "an append below the ceiling must not rewrite the ledger"
+      assert List.last(ledger_topics(ledger)) == "ticket.46.agent.progress"
+    end
+
     test "resolved attentions lose retention priority", %{ledger: ledger} do
       opened = alert_line("ticket.42.agent.attention.scope", "2026-06-25T01:00:00Z", true, String.duplicate("o", 80))
       resolved = alert_line("ticket.42.agent.attention.scope.resolved", "2026-06-25T01:01:00Z", false, "resolved")
@@ -410,6 +432,18 @@ defmodule Aiur.AlertFeedTest do
 
     assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
     refute AlertLedger.backfilled?(ledger_path: ledger)
+  end
+
+  # Open-Games, after a daemon restart: the daemon's own decision-stale and
+  # dispatch-declined alerts were imported as creator Commands routed "Needs you".
+  test "the daemon's own ticket attentions stay alerts and are not imported as Commands", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","agent":"system","timestamp":"2026-11-14T13:10:00Z","topic":"ticket.293.agent.attention.decision-stale-f4a1c6ecb17fbb82","reason":"An open blocking decision stops its ticket and every ticket it gates; answer it with `aiur commands`.","needs_attention":true,"source_ticket_id":"293"}
+    {"event":"alert","agent":"system","timestamp":"2026-11-14T13:11:00Z","topic":"ticket.293.agent.attention.dispatch-declined","reason":"Ticket 293 was not selected despite free fleet slots: claimed_without_runtime","needs_attention":true,"source_ticket_id":"293"}
+    {"event":"alert","agent":"382","timestamp":"2026-11-14T04:56:37Z","topic":"ticket.382.agent.attention.handoff-loop","reason":"Should the draft PR stay in review?","needs_attention":true,"source_ticket_id":"382"}
+    """)
+
+    assert [%{identifier: "382", slug: "handoff-loop"}] = AlertFeed.list_decision_attentions(ledger_paths: [ledger])
   end
 
   test "projects active decision attentions from the ledger", %{ledger: ledger} do

@@ -3,7 +3,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
 
   alias Aiur.Capabilities.{Collector, Provider}
   alias Aiur.Executor.CapabilityProvider, as: Executor
-  alias Aiur.Executor.{Claims, Roster}
+  alias Aiur.Executor.{Claims, Roster, Session}
   alias Aiur.Orchestrator.CapabilityProvider, as: Orchestration
 
   test "executor: roster read does not record an observation" do
@@ -16,6 +16,44 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     before = File.read!(path)
     assert %{executor: %{consumer_id: "owner", state: "idle"}} = Executor.executor(%{}, path: path, now: DateTime.add(now, 1, :second))
     assert File.read!(path) == before
+  end
+
+  test "executor: capability identity maps untested detail and binding identifiers" do
+    root = Aiur.TestSupport.tmp_root!("executor-capability-provider")
+    previous = Application.fetch_env(:aiur, :executor_state_dir)
+    Application.put_env(:aiur, :executor_state_dir, root)
+    start_supervised!({Session, instance_key: "capability-provider"})
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :executor_state_dir, value)
+        :error -> Application.delete_env(:aiur, :executor_state_dir)
+      end
+
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    assert Executor.evaluate(%{}, lookup_fun: fn _ -> nil end)["executor.conversation"] == %{
+             state: :unavailable,
+             reason: :executor_not_managed,
+             route: "/executor"
+           }
+
+    assert {:ok, binding} = Session.attach(%{harness: "codex"})
+    assert {:ok, _} = Session.bind_provider_session(binding.binding_id, %{session_id: "session-1"})
+    capability = %{status: :untested, reason: :version_untested}
+
+    assert Executor.evaluate(%{}, lookup_fun: fn _ -> nil end, capability_fun: fn -> capability end)["executor.conversation"] == %{
+             state: :degraded,
+             reason: :unknown,
+             detail: "version_untested",
+             route: "/executor",
+             harness: "codex",
+             session_ref: "session-1"
+           }
+
+    assert Executor.evaluate(%{}, lookup_fun: fn _ -> nil end, capability_fun: fn -> capability end)["executor.conversation"].session_ref ==
+             "session-1"
   end
 
   test "production HTTP read distinguishes a bound listener from an endpoint without a server" do

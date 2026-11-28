@@ -63,3 +63,32 @@ test('open state survives navigation and reload; /executor opens the footer expa
   await page.reload()
   await expect(page.locator('#executor-footer-panel')).toBeVisible()
 })
+
+test('background agents report unavailable when the harness does not expose a roster', async ({ page }) => {
+  await ready(page)
+  await page.goto('/executor')
+  const background = page.getByRole('region', { name: 'Background agents' })
+  await expect(background).toContainText('Not available for this harness (no_attached_harness)')
+  await expect(background.getByRole('listitem')).toHaveCount(0)
+  await expect(background).not.toContainText('No background agents')
+})
+
+test('answer an Executor Command from Blockers at 390 px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await ready(page)
+  const seeded = await page.request.get('/command-answer-control/answerable?executor=true')
+  expect(seeded.ok()).toBe(true)
+  await page.goto('/executor')
+
+  const card = page.locator('#executor-blockers').getByRole('article', { name: 'Inline Command' })
+  await expect(card).toHaveAttribute('data-command-state', 'pending')
+  await card.getByRole('radio', { name: 'Approve' }).check()
+  await card.getByRole('button', { name: 'Decision', exact: true }).click()
+  await expect(card).toHaveAttribute('data-command-state', 'answered')
+  await expect(card.locator('.decision-answer-summary')).toContainText('Approve')
+  await expect(card.getByRole('button', { name: 'Decision', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
+  const stored = await (await page.request.get('/command-answer-state')).json()
+  expect(stored).toMatchObject({ selected_option_id: 'approve', actor: { kind: 'operator' } })
+})

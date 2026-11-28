@@ -4,7 +4,9 @@ defmodule AiurPushRelay.Store do
   @callback get(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
   @callback delete(GenServer.server(), String.t()) :: :ok | {:error, term()}
   @callback reserve(GenServer.server(), map(), map(), integer()) ::
-              :new | {:duplicate, integer()} | {:error, term()}
+              :new | {:duplicate, integer()} | {:limited, integer()} | {:error, term()}
+  @callback consume(GenServer.server(), String.t(), number(), number(), integer()) ::
+              :ok | {:limited, integer()} | {:error, term()}
   @callback finish(GenServer.server(), String.t(), String.t(), atom()) :: :ok | {:error, term()}
   @callback release(GenServer.server(), String.t(), String.t()) :: :ok | {:error, term()}
   @callback health(GenServer.server()) :: :ok | {:error, term()}

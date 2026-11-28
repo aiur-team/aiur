@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Slots do
   import Aiur.Orchestrator.PauseGuard, only: [effective_paused?: 1]
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, MachineGrant, OptimisticSlots, PressureAdmission, ResourceEnvelope, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Project.whereis(Aiur.Orchestrator))
@@ -70,7 +70,7 @@ defmodule Aiur.Orchestrator.Slots do
 
     case ControlLifecycleStore.update_checked(&%{&1 | max_agents: next}) do
       :ok ->
-        state = Map.put(state, :session_max_concurrent_agents, next)
+        state = state |> Map.put(:session_max_concurrent_agents, next) |> ResourceEnvelope.enforce_limit()
         apply_session_max_concurrent_agents_after_persist(state, previous, next)
 
       {:error, reason} ->
@@ -205,17 +205,17 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec max_concurrent_agent_limit(State.t()) :: pos_integer()
   def max_concurrent_agent_limit(%State{} = state) do
-    cond do
-      is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
-        state.session_max_concurrent_agents
+    case state.session_max_concurrent_agents do
+      session when is_integer(session) and session > 0 ->
+        if ResourceEnvelope.enabled?(state), do: min(configured_limit(state), session), else: session
 
-      is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
-        state.max_concurrent_agents
-
-      true ->
-        Config.max_concurrent_agents()
+      _unset ->
+        configured_limit(state)
     end
   end
+
+  defp configured_limit(%{max_concurrent_agents: n}) when is_integer(n) and n > 0, do: n
+  defp configured_limit(_state), do: Config.max_concurrent_agents()
 
   @spec effective_concurrent_agent_limit(State.t()) :: pos_integer()
   def effective_concurrent_agent_limit(%State{} = state) do
@@ -250,6 +250,7 @@ defmodule Aiur.Orchestrator.Slots do
       dispatch_cycle_stage: state.dispatch_cycle_stage,
       dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
       dispatch_selection_hold: state.dispatch_selection_hold,
+      dispatch_selections: state.dispatch_selections,
       load_discount_reason: Map.get(sample, :load_discount_reason, :unavailable),
       load_daemon_nice: Map.get(sample, :load_daemon_nice, :unavailable),
       gate_signal: Map.get(sample, :gate_signal, :unavailable),
@@ -258,10 +259,21 @@ defmodule Aiur.Orchestrator.Slots do
       load_threshold: Map.get(sample, :load_threshold),
       schedulers: Map.get(sample, :schedulers),
       queued_demand?: queued_dispatch_demand?(state),
-      session_override?: is_integer(state.session_max_concurrent_agents),
+      session_override?: session_limit_binding?(state, max),
       draining?: active > max
     })
-    |> Map.merge(EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max))
+    |> Map.merge(envelope_status(state, max))
+  end
+
+  defp session_limit_binding?(state, limit) do
+    is_integer(state.session_max_concurrent_agents) and (not ResourceEnvelope.enabled?(state) or limit < configured_limit(state))
+  end
+
+  defp envelope_status(state, max) do
+    case state.load_envelope_state[:resources] do
+      %{binding: binding} -> %{resource_binding: binding}
+      _legacy -> EnvelopeResume.status(state.load_envelope_state, effective_concurrent_agent_limit(state), max)
+    end
   end
 
   @spec dispatch_hold_status(State.t(), integer()) :: map()
@@ -354,6 +366,12 @@ defmodule Aiur.Orchestrator.Slots do
     max(min(effective_concurrent_agent_limit(state) - used_slots(state), MachineGrant.headroom()), 0)
   end
 
+  @spec manual_active_slot_available?(State.t()) :: boolean()
+  def manual_active_slot_available?(state) do
+    limit = if ResourceEnvelope.enabled?(state), do: effective_concurrent_agent_limit(state), else: max_concurrent_agent_limit(state)
+    active_slots(state) < limit
+  end
+
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()
   def resume_worker_slot_available?(%State{} = state, worker_host) when is_binary(worker_host) do
     worker_host_slots_available?(state, worker_host)
@@ -366,7 +384,7 @@ defmodule Aiur.Orchestrator.Slots do
     reservation_limit = Map.get(state.priority_dispatch_reservations, issue.id)
 
     fleet_slot_available? =
-      if is_integer(reservation_limit),
+      if is_integer(reservation_limit) and not ResourceEnvelope.enabled?(state),
         do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)) and MachineGrant.headroom() > 0,
         else: available_slots(state) > slot_waiters(state, issue.id)
 

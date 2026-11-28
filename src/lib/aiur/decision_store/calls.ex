@@ -20,6 +20,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Transport
   alias Aiur.DecisionStore.Withdrawals
   alias Aiur.DecisionStore.WorkerHandoffs
+  alias Aiur.DecisionTicketKey
 
   @spec handle_call(term(), term(), term()) :: term()
   def handle_call(
@@ -323,7 +324,7 @@ defmodule Aiur.DecisionStore.Calls do
         state.current
         |> Map.values()
         |> Enum.filter(&Withdrawals.open_blocking_command?/1)
-        |> Enum.map(& &1.ticket.identifier)
+        |> Enum.map(&DecisionTicketKey.from_ticket(&1.ticket))
         |> MapSet.new()
 
       {:reply, {:ok, ids}, state}

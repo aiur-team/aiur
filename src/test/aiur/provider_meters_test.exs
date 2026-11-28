@@ -17,6 +17,20 @@ defmodule Aiur.ProviderMetersTest do
     %{owner: owner, store: store}
   end
 
+  test "observation snapshot builds the shared typed contract and preserves supplied facts" do
+    snapshot =
+      Aiur.ProviderMeters.observation_snapshot(%{
+        provider: :openrouter,
+        backend: :openai_compat,
+        source_version: 144_004,
+        windows: %{"credits-remaining" => %{kind: :credit, used_percent: 25}}
+      })
+
+    assert %ProviderMeterSnapshot{provider: :openrouter, backend: :openai_compat} = snapshot
+    assert snapshot.windows["credits-remaining"].used_percent == 25
+    assert snapshot.freshness == :unknown
+  end
+
   test "full snapshots remove omitted windows while patches and tombstones stay sparse", %{
     owner: owner,
     store: store

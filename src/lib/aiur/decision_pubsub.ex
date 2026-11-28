@@ -7,6 +7,8 @@ defmodule Aiur.DecisionPubSub do
   arrive.
   """
 
+  alias Aiur.Project.Context
+
   @pubsub Aiur.PubSub
   @topic "decisions:changed"
   @reconcile_topic "decisions:dispatches_reconciled"
@@ -61,6 +63,14 @@ defmodule Aiur.DecisionPubSub do
   def broadcast_metrics_changed do
     broadcast(:decision_metrics_changed)
   end
+
+  @spec subscribe_creator_overlap() :: :ok | {:error, term()}
+  def subscribe_creator_overlap, do: Phoenix.PubSub.subscribe(@pubsub, creator_overlap_topic())
+
+  @spec broadcast_creator_overlap(term(), %{command_path: String.t(), status: :open | :answered}) :: :ok
+  def broadcast_creator_overlap(ticket, overlap), do: broadcast(creator_overlap_topic(), {:creator_overlap, ticket, overlap})
+
+  defp creator_overlap_topic, do: "decisions:creator_overlap:" <> (Context.current_id() || "")
 
   defp broadcast(message), do: broadcast(@topic, message)
 

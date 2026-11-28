@@ -36,8 +36,8 @@ defmodule Aiur.ControlCall.AllowlistCategoryTest do
       [1, []]
     ]
 
-    for {key, %{class: class}} <- Allowlist.entries(), is_function(class, 1), args <- probes do
-      result = try_class(class, args)
+    for {key, %{class: class}} <- Allowlist.entries(), is_function(class), args <- probes, remote? <- [true, false] do
+      result = try_class(class, args, remote?)
       assert result in [:error | @legal], "#{inspect(key)} #{inspect(args)} -> #{inspect(result)}"
     end
   end
@@ -70,8 +70,8 @@ defmodule Aiur.ControlCall.AllowlistCategoryTest do
     assert {:ok, %{category: :agents, scope: :write}} = Aiur.ControlCall.parse("#{@agent}.pause([\"123\"])", remote: true)
   end
 
-  defp try_class(class, args) do
-    class.(args)
+  defp try_class(class, args, remote?) do
+    Allowlist.category(class, args, remote?)
   rescue
     _ -> :error
   end

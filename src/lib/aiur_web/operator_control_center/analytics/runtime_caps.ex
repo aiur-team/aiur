@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RuntimeCaps do
 
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
+  alias Aiur.Orchestrator.ResourceEnvelope
   alias AiurWeb.OperatorControlCenter.Analytics.LiveConcurrency
 
   @default_buckets 180
@@ -124,7 +125,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.RuntimeCaps do
       # the page cannot blame "ticket supply" in a state where `aiur status`
       # says "idle backoff" or "has not polled yet" (#2138, #2640). Two
       # surfaces, one classifier, one answer.
-      cap_binding: CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)),
+      cap_binding: ResourceEnvelope.label(capacity) || CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)),
       cap_staleness: staleness
     ]
   end

@@ -136,6 +136,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Intent.Hlc,
     Aiur.Intent.Store,
     Aiur.GitHub.Listeners,
+    Aiur.OverlapReviewer,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.Commands.Routing,
@@ -192,6 +193,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     Aiur.Netlify.Usage,
+    Aiur.Usage.GasLedger,
     AiurWeb.DashboardAuth.ChallengeStore,
     AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
@@ -228,9 +230,12 @@ defmodule Aiur.BuildOrder.ComponentTest do
           Aiur.BuildOrder.History.LabelBackfill,
           Aiur.Executor.Session,
           Aiur.Executor.SessionIngest,
+          Aiur.Executor.BackgroundAgents,
           {DynamicSupervisor, name: Aiur.Executor.TranscriptSupervisor, strategy: :one_for_one},
           Aiur.Executor.TranscriptIngest,
-          Aiur.ControlCLI.PendingCommands
+          Aiur.Executor.HarnessState,
+          Aiur.ControlCLI.PendingCommands,
+          Aiur.Orchestrator.UnresponsiveWatchdog
         ]
 
     assert Aiur.Application.child_specs(@opts) == expected

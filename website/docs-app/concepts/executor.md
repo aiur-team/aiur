@@ -131,7 +131,7 @@ See [listener modes](/guide/gui#conversations) and
 [hook delivery](#attached-session-lifecycle-hooks). An idle session is not woken
 by a delivery hook, and queued does not mean read.
 
-Use `aiur executor-session --json` for the binding, liveness, last-hook age and freshness.
+Use `aiur executor-session --json` for binding, liveness, age and freshness, plus `read_capability`: harness, CLI version, status, reason and tested range. Status is `proven`, `untested`, `unsupported` or `unknown`.
 `awaiting_first_hook` means waiting for the first hook, not proof of transcript recording.
 
 Check enabled
@@ -296,5 +296,4 @@ shows the repo missing.
 - It stays while the peer is offline: the ticket remains owned by it, and no other gateway dispatches it.
 - Dispatch never reads the label.
 
-Nothing in the launcher fills the peer cache yet, so until a later change writes it, delegation to a peer needs
-its entry present in that file.
+`aiur gateway list` and `aiur gateway status <peer>` cache each answering peer's `daemon_key` and repos (matched case-insensitively). Only entries with a pinned `gateway_id` are cached. A peer never read, or unpinned, exits 64; run `aiur gateway status <peer>` first. Older peers report neither, so assign refuses for the missing key.

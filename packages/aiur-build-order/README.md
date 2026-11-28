@@ -95,7 +95,7 @@ Importing the module defines the element when the page has a DOM.
 | --- | --- |
 | `src` | URL fetched with `fetch` (or the element's `fetch` property) and parsed |
 | `json` | the document inline, as a JSON string attribute or an object property |
-| `view` | `review`, `graph` or `both`; default `both` |
+| `view` | `review`, `graph`, `both` or `fit`; default `both`. `fit` renders only the responsive review. |
 | `.fetch` | a fetch-compatible function used instead of the page's `fetch` |
 | `.document` | the parsed document, or `null` |
 | `.error` | the structured error, or `null` |

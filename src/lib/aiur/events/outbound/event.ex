@@ -41,7 +41,10 @@ defmodule Aiur.Events.Outbound.Event do
       ["ticket", _identifier, "agent", "progress"] -> true
       ["ticket", _identifier, "agent", "progress", suffix] when suffix in ["checkin", "phase"] -> true
       ["ticket", _identifier, "agent", "decision", suffix] when suffix in ["requested", "answered"] -> true
-      _other -> false
+      parts -> supported_ticket_progress?(parts)
     end
   end
+
+  defp supported_ticket_progress?(["ticket", _identifier, "progress"]), do: true
+  defp supported_ticket_progress?(_parts), do: false
 end

@@ -159,6 +159,7 @@ agent:
   # accounts: {claude: [default, work]}   # machine-local profiles; omit for legacy single-account behavior
   # account_selection: balance            # or priority (accounts list order), or headroom (most usage left across backends)
   max_concurrent_agents: 5
+  # resource_concurrency: false  # opt in to the measured dispatch ceiling
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
   # max_repeated_identical_commands: 5
@@ -192,7 +193,7 @@ executor:
 #   max_active_sets: null              # unfinished started sets; held sets do not count
 #   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
 #   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
-#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
+#   start_trigger: pr_opened           # default; pr_merged makes lists serial; issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

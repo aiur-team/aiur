@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.TodoCLI do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Tracker.QueueProvenance
   import Aiur.ControlCLI.Protocol, only: [application_started?: 0, exit_marker: 1, not_running_message: 0]
 
   # `--todo` is the one control command whose runtime scales with its arguments
@@ -179,8 +180,14 @@ defmodule Aiur.Orchestrator.TodoCLI do
   defp add_todo_label(issue_id, result, config, deps) do
     case deps.add_label.(issue_id, config.queue_label) do
       :ok ->
-        IO.puts("✓ ##{issue_id} → #{config.queue_label}")
-        result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+        case deps.record_queue_write.(issue_id, config.queue_label) do
+          :ok ->
+            IO.puts("✓ ##{issue_id} → #{config.queue_label}")
+            result |> select_todo_issue(issue_id) |> Map.update!(:queued, &(&1 + 1))
+
+          {:error, reason} ->
+            todo_failure(result, issue_id, "failed to record queue write: #{Reasons.format_reason(reason)}")
+        end
 
       {:error, reason} ->
         todo_failure(
@@ -394,6 +401,7 @@ defmodule Aiur.Orchestrator.TodoCLI do
       fetch_issue: fn issue_id -> Tracker.fetch_issue_states_by_ids([issue_id]) end,
       fetch_active: &Tracker.fetch_issues_by_states/1,
       add_label: &TicketTransition.write_marker(&1, :add, &2, writer: :cli_todo),
+      record_queue_write: &QueueProvenance.record/2,
       remove_label: &TicketTransition.write_marker(&1, :remove, &2, writer: :cli_todo),
       request_refresh: &Orchestrator.note_queued_demand/1,
       now_ms: &monotonic_now_ms/0

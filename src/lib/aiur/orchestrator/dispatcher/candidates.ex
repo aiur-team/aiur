@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AdoptedBoot
-  alias Aiur.Orchestrator.Dispatcher.Launch
+  alias Aiur.Orchestrator.Dispatcher.{DependencyObservation, Launch, Selection}
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HoldDecline
   alias Aiur.Orchestrator.OptimisticSlots
@@ -127,6 +127,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   def maybe_emit_dispatch_decline(state, issue, reason) when reason in [:optimistic_share, :queue_set_order],
     do: record_dispatch_decline(state, issue, reason, QueueSetSlots.waiting_reason(reason, issue.id, state), false)
 
+  # A ci-wait, human-review or error ticket rides the candidate list only as
+  # label-repair evidence and is never authorized, so `:unauthorized` there
+  # names the wrong cause: it waits on its state, not on authorization.
+  def maybe_emit_dispatch_decline(%State{} = state, %Issue{state: issue_state} = issue, :unauthorized)
+      when not is_binary(issue_state) or issue_state in ["ci-wait", "human-review", "error"],
+      do: clear_dispatch_decline(state, issue)
+
   def maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
       when reason in [
              :state_capacity,
@@ -175,8 +182,10 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
       {:dispatch, issue.id},
       fn -> fetch_dispatch_validation(blocked_ids, issue, opts) end,
       fn current, result ->
-        next = apply_current_dispatch_validation(current, expected, issue, attempt, preferred_worker_host, opts, result)
-        Keyword.get(opts, :dispatch_result_fun, &Function.identity/1).(next)
+        Selection.apply_in_priority_order(current, issue, opts, fn ready, dispatch_opts ->
+          next = apply_current_dispatch_validation(ready, expected, issue, attempt, preferred_worker_host, dispatch_opts, result)
+          Keyword.get(dispatch_opts, :dispatch_result_fun, &Function.identity/1).(next)
+        end)
       end
     )
   end
@@ -194,7 +203,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
     case Launch.revalidate_issue_for_dispatch(issue, fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, refreshed} ->
-        {:validated, refreshed, HoldDecline.observe(Tracker.with_transient_retry(fn -> hydrator.(refreshed) end, opts))}
+        {:validated, refreshed, DependencyObservation.observe(hydrator, refreshed, opts)}
 
       {:error, reason} = error ->
         if broker_timeout?(reason), do: validate_from_cached_dependencies(issue, error), else: error
@@ -231,8 +240,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp apply_current_dispatch_validation(current, expected, issue, attempt, host, opts, result) do
     next =
       cond do
-        dispatch_input(current, issue.id) != expected -> current
+        dispatch_input(current, issue.id) != expected -> emit_dispatch_attempt_decline(current, issue, :dispatch_input_changed, false)
         PauseGuard.paused?(current) -> emit_dispatch_attempt_decline(current, issue, :globally_paused, false)
+        opts[:automatic_recovery] == true and Selection.recovery_yields?(current, issue) -> emit_dispatch_attempt_decline(current, issue, :higher_priority_pending, false)
         true -> apply_dispatch_validation(current, issue, attempt, host, opts, result)
       end
 
@@ -253,7 +263,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
     case DispatchPolicy.dispatch_decision(refreshed, policy_state) do
       :dispatch -> state |> clear_dispatch_decline(refreshed) |> dispatch_with_dependency_gate(refreshed, attempt, host, Keyword.put(opts, :blocked_by_hydrator, fn _ -> hydration end))
-      {:skip, reason} -> maybe_emit_dispatch_decline(state, refreshed, reason)
+      {:skip, reason} -> emit_dispatch_attempt_decline(state, refreshed, reason, false)
     end
   end
 

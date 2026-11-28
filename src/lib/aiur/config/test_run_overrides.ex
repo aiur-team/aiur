@@ -24,6 +24,7 @@ defmodule Aiur.Config.TestRunOverrides do
       | agent: %{
           agent
           | max_concurrent_agents: pinned,
+            resource_concurrency: false,
             max_concurrent_agents_by_state: %{},
             max_cpu_pressure: nil,
             target_cpu_pressure: nil,

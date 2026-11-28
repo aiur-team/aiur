@@ -198,14 +198,17 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
       Aiur.Experiments.AnalystTrigger
     ]
 
-    assert Enum.take(mods, -7) == [
+    assert Enum.take(mods, -10) == [
              Aiur.BuildOrder.Estimates,
              Aiur.BuildOrder.History.LabelBackfill,
              Aiur.Executor.Session,
              Aiur.Executor.SessionIngest,
+             Aiur.Executor.BackgroundAgents,
              DynamicSupervisor,
              Aiur.Executor.TranscriptIngest,
-             Aiur.ControlCLI.PendingCommands
+             Aiur.Executor.HarnessState,
+             Aiur.ControlCLI.PendingCommands,
+             Aiur.Orchestrator.UnresponsiveWatchdog
            ]
 
     assert Enum.find_index(mods, &(&1 == Aiur.Instance.RepositoryLeader)) > Enum.find_index(mods, &(&1 == Projection))

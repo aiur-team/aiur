@@ -1,10 +1,13 @@
 defmodule Aiur.GitHubAuthPreflightTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureIO
+
   alias Aiur.{AlertFeed, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+  alias Aiur.Orchestrator.StatusCLI.Capacity
 
   defmodule FailingPreflightClient do
     def preflight_auth do
@@ -189,6 +192,38 @@ defmodule Aiur.GitHubAuthPreflightTest do
            } = snapshot.dispatch_hold
 
     assert [%{identifier: "owner/repo#1580", waiting_reason: :tracker_unavailable}] = snapshot.idle
+  end
+
+  test "configured writable root failure stays visible in status and raises the preflight attention" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.tracker.auth_preflight_failed")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    path = Path.join(System.tmp_dir!(), "missing-writable-root-#{System.unique_integer([:positive])}")
+    detail = %{reason: :does_not_exist, path: path, config_key: "agent.codex.turn_sandbox_policy.writableRoots"}
+
+    state =
+      Dispatcher.maybe_dispatch(%State{}, & &1, fn current ->
+        {:error, {:unsafe_turn_sandbox_policy, {:invalid_configured_writable_root, detail}}, current}
+      end)
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    output =
+      capture_io(fn ->
+        Capacity.print_capacity_status(snapshot.capacity, snapshot.polling)
+      end)
+
+    assert output =~ "invalid_configured_writable_root"
+    assert output =~ path
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = event}, 500
+    assert event["reason"] =~ path
+    assert event["needs_attention"] == true
   end
 
   test "missing GitHub token emits a fleet auth alert before polling" do

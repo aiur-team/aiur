@@ -12,10 +12,12 @@ defmodule Aiur.TicketActivity do
   alias Aiur.{CurrentRunMembership, ProgressRetention, TicketObservation, TrackerIdentity}
   alias Aiur.Events
   alias Aiur.TicketActivity.Projection
+  alias Aiur.TicketActivity.Projection.Publication
 
   @pubsub Aiur.PubSub
   @topic "ticket-activity:changed"
   @default_prune_interval_ms 30_000
+  @progress_debounce_ms 10_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -67,6 +69,9 @@ defmodule Aiur.TicketActivity do
       membership_snapshot_fun: membership_snapshot_fun,
       now_fun: now_fun,
       retention_retain_fun: retention_retain_fun,
+      progress_publish_fun: Keyword.get(opts, :progress_publish_fun, &Events.publish/2),
+      progress_debounce_ms: positive_opt(opts, :progress_debounce_ms, @progress_debounce_ms),
+      progress_publication: %{},
       prune_interval_ms: positive_opt(opts, :prune_interval_ms, @default_prune_interval_ms)
     }
 
@@ -120,6 +125,7 @@ defmodule Aiur.TicketActivity do
         state = %{state | projection: projection}
         retain_progress(state, observation.tracker_identity)
         broadcast_changed(observation.tracker_identity, projection, state.now_fun.())
+        state = publish_progress(state, observation.tracker_identity, projection)
         {:noreply, state}
 
       {:ignored, _reason, projection} ->
@@ -145,6 +151,16 @@ defmodule Aiur.TicketActivity do
     broadcast_if_changed(nil, state, %{state | projection: projection})
     schedule_prune(state.prune_interval_ms)
     {:noreply, %{state | projection: projection}}
+  end
+
+  def handle_info({:flush_progress, identifier}, state) do
+    case Map.get(state.progress_publication, identifier) do
+      %{payload: payload, pending: fingerprint} = row when is_map(payload) ->
+        {:noreply, send_progress(state, identifier, payload, fingerprint, row)}
+
+      _ ->
+        {:noreply, state}
+    end
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -177,6 +193,83 @@ defmodule Aiur.TicketActivity do
         :ok
     end
   end
+
+  defp publish_progress(state, identity, projection) do
+    case Publication.reading(projection, identity) do
+      reading when is_map(reading) ->
+        queue_progress(state, identity.identifier, progress_payload(reading))
+
+      _ ->
+        state
+    end
+  rescue
+    _ -> state
+  end
+
+  defp progress_payload(%{progress: progress, stage: stage}) do
+    phase = progress[:phase] || get_in(stage || %{}, [:value]) || :work
+    phase = if phase in [:plan, :work, :review, :pr, :ci, :merge], do: phase, else: :work
+    source = progress[:progress_source] || :phase
+
+    %{
+      percent: max(progress.percent, phase_base(phase)),
+      step: progress[:step] || phase_step(phase),
+      phase: Atom.to_string(phase),
+      source: Atom.to_string(source),
+      checklist: checklist_payload(progress),
+      updated_at: DateTime.to_iso8601(progress.observed_at)
+    }
+  end
+
+  defp checklist_payload(%{total: total, done: done}) when is_integer(total) and total > 0,
+    do: %{done: done, total: total}
+
+  defp checklist_payload(_progress), do: nil
+
+  defp queue_progress(state, identifier, payload) do
+    now = System.monotonic_time(:millisecond)
+    row = Map.get(state.progress_publication, identifier, %{sent: nil, fingerprint: nil, pending: nil, payload: nil, timer: nil})
+    fingerprint = {payload.percent, payload.step}
+
+    cond do
+      fingerprint == row.fingerprint ->
+        cancel_pending(state, identifier, row)
+
+      fingerprint == row.pending ->
+        state
+
+      is_nil(row.sent) or now - row.sent >= state.progress_debounce_ms ->
+        send_progress(state, identifier, payload, fingerprint, row)
+
+      true ->
+        timer = row.timer || Process.send_after(self(), {:flush_progress, identifier}, state.progress_debounce_ms - (now - row.sent))
+        put_in(state, [:progress_publication, identifier], %{row | pending: fingerprint, payload: payload, timer: timer})
+    end
+  end
+
+  defp cancel_pending(state, identifier, %{timer: timer} = row) do
+    if timer, do: Process.cancel_timer(timer)
+    put_in(state, [:progress_publication, identifier], %{row | pending: nil, payload: nil, timer: nil})
+  end
+
+  defp send_progress(state, identifier, payload, fingerprint, row) do
+    _ = state.progress_publish_fun.("ticket.#{identifier}.progress", payload)
+    put_in(state, [:progress_publication, identifier], %{row | sent: System.monotonic_time(:millisecond), fingerprint: fingerprint, pending: nil, payload: nil, timer: nil})
+  end
+
+  defp phase_base(:plan), do: 0
+  defp phase_base(:work), do: 15
+  defp phase_base(:review), do: 70
+  defp phase_base(:pr), do: 80
+  defp phase_base(:ci), do: 85
+  defp phase_base(:merge), do: 95
+
+  defp phase_step(:plan), do: "Planning the work"
+  defp phase_step(:review), do: "Reviewing the changes"
+  defp phase_step(:pr), do: "Preparing the pull request"
+  defp phase_step(:ci), do: "Waiting for CI"
+  defp phase_step(:merge), do: "Waiting for merge"
+  defp phase_step(_phase), do: "Working through the plan"
 
   defp refresh_membership_snapshot(state) do
     members = current_members(state.membership_snapshot_fun, state.current_members)

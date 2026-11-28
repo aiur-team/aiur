@@ -292,9 +292,7 @@ defmodule Aiur.Workspace.RefreshTest do
              )
 
     script = File.read!(remote_script)
-    assert script =~ ".aiur-runtime/bin"
-    assert script =~ "for command_name in 'gh'"
-    assert script =~ ".aiur-runtime/gh"
+    assert script =~ AgentGitHubGuard.remote_install_script("/remote/workspace", remote_host: "worker-1")
     refute script =~ ".claude/skills"
     refute script =~ ".codex/skills"
   end

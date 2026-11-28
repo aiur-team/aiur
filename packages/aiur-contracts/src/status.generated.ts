@@ -144,6 +144,7 @@ export interface FleetRunningAgent {
    */
   capacity_reason?: string | null;
   work_state?: string | null;
+  progress: TicketWorkProgress;
   [k: string]: unknown;
 }
 export interface FleetCiStatus {
@@ -152,6 +153,17 @@ export interface FleetCiStatus {
   head_sha: string | null;
   "draft?": boolean;
   [k: string]: unknown;
+}
+export interface TicketWorkProgress {
+  percent: number;
+  step: string;
+  phase: "plan" | "work" | "review" | "pr" | "ci" | "merge";
+  source: "worker" | "checklist" | "phase";
+  checklist: {
+    done: number;
+    total: number;
+  } | null;
+  updated_at: string | null;
 }
 export interface FleetRetryingAgent {
   issue_id: string;
@@ -288,6 +300,7 @@ export interface TicketRunningStatus {
   tracker_identity?: {
     [k: string]: unknown;
   };
+  progress: TicketWorkProgress1;
   [k: string]: unknown;
 }
 export interface TicketCiStatus {
@@ -296,6 +309,17 @@ export interface TicketCiStatus {
   head_sha: string | null;
   "draft?": boolean;
   [k: string]: unknown;
+}
+export interface TicketWorkProgress1 {
+  percent: number;
+  step: string;
+  phase: "plan" | "work" | "review" | "pr" | "ci" | "merge";
+  source: "worker" | "checklist" | "phase";
+  checklist: {
+    done: number;
+    total: number;
+  } | null;
+  updated_at: string | null;
 }
 export interface TicketRetryStatus {
   attempt: number;

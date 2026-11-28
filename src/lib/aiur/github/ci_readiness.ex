@@ -63,10 +63,24 @@ defmodule Aiur.GitHub.CiReadiness do
       base_url = "#{Access.base_url()}/repos/#{owner}/#{repo}"
       branch = RepositoryReads.encode_path_component(Config.base_branch(opts))
 
-      with {:ok, rules} <- Access.fetch_json_list(request_fun, token, "#{base_url}/rules/branches/#{branch}", caller: "ci_required_checks"),
+      with {:ok, rules} <- fetch_branch_rules(request_fun, token, "#{base_url}/rules/branches/#{branch}"),
            {:ok, protection} <- RepositoryReads.fetch_protection_checks(request_fun, token, "#{base_url}/branches/#{branch}/protection", "ci_required_checks") do
         {:ok, Enum.uniq(protection ++ Enum.flat_map(rules, &RepositoryReads.required_checks_from/1))}
+      else
+        # A private repository on GitHub Free cannot have rulesets or branch
+        # protection, so GitHub enforces no required check. Answering "none"
+        # lets every failing check decide; an error held every PR pending
+        # (open-games, 2026-11-16: 807 polls, ci-wait tickets stuck for hours).
+        {:error, {:ci_readiness_plan_limit, _message}} -> {:ok, []}
+        error -> error
       end
+    end
+  end
+
+  defp fetch_branch_rules(request_fun, token, url) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_required_checks"}) do
+      {:ok, %{status: 403} = response} -> {:error, RepositoryReads.required_check_error(response)}
+      response -> Access.fetch_json_list(fn _request -> response end, token, url, caller: "ci_required_checks")
     end
   end
 

@@ -19,6 +19,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
 
   def ready_unreviewed_head?(_result), do: false
 
+  # A draft never proves CI, so no pending verdict (even unreadable required checks) moves it out of review.
+  @spec draft_pending?(map()) :: boolean()
+  def draft_pending?(result), do: result[:pending_reason] == :draft_pull_request or result[:draft?] == true
+
   @spec transition(State.t(), struct(), map()) :: State.t()
   def transition(state, issue, result) do
     if LifecycleFence.handoff_blocked?(state, issue) do

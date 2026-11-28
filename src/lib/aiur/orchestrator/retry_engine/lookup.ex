@@ -369,7 +369,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   defp retry_dispatch_fun(metadata, opts) do
     fn current, ticket, attempt, host, dispatch_opts ->
       completion = fn current -> ensure_active_retry_started(current, ticket, attempt, metadata, opts) end
-      Dispatcher.dispatch_issue(current, ticket, attempt, host, Keyword.put(dispatch_opts, :dispatch_result_fun, completion))
+      Dispatcher.dispatch_issue(current, ticket, attempt, host, Keyword.merge(dispatch_opts, dispatch_result_fun: completion, automatic_recovery: true))
     end
   end
 

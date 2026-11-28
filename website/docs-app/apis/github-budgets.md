@@ -29,6 +29,21 @@ broker. Requests retain independent deadlines while sharing a transaction.
 Expired work is rolled back before commit, with 50 ms reserved for commit and
 reply delivery.
 
+The resident broker checks SQLite integrity when it opens the ledger and after a
+command reports corruption. It runs `REINDEX` and checks again. If damage remains,
+it archives the ledger and any remaining SQLite sidecar files in a sibling
+`budget.sqlite3.corrupt-*` directory, then initializes a fresh ledger.
+
+The `system.github.budget_ledger_recovery` alert records the damage, the action
+taken, and the archive path when applicable. Rebuilding resets local spend,
+holds, and leases. GitHub's own quota is unchanged. A write interrupted by
+corruption can be retried after recovery.
+
+Resident brokers and current shell fallbacks coordinate access during repair.
+Upgrade all resident brokers sharing the ledger together so every open
+connection participates in recovery. A standalone shell fallback reports its
+recovery on stderr.
+
 The resident broker disables WAL auto-checkpointing on request connections. A
 background thread runs passive checkpoints outside the serialized request loop.
 One-minute measurements report latency by command type, Python queue wait,

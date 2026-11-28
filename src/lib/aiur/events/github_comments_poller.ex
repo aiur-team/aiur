@@ -267,9 +267,19 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp publish_issue_comments(target, comments, repo) do
     comments
-    |> Enum.reject(&CommentFilter.agent_workpad?/1)
-    |> Enum.map(&Publish.publish_issue_comment(target, &1, repo))
+    |> Enum.map(fn comment ->
+      if CommentFilter.agent_workpad?(comment),
+        do: publish_workpad_progress(target, comment, repo),
+        else: Publish.publish_issue_comment(target, comment, repo)
+    end)
     |> Enum.count(&match?({:ok, _, _}, &1))
+  end
+
+  defp publish_workpad_progress(target, comment, repo) do
+    case Publish.publish_workpad_progress(target, comment, repo) do
+      {:ok, _, _} -> 1
+      _ -> 0
+    end
   end
 
   defp poll_pr_comments(target, since, etags, repo, opts) do

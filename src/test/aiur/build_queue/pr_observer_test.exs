@@ -104,6 +104,7 @@ defmodule Aiur.BuildQueue.PRObserverTest do
   end
 
   test "publishes once per observed closed version and observes reopening", %{state: state} do
+    state = %{state | settings: %{state.settings | build_queue: %{state.settings.build_queue | start_trigger: "pr_merged"}}}
     ticket = ticket_id()
     topic = "ticket.#{ticket}.pr.closed_unmerged"
     deposit(%{})

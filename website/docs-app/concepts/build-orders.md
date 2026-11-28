@@ -83,6 +83,33 @@ instead of an empty graph.
 The package [README](https://github.com/aiur-team/aiur/blob/main/packages/aiur-build-order/README.md)
 documents its exports, the element's attributes and a complete static-HTML example.
 
+### Embedding a scoped feature or epic
+
+Hosts can use the same renderer for one feature or epic without exposing the
+global catalog. The host server authenticates the viewer and mints a short-lived
+grant with `POST /api/v1/build-order/scope`; its `build_order` object contains
+`kind` (`feature` or `epic`) and `key`.
+
+The browser presents the returned bearer token to
+`GET /api/v1/build-order/embed`. Aiur checks current feature ownership on every
+read and returns only tickets in that scope. A missing, removed or out-of-scope
+scope returns 404.
+
+The host maps its own roles: creators receive their game's grant, admins can
+receive any selected grant, and players receive no grant.
+
+The scoped document keeps the `build-order.v1` shape. Because the feature
+registry does not store dependency graphs or progress aggregates, those fields
+are explicitly unknown.
+
+A host can build a plain activity page from
+`GET /api/v1/:issue_identifier/progress`, which returns the versioned
+`aiur.ticket_progress` contract with phase, progress, source status and ordered
+progress/check-in/phase events.
+
+Exportable-view inventory and the host example are documented in
+[Embed conversation components](/guide/conversation-components#exportable-views-today).
+
 ## Pack contents
 
 | File or field | Purpose |
@@ -254,7 +281,9 @@ Ownership is ranked: a list owns over a feature, and a feature over an epic or B
 
 ### Feature sets
 
-A queue is a feature set. In the ready tier, main-fix tickets come first, followed by ranked queue-set members before unqueued work. Within each membership group, features precede non-feature work, then set rank and position, priority, and queue hints break ties.
+A queue is a feature set. In the ready tier, explicit ticket priority comes first. At the same priority, main-fix tickets lead, then ranked queue-set members in set and list order, followed by unqueued tickets. Queue hints and work kind break remaining ties. Dependency and capacity gates still apply.
+
+On a shared gateway, the broker gives capacity to projects by project priority, and the dispatcher selects tickets within its project.
 
 Queue membership lets the Executor deliberately select maintenance work ahead of unqueued features. Spare capacity spreads into the next set so one deliverable can finish while another starts.
 
@@ -277,14 +306,14 @@ These capability states describe whether the integration is available; each adop
 
 ## Start trigger
 
-Queue promotion and native dependency dispatch use `build_queue.start_trigger` (default `pr_merged`); later stages satisfy earlier triggers.
+Lists use `build_queue.start_trigger` (default `pr_opened`) to start the next item when the prior item has a ready, non-draft PR; choose `pr_merged` to wait for its merge.
 
 | Trigger | Starts when | Evidence |
 | --- | --- | --- |
 | `pr_opened` | The blocker has a ready, non-draft PR | Delivered PR facts or `ci-wait` and later labels |
 | `pr_ci_green` | Required CI has passed | Retained CI verdict or `human-review`/`rework` and later labels |
 | `pr_approved` | Human review approves | Standing review verdict or `merging` and later labels |
-| `pr_merged` | The blocker PR merges (default) | Merge facts, `done`, or completed issue closure |
+| `pr_merged` | The blocker PR merges (serial-list option) | Merge facts, `done`, or completed issue closure |
 | `issue_closed` | The blocker issue closes completed | Confirmed closure and reason |
 
 Choose an override with `aiur queue add 12 13 --queue roadmap --start-on pr_opened` or `aiur queue add --build-order 12 --start-on pr_opened`. Change it with `aiur queue set roadmap --start-on pr_ci_green`; `--start-on default` returns to config. Tightening the trigger withdraws unclaimed queue-owned `todo`; running agents continue.
@@ -333,7 +362,7 @@ Before pacing, each reconcile logs `build_queue_reconcile` JSON with the `ready`
 
 ## Merged PRs with open issues
 
-A merged prerequisite PR releases dependents under the default `pr_merged` trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
+A merged prerequisite PR releases dependents under every trigger, even while its issue stays open. An explicit `issue_closed` queue waits for completed closure. Only under `issue_closed`, the build queue starts a grace timer at the first `pr.merged` hint or merged PR delivery it observes.
 
 For `issue_closed` queues, if the issue is still open after `build_queue.merged_open_grace_seconds` (default 600), `ticket.<id>.queue.attention.merged_issue_open` asks the Executor to close it or explain why it stays open. The attention emits once and resolves on closure or when no dependent requires `issue_closed`; Aiur never closes the issue for this rule.
 
@@ -417,3 +446,13 @@ A conflict dispatches rework with `upstream_conflict`, the blocker PR and paths,
 Pushes coalesce per dependent for two seconds, with two propagations at most in flight; a newer dependent push supersedes older pending work. Every successful propagation may trigger CI on its PR; existing draft workflow rules still apply.
 
 Add `experiment:feature` to a root issue to [measure the feature](/concepts/experiments#measuring-a-feature) from its first member merge through go-live.
+
+## Work overlap review
+
+Aiur compares a GitHub ticket's planned work with open tickets, open pull requests, and recent merges before starting a worker and again at review.
+
+It reports **Build**, **Extend existing**, or **Fold into**, with the matching issue or PR number and any shared title terms, paths, or symbols found in the descriptions.
+
+The Executor receives a wake, and a changed verdict or new evidence appears in an overlap note on the GitHub ticket. Aiur leaves dispatch and work disposition to the existing workflow.
+
+Every five minutes, Aiur also looks for overlapping open tickets and PRs within and across features. It uses owning and also-affects membership. A linked PR inherits the feature membership of its tickets. New or changed pairs wake the Executor with both work items and the matching evidence.

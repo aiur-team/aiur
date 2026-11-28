@@ -47,6 +47,26 @@ defmodule Aiur.CapabilitiesWireTest do
            }
   end
 
+  test "background agent unsupported detail is part of its capability contract" do
+    report = %{
+      contract: "aiur.capabilities",
+      contract_version: 1,
+      boot_id: "boot",
+      revision: 1,
+      machine: nil,
+      instance: nil,
+      repository: nil,
+      executor: nil,
+      capabilities: %{"executor.background_agents" => %{state: :unavailable, reason: :unknown, detail: "unsupported"}}
+    }
+
+    assert Aiur.Capabilities.to_wire(report)["capabilities"]["executor.background_agents"] == %{
+             "state" => "unavailable",
+             "reason" => "unknown",
+             "detail" => "unsupported"
+           }
+  end
+
   test "to_wire output equals the contracts golden fixture" do
     report = %{
       contract: "aiur.capabilities",

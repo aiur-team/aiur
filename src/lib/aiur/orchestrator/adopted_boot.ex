@@ -2,13 +2,13 @@ defmodule Aiur.Orchestrator.AdoptedBoot do
   @moduledoc false
 
   alias Aiur.Config
-  alias Aiur.Orchestrator.{EnvelopeResume, Slots, State}
+  alias Aiur.Orchestrator.{EnvelopeResume, ResourceEnvelope, Slots, State}
 
   @spec restore(State.t()) :: State.t()
   def restore(state) do
     count = MapSet.size(adopted_ids(state))
 
-    if count == 0 do
+    if count == 0 or ResourceEnvelope.enabled?(state) do
       state
     else
       target = Config.target_cpu_pressure() || Config.target_load_average()

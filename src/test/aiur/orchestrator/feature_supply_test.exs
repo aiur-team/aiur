@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.FeatureSupplyTest do
   use Aiur.DispatcherTestSupport
+  alias Aiur.BuildQueue.Hints
   alias Aiur.Orchestrator.{FeatureSupply, FeatureSupplySnapshot}
   alias Aiur.StartTrigger.ProgressStore
   @hold 30 * 60_000
@@ -81,6 +82,8 @@ defmodule Aiur.Orchestrator.FeatureSupplyTest do
     held = for n <- 1..7, do: %{feature("held-#{n}") | blocked_by: [%{id: "blocker-#{n}", identifier: "repo##{n}", state: "human-review"}]}
     extra = %{feature("extra") | blocked_by: [%{id: "blocker-1", identifier: "repo#1", state: "human-review"}, %{id: "closed", state: "done"}]}
     paused = %{feature("paused") | labels: ["feature:test", "agent:paused"], paused: true}
+    Hints.create_table()
+    Enum.each(held ++ [extra], fn issue -> :ets.insert(Hints.table_name(), {issue.id, {0, 0}, false, :pr_merged}) end)
     sample = FeatureSupplySnapshot.build(state(), [feature("ready"), issue("not-feature"), paused, extra | held])
     assert sample.feature_ready == 1
     assert sample.declines == %{"dependency" => 8, "paused" => 1}

@@ -32,6 +32,7 @@ defmodule Aiur.Commands.Scope do
           ticket_set: MapSet.t(String.t()),
           labels: [String.t()],
           label_set: MapSet.t(String.t()),
+          build_order: %{kind: :feature | :epic, key: String.t()} | nil,
           expires_at: DateTime.t()
         }
 
@@ -52,7 +53,8 @@ defmodule Aiur.Commands.Scope do
          {:ok, subject} <- normalize_subject(subject),
          {:ok, tickets} <- normalize_tickets(tickets),
          {:ok, labels} <- normalize_labels(Keyword.get(opts, :labels, [])),
-         :ok <- require_scope(tickets, labels),
+         {:ok, build_order} <- normalize_build_order(Keyword.get(opts, :build_order)),
+         :ok <- require_scope_mode(tickets, labels, build_order),
          {:ok, ttl} <- ttl(opts) do
       now = now(opts)
       expires_at = DateTime.add(now, ttl, :second)
@@ -62,6 +64,7 @@ defmodule Aiur.Commands.Scope do
         "sub" => subject,
         "tickets" => tickets,
         "labels" => labels,
+        "build_order" => encode_build_order(build_order),
         "iat" => DateTime.to_unix(now),
         "exp" => DateTime.to_unix(expires_at)
       }
@@ -71,7 +74,7 @@ defmodule Aiur.Commands.Scope do
       {:ok,
        %{
          token: Enum.join([@prefix, body, sign(body, secret)], "."),
-         scope: scope(subject, tickets, labels, expires_at)
+         scope: Map.put(scope(subject, tickets, labels, expires_at), :build_order, build_order)
        }}
     end
   end
@@ -93,15 +96,14 @@ defmodule Aiur.Commands.Scope do
 
   def verify(_token, _opts), do: {:error, :malformed}
 
-  @doc "The scoped ticket set and label scope as a map for JSON components."
+  @doc "The verified grant scope as a map for JSON components."
   @spec to_public(t()) :: map()
   def to_public(%{} = scope) do
-    public = %{"kind" => "tickets", "label" => "Ticket-scoped Commands", "tickets" => scope.tickets}
+    public = %{"kind" => if(scope.build_order, do: "build_order", else: "tickets"), "label" => if(scope.build_order, do: "Build Order", else: "Ticket-scoped Commands"), "tickets" => scope.tickets}
 
-    case Map.get(scope, :labels, []) do
-      [] -> public
-      labels -> Map.put(public, "labels", labels)
-    end
+    public
+    |> maybe_put("labels", Map.get(scope, :labels, []))
+    |> maybe_put("build_order", encode_build_order(Map.get(scope, :build_order)))
   end
 
   defp secret(opts) do
@@ -189,8 +191,34 @@ defmodule Aiur.Commands.Scope do
 
   defp normalize_label(_label), do: :error
 
-  defp require_scope([], []), do: {:error, :invalid_scope}
-  defp require_scope(_tickets, _labels), do: :ok
+  defp require_scope_mode([], [], %{kind: kind, key: _key}) when kind in [:feature, :epic], do: :ok
+  defp require_scope_mode(tickets, labels, nil) when tickets != [] or labels != [], do: :ok
+  defp require_scope_mode(_tickets, _labels, _scope), do: {:error, :invalid_scope}
+
+  defp normalize_build_order(nil), do: {:ok, nil}
+
+  defp normalize_build_order(%{kind: kind, key: key}), do: normalize_build_order(%{"kind" => kind, "key" => key})
+
+  defp normalize_build_order(%{"kind" => kind, "key" => key}) when kind in ["feature", "epic"] do
+    if valid_build_order_key?(key), do: {:ok, %{kind: String.to_existing_atom(kind), key: key}}, else: {:error, :invalid_scope}
+  rescue
+    ArgumentError -> {:error, :invalid_scope}
+  end
+
+  defp normalize_build_order(_scope), do: {:error, :invalid_scope}
+
+  defp valid_build_order_key?(key) when is_binary(key) and byte_size(key) <= 128 do
+    String.valid?(key) and String.trim(key) == key and key != "" and not control_chars?(key)
+  end
+
+  defp valid_build_order_key?(_key), do: false
+
+  defp encode_build_order(nil), do: nil
+  defp encode_build_order(%{kind: kind, key: key}), do: %{"kind" => Atom.to_string(kind), "key" => key}
+
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp scope(subject, tickets, labels, expires_at) do
     %{
@@ -199,6 +227,7 @@ defmodule Aiur.Commands.Scope do
       ticket_set: MapSet.new(tickets),
       labels: labels,
       label_set: MapSet.new(labels),
+      build_order: nil,
       expires_at: expires_at
     }
   end
@@ -249,11 +278,12 @@ defmodule Aiur.Commands.Scope do
     with {:ok, subject} <- normalize_subject(subject),
          {:ok, tickets} <- normalize_tickets(tickets),
          {:ok, labels} <- normalize_labels(Map.get(payload, "labels", [])),
-         :ok <- require_scope(tickets, labels),
+         {:ok, build_order} <- normalize_build_order(Map.get(payload, "build_order")),
+         :ok <- require_scope_mode(tickets, labels, build_order),
          {:ok, iat} <- unix_seconds(Map.get(payload, "iat")),
          {:ok, exp} <- unix_seconds(Map.get(payload, "exp")),
          true <- exp > iat do
-      {:ok, scope(subject, tickets, labels, DateTime.from_unix!(exp))}
+      {:ok, Map.put(scope(subject, tickets, labels, DateTime.from_unix!(exp)), :build_order, build_order)}
     else
       _invalid -> {:error, :invalid_ticket_scope}
     end

@@ -23,25 +23,15 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
 
-  @invocation_key {__MODULE__, :invocation_id}
+  alias Aiur.CodingAgent.Backend.ToolInvocation
 
   @doc false
   @spec execute((String.t(), term() -> map()), String.t() | nil, term(), term()) :: map()
-  def execute(executor, tool, arguments, invocation_id)
-      when is_function(executor, 2) do
-    previous = Process.get(@invocation_key, :unset)
-    Process.put(@invocation_key, invocation_id)
-
-    try do
-      executor.(tool, arguments)
-    after
-      restore_invocation(previous)
-    end
-  end
+  defdelegate execute(executor, tool, arguments, invocation_id), to: ToolInvocation
 
   @doc false
   @spec invocation_id() :: term()
-  def invocation_id, do: Process.get(@invocation_key)
+  defdelegate invocation_id(), to: ToolInvocation
 
   @spec build(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: (String.t(), map() ->
                                                                                    map())
@@ -70,6 +60,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           :ticket_state_writer,
           &TicketTransition.write_state(&1, &2, writer: :agent_tool)
         ),
+      outcome_gate_labels: Map.get(issue, :labels, []) || [],
+      outcome_gate_identifier: issue.identifier,
+      outcome_decisions_fun: Keyword.get(opts, :outcome_decisions_fun, &Commands.list_decisions/0),
       ci_wait_pr_fetcher:
         Keyword.get(
           opts,
@@ -154,14 +147,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, []))
         end,
         epic_setter: fn args -> EpicSetter.set(issue, args, Keyword.get(opts, :epic_opts, [])) end,
-        ticket_state_setter: fn state_name, review_findings ->
+        ticket_state_setter: fn state_name, review_findings, outside_blocker ->
           TicketStateSetter.write(
             issue,
             state_name,
             coordination,
             workspace,
             worker_host,
-            Keyword.put(opts, :review_findings, review_findings),
+            opts |> Keyword.put(:review_findings, review_findings) |> Keyword.put(:outside_blocker, outside_blocker),
             &ToolCoordination.ticket_coordination_key/1,
             &ToolCoordination.coordination_operation_opts/1
           )
@@ -169,7 +162,4 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       )
     end
   end
-
-  defp restore_invocation(:unset), do: Process.delete(@invocation_key)
-  defp restore_invocation(value), do: Process.put(@invocation_key, value)
 end

@@ -128,6 +128,7 @@ defmodule Aiur.GitHub.Access do
   defdelegate carry(origin, fun), to: Aiur.GitHub.RequestOrigin
   defdelegate view_originated?(), to: Aiur.GitHub.RequestOrigin
   defdelegate subscribe_repo(type, full_name), to: Aiur.GitHub.ResourceEvents, as: :subscribe
+  @type freshness :: Aiur.GitHub.ResourceFetch.freshness()
   defdelegate resource_decision(), to: Aiur.GitHub.ResourceFetch, as: :decision
   defdelegate resource_need(key, fetcher, opts), to: Aiur.GitHub.ResourceFetch, as: :need
   defdelegate clear(resource_type, owner, repo), to: Aiur.GitHub.ResourceStore

@@ -3,14 +3,27 @@ defmodule Aiur.BuildQueue.MutationCLITest do
   import ExUnit.CaptureIO
   alias Aiur.BuildQueue.{Hints, Model, MutationCLI, Server}
   alias Aiur.Config.Schema
+  alias Aiur.ControlCall
+  alias Aiur.Project
   @empty %{queues: [], items: [], edges: [], intents: [], latches: []}
+  @project "queue-control/sandbox"
 
   defmodule Boundary do
     def load, do: Agent.get(__MODULE__, &{:ok, &1.document})
 
     def save(doc) do
       Agent.get_and_update(__MODULE__, fn state ->
+        if gate = Map.get(state, :save_gate) do
+          {owner, ref} = gate
+          send(owner, {:store_save_started, ref})
+
+          receive do
+            {:release_store_save, ^ref} -> :ok
+          end
+        end
+
         {result, state} = next_save_result(state)
+        state = Map.delete(state, :save_gate)
         if result == :ok, do: {:ok, %{state | document: doc}}, else: {result, state}
       end)
     end
@@ -65,7 +78,7 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     pid =
       start_supervised!(
         {Server,
-         name: nil,
+         name: Project.Registry.via(@project, Server),
          tracker: Boundary,
          store: Boundary,
          claim_probe: Boundary,
@@ -82,6 +95,19 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     send(pid, {:reconcile, token})
     assert GenServer.call(pid, :status) == :running
     %{server: pid}
+  end
+
+  test "local project RPC adds a ticket at rank zero", %{server: pid} do
+    Project.Registry.register_root(Project.from_machine_entry(%{repo: @project, config: "/unused/config"}, "/unused/state"))
+    run(pid, :add, ids: ["1"], queue: "first")
+    expression = ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "", ids: ["2"], queue: "p0-now", rank: 0, project_hint: "#{@project}")|
+
+    assert capture_io(fn -> ControlCall.Project.run_local(expression) end) =~ "__AIUR_CONTROL_EXIT__:0"
+    assert [%{name: "p0-now", rank: 0, id: queue_id}, %{name: "first", rank: 1}] = document().queues
+    assert Enum.any?(document().items, &(&1.issue_id == "2" and &1.queue_id == queue_id))
+
+    assert {:ok, %{scope: :write} = call} = ControlCall.parse(expression, remote: false)
+    assert_raise ArgumentError, "control call is not authorized by the allowlist", fn -> ControlCall.run(call, 1_000, "token:t") end
   end
 
   test "daemon refuses caller workspace before touching server" do
@@ -349,8 +375,31 @@ defmodule Aiur.BuildQueue.MutationCLITest do
     run(pid, :set, queue: "wave", start_on: "default")
     assert hd(document().queues).start_trigger == nil
     assert hd(document().queues).generation == 2
-    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
     assert {:ok, [{"missing", {:error, :not_found}}]} = MutationCLI.execute(verb: :set, queue: "missing", start_on: "pr_opened", server: pid)
+  end
+
+  test "queue set confirms an applied trigger after its mutation call times out", %{server: pid} do
+    run(pid, :add, ids: ["1"], queue: "wave")
+    gate = make_ref()
+    owner = self()
+    Agent.update(Boundary, &Map.put(&1, :save_gate, {owner, gate}))
+
+    task =
+      Task.async(fn ->
+        capture_io(fn ->
+          assert 0 == MutationCLI.run(verb: :set, queue: "wave", start_on: "pr_opened", server: pid, call_timeout: 0)
+        end)
+      end)
+
+    assert_receive {:store_save_started, ^gate}, 1_000
+    send(Process.whereis(Boundary), {:release_store_save, gate})
+    output = Task.await(task, 5_000)
+
+    assert output =~ "wave: applied pr_opened (queue override)"
+    queue = Enum.find(Aiur.BuildQueue.show(pid).queues, &(&1.name == "wave"))
+    assert queue.start_trigger == :pr_opened
+    assert queue.start_trigger_source == :queue
   end
 
   test "optimistic add promotes through real reconciliation", %{server: pid} do

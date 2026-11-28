@@ -24,7 +24,7 @@ defmodule Aiur.GitHub.MainFixerQueueOrderTest do
 
   test "a ready fixer outside queue sets precedes ranked sets and their list positions" do
     configure("ranked")
-    [first_start, first_end, second_start, outside, fixer] = candidates()
+    [first_start, first_end, second_start, outside, fixer] = Enum.map(candidates(), &%{&1 | priority: 1})
     input = [outside, second_start, first_end, first_start, fixer]
 
     assert order(input) == [fixer, first_start, first_end, second_start, outside]
@@ -52,7 +52,7 @@ defmodule Aiur.GitHub.MainFixerQueueOrderTest do
     ordinary =
       for {id, priority} <- [{"first-start", 4}, {"first-end", 3}, {"second-start", 2}, {"outside", 1}], do: %Issue{id: id, identifier: "repo##{id}", state: "todo", priority: priority, blocked_by: []}
 
-    ordinary ++ [%Issue{id: "fixer", identifier: "repo#fixer", state: "todo", priority: 4, labels: ["main-fix"], blocked_by: []}]
+    ordinary ++ [%Issue{id: "fixer", identifier: "repo#fixer", state: "todo", priority: 1, labels: ["main-fix"], blocked_by: []}]
   end
 
   defp order(issues), do: DispatchCandidates.order(issues, DispatchPolicy.terminal_state_set(), issues)

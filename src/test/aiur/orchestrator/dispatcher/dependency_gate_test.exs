@@ -1,8 +1,16 @@
 defmodule Aiur.Orchestrator.Dispatcher.DependencyGateTest do
   use Aiur.DispatcherTestSupport
 
+  alias Aiur.BuildQueue.Hints
+
+  setup do
+    Hints.create_table()
+    :ok
+  end
+
   describe "dispatch_issue blocked_by dependency gate" do
     test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
+      :ets.insert(Hints.table_name(), {"blocked-ticket", {0, 0}, false, :pr_merged})
       test_pid = self()
 
       issue = %Issue{
@@ -37,6 +45,8 @@ defmodule Aiur.Orchestrator.Dispatcher.DependencyGateTest do
     end
 
     test "the hold log names only the open blocker when the list leads with closed ones" do
+      :ets.insert(Hints.table_name(), {"blocked-ticket", {0, 0}, false, :pr_merged})
+
       issue = %Issue{
         id: "blocked-ticket",
         identifier: "repo#blocked-ticket",
@@ -143,30 +153,32 @@ defmodule Aiur.Orchestrator.Dispatcher.DependencyGateTest do
       refute Map.has_key?(next_state.dispatch_declines, candidate.id)
     end
 
-    test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
+    test "starts after bounded dependency hydration failure" do
       candidate = issue("hydration-failed")
-      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+      test_pid = self()
 
-      declined =
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      started =
         Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
           issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
-          blocked_by_hydrator: fn _issue -> {:error, :dependencies_unavailable} end
+          blocked_by_hydrator: fn _issue ->
+            send(test_pid, :dependency_observation)
+            {:error, :dependencies_unavailable}
+          end,
+          runner: runner
         )
 
-      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
-
-      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
-
-      assert_receive {:alert,
-                      %{
-                        name: ^attention_name,
-                        reason: reason,
-                        needs_attention: true
-                      }},
-                     2_000
-
-      assert reason =~ "dependency_hydration_failed"
-      refute Map.has_key?(declined.running, candidate.id)
+      assert_receive :dependency_observation, 1_000
+      assert_receive :dependency_observation, 1_000
+      assert_receive :dependency_observation, 1_000
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1_000
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(started.running, candidate.id)
+      refute Map.has_key?(started.dispatch_declines, candidate.id)
     end
 
     test "holds dispatch when hydration returns an unexpected shape (fail-closed, no crash)" do

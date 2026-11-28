@@ -114,7 +114,9 @@ defmodule Aiur.Orchestrator.TrackerTasks do
     end)
   end
 
-  defp retain_completion(state, key, apply_result) do
+  @doc "Registers a callback after an existing task applies its result."
+  @spec retain_completion(State.t(), term(), (State.t(), term() -> State.t())) :: State.t()
+  def retain_completion(state, key, apply_result) do
     jobs =
       Map.new(state.tracker_tasks, fn {ref, job} ->
         if job.key == key, do: {ref, %{job | apply: Enum.uniq(job.apply ++ [apply_result])}}, else: {ref, job}

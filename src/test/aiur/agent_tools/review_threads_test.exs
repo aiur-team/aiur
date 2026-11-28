@@ -1,7 +1,43 @@
 defmodule Aiur.AgentTools.ReviewThreadsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.AgentTools.ReviewThreads
+
+  test "uses review thread callbacks installed by the application composition root" do
+    old_replier = Application.get_env(:aiur, :review_thread_replier)
+    old_resolver = Application.get_env(:aiur, :review_thread_resolver)
+
+    on_exit(fn ->
+      if is_nil(old_replier),
+        do: Application.delete_env(:aiur, :review_thread_replier),
+        else: Application.put_env(:aiur, :review_thread_replier, old_replier)
+
+      if is_nil(old_resolver),
+        do: Application.delete_env(:aiur, :review_thread_resolver),
+        else: Application.put_env(:aiur, :review_thread_resolver, old_resolver)
+    end)
+
+    Application.put_env(:aiur, :review_thread_replier, fn id, body, _opts ->
+      {:ok, %{"latest_comment" => %{"id" => id, "body" => body}}}
+    end)
+
+    Application.put_env(:aiur, :review_thread_resolver, fn id, opts ->
+      {:ok, %{"resolved" => id, "terminal_reply_body" => opts[:terminal_reply_body]}}
+    end)
+
+    reply =
+      ReviewThreads.execute("aiur_reply_review_thread", %{"review_thread_id" => "PRRT_x", "body" => "Fixed."}, [])
+
+    resolve =
+      ReviewThreads.execute(
+        "aiur_resolve_review_thread",
+        %{"review_thread_id" => "PRRT_x", "terminal_reply_body" => "Done."},
+        []
+      )
+
+    assert Jason.decode!(reply["output"]) == %{"latest_comment" => %{"id" => "PRRT_x", "body" => "Fixed."}}
+    assert Jason.decode!(resolve["output"]) == %{"resolved" => "PRRT_x", "terminal_reply_body" => "Done."}
+  end
 
   describe "input validation — aiur_reply_review_thread" do
     test "missing review_thread_id returns required error" do

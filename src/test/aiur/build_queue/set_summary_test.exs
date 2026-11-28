@@ -2,6 +2,17 @@ defmodule Aiur.BuildQueue.SetSummaryTest do
   use ExUnit.Case, async: true
   alias Aiur.BuildQueue.SetSummary
 
+  test "stalled list requires an hour, free slots, open work and no claimed members" do
+    now = 10_000_000
+    old = %{kind: :list, created_at: DateTime.from_unix!(now - 3_600_000, :millisecond), items: [item(:ready)]}
+
+    assert SetSummary.stalled?(old, now, 1)
+    refute SetSummary.stalled?(old, now, 0)
+    refute SetSummary.stalled?(%{old | created_at: DateTime.from_unix!(now - 3_599_999, :millisecond)}, now, 1)
+    refute SetSummary.stalled?(%{old | items: [item(:claimed)]}, now, 1)
+    refute SetSummary.stalled?(%{old | kind: :build_order}, now, 1)
+  end
+
   test "active, next, waiting and done preserve counts, holds and admission causes" do
     reasons = ["max_active_sets 1", "spill reserve 1 slots", "readiness unknown; may have ready work"]
 

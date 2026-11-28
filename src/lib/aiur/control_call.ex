@@ -51,7 +51,7 @@ defmodule Aiur.ControlCall do
          {:ok, args} <- Literal.convert(raw_args),
          :ok <- Literal.validate_arguments(entry, args),
          :ok <- remote_options(args, opts),
-         category <- classify(entry.class, args),
+         category <- category(entry, args, opts),
          scope when scope in [:read, :write, :deny] <- Allowlist.scope_of(category),
          :ok <- allow_remote(scope, opts),
          :ok <- max_scope(scope, Keyword.get(opts, :max_scope, :write)) do
@@ -69,9 +69,26 @@ defmodule Aiur.ControlCall do
   def parse(_expression, _opts), do: {:error, :parse_error}
 
   @spec run(map(), pos_integer(), binary()) :: {:ok, binary()} | {:error, :timeout}
-  def run(%{module: module, function: function, args: args, scope: scope} = call, timeout_ms, actor)
-      when is_atom(module) and is_atom(function) and is_list(args) and is_integer(timeout_ms) and timeout_ms >= 0 and is_binary(actor) do
-    :ok = validate_run_call(module, function, args, scope)
+  def run(call, timeout_ms, actor), do: run_validated(call, timeout_ms, actor, remote: true)
+
+  @doc false
+  @spec run_local(String.t()) :: :ok
+  def run_local(expression) do
+    case parse(expression, remote: false) do
+      {:ok, call} ->
+        case run_validated(call, 3_600_000, actor(), remote: false) do
+          {:ok, output} -> IO.write(output)
+          {:error, reason} -> IO.write("__AIUR_CONTROL_ERROR__:control call failed: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:1\n")
+        end
+
+      {:error, reason} ->
+        IO.write("__AIUR_CONTROL_ERROR__:control call refused: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:64\n")
+    end
+  end
+
+  defp run_validated(%{module: module, function: function, args: args, scope: scope} = call, timeout_ms, actor, opts)
+       when is_atom(module) and is_atom(function) and is_list(args) and is_integer(timeout_ms) and timeout_ms >= 0 and is_binary(actor) do
+    :ok = validate_run_call(module, function, args, scope, opts)
     task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> execute(module, function, args, actor, Map.get(call, :project), Map.get(call, :remote, false)) end)
     task |> Task.yield(timeout_ms) |> run_result(task, scope)
   end
@@ -144,8 +161,7 @@ defmodule Aiur.ControlCall do
   defp contains_keys?({_key, value}, keys), do: contains_keys?(value, keys)
   defp contains_keys?(_value, _keys), do: false
 
-  defp classify(class, args) when is_function(class, 1), do: class.(args)
-  defp classify(class, _args), do: class
+  defp category(entry, args, opts), do: Allowlist.category(entry.class, args, Keyword.get(opts, :remote, true))
 
   defp allow_remote(:deny, opts) do
     if Keyword.get(opts, :remote, true), do: {:error, :denied_remote}, else: :ok
@@ -156,18 +172,18 @@ defmodule Aiur.ControlCall do
   defp max_scope(_scope, scope) when scope in [:read, :write], do: :ok
   defp max_scope(_scope, _max), do: {:error, :scope_exceeds_max}
 
-  defp validate_run_call(module, function, args, scope) do
+  defp validate_run_call(module, function, args, scope, opts) do
     segments = Allowlist.entries() |> Map.keys() |> Enum.map(&elem(&1, 0)) |> Enum.find(&(Module.concat(&1) == module))
-    validate_run_entry(segments, function, args, scope)
+    validate_run_entry(segments, function, args, scope, opts)
   end
 
-  defp validate_run_entry(nil, _function, _args, _scope), do: unauthorized_call()
+  defp validate_run_entry(nil, _function, _args, _scope, _opts), do: unauthorized_call()
 
-  defp validate_run_entry(segments, function, args, scope) do
+  defp validate_run_entry(segments, function, args, scope, opts) do
     with {:ok, entry} <- Allowlist.fetch(segments, function, length(args)),
          :ok <- Literal.validate_arguments(entry, args),
-         :ok <- remote_options(args, remote: true),
-         true <- Allowlist.scope_of(classify(entry.class, args)) == scope and scope in [:read, :write] do
+         :ok <- remote_options(args, opts),
+         true <- Allowlist.scope_of(category(entry, args, opts)) == scope and scope in [:read, :write] do
       :ok
     else
       _ -> unauthorized_call()

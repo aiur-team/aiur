@@ -5,8 +5,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
-  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
+  alias Aiur.{BuildQueue.Hints, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors}
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
@@ -130,11 +130,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
 
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), work_kind_rank(issue), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue),
+        {priority_rank(issue.priority), if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, position, work_kind_rank(issue), issue_created_at_sort_key(issue),
          issue.identifier || issue.id || ""}
 
       _ ->
-        {1, 1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
+        {priority_rank(nil), 1, 0, 0, 1, issue_created_at_sort_key(nil), ""}
     end)
   end
 
@@ -168,6 +168,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @type dispatch_decline_reason ::
           :invalid_issue
           | :contradictory_state_labels
+          | :foreign_owner
+          | {:foreign_owner, String.t()}
           | :not_routable
           | :unauthorized
           | :paused
@@ -202,6 +204,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @dispatch_decline_reasons [
     :invalid_issue,
     :contradictory_state_labels,
+    :foreign_owner,
     :not_routable,
     :unauthorized,
     :paused,
@@ -274,7 +277,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            state.blocked_ticket_ids
          ) do
       :dispatch ->
-        if Slots.active_slots(state) < Slots.max_concurrent_agent_limit(state),
+        if Slots.manual_active_slot_available?(state),
           do: :dispatch,
           else: {:skip, :fleet_capacity}
 
@@ -351,56 +354,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       ),
       do: {:skip, :invalid_issue}
 
-  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
-    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
-  end
-
   defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
-    case issue_identity_decision(issue) do
+    case Eligibility.identity_decision(issue, active_states, terminal_states) do
       :dispatch -> issue_state_decision(issue, active_states, terminal_states)
       {:skip, _reason} = declined -> declined
     end
   end
-
-  defp issue_identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue) do
-    # A ticket carrying two `agent:*` state labels is a broken lifecycle state:
-    # the fail-closed guard used to refuse it, silently dropping the ticket
-    # from dispatch with no error and no alert (#2075). Resolve the pair to a
-    # single deterministic state instead and continue the ordinary checks, so
-    # the ticket is dispatchable rather than stranded. `resolve_state_labels/1`
-    # makes `todo` win (a ticket that is also `todo` has no work for a `rework`
-    # verdict to mean anything about); the poll-time heal in
-    # `IssueSync.reconcile_contradictory_state_labels/3` also rewrites the
-    # tracker so GitHub stops carrying both labels.
-    winner = resolve_state_labels(state_labels)
-
-    Logger.info(
-      "Dispatch resolved contradictory state labels for issue_id=#{inspect(issue.id)} " <>
-        "labels=#{inspect(state_labels)} -> #{inspect(winner)}"
-    )
-
-    issue_identity_decision(%{issue | state: winner, state_labels: [winner]})
-  end
-
-  defp issue_identity_decision(%Issue{} = issue) do
-    cond do
-      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
-      foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
-      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
-      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
-      not issue_not_paused?(issue) -> {:skip, :paused}
-      not issue_not_parked?(issue) -> {:skip, :parked}
-      not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
-      true -> SpendCap.decision(issue)
-    end
-  end
-
-  defp foreign_tracker_state_label?(%Issue{labels: labels})
-       when is_list(labels) and labels != [] do
-    Config.tracker_kind() == "github" and Tracker.foreign_state_label?(labels)
-  end
-
-  defp foreign_tracker_state_label?(_issue), do: false
 
   defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do

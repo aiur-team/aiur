@@ -35,7 +35,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   alias Aiur.CodingAgent.HeadroomDispatch
   alias Aiur.CodingAgent.ProvidersView
   alias Aiur.Config
-  alias Aiur.ProviderMeterProjection
+  alias Aiur.ProviderMeters
 
   @state_key {__MODULE__, :held}
 
@@ -310,7 +310,7 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   def credit_reading(_backend, _opts), do: nil
 
   defp provider_view(provider, opts) do
-    Keyword.get_lazy(opts, :provider_view_fun, fn -> &ProviderMeterProjection.provider_view/1 end).(provider)
+    Keyword.get_lazy(opts, :provider_view_fun, fn -> &ProviderMeters.provider_view/1 end).(provider)
   end
 
   defp credit_used_percent(%{windows: windows}) when is_map(windows) do
@@ -371,7 +371,9 @@ defmodule Aiur.CodingAgent.UsageFloorGate do
   # Alert topics are slugs: a route or account name may contain `:` or `/`.
   defp alert_name(route), do: "system.agent.usage_floor.#{String.replace(route, ~r/[^a-zA-Z0-9_-]+/, "-")}"
 
-  defp configured_routes do
+  @doc "The routes dispatch reads: `agent.priority`, else `switch_model_on_ratelimit`."
+  @spec configured_routes() :: [String.t()]
+  def configured_routes do
     case Config.agent_priority() do
       [] -> Config.switch_model_on_ratelimit()
       priority -> priority

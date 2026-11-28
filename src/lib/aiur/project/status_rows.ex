@@ -12,9 +12,11 @@ defmodule Aiur.Project.StatusRows do
   @read_timeout_ms 1_500
 
   @spec print() :: :ok
-  def print do
-    IO.puts(Jason.encode!(%{observed_at: DateTime.to_iso8601(DateTime.utc_now()), projects: rows()}))
-  end
+  def print, do: IO.puts(Jason.encode!(json()))
+
+  @doc false
+  @spec json() :: map()
+  def json, do: %{observed_at: DateTime.to_iso8601(DateTime.utc_now()), projects: rows(), build: Aiur.MainLineBuild.current()}
 
   @spec rows() :: [map()]
   def rows do
@@ -26,7 +28,13 @@ defmodule Aiur.Project.StatusRows do
 
     case read_snapshot(id) do
       {freshness, snapshot, metadata} when freshness in [:current, :stale] ->
-        Map.merge(base, %{running: length(Map.get(snapshot, :running, [])), observed_at: metadata.observed_at, age_ms: metadata.age_ms, freshness: to_string(freshness)})
+        Map.merge(base, %{
+          running: length(Map.get(snapshot, :running, [])),
+          tickets: running_tickets(snapshot),
+          observed_at: metadata.observed_at,
+          age_ms: metadata.age_ms,
+          freshness: to_string(freshness)
+        })
 
       _unavailable ->
         Map.merge(base, unavailable())
@@ -36,6 +44,12 @@ defmodule Aiur.Project.StatusRows do
   defp row(%{id: id, repo: repo, state: state}), do: Map.merge(%{id: id, repo: repo, state: to_string(state)}, unavailable())
 
   defp unavailable, do: %{running: nil, observed_at: nil, age_ms: nil, freshness: "unavailable"}
+
+  defp running_tickets(snapshot) do
+    snapshot
+    |> Map.get(:running, [])
+    |> Enum.map(fn row -> %{identifier: row[:identifier], progress: row[:progress]} end)
+  end
 
   # The store answers from the reader's process, so the read runs inside the project.
   defp read_snapshot(id) do

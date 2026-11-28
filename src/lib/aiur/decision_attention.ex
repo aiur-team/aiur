@@ -277,6 +277,12 @@ defmodule Aiur.DecisionAttention do
   # `DecisionStore.blocked_ticket_ids/1`, so a stale attention holds fleet
   # dispatch with no gate behind it. Project it unblocking; it stays visible in
   # the Commands queue and stays answerable and dismissable exactly as before.
+  #
+  # It is also addressed to the Executor, not the creator: its question is the
+  # alert text (often aiur's own boilerplate) with no options, so on the
+  # creator's list it is noise beside the ticket's real pick (OGM #803 and
+  # open-games #480, 2026-11-16). A worker that needs the creator raises a
+  # structured Command, which replaces this projection with its own audience.
   defp project_attention(projector, attention, opts) do
     with {:ok, correlation} <- correlation(attention.issue, attention.slug) do
       payload =
@@ -285,7 +291,10 @@ defmodule Aiur.DecisionAttention do
           "kind" => "legacy_attention",
           "question" => attention.question,
           "blocking" => false,
-          "options" => []
+          "options" => [],
+          "audience" => "executor",
+          "authority" => "supervisor_allowed",
+          "reversibility" => "reversible"
         }
         |> maybe_put_source_created_at(Keyword.get(opts, :source_created_at))
 

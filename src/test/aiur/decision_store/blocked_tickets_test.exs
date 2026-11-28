@@ -148,7 +148,7 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
                )
 
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
-      refute MapSet.member?(ids, "979")
+      refute MapSet.member?(ids, {:github, "its-everdred", "aiur", "979"})
 
       assert {:ok, %{decisions: [retained]}} =
                DecisionStore.retained_query(
@@ -201,7 +201,7 @@ defmodule Aiur.DecisionStore.BlockedTicketsTest do
                request(pid, %{"question" => "Drop the index?", "blocking" => true})
 
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
-      assert MapSet.member?(ids, "979")
+      assert MapSet.member?(ids, {:github, "its-everdred", "aiur", "979"})
     end
 
     test "fails closed when the store cannot be read", %{dir: dir} do

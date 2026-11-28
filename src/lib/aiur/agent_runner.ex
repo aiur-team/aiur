@@ -88,7 +88,7 @@ defmodule Aiur.AgentRunner do
         Logger.error("Agent run exhausted automatic before_run timeout retries for #{issue_context(issue)}: #{inspect(reason)}")
         exit(reason)
 
-      local_budget_hold?(reason) ->
+      is_map(Aiur.LocalBudgetHold.reason(reason)) ->
         Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
         exit(reason)
 
@@ -98,13 +98,6 @@ defmodule Aiur.AgentRunner do
         raise RuntimeError, message
     end
   end
-
-  # Matched by shape: agent-runner may not depend on the github or orchestration
-  # components; `RetryEngine.AgentDown` does the full hold classification.
-  defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}), do: local_budget_hold?(inner)
-  defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
-  defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
-  defp local_budget_hold?(_reason), do: false
 
   # `:missing_tracker_identity` means the daemon could not decide which
   # repository an issue belongs to. Reported bare, it names no file, so the
@@ -164,6 +157,12 @@ defmodule Aiur.AgentRunner do
   # lives in one place.
   defp github_transport_transient?({:github, _kind, _detail} = reason),
     do: Access.retryable_github_error?(reason)
+
+  # The between-turn issue-state refresh is a tracker read; its transient
+  # failure is the same infrastructure fault, not an agent defect. A budget hold
+  # is left to the hold exit, which waits for the hold's own reset.
+  defp github_transport_transient?({:issue_state_refresh_failed, inner}),
+    do: is_nil(Aiur.LocalBudgetHold.reason(inner)) and github_transport_transient?(inner)
 
   defp github_transport_transient?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError],

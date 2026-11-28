@@ -26,6 +26,7 @@ defmodule Aiur.Events.CatalogTest do
     assert %Entry{pattern: "#", class: :live, export?: false, refs: [], attrs: [], owner: "unknown"} = Catalog.default()
     assert Catalog.lookup("foo.bar") == Catalog.default()
     assert Catalog.lookup("ticket.42.future.new") == Catalog.default()
+    assert %Entry{pattern: "ticket.*.progress", class: :live, export?: false} = Catalog.lookup("ticket.42.progress")
     assert %Entry{class: :live, export?: false} = Catalog.lookup("system.main.branch.push")
   end
 
@@ -104,6 +105,10 @@ defmodule Aiur.Events.CatalogTest do
              Catalog.lookup("ticket.42.agent.listen-mode.changed")
 
     assert %Entry{class: :live, export?: true, attrs: [revision: :integer]} = Catalog.lookup("system.capabilities.changed")
+
+    # The operator wrote this text for their own devices; it is the notification.
+    assert %Entry{class: :live, export?: true, refs: [], attrs: [title: :text, body: :text, ticket: :id, url: :text, created_at: :text]} =
+             Catalog.lookup("operator.notify.review_ready")
 
     for topic <- ["ticket.42.agent.attention.example", "system.dispatch.cycle_stalled"] do
       assert %Entry{class: :ledgered, export?: true, refs: [:ticket], attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean]} = Catalog.lookup(topic)
@@ -198,7 +203,7 @@ defmodule Aiur.Events.CatalogTest do
       ticket.*.lifecycle.changed ticket.*.usage.changed ticket.*.usage.spend_cap_reached ticket.*.cancel.result
       ticket.*.agent.command ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
       ticket.*.queue.removed ticket.*.queue.attention.# system.queue.*.progress system.queue.attention.# system.build_order.*.progress
-      ticket.*.agent.listen-mode.changed system.capabilities.changed system.#),
+      ticket.*.agent.listen-mode.changed system.capabilities.changed system.# operator.notify.*),
       &Events.matches?(&1, pattern)
     )
   end

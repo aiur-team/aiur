@@ -79,24 +79,28 @@ defmodule Aiur.Codex.Frames do
     }
   end
 
-  @spec turn_start_frame(String.t(), String.t(), map(), Path.t(), String.t() | map(), map()) :: map()
-  def turn_start_frame(thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+  @spec turn_start_frame(String.t(), String.t(), map(), Path.t(), String.t() | map(), map(), map()) :: map()
+  def turn_start_frame(thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy, overrides \\ %{}) do
     %{
       "method" => "turn/start",
       "id" => turn_start_id(),
-      "params" => %{
-        "threadId" => thread_id,
-        "input" => [
+      "params" =>
+        Map.merge(
           %{
-            "type" => "text",
-            "text" => prompt
-          }
-        ],
-        "cwd" => workspace,
-        "title" => "#{issue.identifier}: #{issue.title}",
-        "approvalPolicy" => approval_policy,
-        "sandboxPolicy" => turn_sandbox_policy
-      }
+            "threadId" => thread_id,
+            "input" => [
+              %{
+                "type" => "text",
+                "text" => prompt
+              }
+            ],
+            "cwd" => workspace,
+            "title" => "#{issue.identifier}: #{issue.title}",
+            "approvalPolicy" => approval_policy,
+            "sandboxPolicy" => turn_sandbox_policy
+          },
+          overrides
+        )
     }
   end
 

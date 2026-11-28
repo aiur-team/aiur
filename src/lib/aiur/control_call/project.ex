@@ -79,18 +79,7 @@ defmodule Aiur.ControlCall.Project do
   call resolves its project exactly as a remote one does. Prints what the command printed.
   """
   @spec run_local(String.t()) :: :ok
-  def run_local(expression) do
-    case Aiur.ControlCall.parse(expression, remote: false) do
-      {:ok, call} ->
-        case Aiur.ControlCall.run(call, 3_600_000, Aiur.ControlCall.actor()) do
-          {:ok, output} -> IO.write(output)
-          {:error, reason} -> IO.write("__AIUR_CONTROL_ERROR__:control call failed: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:1\n")
-        end
-
-      {:error, reason} ->
-        IO.write("__AIUR_CONTROL_ERROR__:control call refused: #{inspect(reason)}\n__AIUR_CONTROL_EXIT__:64\n")
-    end
-  end
+  defdelegate run_local(expression), to: Aiur.ControlCall
 
   @doc "Resolves against the running projects and puts the context on the calling process. Returns a user message on failure."
   @spec activate(String.t() | nil, String.t() | nil, (String.t() -> Aiur.Project.t() | nil)) :: :ok | {:error, String.t()}

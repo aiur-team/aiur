@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
         CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
           reconcile_ci_wait_reason(state, issue, result)
 
-        HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
+        HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.draft_pending?(result) ->
           Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
         HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
       true ->
         state
         |> clear_ci_test_failure_retry(issue)
-        |> transition_ci_failure(issue, result)
+        |> transition_ci_failure(issue, FailureComment.with_error_lines(result))
     end
   end
 

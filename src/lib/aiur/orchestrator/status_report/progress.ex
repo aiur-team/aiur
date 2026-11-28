@@ -124,6 +124,53 @@ defmodule Aiur.Orchestrator.StatusReport.Progress do
 
   defp known_progress_facts(freshness, percent), do: %{progress_percent: percent, progress_freshness: freshness}
 
+  @doc false
+  @spec ticket_progress(term(), map(), term()) :: map() | nil
+  def ticket_progress(identity, activity_by_identity, phase) do
+    case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress]) do
+      %{status: :known, percent: percent} = reading when is_integer(percent) and percent in 0..100 ->
+        progress_payload(reading, phase)
+
+      _ ->
+        phase_progress(phase)
+    end
+  end
+
+  defp progress_payload(reading, phase) do
+    source = reading[:progress_source] || :phase
+    phase = reading[:phase] || phase_name(phase)
+    checklist = if is_integer(reading[:total]) and reading.total > 0, do: %{done: reading.done, total: reading.total}, else: nil
+    %{percent: reading.percent, step: reading[:step] || phase_step(phase), phase: phase, source: source, checklist: checklist, updated_at: reading[:observed_at]}
+  end
+
+  defp phase_progress(phase) do
+    case phase_name(phase) do
+      "plan" -> %{percent: 0, step: "Planning the work", phase: "plan", source: :phase, checklist: nil, updated_at: nil}
+      "work" -> %{percent: 15, step: "Working through the plan", phase: "work", source: :phase, checklist: nil, updated_at: nil}
+      "review" -> %{percent: 70, step: "Reviewing the changes", phase: "review", source: :phase, checklist: nil, updated_at: nil}
+      "pr" -> %{percent: 80, step: "Preparing the pull request", phase: "pr", source: :phase, checklist: nil, updated_at: nil}
+      "ci" -> %{percent: 85, step: "Waiting for CI", phase: "ci", source: :phase, checklist: nil, updated_at: nil}
+      "merge" -> %{percent: 95, step: "Waiting for merge", phase: "merge", source: :phase, checklist: nil, updated_at: nil}
+      _ -> %{percent: 15, step: "Working through the plan", phase: "work", source: :phase, checklist: nil, updated_at: nil}
+    end
+  end
+
+  defp phase_step("plan"), do: "Planning the work"
+  defp phase_step("review"), do: "Reviewing the changes"
+  defp phase_step("pr"), do: "Preparing the pull request"
+  defp phase_step("ci"), do: "Waiting for CI"
+  defp phase_step("merge"), do: "Waiting for merge"
+  defp phase_step(_phase), do: "Working through the plan"
+
+  defp phase_name(stage) when stage in [:plan, :work, :review], do: Atom.to_string(stage)
+  defp phase_name("plan"), do: "plan"
+  defp phase_name("work"), do: "work"
+  defp phase_name("review"), do: "review"
+  defp phase_name("pr"), do: "pr"
+  defp phase_name("ci"), do: "ci"
+  defp phase_name("merge"), do: "merge"
+  defp phase_name(_phase), do: "work"
+
   # Agents emit whole percentages today, but a float is a real measurement and
   # rounding keeps it. The previous `is_integer/1` guard silently turned 70.5
   # into 0 — the one thing a percent must never be turned into.

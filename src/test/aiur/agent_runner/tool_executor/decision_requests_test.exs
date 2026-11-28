@@ -310,8 +310,10 @@ defmodule Aiur.AgentRunner.ToolExecutor.DecisionRequestsTest do
 
       {:ok, history} = DecisionStore.history(legacy_decision.decision_id)
       assert Enum.map(history, & &1.version) == [1, 2]
-      assert hd(history).authority == :human_required
-      assert hd(history).reversibility == :irreversible
+      # The attention projection is addressed to the Executor (#8022).
+      assert hd(history).audience == :executor
+      assert hd(history).authority == :supervisor_allowed
+      assert hd(history).reversibility == :reversible
       assert List.last(history).authority == :supervisor_allowed
       assert List.last(history).reversibility == :reversible
 

@@ -115,6 +115,99 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :denied
   end
 
+  # Future-regression guard: a locally recorded daemon queue operation remains dispatchable.
+  test "a recorded daemon queue write dispatches when daemon identity is not allowlisted" do
+    events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z")]
+
+    path = Path.join(System.tmp_dir!(), "dispatch-provenance-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(path, ~s|{"issue_id":"42","label":"agent:todo","written_at":"2026-01-01T00:00:00Z"}| <> "\n")
+
+    authorized =
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: path)
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "daemon_label_applier"
+    assert authorized.dispatch_authorization_actor == "daemon[bot]"
+    assert authorized.dispatch_authorization_reason == nil
+    File.rm!(path)
+  end
+
+  test "a daemon login without a local queue receipt cannot authorize dispatch" do
+    events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z")]
+
+    denied =
+      authorize_with_events(issue(), events, ["trusted", "daemon[bot]"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: "/missing/queue-provenance.ndjson")
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization_reason == :label_applier_not_allowed
+  end
+
+  test "a later daemon label event cannot reuse an earlier queue receipt" do
+    events = [labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:02Z")]
+    path = Path.join(System.tmp_dir!(), "dispatch-provenance-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(path, ~s|{"issue_id":"42","label":"agent:todo","written_at":"2026-01-01T00:00:00Z"}| <> "\n")
+
+    denied =
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: path)
+
+    refute denied.dispatch_authorized?
+    File.rm!(path)
+  end
+
+  test "an agent bot label still needs trusted prior triage" do
+    events = [labeled_event(10, "agent:todo", "agent-bot", "2026-01-01T00:00:00Z")]
+
+    denied =
+      authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization_actor == "agent-bot"
+    assert denied.dispatch_authorization_reason == :label_applier_not_allowed
+  end
+
+  test "a daemon state transition carries forward only a recorded daemon queue action" do
+    events = [
+      labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "agent-bot", "2026-01-02T00:00:00Z")
+    ]
+
+    path = Path.join(System.tmp_dir!(), "dispatch-provenance-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(path, ~s|{"issue_id":"42","label":"agent:todo","written_at":"2026-01-01T00:00:00Z"}| <> "\n")
+
+    authorized =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: path)
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization_source == "prior_daemon_triage:daemon[bot]"
+    File.rm!(path)
+  end
+
+  test "a third-party relabel revokes a recorded daemon queue authorization" do
+    events = [
+      labeled_event(10, "agent:todo", "daemon[bot]", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "outsider", "2026-01-02T00:00:00Z")
+    ]
+
+    path = Path.join(System.tmp_dir!(), "dispatch-provenance-#{System.unique_integer([:positive])}.ndjson")
+    File.write!(path, ~s|{"issue_id":"42","label":"agent:todo","written_at":"2026-01-01T00:00:00Z"}| <> "\n")
+
+    denied =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot", dispatch_queue_provenance_file: path)
+
+    refute denied.dispatch_authorized?
+    File.rm!(path)
+  end
+
+  test "an untrusted actor denial retains actor and reason for status" do
+    events = [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]
+
+    denied = authorize_with_events(issue(), events, ["trusted"], daemon_account: "daemon[bot]", bot_account: "agent-bot")
+
+    refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization_actor == "outsider"
+    assert denied.dispatch_authorization_reason == :label_applier_not_allowed
+  end
+
   # Carry-forward is deliberately limited to Aiur's own identity. "Latest
   # applier wins" is what stops a hostile relabel riding a stale approval, so
   # any non-Aiur actor still replaces the decision.
@@ -201,18 +294,39 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert authorized.dispatch_authorized?
   end
 
-  test "contradictory workflow state labels deny even a trusted creator and raise attention" do
+  # A trusted relabel is two writes (add `agent:todo`, then remove
+  # `agent:error`), so a poll or `aiur resume` between them sees both labels.
+  # Both were applied by a trusted operator, so the ticket is authorized; the
+  # dispatch policy picks the winning state. Refusing it read as a provenance
+  # failure for a ticket whose every applier was trusted (open-games#322).
+  test "contradictory state labels all applied by trusted users authorize dispatch" do
+    events = [
+      labeled_event(10, "agent:error", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:todo", "trusted", "2026-01-02T00:00:00Z")
+    ]
+
+    issue = contradictory_issue(["agent:error", "agent:todo"])
+    authorized = authorize_with_events(issue, events, ["trusted"])
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
+    assert authorized.state_labels == ["error", "todo"]
+  end
+
+  # Every current state label must have a trusted applier: an outsider adding a
+  # second state label must not ride the operator's approval of the first.
+  test "contradictory state labels deny when any label has an untrusted applier and raise attention" do
     :ok = AgentPubSub.subscribe_agent("42")
 
-    issue = issue(creator_login: "trusted", state: nil, state_labels: ["error", "todo"])
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:error", "outsider", "2026-01-02T00:00:00Z")
+    ]
 
-    denied =
-      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-        allowed_users: ["trusted"],
-        request_fun: fn _request -> flunk("a contradiction must fail before timeline authorization") end
-      )
+    denied = authorize_with_events(contradictory_issue(["agent:error", "agent:todo"]), events, ["trusted"])
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
 
     assert_receive {:alert,
                     %{
@@ -272,5 +386,14 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     end
 
     refute DispatchAuthorization.authorize(issue(), "owner", "repo", "agent", allowed_users: ["trusted"], token: "test-token", request_fun: request_fun).dispatch_authorized?
+  end
+
+  defp contradictory_issue(labels) do
+    Issues.normalize_issue(
+      %{"number" => 42, "title" => "Relabelled", "state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})},
+      "owner",
+      "repo",
+      "agent"
+    )
   end
 end

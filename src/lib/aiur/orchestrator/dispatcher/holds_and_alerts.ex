@@ -307,6 +307,17 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
     Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
   end
 
+  defp tracker_preflight_detail({:unsafe_turn_sandbox_policy, {:invalid_configured_writable_root, detail}}) when is_map(detail) do
+    reason = Map.get(detail, :reason) || Map.get(detail, "reason") || :unknown
+    path = Map.get(detail, :path) || Map.get(detail, "path") || "unknown"
+    config_key = Map.get(detail, :config_key) || Map.get(detail, "config_key") || "unknown"
+    "invalid_configured_writable_root path=#{path} key=#{config_key} reason=#{reason}"
+  end
+
+  defp tracker_preflight_detail({:unsafe_turn_sandbox_policy, detail}), do: "unsafe_turn_sandbox_policy #{inspect(detail)}"
+
+  defp tracker_preflight_detail({:tracker_preflight_failed, detail}), do: inspect(detail)
+
   defp tracker_preflight_detail({:toolchain_missing, _detail}), do: :toolchain_missing
 
   defp tracker_preflight_detail(reason) when is_atom(reason), do: reason
@@ -320,6 +331,16 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
     repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
 
     {:ok, "github-auth:#{classification}:#{repo}", "#{formatted_reason} (classification=#{classification})"}
+  end
+
+  defp tracker_preflight_alert_context({:unsafe_turn_sandbox_policy, _detail} = reason) do
+    detail = tracker_preflight_detail(reason)
+    {:ok, "tracker-preflight:#{detail}", detail}
+  end
+
+  defp tracker_preflight_alert_context({:tracker_preflight_failed, _detail} = reason) do
+    detail = tracker_preflight_detail(reason)
+    {:ok, "tracker-preflight:#{detail}", detail}
   end
 
   defp tracker_preflight_alert_context(:missing_github_token) do

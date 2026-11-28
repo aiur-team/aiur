@@ -8,7 +8,7 @@ defmodule Aiur.Events.Export.WiringTest do
       opts = [interactive_cli?: interactive?, headless?: not interactive?, dashboard?: dashboard?]
       disabled = Aiur.Application.child_specs(opts ++ [export_enabled?: false])
       enabled = Aiur.Application.child_specs(opts ++ [export_enabled?: true])
-      assert [{Exporter, callbacks}, Aiur.BuildOrder.History.LabelBackfill] = Enum.take(enabled, -2)
+      assert [{Exporter, callbacks}, Aiur.BuildOrder.History.LabelBackfill, Aiur.Orchestrator.UnresponsiveWatchdog] = Enum.take(enabled, -3)
       assert is_function(callbacks[:on_unavailable], 1)
       assert is_function(callbacks[:on_appended], 2)
       assert Enum.reject(enabled, &match?({Exporter, _}, &1)) == disabled

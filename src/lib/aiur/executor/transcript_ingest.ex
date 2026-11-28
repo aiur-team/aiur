@@ -53,7 +53,16 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   def handle_call(:status, _from, state) do
     status = %{transcript_rejection: state.error}
-    status = if state.capture && state.capture.binding.harness == "codex", do: Map.put(status, :codex_rollout, RolloutTranscript.version_status(state.capture.layout_record)), else: status
+
+    status =
+      if state.capture && state.capture.binding.harness == "codex" do
+        status
+        |> Map.put(:codex_rollout, if(RolloutTranscript.layout_status(state.capture.layout_record) == :supported, do: :tested, else: :unsupported))
+        |> Map.put(:codex_cli_version, codex_version(state.capture.layout_record))
+      else
+        status
+      end
+
     {:reply, status, state}
   end
 
@@ -240,6 +249,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     offset = if binding.locator_hash == hash, do: binding.transcript_offset, else: 0
 
     extractor = if binding.harness == "codex", do: &RolloutTranscript.extract/2, else: &Transcript.extract_disk_record/2
+    format = binding.transcript_format || TranscriptFormat.new()
 
     opts = [
       path: binding.transcript_path,
@@ -272,7 +282,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       written_at: nil,
       gap: nil,
       pending: [],
-      format: Map.get(binding, :transcript_format) || TranscriptFormat.new(),
+      format: format,
       closing: false,
       reason: nil,
       supervisor: state.supervisor,
@@ -317,6 +327,12 @@ defmodule Aiur.Executor.TranscriptIngest do
     end
   end
 
+  defp checkpoint_format(format, "codex", %{"payload" => %{"cli_version" => version}}) when is_binary(version), do: Map.put(format, :codex_cli_version, version)
+  defp checkpoint_format(format, _harness, _layout_record), do: format
+
+  defp codex_version(%{"payload" => %{"cli_version" => version}}) when is_binary(version), do: version
+  defp codex_version(_record), do: nil
+
   defp reconcile_detach do
     case Session.current() do
       {:ok, %{harness: harness, state: "detached", provider_session_id: id, end_reason: reason}} when harness in ["claude", "codex"] and is_binary(id) ->
@@ -336,7 +352,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       with :ok <- GenServer.call(capture.writer, :flush, :infinity),
            {:ok, binding} <- Session.current(),
            true <- identity(binding) == identity(capture.binding),
-           {:ok, _} <- Session.record_checkpoint(capture.binding, capture.offset, capture.format) do
+           {:ok, _} <- Session.record_checkpoint(capture.binding, capture.offset, checkpoint_format(capture.format, capture.binding.harness, capture.layout_record)) do
         %{capture | written_at: now}
       else
         _ -> capture

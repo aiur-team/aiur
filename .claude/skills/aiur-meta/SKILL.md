@@ -293,6 +293,11 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
+**Audit the last hour's recoveries.** List every relabel, requeue, budget reset,
+park, restart, or fresh thread without a root-cause issue link; file an owner
+issue or add evidence to its existing owner. A repeated symptom needs an owner
+issue before another recovery.
+
 ### 3a. Run the Executor sweep every pass
 
 Run `aiur executor-sweep` on every pass and act on every finding before routine

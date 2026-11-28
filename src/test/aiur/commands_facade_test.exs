@@ -4,6 +4,7 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    validate_review_handoff: {Aiur.Commands.OutcomeGate, :validate_handoff},
     override_rows: {Aiur.Commands.OverridePresentation, :rows},
     pending_override_status: {Aiur.Commands.OverridePresentation, :pending},
     notify_override_merge: {Aiur.DecisionStore.OverrideMerges, :notify},
@@ -40,6 +41,7 @@ defmodule Aiur.CommandsFacadeTest do
     open_attention_with_decision: {Aiur.DecisionAttention, :open_with_decision},
     resolve_attention: {Aiur.DecisionAttention, :resolve},
     classify_supervisor_token: {Aiur.SupervisorToken, :classify},
+    decision_ticket_key: {Aiur.DecisionTicketKey, :from_ticket},
     errors: {Aiur.SupervisorToken.EnvCheck, :errors},
     open?: {Aiur.DecisionStore.RetainedIndex, :open?},
     print_projection_status: {Aiur.DecisionStore.ProjectionRecovery, :print_status},

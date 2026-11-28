@@ -33,7 +33,7 @@ defmodule Aiur.Orchestrator.DependencyHoldDescriptionTest do
   test "a hold without remaining prerequisite details omits empty brackets" do
     candidate = %Issue{id: "no-held-prerequisites", blocked_by: []}
     text = DispatchPolicy.describe_dependency_hold(candidate, DispatchPolicy.terminal_state_set())
-    assert text == "blocked by a non-terminal dependency; needs pr_merged"
+    assert text == "blocked by a non-terminal dependency; needs pr_opened"
     refute text =~ "[]"
   end
 end
