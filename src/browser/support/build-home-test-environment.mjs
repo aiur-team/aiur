@@ -56,7 +56,7 @@ export async function waitProductReady(page, phase = 'board', motion = false) {
   if (phase !== 'shell') {
     await expect.poll(() => page.evaluate(phase => phase === 'loading'
       ? !!document.querySelector('.bd-loading')
-      : !!document.querySelector('#bd-content, .bd-list') && !document.querySelector('.bd-loading') && !!document.querySelector('#build-root[data-bd-mounted][data-bd-paging="idle"]'),
+      : !!document.querySelector('#bd-content, .bd-list, .kb') && !document.querySelector('.bd-loading') && !!document.querySelector('#build-root[data-bd-mounted][data-bd-paging="idle"]'),
     phase), { timeout: 10_000, message: `product not ready: ${phase === 'board' ? '.bd-loading still present or board not mounted' : 'loading skeleton absent'} after 10 s` }).toBe(true)
   }
   const frames = page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))

@@ -69,9 +69,13 @@ defmodule AiurWeb.Build.URLStateTest do
     assert both.lane == ["docs", "ui"]
   end
 
-  test "view selection accepts the package-rendered build order and defaults unknown values to the timeline" do
-    assert URLState.parse(%{"view" => "bogus"}).view == "graph"
-    for value <- ~w(graph gantt list build-order), do: assert(URLState.parse(%{"view" => value}).view == value)
+  test "view selection accepts the package-rendered build order and defaults unknown values to the kanban board" do
+    assert URLState.parse(%{"view" => "bogus"}).view == "kanban"
+    assert URLState.parse(%{}).view == "kanban"
+    for value <- ~w(kanban graph gantt list build-order), do: assert(URLState.parse(%{"view" => value}).view == value)
+    # The default stays out of the URL; the timeline, no longer the default, is named.
+    assert canonical("view=kanban") == ""
+    assert canonical("view=graph") == "view=graph"
     assert canonical("view=build-order&feature=bo-42") == "view=build-order&feature=bo-42"
   end
 
@@ -145,7 +149,7 @@ defmodule AiurWeb.Build.URLStateTest do
 
   property "200 generated valid states round trip every field" do
     check all(
-            view <- member_of(["graph", "gantt", "list", "build-order"]),
+            view <- member_of(["kanban", "graph", "gantt", "list", "build-order"]),
             list <- member_of(["tickets", "features", "lanes"]),
             fsort <- member_of(["goal", "pct", "left"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),

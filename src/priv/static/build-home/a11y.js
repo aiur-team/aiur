@@ -80,7 +80,7 @@ function visibleOrder(order) {
 }
 
 export function syncRoving() {
-  if (!ctx.a11y || !ctx.L || S.view === 'list') return;
+  if (!ctx.a11y || !ctx.L || S.view === 'list' || S.view === 'kanban') return;
   const order = readingOrder();
   const ids = new Set(order.map(item => item.t.id));
   const focused = document.activeElement?.closest?.('.bd-card')?.dataset.id ?? null;

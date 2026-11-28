@@ -1,7 +1,7 @@
 import { S, ctx } from './state.js';
 export function fromServer(state = {}) {
   Object.assign(S, {
-    view: state.view ?? 'graph', list: state.list ?? 'tickets', span: state.span ?? 1, feature: state.feature ?? null,
+    view: state.view ?? 'kanban', list: state.list ?? 'tickets', span: state.span ?? 1, feature: state.feature ?? null,
     fmode: state.fmode ?? 'focus', fsort: state.fsort ?? 'goal', liveMin: state.live_min ?? false,
     trees: state.trees ?? false, ticket: state.ticket ?? null,
   });
@@ -13,7 +13,7 @@ export function writeURL(extra) {
   if (extra && Object.hasOwn(extra, 'ticket')) S.ticket = extra.ticket || null;
   const params = {};
   const set = (key, value) => { if (value) params[key] = value; };
-  set('view', S.view !== 'graph' ? S.view : '');
+  set('view', S.view !== 'kanban' ? S.view : '');
   set('list', S.list !== 'tickets' ? S.list : '');
   set('fsort', S.fsort !== 'goal' ? S.fsort : '');
   set('trees', S.trees ? '1' : ''); set('live', S.liveMin ? 'min' : '');

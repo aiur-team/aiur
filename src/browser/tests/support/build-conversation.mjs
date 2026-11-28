@@ -10,7 +10,7 @@ export async function mountConversation(page, info) {
     catch { await route.continue() }
   })
   await page.goto('/build-fixture/live')
-  await expect(page).toHaveURL(/\/build$/)
+  await expect(page).toHaveURL(/\/build\?view=graph$/)
   await expect(page.locator('[data-phx-main]')).toHaveClass(/phx-connected/)
   // Evaluates stay synchronous: Chromium can garbage-collect an awaited evaluate promise
   // ("Promise was collected"), which Playwright reports as a navigation (#7426).

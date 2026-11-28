@@ -1,0 +1,15 @@
+/* Kanban view: columns that snap as they scroll, timeline cards in flow. */
+.kb { container-type: inline-size; --kb-gap: 12px; --fs: 13px; display: flex; align-items: flex-start; gap: var(--kb-gap); padding: 16px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; min-height: 100%; box-sizing: border-box; }
+.kb-col { flex: none; width: clamp(148px, calc((100cqi - 32px - 2 * var(--kb-gap)) / 2.5), 340px); scroll-snap-align: start; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); box-sizing: border-box; }
+.kb-h { display: flex; align-items: center; gap: 8px; margin: 0; padding: 2px 4px 4px; font: 700 .68rem "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); white-space: nowrap; }
+.kb-h em { margin-left: auto; font: 600 .68rem "JetBrains Mono", monospace; font-style: normal; letter-spacing: 0; color: var(--muted); }
+.kb .bd-card { position: relative; left: auto; top: auto; width: 100%; transition: opacity .25s, filter .25s; }
+.kb .bd-card.line { height: 2.3em; }
+.kb .bd-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.kb-empty { padding: 14px 6px; text-align: center; font: .68rem "JetBrains Mono", monospace; color: var(--faint); border: 1px dashed var(--line); border-radius: 9px; }
+.kb-more { margin: 4px auto 0; }
+.kb-cols { flex-wrap: wrap; }
+@container (max-width: 520px) {
+  .kb { --kb-gap: 8px; padding: 12px 10px; scroll-padding-inline: 10px; }
+  .kb-col { width: clamp(148px, calc((100cqi - 20px - 2 * var(--kb-gap)) / 2.4), 340px); padding: 6px; }
+}

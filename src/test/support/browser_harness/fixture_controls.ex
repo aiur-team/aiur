@@ -6,7 +6,9 @@ defmodule Aiur.BrowserHarness.FixtureBuildDataset do
   def configure(conn, %{"dataset" => dataset}) do
     if dataset in FixtureSource.datasets() do
       conn = Plug.Conn.fetch_query_params(conn)
-      query = URI.encode_query(conn.query_params)
+      # The fixture datasets exercise the timeline; Kanban, the product default,
+      # is opened by naming it (`view=kanban`).
+      query = conn.query_params |> Map.put_new("view", "graph") |> URI.encode_query()
 
       conn
       |> Plug.Conn.put_session("fixture_dataset", dataset)

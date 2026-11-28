@@ -312,7 +312,7 @@ test('promotion ages use payload time, tick without rebuilding and restart after
     if (mount === 0) {
       await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/commands', null))
       await expect(page.locator('#build-root')).toHaveCount(0)
-      await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build', null))
+      await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?view=graph', null))
       await expect(page.locator('#bd-content')).toHaveCount(1)
     }
   }

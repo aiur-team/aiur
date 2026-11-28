@@ -161,7 +161,7 @@ test('B8b navigating back during a draw loop renders a fresh mount', async ({ pa
   })
   await navigate(page, '/commands')
   await expect(page.locator('#bd-content')).toHaveCount(0)
-  await navigate(page, '/build')
+  await navigate(page, '/build?view=graph')
   await expect(page.locator('#bd-content')).toHaveCount(1)
   await expect.poll(() => page.evaluate(() => !!st.ctx.D && !!st.ctx.secs.plan)).toBe(true)
   await page.evaluate(() => {

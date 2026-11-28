@@ -86,7 +86,7 @@ export function filtersChanged() {
   writeURL(); renderFilters(); syncAst();
   const changed = changedLayout();
   if (S.loading || !ctx.D) return;
-  if (S.view === 'list') fx.renderList(); else if (changed) fx.relayout(); else fx.decorateAll();
+  if (S.view === 'list') fx.renderList(); else if (S.view === 'kanban') fx.renderKanban(); else if (changed) fx.relayout(); else fx.decorateAll();
 }
 export function setFeature(k) {
   const wasCompact = S.feature && S.fmode === 'compact';
@@ -95,6 +95,7 @@ export function setFeature(k) {
   if (S.loading || !ctx.D) return;
   const changed = changedLayout();
   if (S.view === 'list') fx.renderList();
+  else if (S.view === 'kanban') fx.renderKanban();
   else if (changed || wasCompact || (k && S.fmode === 'compact')) fx.relayout(); else { fx.decorateAll(); fx.applyCols(fx.visibleCols()); }
   if (k) loadFeatureSpan(k);
 }

@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 test('mounted loading toolbar reports unknown and early switch preserves unavailable board', async ({ page }) => {
-  await expect(page.getByRole('tab')).toHaveCount(4)
+  await expect(page.getByRole('tab')).toHaveCount(5)
   await expect(page.locator('.bd-daemon')).toHaveText('Daemon status unknown')
   await expect(page.locator('.bd-daemon')).toHaveClass('bd-daemon off')
   await page.evaluate(() => document.querySelector('#bd-vp').textContent = 'Build timeline unavailable')
@@ -35,7 +35,7 @@ test('mounted loading toolbar reports unknown and early switch preserves unavail
 })
 test('selected view is inert and switches invoke board in order and omit list legend', async ({ page }) => {
   await page.evaluate(() => { m.S.loading = false; window.original = document.querySelector('.bd-seg') })
-  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await page.getByRole('tab', { name: 'Kanban' }).click()
   expect(await page.evaluate(() => ({ same: original === document.querySelector('.bd-seg'), count: pushes.filter(p => p.name === 'build:url').length }))).toEqual({ same: true, count: 0 })
   await page.getByRole('tab', { name: 'Gantt' }).click()
   expect(await page.evaluate(() => board)).toEqual([['viewport'], ['relayout'], ['jumpNow', true]])
@@ -46,16 +46,16 @@ test('selected view is inert and switches invoke board in order and omit list le
 })
 test('manual keyboard wraps, activates and preserves focus through cached and rewritten controls', async ({ page }) => {
   const tab = name => page.getByRole('tab', { name, exact: true })
-  await tab('Timeline').focus()
+  await tab('Kanban').focus()
   await page.keyboard.press('ArrowLeft'); await expect(tab('Build order')).toBeFocused()
-  await page.keyboard.press('Home'); await expect(tab('Timeline')).toBeFocused()
+  await page.keyboard.press('Home'); await expect(tab('Kanban')).toBeFocused()
   await page.keyboard.press('End'); await expect(tab('Build order')).toBeFocused()
-  expect(await page.evaluate(() => m.S.view)).toBe('graph')
+  expect(await page.evaluate(() => m.S.view)).toBe('kanban')
   // Activate List rather than the document view: this page has no projection to read.
-  await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
   await page.keyboard.press('Enter'); await expect(tab('List')).toBeFocused()
   await expect(tab('List')).toHaveAttribute('aria-selected', 'true')
-  await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
   await page.evaluate(() => { window.focused = document.activeElement; m.fx.renderTools() })
   expect(await page.evaluate(() => document.activeElement === focused)).toBe(true)
   await page.evaluate(() => { m.S.span = 7; m.fx.renderTools() })
@@ -91,6 +91,7 @@ test('server URL change rebuilds viewport and jumps without URL echo', async ({ 
   }
 })
 test('span HTML invalidates cache, list omits span controls, lifecycle releases listeners', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Timeline' }).click()
   await page.evaluate(() => { window.wired = 0; window.span = '<button data-span="7">Week</button>'; m.fx.spanToolsHTML = () => span; m.fx.wireSpanTools = () => wired++; m.fx.renderTools(); m.fx.renderTools() })
   expect(await page.evaluate(() => wired)).toBe(1)
   await page.evaluate(() => { span = '<button data-span="7" disabled>Week</button>'; m.fx.renderTools() })
@@ -183,7 +184,8 @@ test('real LiveView URL history and server diff retain selected view and focused
   await expect(page).toHaveURL(/\?view=gantt$/)
   // Toolbar URL writes deliberately replace the current entry (BuildLive.patch_url).
   await page.getByRole('tab', { name: 'Timeline' }).click()
-  await expect(page).toHaveURL(/\/build$/)
+  // Kanban is the default, so the timeline is named in the URL.
+  await expect(page).toHaveURL(/\/build\?view=graph$/)
   await page.evaluate(() => {
     const link = document.createElement('a'); link.href = '/build?view=gantt'; link.textContent = 'History Gantt'
     link.setAttribute('data-phx-link', 'patch'); link.setAttribute('data-phx-link-state', 'push'); document.body.prepend(link)
@@ -224,4 +226,21 @@ test('default daemon helper remains unknown before offline module registration',
     await expect(page.locator('.bd-daemon')).toHaveText('Daemon status unknown')
     await expect(page.locator('.bd-daemon')).toHaveClass('bd-daemon off')
   } finally { await page.close() }
+})
+
+// The board is the default view; its own toolbar picks columns and card size.
+test('kanban toolbar shows To do and In progress by default and keeps one column', async ({ page }) => {
+  await expect(page.getByRole('tab', { name: 'Kanban' })).toHaveAttribute('aria-selected', 'true')
+  const col = name => page.locator('[data-kcol]', { hasText: name })
+  await expect(page.locator('[data-kcol][aria-pressed="true"]')).toHaveText(['To do', 'In progress'])
+  await expect(page.locator('[data-span]')).toHaveCount(0)
+  await page.evaluate(() => { m.S.loading = false; window.drawn = 0; m.fx.renderKanban = () => drawn++ })
+  await col('Done').click()
+  await expect(col('Done')).toHaveAttribute('aria-pressed', 'true')
+  await col('Done').click(); await col('To do').click(); await col('In progress').click()
+  await expect(col('In progress')).toHaveAttribute('aria-pressed', 'true')
+  expect(await page.evaluate(() => ({ cols: m.S.kCols, drawn }))).toEqual({ cols: { nq: false, plan: false, now: true, hist: false }, drawn: 3 })
+  await page.locator('[data-ksize="full"]').click()
+  await expect(page.locator('[data-ksize="full"]')).toHaveAttribute('aria-pressed', 'true')
+  expect(await page.evaluate(() => m.S.kSize)).toBe('full')
 })

@@ -112,7 +112,7 @@ defmodule AiurWeb.BuildLiveURLTest do
     assert_patch(view, "/build?view=list&lane=bugs")
     assert_push_event(view, "build:url", %{state: %{view: "list", lane: ["bugs"]}})
     render_patch(view, "/build")
-    assert_push_event(view, "build:url", %{state: %{view: "graph", lane: []}})
+    assert_push_event(view, "build:url", %{state: %{view: "kanban", lane: []}})
     render_patch(view, "/build")
     refute_url_push(view)
   end

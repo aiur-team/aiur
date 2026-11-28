@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
     window.m = await import('/build-home/state.js')
     window.span = await import('/build-home/span.js')
     const { createBuildHomeHook } = await import('/build-home/hook.js')
-    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
+    document.body.innerHTML = '<main id="build-root" class="bd-root" data-url-state="{&quot;view&quot;:&quot;graph&quot;}">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
     window.events = {}; window.calls = []; window.hook = createBuildHomeHook()
     Object.assign(hook, { el: document.querySelector('#build-root'), handleEvent: (name, fn) => events[name] = fn,
       pushEvent: (name, params) => { if (name === 'build-resync') return new Promise(() => {}); calls.push([name, params]); return Promise.resolve() } })
@@ -53,14 +53,14 @@ test('range sets exact span and repeat values do nothing', async ({ page }) => {
   await page.evaluate(() => { span.setSpan(10); m.S.loading = false; calls.length = 0 })
   await expect(page.locator('[data-span="7"]')).toHaveAttribute('aria-pressed', 'true')
   await page.locator('[data-span="7"]').click()
-  expect(await page.evaluate(() => ({ value: m.S.span, calls }))).toEqual({ value: 7, calls: [['build:url', { span: '7' }], ['tools'], ['relayout'], ['jumpNow', true]] })
+  expect(await page.evaluate(() => ({ value: m.S.span, calls }))).toEqual({ value: 7, calls: [['build:url', { view: 'graph', span: '7' }], ['tools'], ['relayout'], ['jumpNow', true]] })
   await page.evaluate(() => calls.length = 0)
   await page.locator('[data-span="7"]').click()
   expect(await page.evaluate(() => calls)).toEqual([])
 })
 test('span change calls URL, tools, relayout and jump in order', async ({ page }) => {
   await page.evaluate(() => { m.S.loading = false; span.setSpan(7) })
-  expect(await page.evaluate(() => calls)).toEqual([['build:url', { span: '7' }], ['tools'], ['relayout'], ['jumpNow', true]])
+  expect(await page.evaluate(() => calls)).toEqual([['build:url', { view: 'graph', span: '7' }], ['tools'], ['relayout'], ['jumpNow', true]])
 })
 test('list hides controls and keeps span for the next timeline', async ({ page }) => {
   expect(await page.evaluate(() => { m.S.view = 'list'; return span.spanToolsHTML() })).toBe('')
@@ -79,7 +79,7 @@ test('only numeric SPANS values are accepted', async ({ page }) => {
 })
 test('loading span changes only update URL and toolbar', async ({ page }) => {
   await page.locator('[data-span="7"]').click()
-  expect(await page.evaluate(() => ({ value: m.S.span, calls }))).toEqual({ value: 7, calls: [['build:url', { span: '7' }], ['tools']] })
+  expect(await page.evaluate(() => ({ value: m.S.span, calls }))).toEqual({ value: 7, calls: [['build:url', { view: 'graph', span: '7' }], ['tools']] })
 })
 test('keyboard focus survives re-render and disabled ends', async ({ page }) => {
   await page.locator('[data-z="1"]').focus()
@@ -171,7 +171,7 @@ test('offline data remains zoomable and writes only the view URL', async ({ page
   })
   await page.locator('[data-span="7"]').click()
   await expect(page).toHaveURL(/span=7/)
-  expect(await page.evaluate(() => actualCalls.slice(actualCalls.findIndex(c => c[0] === 'build:url'), actualCalls.findIndex(c => c[0] === 'build:url') + 3))).toEqual([['build:url', { span: '7' }], ['relayout'], ['jumpNow', true]])
-  expect(await page.evaluate(() => actualCalls.filter(c => !['relayout', 'jumpNow', 'load-earlier'].includes(c[0])))).toEqual([['build:url', { span: '7' }]])
+  expect(await page.evaluate(() => actualCalls.slice(actualCalls.findIndex(c => c[0] === 'build:url'), actualCalls.findIndex(c => c[0] === 'build:url') + 3))).toEqual([['build:url', { view: 'graph', span: '7' }], ['relayout'], ['jumpNow', true]])
+  expect(await page.evaluate(() => actualCalls.filter(c => !['relayout', 'jumpNow', 'load-earlier'].includes(c[0])))).toEqual([['build:url', { view: 'graph', span: '7' }]])
   await expect(page.locator('#bd-vp')).toHaveAttribute('style', /--dot: 14.0px/)
 })

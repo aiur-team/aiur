@@ -17,7 +17,7 @@ for (const width of [1440, 390]) {
     for (const span of [1, 7, 30, 7]) {
       // Exercise the server URL event used by back/forward navigation, including
       // the subsequent real load-earlier replies; never force a local relayout.
-      await page.evaluate(span => window.liveSocket.main.pushLinkPatch(new Event('click'), `/build?span=${span}`, null), span)
+      await page.evaluate(span => window.liveSocket.main.pushLinkPatch(new Event('click'), `/build?view=graph&span=${span}`, null), span)
       await expect.poll(() => page.evaluate(async span => {
         const { S, ctx } = await import('/build-home/state.js')
         const { H } = await import('/build-home/history.js')

@@ -20,6 +20,8 @@ export function productContextOptions(cell) {
 function routeQuery(route, { query = '', ticket }) {
   const url = new URL(route, 'http://fixture.invalid')
   for (const [key, value] of new URLSearchParams(query.replace(/^\?/, ''))) url.searchParams.set(key, value)
+  // Product specs exercise the timeline; Kanban, the default view, is opened by naming it.
+  if (!url.searchParams.has('view')) url.searchParams.set('view', 'graph')
   if (ticket) url.searchParams.set('ticket', ticket)
   return `${url.pathname}${url.search}`
 }

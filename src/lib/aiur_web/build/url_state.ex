@@ -10,7 +10,8 @@ defmodule AiurWeb.Build.URLState do
   require Logger
   alias AiurWeb.OperatorControlCenter.UnitsURL
 
-  @views ~w(gantt list build-order)
+  # Kanban is the default view, so a URL names `view=graph` for the timeline.
+  @views ~w(kanban graph gantt list build-order)
   @spans [1, 2, 3, 5, 7, 10, 14, 21, 30]
   @tstates ["merged", "failed", "in progress", "queued", "held", "blocked", "open", "not planned"]
   @astates ~w(native_question active error retrying retries command paused parked merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off none)
@@ -32,7 +33,7 @@ defmodule AiurWeb.Build.URLState do
     finished: ~w(merged failed)
   }
   @defaults %{
-    view: "graph",
+    view: "kanban",
     list: "tickets",
     span: 1,
     feature: nil,
@@ -73,7 +74,7 @@ defmodule AiurWeb.Build.URLState do
     feature = valid_string(params["feature"], @slug)
 
     %{
-      view: if(params["view"] in @views, do: params["view"], else: "graph"),
+      view: if(params["view"] in @views, do: params["view"], else: "kanban"),
       list: list(params["list"]),
       span: span(params["span"]),
       feature: feature,
@@ -93,7 +94,7 @@ defmodule AiurWeb.Build.URLState do
   @spec to_query(t()) :: String.t()
   def to_query(state) do
     [
-      {"view", if(state.view != "graph", do: state.view)},
+      {"view", if(state.view != "kanban", do: state.view)},
       {"list", if(state.list != "tickets", do: state.list)},
       {"fsort", if(state.fsort != "goal", do: state.fsort)},
       {"trees", if(state.trees, do: "1")},

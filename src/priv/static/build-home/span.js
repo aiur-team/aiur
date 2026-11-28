@@ -46,7 +46,7 @@ export function setSpan(sp) {
   fx.relayout(); fx.jumpNow(true);
 }
 export function spanToolsHTML() {
-  if (S.view === 'list') return '';
+  if (S.view === 'list' || S.view === 'kanban') return '';
   return '<div class="bd-seg ic bd-cal" role="group" aria-label="Range">' +
     [[1, 'Day'], [7, 'Week'], [30, 'Month']].map(([sp, label]) => `<button type="button" data-span="${sp}" class="${calNear() === sp ? 'on' : ''}" title="${label}" aria-label="${label}" aria-pressed="${calNear() === sp}">${calIc(sp === 30 ? '31' : String(sp))}</button>`).join('') + '</div>' +
     `<div class="bd-seg bd-zoom" role="group" aria-label="Zoom"><button type="button" data-z="1" title="Zoom out · more days" aria-label="Zoom out"${S.span >= 30 ? ' disabled' : ''}>−</button><span class="bd-zv" title="${days()}">${percent()}</span><button type="button" data-z="-1" title="Zoom in · fewer days" aria-label="Zoom in"${S.span <= 1 ? ' disabled' : ''}>+</button></div>`;

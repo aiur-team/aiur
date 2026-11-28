@@ -181,7 +181,7 @@ test('rendered cards keep the current layout back-reference through a live pass'
 })
 
 test('unknown URL lanes cannot become lanes', async ({ page }) => {
-  await page.goto('/build?lane=nope')
+  await page.goto('/build?view=graph&lane=nope')
   await expect(page.locator('.bd-lane')).toHaveCount(0)
 })
 

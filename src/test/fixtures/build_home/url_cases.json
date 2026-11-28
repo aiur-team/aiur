@@ -158,8 +158,9 @@
     },
     {
       "query": "view=graph&span=1&fmode=compact",
-      "canonical": "",
-      "design_output": ""
+      "canonical": "view=graph",
+      "design_output": "",
+      "differs": "Default view: the daemon opens on Kanban, so it names the timeline; the design opened on the timeline and dropped view=graph."
     }
   ]
 }

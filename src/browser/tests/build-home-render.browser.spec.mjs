@@ -293,7 +293,7 @@ test('span URL pages before settling and paging state survives server patches', 
   // Nested harness HTTP routes drop queries; mount with a real LiveView navigation.
   await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/commands', null))
   await expect(page.locator('#build-root')).toHaveCount(0)
-  await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?span=3', null))
+  await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?view=graph&span=3', null))
   await expect.poll(() => page.evaluate(async () => (await import('/build-home/state.js')).S.span)).toBe(3)
   await expect.poll(() => page.evaluate(() => spanRequests.some(params => params.days === 2))).toBe(true)
   await expect.poll(() => page.evaluate(async () => {
