@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport.SnapshotPayload
+  alias Aiur.Orchestrator.StatusReport
 
   describe "max_concurrent_agent_limit/1" do
     test "prefers session override over state field" do
@@ -135,15 +136,15 @@ defmodule Aiur.Orchestrator.SlotsTest do
       state = %State{max_concurrent_agents: 2, running: %{"paused" => entry}}
       topic = "system.dispatch.paused_reservations"
 
-      assert :ok = Slots.update_paused_reservations_attention(state)
-      assert :ok = Slots.update_paused_reservations_attention(state)
+      assert :ok = StatusReport.publish_snapshot(state)
+      assert :ok = StatusReport.publish_snapshot(state)
       assert [alert] = Enum.filter(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
       assert alert["reason"] =~ "age"
 
       mixed = %{state | running: Map.put(state.running, "unknown", running_entry(:paused))}
       assert SnapshotPayload.reserved_paused_age_seconds(mixed) == nil
 
-      assert :ok = Slots.update_paused_reservations_attention(%{state | running: %{}})
+      assert :ok = StatusReport.publish_snapshot(%{state | running: %{}})
       refute Enum.any?(AlertFeed.list(needs_attention: true), &(&1["topic"] == topic))
       assert Enum.any?(AlertFeed.list(), &(&1["topic"] == "#{topic}.resolved"))
     end
