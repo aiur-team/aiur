@@ -2,6 +2,9 @@ defmodule Aiur.Config.SemanticChecksTest do
   @moduledoc "Legacy validation characterization: these regression guards intentionally pass before extraction."
   use Aiur.TestSupport, async: false
 
+  alias Aiur.Config.SemanticChecks
+  alias Aiur.TestSupport.WorkflowYaml
+
   defmodule GitHubSpy do
     alias Aiur.Tracker.SemanticCheck.Settings
     @behaviour Aiur.Config.SemanticCheck
@@ -107,11 +110,13 @@ defmodule Aiur.Config.SemanticChecksTest do
     spy_registry()
     missing = Path.join(Path.dirname(Workflow.workflow_file_path()), "missing-root")
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [missing]}
-    )
+    {config_yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [missing]})
 
-    assert {:error, {:unsafe_turn_sandbox_policy, reason}} = Config.validate!()
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), config_yaml)
+
+    assert {:ok, settings} = Config.settings_uncached()
+    assert {:error, {:unsafe_turn_sandbox_policy, reason}} = SemanticChecks.validate(settings)
     assert inspect(reason) =~ missing
     refute_received :opencode_check
   end

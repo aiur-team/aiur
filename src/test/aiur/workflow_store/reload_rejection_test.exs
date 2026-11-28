@@ -4,6 +4,7 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AlertFeed, AlertLedger}
+  alias Aiur.TestSupport.WorkflowYaml
   alias Aiur.WorkflowStore.{Reload, ReloadRejection}
 
   setup do
@@ -75,7 +76,8 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
 
     on_exit(fn -> Workflow.set_workflow_file_path(original_path) end)
 
-    assert {:error, {:invalid_workflow_config, message}} = WorkflowStore.force_reload()
+    assert {:error, reason} = WorkflowStore.force_reload()
+    message = Config.format_config_error(reason)
     assert message =~ ~s(backend "claude" accepts no effort segment)
 
     assert %{workflow: workflow} = :sys.get_state(WorkflowStore)
@@ -92,10 +94,34 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
 
     File.write!(path, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\n")
 
-    assert {:error, {:invalid_workflow_config, message}} = WorkflowStore.force_reload()
+    assert {:error, reason} = WorkflowStore.force_reload()
+    message = Aiur.Config.format_config_error(reason)
     assert message =~ "polling.interval_ms is no longer supported"
     assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
     assert Process.alive?(Process.whereis(WorkflowStore))
+  end
+
+  test "a missing configured writable root rejects reload with its key and path" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+    root = Aiur.TestSupport.tmp_root!("aiur-missing-configured-root")
+    missing_root = Path.join(root, "missing")
+
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    write_workflow_file!(path, agent_routing: %{3 => "claude:sonnet"})
+    assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
+
+    {yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [missing_root]})
+
+    write_workflow_file_atomic!(path, yaml)
+
+    assert {:error, reason} = WorkflowStore.force_reload()
+    message = Aiur.Config.format_config_error(reason)
+    assert message =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    assert message =~ missing_root
+    assert Config.settings!().agent.routing == %{3 => "claude:sonnet"}
   end
 
   test "boot validates the merged workflow before publishing it" do
@@ -115,7 +141,8 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
       WorkflowStore.force_reload()
     end)
 
-    assert {:stop, {:invalid_workflow_config, message}} = WorkflowStore.init([])
+    assert {:stop, reason} = WorkflowStore.init([])
+    message = Config.format_config_error(reason)
     assert message =~ ~s(backend "claude" accepts no effort segment)
   end
 
@@ -144,5 +171,32 @@ defmodule Aiur.WorkflowStore.ReloadRejectionTest do
     [ledger_paths: [AlertLedger.path()]]
     |> AlertFeed.list()
     |> Enum.any?(&(&1["topic"] == topic and &1["needs_attention"] == needs_attention))
+  end
+
+  test "boot rejects a missing configured writable root with the key and path" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+    root = Aiur.TestSupport.tmp_root!("aiur-missing-boot-writable-root")
+    missing_root = Path.join(root, "missing")
+    original = File.read!(path)
+
+    {yaml, _prompt} =
+      WorkflowYaml.workflow_content(codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [missing_root]})
+
+    write_workflow_file_atomic!(path, yaml)
+    store = Process.whereis(WorkflowStore)
+    :sys.suspend(store)
+
+    on_exit(fn ->
+      write_workflow_file_atomic!(path, original)
+      if Process.alive?(store), do: :sys.resume(store)
+      WorkflowStore.force_reload()
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    assert {:stop, reason} = WorkflowStore.init([])
+    message = Aiur.Config.format_config_error(reason)
+    assert message =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    assert message =~ missing_root
   end
 end

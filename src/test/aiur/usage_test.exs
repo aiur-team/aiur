@@ -45,7 +45,7 @@ defmodule Aiur.UsageTest do
   end
 
   test "registry includes the Netlify and OpenRouter provider adapters" do
-    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :netlify, :openrouter, :ticket]
+    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :elevenlabs, :fal, :github, :netlify, :openrouter, :ticket]
     assert {:ok, %{"provider" => "netlify"}} = Aiur.Usage.provider("netlify", netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unavailable, fields: %{}})
     assert {:ok, %{"provider" => "openrouter"}} = Aiur.Usage.provider("openrouter", meter_views: %{}, openrouter_routes: [], openrouter_spend: %{api_equivalent: [], provider_reported: []})
   end
@@ -58,7 +58,9 @@ defmodule Aiur.UsageTest do
       {"broker", [broker_usage: %{}]},
       {"ticket", [ticket_usage: %{}]},
       {"netlify", [netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unknown, fields: %{}}]},
-      {"openrouter", [meter_views: %{}, openrouter_routes: [], openrouter_spend: %{api_equivalent: [], provider_reported: []}]}
+      {"openrouter", [meter_views: %{}, openrouter_routes: [], openrouter_spend: %{api_equivalent: [], provider_reported: []}]},
+      {"elevenlabs", [elevenlabs_usage: {:error, :transport}]},
+      {"fal", [fal_usage: {:error, :transport}]}
     ]
 
     for {provider, opts} <- cases do
@@ -66,7 +68,67 @@ defmodule Aiur.UsageTest do
       assert record["freshness"] == "unknown", provider
       assert record["observed_at"] == nil, provider
       assert record["age_ms"] == nil, provider
-      refute Map.has_key?(record["fields"], "remaining_percent"), provider
+      refute is_number(record["fields"]["actual"]), provider
+      refute is_number(record["fields"]["balance"]), provider
+    end
+  end
+
+  test "ElevenLabs meter reports actual characters, quota, and reset from the subscription response" do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    reset = DateTime.add(now, 86_400, :second)
+    reset_unix = DateTime.to_unix(reset)
+
+    assert {:ok, record} =
+             Aiur.Usage.provider("elevenlabs",
+               now: now,
+               elevenlabs_api_key: "test-key",
+               elevenlabs_request_fun: fn "test-key" ->
+                 {:ok, %{status: 200, body: %{"character_count" => 250, "character_limit" => 1000, "next_character_count_reset_unix" => reset_unix}}}
+               end
+             )
+
+    assert record["fields"]["actual"] == 250
+    assert record["fields"]["limit"] == 1000
+    assert record["fields"]["period"] == "character quota"
+    assert record["fields"]["remaining"] == 750
+    assert record["fields"]["reset_at"] == DateTime.to_iso8601(reset)
+    assert record["observed_at"] == DateTime.to_iso8601(now)
+    assert record["age_ms"] >= 0
+    assert record["freshness"] == "fresh"
+  end
+
+  test "fal meter reports billing balance and usage and keeps reset nullable" do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    assert {:ok, record} =
+             Aiur.Usage.provider("fal",
+               now: now,
+               fal_api_key: "test-key",
+               fal_request_fun: fn "test-key" ->
+                 {:ok, %{status: 200, body: %{"credits" => %{"current_balance" => 42.5, "currency" => "USD"}}}}
+               end
+             )
+
+    assert record["fields"]["balance"] == 42.5
+    assert record["fields"]["actual"] == 42.5
+    assert record["fields"]["estimate"] == nil
+    assert record["fields"]["reset_at"] == nil
+    assert record["observed_at"] == DateTime.to_iso8601(now)
+  end
+
+  test "provider request failures keep actual, balance, and age unknown" do
+    requests = [
+      {"elevenlabs", [elevenlabs_api_key: "test-key", elevenlabs_request_fun: fn _ -> {:error, :transport} end]},
+      {"fal", [fal_api_key: "test-key", fal_request_fun: fn _ -> {:error, :transport} end]}
+    ]
+
+    for {provider, opts} <- requests do
+      assert {:ok, record} = Aiur.Usage.provider(provider, opts)
+      assert record["freshness"] == "unknown"
+      assert record["observed_at"] == nil
+      assert record["age_ms"] == nil
+      assert record["fields"]["actual"] == nil
+      assert record["fields"]["balance"] == nil
     end
   end
 
