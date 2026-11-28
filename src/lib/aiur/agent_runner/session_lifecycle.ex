@@ -67,9 +67,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def report_session_execution(_recipient, _issue, _session, _skill_preload), do: :ok
 
   defp execution_route(session) do
-    [session_backend_label(session), Map.get(session, :model), Map.get(session, :effort)]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(":")
+    backend = session_backend_label(session)
+    model = Map.get(session, :model)
+    effort = Map.get(session, :effort)
+
+    case {model, effort} do
+      {nil, nil} -> backend
+      {nil, effort} -> "#{backend}::#{effort}"
+      {model, nil} -> "#{backend}:#{model}"
+      {model, effort} -> "#{backend}:#{model}:#{effort}"
+    end
   end
 
   @doc false

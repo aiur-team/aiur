@@ -58,6 +58,15 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
     assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
   end
 
+  test "dashboard projection retains the route reported by a running session" do
+    entry = running_entry("issue-route", "MT-ROUTE", :working)
+    entry = Map.put(entry, :session_execution, %{backend: "codex", route: "codex:gpt-5.5:high"})
+
+    snapshot = %State{running: %{"issue-route" => entry}} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert [%{route: "codex:gpt-5.5:high"}] = snapshot.running
+  end
+
   test "dashboard projection retains the latest declined resume and held pause condition" do
     issue_id = "issue-declined-resume"
 
