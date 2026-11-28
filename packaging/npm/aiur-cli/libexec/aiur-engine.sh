@@ -212,7 +212,6 @@ dispatch_run() {
       args+=("$arg")
     fi
   done
-
   # bash 3.2 (macOS default) errors on "${args[@]}" when args is empty under
   # `set -u` — happens for a bare `--bg` run. Guard the expansion.
   run_session "$mode" "${args[@]+"${args[@]}"}"
@@ -222,7 +221,6 @@ aiur_engine_main() {
   # cleared first) or name a request id; see engine/remote_request_id.sh.
   aiur_parse_remote_flags "$@" || return $?
   aiur_project_args "$@" || return $? && set -- "${AIUR_ARGS[@]+"${AIUR_ARGS[@]}"}"
-
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
   # which command failed instead of a generic "control rpc" (#1684).
