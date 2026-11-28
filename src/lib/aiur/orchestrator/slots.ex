@@ -237,6 +237,7 @@ defmodule Aiur.Orchestrator.Slots do
     Map.merge(PressureAdmission.status_sample(sample), %{
       active: active,
       paused: State.paused_running_count(state.running),
+      paused_reservations: paused_reservations(state.running),
       reserved_paused: reserved_paused,
       occupied: active + reserved_paused,
       configured: state.max_concurrent_agents || Config.max_concurrent_agents(),
@@ -264,6 +265,19 @@ defmodule Aiur.Orchestrator.Slots do
     })
     |> Map.merge(envelope_status(state, max))
   end
+
+  defp paused_reservations(running) do
+    Enum.flat_map(running, fn {_id, entry} ->
+      if State.paused_running_entry?(entry) and State.reserved_paused_running_count(%{"entry" => entry}) > 0 do
+        paused_reservation_time(entry)
+      else
+        []
+      end
+    end)
+  end
+
+  defp paused_reservation_time(%{paused_at: %DateTime{} = paused_at}), do: [paused_at]
+  defp paused_reservation_time(_entry), do: []
 
   defp session_limit_binding?(state, limit) do
     is_integer(state.session_max_concurrent_agents) and (not ResourceEnvelope.enabled?(state) or limit < configured_limit(state))

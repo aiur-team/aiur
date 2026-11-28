@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Orchestrator.StatusCLI.Capacity
   alias Aiur.Orchestrator.StatusCLI.Diagnostics
   alias Aiur.Orchestrator.StatusCLI.DispatchSelections
+  alias Aiur.Orchestrator.StatusCLI.PausedReservations
   alias Aiur.Orchestrator.StatusCLI.Sections
   alias Aiur.Orchestrator.StatusCLI.StatusTable
   alias Aiur.Orchestrator.StatusCLI.Watch
@@ -135,6 +136,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    PausedReservations.print(Map.get(snapshot, :paused_reservations, %{count: 0}))
     DispatchSelections.print(Map.get(snapshot, :capacity))
     Enum.each(UsageReadings.failure_lines(), &IO.puts/1)
     print_usage_floor_holds()
