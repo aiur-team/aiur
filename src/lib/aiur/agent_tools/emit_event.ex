@@ -23,6 +23,8 @@ defmodule Aiur.AgentTools.EmitEvent do
   Subscribers see your `message` and optional structured `payload`. Use
   `emit_event` for coordination signals an agent on another ticket might
   want to react to; use `emit_alert` for Executor-facing audible alerts.
+  Use `report_progress` with `percent` and `step` at meaningful work milestones;
+  the daemon stores the step on the ticket's progress projection.
   The exact names `decision.acknowledged` and `decision.resolved` are durable
   target-agent lifecycle events; their payload must carry `decision_id`,
   `action_id`, and `expected_version` from the delivered answer envelope.
@@ -49,7 +51,7 @@ defmodule Aiur.AgentTools.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.status (status note; payload %{doing, why, next, waiting_on, asks, risks, pr, updated_reason}, one-line message ≤200 bytes, payload ≤1,280 bytes, 6 per turn), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated"
+          "Vocabulary tag. Use report_progress with payload {percent: 0..100, step: one line ≤120 chars} for ticket progress. Other names: progress (Executor bar), progress.status (status note), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, optimistic.integrated."
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
@@ -67,7 +69,7 @@ defmodule Aiur.AgentTools.EmitEvent do
     ~r/\Aattention\.[a-z0-9][a-z0-9.-]{0,63}\z/,
     ~r/\Acustom\.[a-z0-9][a-z0-9.-]{0,63}\z/
   ]
-  @agent_event_exact ["progress", "blocked", "unblocked", "attention.resolved", "pause.request", "optimistic.integrated"]
+  @agent_event_exact ["progress", "report_progress", "blocked", "unblocked", "attention.resolved", "pause.request", "optimistic.integrated"]
 
   @progress_emits_per_turn_max 2
   @progress_quota_key {Aiur.AgentTools.Dispatch, :progress_emit_count}
@@ -96,6 +98,7 @@ defmodule Aiur.AgentTools.EmitEvent do
     event_publisher = Keyword.get(opts, :event_publisher)
 
     with {:ok, name, message, payload} <- normalize_emit_event_arguments(arguments),
+         {:ok, name, message, payload} <- normalize_report_progress(name, message, payload),
          :ok <- validate_emit_event_name(name),
          {:ok, message, payload} <- validate_payload(name, message, payload),
          :ok <- enforce_per_turn_quota(name),
@@ -116,6 +119,20 @@ defmodule Aiur.AgentTools.EmitEvent do
         Response.failure(Errors.payload(:event_publisher_unavailable))
     end
   end
+
+  defp normalize_report_progress("report_progress", message, payload) do
+    percent = Map.get(payload, "percent", Map.get(payload, :percent))
+    step = Map.get(payload, "step", Map.get(payload, :step)) || message
+
+    if is_integer(percent) and percent in 0..100 and is_binary(step) and String.trim(step) != "" do
+      step = step |> String.replace(~r/[\r\n\t]+/u, " ") |> String.trim() |> String.slice(0, 120)
+      {:ok, "progress", step, Map.merge(payload, %{"percent" => percent, "step" => step, "source" => "worker"})}
+    else
+      {:error, :invalid_report_progress}
+    end
+  end
+
+  defp normalize_report_progress(name, message, payload), do: {:ok, name, message, payload}
 
   @spec normalize_emit_event_arguments(term()) ::
           {:ok, String.t(), String.t(), map()} | {:error, atom()}

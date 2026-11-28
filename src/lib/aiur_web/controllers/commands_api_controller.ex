@@ -104,8 +104,7 @@ defmodule AiurWeb.CommandsApiController do
          {:ok, tickets} <- optional_tickets(params),
          {:ok, labels} <- optional_labels(params),
          {:ok, expires_in} <- expires_in(params),
-         {:ok, minted} <-
-           Scope.mint(principal, tickets, secret: secret, expires_in: expires_in, labels: labels) do
+         {:ok, minted} <- Scope.mint(principal, tickets, secret: secret, expires_in: expires_in, labels: labels) do
       conn
       |> put_status(201)
       |> json(%{

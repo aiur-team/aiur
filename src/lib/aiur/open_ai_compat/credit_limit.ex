@@ -24,6 +24,14 @@ defmodule Aiur.OpenAICompat.CreditLimit do
     "not enough credit"
   ]
 
+  # OpenRouter's per-key spending limit refuses the prompt itself:
+  #
+  #   Prompt tokens limit exceeded: 13485 > 561. To increase, visit
+  #   https://openrouter.ai/workspaces/.../keys/... and adjust the key's monthly limit
+  #
+  # No smaller output cap can fit, so it is credit-limited without a retry.
+  @key_limit_markers ["tokens limit exceeded", "key's monthly limit", "key limit exceeded"]
+
   @affordable ~r/can only afford ([\d,]+)/i
 
   @doc "Whether a 402 detail is a credit or `max_tokens` refusal rather than an unrelated payment fault."
@@ -34,6 +42,15 @@ defmodule Aiur.OpenAICompat.CreditLimit do
   end
 
   def error?(_detail), do: false
+
+  @doc "Whether a 402 detail is the provider's per-key limit, which no smaller request can fit."
+  @spec key_limit?(term()) :: boolean()
+  def key_limit?(detail) when is_binary(detail) do
+    haystack = String.downcase(detail)
+    Enum.any?(@key_limit_markers, &String.contains?(haystack, &1))
+  end
+
+  def key_limit?(_detail), do: false
 
   @doc """
   The smaller cap for the one retry of a credit-refused request.

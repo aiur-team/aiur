@@ -48,9 +48,40 @@ defmodule Aiur.AgentList.ActivityIntake do
       |> Map.get(:summaries, [])
       |> Enum.reduce(empty_presentation(), &present_summary(&1, &2, state, previous))
 
+    fallback =
+      state
+      |> Map.get(:summaries, [])
+      |> Enum.reduce(presentation, &present_phase_fallback(&1, &2, state))
+
     state
-    |> Map.merge(Map.drop(presentation, [:presented]))
+    |> Map.merge(Map.drop(fallback, [:presented]))
     |> Map.put(:ticket_activity_presented, presentation.presented)
+  end
+
+  defp present_phase_fallback(%{status: :running, identifier: identifier, tracker_identity: identity, work_state: work_state}, acc, state)
+       when is_binary(identifier) and work_state not in [:deactivated, :completed, :done] do
+    if Map.has_key?(acc.progress_by_id, identifier) or Map.has_key?(state.ticket_activity_by_identity, key(identity)) do
+      acc
+    else
+      phase = get_in(state, [:phase_by_identifier, identifier]) || phase_for_summary(state, identifier)
+      percent = %{plan: 0, work: 15, review: 70, brainstorm: 0, ci: 85, merge: 95} |> Map.get(phase, 15)
+      step = %{plan: "Planning the work", brainstorm: "Planning the work", work: "Working through the plan", review: "Reviewing the changes"} |> Map.get(phase, "Working through the plan")
+
+      acc
+      |> put_in([:progress_by_id, identifier], [{percent, System.monotonic_time(:millisecond)}])
+      |> put_in([:latest_event_by_id, identifier], %{message: step, source: %{kind: :phase}, timestamp: nil, stale?: false})
+    end
+  end
+
+  defp present_phase_fallback(_summary, acc, _state), do: acc
+
+  defp phase_for_summary(state, identifier) do
+    case Enum.find(Map.get(state, :summaries, []), &(Map.get(&1, :identifier) == identifier)) do
+      %{tracker_state: "ci-wait"} -> :ci
+      %{tracker_state: "human-review"} -> :review
+      %{tracker_state: "merging"} -> :merge
+      _ -> :work
+    end
   end
 
   defp apply_entry(state, payload) do
@@ -137,7 +168,7 @@ defmodule Aiur.AgentList.ActivityIntake do
     case activity[:latest_evidence] do
       %{status: :known} = evidence ->
         event = %{
-          message: evidence_message(evidence),
+          message: progress_step(activity, evidence),
           source: evidence[:source],
           timestamp: evidence[:observed_at],
           stale?: activity[:status] == :stale
@@ -149,6 +180,9 @@ defmodule Aiur.AgentList.ActivityIntake do
         acc
     end
   end
+
+  defp progress_step(%{progress: %{status: :known, step: step}}, _evidence) when is_binary(step) and step != "", do: step
+  defp progress_step(_activity, evidence), do: evidence_message(evidence)
 
   defp put_status(acc, identifier, activity) do
     status = %{
@@ -174,6 +208,8 @@ defmodule Aiur.AgentList.ActivityIntake do
   defp field_status(%{status: :known, freshness: freshness}), do: freshness
   defp field_status(%{status: status}), do: status
   defp field_status(_field), do: :unknown
+
+  defp evidence_message(%{source: %{kind: :agent_event}, attributes: %{step: step}}) when is_binary(step), do: step
 
   defp evidence_message(%{source: %{kind: :agent_event}, attributes: %{percent: percent}}),
     do: "Progress #{percent}%"

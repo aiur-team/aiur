@@ -26,7 +26,7 @@ defmodule Aiur.BuildQueueCLI do
     with :ok <- validate(opts),
          envelope <- BuildQueue.show(Keyword.get(opts, :server, Aiur.Project.via(Aiur.BuildQueue.Server))),
          {:ok, envelope} <- select(envelope, Keyword.get(opts, :queue)) do
-      envelope = envelope |> select_next(opts) |> JSONSafe.normalize()
+      envelope = envelope |> select_next(opts) |> mark_stalled(opts) |> JSONSafe.normalize()
 
       if Keyword.get(opts, :json, false),
         do: IO.puts(Jason.encode!(envelope)),
@@ -53,6 +53,23 @@ defmodule Aiur.BuildQueueCLI do
   end
 
   defp select_next(envelope, _opts), do: envelope
+
+  defp mark_stalled(envelope, opts) do
+    capacity = Keyword.get(opts, :capacity, %{})
+
+    free_slots =
+      case capacity do
+        %{capacity: %{available: available}} when is_integer(available) -> available
+        %{available: available} when is_integer(available) -> available
+        _ -> 0
+      end
+
+    now = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+
+    Map.update(envelope, :queues, [], fn queues ->
+      Enum.map(queues, &Map.put(&1, :stalled?, SetSummary.stalled?(&1, now, free_slots)))
+    end)
+  end
 
   defp default_error(message), do: IO.puts(:stderr, message)
 
@@ -108,7 +125,7 @@ defmodule Aiur.BuildQueueCLI do
   defp reasons(source), do: "  reasons #{inspect(source["reasons"])}"
 
   defp print_queue(queue) do
-    IO.puts("#{queue["name"]}  #{progress(queue["progress"])}#{if queue["held"], do: "  held", else: ""}")
+    IO.puts("#{queue["name"]}  #{progress(queue["progress"])}#{if queue["held"], do: "  held", else: ""}#{if queue["stalled?"], do: "  STALLED >1h with free slots", else: ""}")
 
     print_summary(queue)
 

@@ -34,7 +34,7 @@ Grounding: every path below was read at these commits:
 | D4 | Build output | `dist/` is **committed** and guarded by a byte-for-byte `check-dist` CI job. The dashboard (no Node build) and the aiur.team `file:` consumers read it directly, and npm ships the same bytes. |
 | D5 | Distribution | **In-repo consumers** (aiur.team, docs): `"aiur-style": "file:../packages/aiur-style"` (docs: `file:../../packages/aiur-style`). **Dashboard**: a sync script copies `dist/` into `src/priv/static/aiur-style/`, and an ExUnit byte-equality test blocks drift. **archon and khala**: the npm package `aiur-style@^0.x` with exact-version pins. |
 | D6 | Theme contract | `data-theme="light\|dark"` on `<html>`; **absent means follow `prefers-color-scheme`**. The per-site default is set with a `data-default` attribute on the init script (aiur.team and the dashboard stay dark by default). One storage key, `aiur-theme`, with a one-time legacy-key migration. A pre-paint **external** classic script is used, never inline, so Khala's `script-src 'self'` is satisfied everywhere. |
-| D7 | Canonical visuals | The **aiur.team** banner close X; **white on `#1f57c4`** for every filled button in both themes (hover `#1a4aa8`, pressed `#163e8c`); focus ring `2px solid var(--aiur-color-focus)`, offset 3px; the **dashboard's** left-nav shell. See [§4](#4-drift-and-how-it-resolves). |
+| D7 | Canonical visuals | The **aiur.team** banner close X; **white on `#1f57c4`** for filled buttons on the websites (hover `#1a4aa8`, pressed `#163e8c`); preserve dashboard dark-mode primary fill `#0070f0`; focus ring `2px solid var(--aiur-color-focus)`, offset 3px; the **dashboard's** left-nav shell. Docs is text-only everywhere; theme toggles are grey/tan circles; muted text uses the website grey, including dashboard. See [§4](#4-drift-and-how-it-resolves). |
 | D8 | archon `templates/base` | **Out of scope.** It is the document renderer shipped inside the `aiur-archon` npm package. It uses its own palette, must stay self-contained under `check-dist`, and is inlined into every consumer's generated doc. Coupling it would change third-party output bytes. See [§14](#14-out-of-scope). |
 | D9 | Safety net | Before any migration, each consumer gets committed Playwright `toHaveScreenshot` baselines (light/dark × desktop/phone, reduced motion). A migration PR must leave them unchanged, except for the drift fixes listed in §4, each shown as a reviewed diff. |
 
@@ -168,11 +168,11 @@ A migration PR may change pixels **only** for the rows below. Each such change m
 | ID | Drift | Resolution | Who sees a change |
 |---|---|---|---|
 | DR-1 | Three banner close buttons | aiur.team's ghost SVG X everywhere: 26×26, radius 7px, transparent, `--aiur-color-muted`, hover fg + 8% fg wash, 14px SVG with stroke 1.8, `right: 8px` | archon, khala splash |
-| DR-2 | Button fill `#1a4aa6` vs `#1a4aa8`; missing pressed/disabled states; docs dark `#1f6fcf` with near-black light hover; dashboard dark `#0070f0` | One filled button: fg `#ffffff` on `#1f57c4` / hover `#1a4aa8` / pressed `#163e8c`, **identical in both themes** (6.5:1 / 8.1:1 / 10:1). Disabled = 45% opacity + `cursor:not-allowed` | khala (hover ±2 in one channel), docs, dashboard dark `.btn` |
+| DR-2 | Button fill `#1a4aa6` vs `#1a4aa8`; missing pressed/disabled states; docs dark `#1f6fcf` with near-black light hover; dashboard dark `#0070f0` | Website filled buttons: fg `#ffffff` on `#1f57c4` / hover `#1a4aa8` / pressed `#163e8c`. Preserve dashboard dark primary fill `#0070f0` (operator decision 6, #2792). Disabled = 45% opacity + `cursor:not-allowed` | khala (hover ±2 in one channel), docs |
 | DR-3 | Six focus rings | `outline: 2px solid var(--aiur-color-focus); outline-offset: 3px`. Focus is `#1f57c4` in light and `#2f86ff` in dark; both are ≥3:1 against their bg | every consumer, keyboard-only |
 | DR-4 | Docs button is a text link on aiur.team but a pill on archon/khala | Docs is a text-only mono link everywhere (operator decision 3, #2778), not a pill | aiur.team |
-| DR-5 | Theme toggle: ghost 42px (W), filled circles (A, KS), tool pill (B), text (KA) | One `aiur-theme-toggle`: a `--sm` icon button (38px circle) on sites, styled as a pill-surface button (`--aiur-color-pill-bg` fill, `--aiur-color-pill-bd` border, `--aiur-color-fg` icon), not the blue DR-2 fill, and the dashboard `tool` variant in the app shell. Always `aria-pressed` (true = dark), `aria-label="Dark mode"`, SVGs `aria-hidden` | aiur.team (ghost → pill-surface circle), khala app |
-| DR-6 | Muted text `#8c8d93`/`#5f5645` on sites vs `#969aa4`/`#635a48` on the dashboard | Site values win for brand surfaces. The dashboard keeps `--aiur-color-muted-app` until its phase-2 migration, then swaps in a reviewed PR. Both pass 4.5:1 | dashboard (phase 2) |
+| DR-5 | Theme toggle: ghost 42px (W), filled circles (A, KS), tool pill (B), text (KA) | One grey/tan circle `aiur-theme-toggle` everywhere, using a `--sm` icon button (38px circle) on sites and the app-shell tool variant in the dashboard. Always `aria-pressed` (true = dark), `aria-label="Dark mode"`, SVGs `aria-hidden` | every consumer |
+| DR-6 | Muted text `#8c8d93`/`#5f5645` on sites vs `#969aa4`/`#635a48` on the dashboard | Website grey is canonical everywhere, including the dashboard (operator decision 5, #2792). Dashboard migration updates the muted aliases and reviewed screenshots; verify 4.5:1 contrast. | dashboard (foundation/migration) |
 | DR-7 | Page background: sites `#1a1b1e` (dark) vs dashboard `#16171a` | Both kept as tokens: `--aiur-color-bg` = `#1a1b1e` (site canvas) and `--aiur-color-bg-app` = `#16171a` | none |
 | DR-8 | Scroll cue light contrast 2.75:1 | Use `--aiur-color-muted` (≥4.5:1) | aiur.team, khala |
 | DR-9 | Keepouts stale after layout change (R-TAB-1); archon observes `body`, khala hugs text lines, aiur.team does neither | One field module: `ResizeObserver` on **each** keepout **and** the host, `MutationObserver` for keepouts added or removed, `.aiur-hug` per-line text rects, theme-event redraw | aiur.team (fixed band), archon, khala |
@@ -180,7 +180,7 @@ A migration PR may change pixels **only** for the rows below. Each such change m
 | DR-11 | Feature grid breakpoint 640 vs 720 | 720px → 2 columns, 440px → 1 column | aiur.team 641–720px only |
 | DR-12 | Khala shell active item = 1px outline, no icons, no bottom pill | Dashboard look: `--aiur-color-accent-soft` fill + `--aiur-color-accent-ink` text, 18px icon slot, bottom pill ≤959px | khala app |
 | DR-13 | Theme toggle / canvas / copy button a11y gaps | `aria-pressed`, `aria-hidden` on decorative SVG and canvas, a `role=status` live region "Copied", `type=button` everywhere | none visual |
-| DR-14 | Theme default: aiur.team and dashboard force dark; archon and khala follow the system | Keep each site's current default via `data-default` (no behaviour change). **Open question Q2** | none |
+| DR-14 | Theme default: aiur.team and dashboard force dark; archon and khala follow the system | Keep each site's current default via `data-default` (operator decision 2, #2792; no behaviour change) | none |
 | DR-15 | Copy confirmation 1300ms vs 1600ms | 1500ms | none visual at rest |
 | DR-16 | Banner background: translucent (W) vs solid band (A, KS) | Solid band `linear-gradient(pill-bg,pill-bg), var(bg)` (reads the same where no field runs behind it) | none measurable on W |
 
@@ -500,7 +500,7 @@ Each component has these parts:
 ```
 
 - The credit sits on the flow field, so it is a keepout.
-- aiur.team omits the credit (Q5).
+- Whether aiur.team omits the credit remains open (Q7 in §15).
 
 ### 9.6 Command box and tabs (`aiur-command`, `aiur-tabs`)
 
@@ -756,13 +756,13 @@ That is 9 PRs. With the four baseline tickets, AS-05, AS-12, AS-14, AS-23 and AS
 | Dashboard font change (Space Grotesk and JetBrains Mono actually loading) reflows tables and truncation | Medium | DR-10 is its own commit in AS-42 with full-page diffs. The existing `shell-content-width` and `build-order-responsive` specs must stay green |
 | archon CSP: moving to self-hosted fonts and external CSS/JS without updating `edge-host.mjs` breaks the landing page silently | Medium | AS-46 updates `edge-host.mjs` and `netlify/test/edge-host.test.mjs` together, and adds a Playwright check with the production headers applied (no `securitypolicyviolation`) |
 | khala CSP regression via an inline `<script>` from the package or Vite | Medium | The package never emits inline script (package test greps `dist/**/*.html` and the `markup/` fixtures). The khala visual config serves the production CSP header |
-| npm publishing needs operator setup (trusted publisher for `aiur-style`) | Certain | AS-14 proves the workflow with `--dry-run`. AS-35 is `complexity:1` but **blocked on the operator** creating the npm package, or granting the org the OIDC trusted publisher (Q1) |
+| npm publishing needs operator setup (trusted publisher for `aiur-style`) | Certain | AS-14 proves the workflow with `--dry-run`. AS-35 is `complexity:1`; the operator will configure npm ownership or trusted publishing when that release ticket is reached (operator decision 1, #2792) |
 | `file:` dependency differences between bun (Netlify) and `npm ci` (CI) | Medium | AS-40 runs both in CI (`bun install --frozen-lockfile` then `npm ci`) and commits both lockfiles, as today |
 | `dist/` committed → merge conflicts across parallel component PRs | High | `dist/` is fully generated. The conflict rule is to take either side and run `npm run build`, and `check-dist` catches mistakes. The component tickets are ordered so at most ~3 run in parallel |
 | Legacy storage keys: visitors who dismissed a banner see it again | Low | `data-legacy-keys` migration, with a test per consumer |
 | Scope creep into dashboard feature components (cards, tables, build-order grid) | Medium | Out of scope (§14); the package takes only what two or more consumers share |
 | Khala #163 ("channel" rename) conflicting with the splash migration | Medium | AS-04 is blocked by khala#163, so baselines include the new copy. Any Khala copy a ticket touches uses "channel", never "chat" or "room" |
-| Operator-visible drift fixes (DR-1, DR-2, DR-4, DR-5, DR-12) disliked after landing | Medium | Each is a separate commit with diff images; open questions Q3 and Q4 settle them before the migration tickets start |
+| Operator-visible drift fixes (DR-1, DR-2, DR-4, DR-5, DR-12) disliked after landing | Medium | Each is a separate commit with diff images; decisions on Docs link, toggle appearance, dashboard button fill and muted text are recorded in issue #2792 |
 
 ---
 
@@ -779,10 +779,9 @@ That is 9 PRs. With the four baseline tickets, AS-05, AS-12, AS-14, AS-23 and AS
 
 ## 15. Open questions for the operator
 
-1. **Q1: package name and npm ownership.** Recommendation: **`aiur-style`** (unscoped, free today, matches `aiur-cli` and `aiur-archon`). Alternative: `@aiur/style`, but the `@aiur` npm scope's ownership is unverified. Who creates the npm package and configures the GitHub OIDC trusted publisher for `aiur-team/aiur` → `aiur-style`?
-2. **Q2: default theme.** aiur.team, the docs and the dashboard force dark when nothing is stored; archon and khala follow the system. Keep the per-site defaults (the plan's default), or make every site follow the system?
-3. **Q3 (settled):** Docs is a text-only link on every site, not a pill (operator decision 3, #2778; supersedes DR-4).
-4. **Q4: dashboard dark-theme button fill.** The dashboard uses `#0070f0` in dark. The plan unifies on `#1f57c4` (white text 6.5:1 vs 4.59:1). OK to change the dashboard's primary buttons?
-5. **Q5: "built with Aiur" on aiur.team itself.** The plan omits it there (aiur.team keeps its brand footer) and uses it on every product site. OK?
-6. **Q6: dashboard muted text colour** (`#969aa4` → `#8c8d93` dark, `#635a48` → `#5f5645` light, DR-6). Accept the small shift, or keep the dashboard's values as the canonical ones?
-7. **Q7: the aiur.team banner.** It announces Archon today. Should aiur.team show a banner at all long-term, and which campaign id should it use?
+1. **Operator decisions (#2792, 2026-09-24):** use unscoped `aiur-style`; npm ownership/trusted publishing will be set up at AS-35 (#2786), which pauses then for that setup.
+2. **Q2 settled:** keep current theme defaults: dark on aiur.team, docs and dashboard; system on archon and khala.
+3. **Q3/Q4 settled:** Docs stays a text-only link everywhere; theme toggles are grey/tan circles, never pills or blue.
+4. **Q5/Q6 settled:** website-grey muted text applies to the dashboard; preserve its dark primary button fill `#0070f0`.
+5. **Q7 open:** whether aiur.team omits the “built with Aiur” credit remains unanswered.
+6. **Q8 open:** whether aiur.team keeps a long-term banner, and its campaign id, remain unanswered.

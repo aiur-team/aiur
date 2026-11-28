@@ -6,12 +6,53 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   import Aiur.Orchestrator.DispatchPolicy.IssueStates
 
   alias Aiur.BuildQueue.Hints
-  alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DependencyGate, Slots, State}
+  alias Aiur.{Commands, Config, Issue}
+  alias Aiur.Orchestrator.{DependencyGate, DispatchPolicy.IssueStates, DispatchPolicy.SpendCap, Slots, State}
+
+  require Logger
 
   # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
   # blocker, so an unreadable hold still reads as a hold.
   @unknown_dependency_hold "blocked by a non-terminal dependency"
+
+  @spec identity_decision(Issue.t(), MapSet.t(), MapSet.t()) :: :dispatch | {:skip, term()}
+  def identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue, active_states, terminal_states) do
+    winner = resolve_state_labels(state_labels)
+
+    Logger.info(
+      "Dispatch resolved contradictory state labels for issue_id=#{inspect(issue.id)} " <>
+        "labels=#{inspect(state_labels)} -> #{inspect(winner)}"
+    )
+
+    identity_decision(%{issue | state: winner, state_labels: [winner]}, active_states, terminal_states)
+  end
+
+  def identity_decision(%Issue{} = issue, active_states, terminal_states) do
+    cond do
+      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_label = foreign_active_state_label(issue, active_states, terminal_states) -> {:skip, {:foreign_owner, foreign_label}}
+      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
+      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
+      not issue_not_paused?(issue) -> {:skip, :paused}
+      not issue_not_parked?(issue) -> {:skip, :parked}
+      not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
+      true -> SpendCap.decision(issue)
+    end
+  end
+
+  def identity_decision(_issue, _active_states, _terminal_states), do: {:skip, :invalid_issue}
+
+  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
+    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
+  end
+
+  defp valid_issue_shape?(_issue), do: false
+
+  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) when is_list(labels) do
+    IssueStates.foreign_active_state_label(labels, Aiur.GitHub.Config.label_prefix(), active_states, terminal_states)
+  end
+
+  defp foreign_active_state_label(_issue, _active_states, _terminal_states), do: nil
 
   @spec state_slots_available?(term(), term()) :: boolean()
   def state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
@@ -160,8 +201,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   True when dispatch of the issue must be held for an open blocking Command,
   per the latest dispatch cycle's decision-store read.
 
-  `blocked_ticket_ids` is a `MapSet` of ticket identifiers with open blocking
-  Commands. The gate is fail-closed: `:unavailable` (the decision store could
+  `blocked_ticket_ids` is a `MapSet` of ticket identifiers or repository-
+  qualified keys with open blocking Commands. The gate is fail-closed: `:unavailable` (the decision store could
   not be read) returns true, because an open blocking Command is
   indistinguishable from an empty store when the store cannot be read.
   `nil` (no cycle computed the set) returns false, preserving compatibility
@@ -173,8 +214,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
   it checks `MapSet` membership explicitly.
   """
   @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
-  def blocked_on_decision?(%Issue{id: id}, %MapSet{} = blocked),
-    do: MapSet.member?(blocked, id)
+  def blocked_on_decision?(%Issue{} = issue, %MapSet{} = blocked) do
+    MapSet.member?(blocked, Commands.decision_ticket_key(issue))
+  end
 
   def blocked_on_decision?(_issue, :unavailable), do: true
   def blocked_on_decision?(_issue, _blocked), do: false

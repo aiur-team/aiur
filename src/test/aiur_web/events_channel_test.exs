@@ -203,6 +203,25 @@ defmodule AiurWeb.EventsChannelTest do
     end
   end
 
+  # After a daemon restart the exporter needs minutes to recover its journal.
+  # A client that joined then got events_unavailable and rejoined every second
+  # (OGM API, 2026-11-14); it must instead wait and replay from its cursor.
+  test "a client that joins while the exporter is starting waits and then replays", %{exporter: pid} do
+    available = Export.status()
+    :persistent_term.put({Export, :status}, %{available | state: :unavailable, reason: nil})
+    socket = joined(%{"after" => 3})
+    send(socket.channel_pid, :heartbeat)
+    refute_push("record", %{type: "error"}, 100)
+    refute_push("heartbeat", _, 20)
+
+    :persistent_term.put({Export, :status}, available)
+    append(pid, 1)
+    assert_push("record", %{"seq" => 4})
+    assert_push("record", %{"seq" => 5})
+    assert_push("record", %{"seq" => 6})
+    refute_push("record", %{type: "error"}, 50)
+  end
+
   test "unavailable and disabled connections report error and stop", %{root: root, exporter: exporter} do
     Process.flag(:trap_exit, true)
     status = Export.status()

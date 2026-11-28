@@ -3,7 +3,7 @@ defmodule Aiur.AgentTools.Errors do
   Error payload catalog for dynamic tool failures.
   """
 
-  alias Aiur.AgentTools.{AgentLifecycleErrors, HistoryExportErrors}
+  alias Aiur.AgentTools.{AgentEventErrors, AgentLifecycleErrors, HistoryExportErrors}
   alias Aiur.AgentTools.Response
 
   @spec payload(term()) :: map()
@@ -76,6 +76,9 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload(:linear_graphql_unavailable),
+    do: %{"error" => %{"message" => "Linear GraphQL is unavailable in this runtime."}}
+
   def payload(:invalid_arguments) do
     %{
       "error" => %{
@@ -105,6 +108,9 @@ defmodule Aiur.AgentTools.Errors do
 
   def payload(:missing_review_thread_terminal_reply_body),
     do: %{"error" => %{"message" => "`terminal_reply_body` is required."}}
+
+  def payload(:review_thread_tool_unavailable),
+    do: %{"error" => %{"message" => "GitHub review thread tools are unavailable in this runtime."}}
 
   def payload(:missing_review_thread_body),
     do: %{"error" => %{"message" => "`aiur_reply_review_thread.body` is required."}}
@@ -223,6 +229,17 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload({:decision_rejected, {:decision_invalid, {:option_media_missing, option_ids}}} = reason) do
+    %{
+      "error" => %{
+        "message" =>
+          "Command not raised: this project requires media (an image path or URL) on every option. " <>
+            "Add `media` to these options and raise it again: #{Enum.join(option_ids, ", ")}.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
   def payload({:decision_rejected, reason}) do
     %{
       "error" => %{
@@ -243,65 +260,20 @@ defmodule Aiur.AgentTools.Errors do
 
   def payload(:no_issue_identifier), do: AgentLifecycleErrors.payload(:no_issue_identifier)
 
-  def payload(:invalid_event_arguments) do
-    %{
-      "error" => %{
-        "message" => "`emit_event` expects an object with non-empty `name` and `message` strings and optional `payload` object."
-      }
-    }
-  end
-
-  def payload(:missing_event_name),
-    do: %{"error" => %{"message" => "`emit_event.name` is required."}}
-
-  def payload(:missing_event_message),
-    do: %{"error" => %{"message" => "`emit_event.message` is required."}}
-
-  def payload(:event_name_not_in_allowlist) do
-    %{
-      "error" => %{
-        "message" =>
-          "`emit_event.name` must match the agent vocabulary: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>, or optimistic.integrated.",
-        "examples" => [
-          "progress",
-          "progress.brainstorm-end",
-          "decision.use-amqp-matcher",
-          "blocked",
-          "attention.scope-question",
-          "custom.heartbeat"
-        ]
-      }
-    }
-  end
-
-  def payload(:missing_topic_pattern),
-    do: %{"error" => %{"message" => "`topic_pattern` is required."}}
-
-  def payload(:invalid_topic_pattern),
-    do: %{
-      "error" => %{
-        "message" => "`topic_pattern` must be non-empty, must not start or end with `.`, and must not contain `..`."
-      }
-    }
-
-  def payload(:agent_subscription_scope_forbidden),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_subscribe.topic_pattern` must name one literal ticket, for example `ticket.42.#`; Executor, system, bare-wildcard, and wildcard-ticket patterns are unavailable to agents."
-      }
-    }
-
-  def payload(:subscriber_unavailable),
-    do: %{
-      "error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}
-    }
-
-  def payload(:unsubscriber_unavailable),
-    do: %{
-      "error" => %{
-        "message" => "`aiur_unsubscribe` is unavailable in the current runtime context."
-      }
-    }
+  def payload(reason)
+      when reason in [
+             :invalid_event_arguments,
+             :missing_event_name,
+             :missing_event_message,
+             :invalid_report_progress,
+             :event_name_not_in_allowlist,
+             :missing_topic_pattern,
+             :invalid_topic_pattern,
+             :agent_subscription_scope_forbidden,
+             :subscriber_unavailable,
+             :unsubscriber_unavailable
+           ],
+      do: AgentEventErrors.payload(reason)
 
   def payload(:missing_issue_number),
     do: %{"error" => %{"message" => "`issue_number` is required."}}
@@ -462,7 +434,8 @@ defmodule Aiur.AgentTools.Errors do
              :rework_findings_unaddressed,
              :pull_request_conflicting,
              :override_handoff_unconfirmed,
-             :status_note_invalid
+             :status_note_invalid,
+             :ci_wait_work_unpublished
            ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
   end

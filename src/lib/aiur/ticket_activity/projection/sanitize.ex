@@ -31,10 +31,31 @@ defmodule Aiur.TicketActivity.Projection.Sanitize do
   @spec safe_attributes(term()) :: map()
   def safe_attributes(attributes) when is_map(attributes) do
     attributes
-    |> Map.take([:percent, :stage, :transition, :needs_attention, :severity, :compaction_status])
+    |> Map.take([:percent, :step, :progress_source, :done, :total, :phase, :stage, :transition, :needs_attention, :severity, :compaction_status])
     |> Enum.reduce(%{}, fn
       {:percent, percent}, acc when is_integer(percent) and percent >= 0 and percent <= 100 ->
         Map.put(acc, :percent, percent)
+
+      {:step, step}, acc when is_binary(step) and byte_size(step) <= 480 ->
+        Map.put(acc, :step, step)
+
+      {:progress_source, :worker}, acc ->
+        Map.put(acc, :progress_source, :worker)
+
+      {:progress_source, :checklist}, acc ->
+        Map.put(acc, :progress_source, :checklist)
+
+      {:progress_source, :phase}, acc ->
+        Map.put(acc, :progress_source, :phase)
+
+      {:done, value}, acc when is_integer(value) and value >= 0 ->
+        Map.put(acc, :done, value)
+
+      {:total, value}, acc when is_integer(value) and value > 0 ->
+        Map.put(acc, :total, value)
+
+      {:phase, phase}, acc when phase in [:plan, :work, :review, :pr, :ci, :merge] ->
+        Map.put(acc, :phase, phase)
 
       {:stage, stage}, acc when stage in [:brainstorm, :plan, :work, :review] ->
         Map.put(acc, :stage, stage)

@@ -1,0 +1,7 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.OverlapReviewer",
+  "kind": "reference",
+  "only_paths": ["src/lib/aiur/orchestrator/dispatcher/launch.ex"],
+  "reason": "#8136 check overlap before a worker starts; the optional reviewer returns immediately when its table is absent"
+}

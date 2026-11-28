@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
   alias Aiur.Signal
+  alias Aiur.TicketBranch
 
   @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10
@@ -161,7 +162,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   end
 
   defp computed_merged_issue_target_state(identifier, opts) do
-    if merged_pr_closes_ticket?(identifier, opts) do
+    if merged_pr_completes_ticket?(identifier, opts) do
       case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
         {:ok, target} -> target
         {:error, _reason} = error -> error
@@ -169,6 +170,33 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
     else
       if identifier in merge_linked_identifiers(opts), do: @non_closing_merge_state, else: "human-review"
     end
+  end
+
+  defp merged_pr_completes_ticket?(identifier, opts) do
+    merged_pr_closes_ticket?(identifier, opts) or
+      (own_ticket_branch?(identifier, opts) and not explicit_non_closing_reference?(identifier, opts))
+  end
+
+  defp own_ticket_branch?(identifier, opts) do
+    identifier = to_string(identifier)
+
+    case Keyword.get(opts, :head_ref) do
+      ref when is_binary(ref) ->
+        TicketBranch.ticket_id(ref) == identifier
+
+      _ ->
+        case Keyword.get(opts, :ticket_id) do
+          ticket_id when is_binary(ticket_id) or is_integer(ticket_id) -> to_string(ticket_id) == identifier
+          _ -> false
+        end
+    end
+  end
+
+  defp explicit_non_closing_reference?(identifier, opts) do
+    identifier = to_string(identifier)
+
+    identifier in RecentMerge.referenced_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts)) and
+      identifier not in merge_closing_identifiers(opts)
   end
 
   # The live merged route resolves its ticket from the `aiur/<id>-<slug>` head

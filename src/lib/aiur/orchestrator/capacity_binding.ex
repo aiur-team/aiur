@@ -218,6 +218,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:awaiting_dispatch, _detail}), do: "awaiting dispatch"
   def short_label({:none, _detail}), do: nil
   def short_label({:paused_reservations, reserved}), do: "paused reservations=#{reserved}"
+  def short_label({:envelope, %{resource_binding: %{}} = capacity}), do: ceiling_label(capacity)
   def short_label({:envelope, %{} = detail}), do: EnvelopeResume.label(detail)
   def short_label({:envelope, _detail}), do: "AIMD envelope"
   def short_label({:config_cap, _detail}), do: "config max_concurrent_agents"
@@ -252,6 +253,8 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   config-sourced rather than as the operator's last command (#2138).
   """
   @spec ceiling_label(map()) :: String.t()
+  def ceiling_label(%{resource_binding: %{}, effective: effective}), do: "resource-based ceiling #{effective}"
+
   def ceiling_label(%{effective: effective, max: max}) when is_integer(effective) and effective < max,
     do: "AIMD envelope #{effective}"
 
@@ -277,6 +280,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
     end
   end
 
+  defp envelope_detail(%{resource_binding: %{}} = capacity, _effective), do: capacity
   defp envelope_detail(%{resume_level: level} = capacity, _effective) when is_integer(level), do: capacity
   defp envelope_detail(_capacity, effective), do: effective
 

@@ -81,7 +81,7 @@ defmodule Aiur.AgentList.AppTicketActivityTest do
     Agent.update(source, fn _ -> :restarted end)
     send(pid, :activity_refresh_tick)
     assert App.snapshot(pid).ticket_activity_generation == 0
-    assert App.snapshot(pid).progress_by_id == %{}
+    assert [{15, _timestamp}] = App.snapshot(pid).progress_by_id["42"]
     GenServer.stop(pid)
   end
 

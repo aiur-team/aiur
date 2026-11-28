@@ -85,6 +85,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     blockers
     start_mode
     start_trigger
+    queue_id
     blocker_prs
     coverage
     pr_created_at

@@ -96,6 +96,14 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
                  "waiting" => nil,
                  "open_decision_count" => 0,
                  "open_decision_count_health" => "unknown",
+                 "progress" => %{
+                   "percent" => 15,
+                   "step" => "Working through the plan",
+                   "phase" => "work",
+                   "source" => "phase",
+                   "checklist" => nil,
+                   "updated_at" => nil
+                 },
                  "ci" => nil,
                  "review" => "not_started"
                }
@@ -176,6 +184,14 @@ defmodule Aiur.Extensions.ObservabilityApiTest do
                "waiting_reason" => "active",
                "open_decision_count" => 0,
                "open_decision_count_health" => "unknown",
+               "progress" => %{
+                 "percent" => 15,
+                 "step" => "Working through the plan",
+                 "phase" => "work",
+                 "source" => "phase",
+                 "checklist" => nil,
+                 "updated_at" => nil
+               },
                "ci" => nil,
                "review" => "not_started"
              },

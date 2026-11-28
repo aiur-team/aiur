@@ -4,7 +4,11 @@ defmodule Aiur.BuildQueue.ReadModel.Eligibility do
   @spec focus_startable?(map(), map(), map(), map(), map()) :: boolean()
   def focus_startable?(projection, members, observations, settings, state) do
     projection.state in [:ready, :promoted, :overridden] and projection.verdict == :ready and
-      not stale_manual_override?(members[projection.issue_id], observations[projection.issue_id], settings) and
+      not stale_manual_override?(
+        members[projection.issue_id],
+        observations[projection.issue_id],
+        settings
+      ) and
       not blocked_by_github?(Map.get(state, :native_blockers) || %{}, projection.issue_id)
   end
 
@@ -24,7 +28,10 @@ defmodule Aiur.BuildQueue.ReadModel.Eligibility do
   defp blocked_by_github?(blocker_observations, id) do
     case Map.get(blocker_observations, id) do
       {:ok, blockers} -> Enum.any?(blockers, & &1.open?)
-      {:unknown, _reason} -> true
+      # Unknown dependency evidence is surfaced to operators, but it must not
+      # make a queue member permanently unstartable. Dispatch performs its
+      # own live dependency validation immediately before launch.
+      {:unknown, _reason} -> false
       _ -> false
     end
   end

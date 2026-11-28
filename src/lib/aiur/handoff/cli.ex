@@ -1,9 +1,11 @@
 defmodule Aiur.Handoff.CLI do
   @moduledoc "CLI boundary for handoff preflight, outcomes and provider identity."
   import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Handoff.All
   alias Aiur.Handoff.Report
   alias Aiur.Project.Registry
+  alias Aiur.Project.Supervisors
 
   @agents_contract "aiur.agents"
   @contract_version 1
@@ -32,7 +34,7 @@ defmodule Aiur.Handoff.CLI do
 
   defp prepare_single(opts) do
     timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
-    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
+    snapshot_fun = Keyword.get(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), timeout_ms) end)
 
     case snapshot_fun.() do
       :timeout ->
@@ -150,10 +152,21 @@ defmodule Aiur.Handoff.CLI do
   @spec agents(keyword()) :: :ok
   def agents(opts \\ []) do
     guarded("agents --json", fn ->
-      snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
-      IO.puts(Jason.encode!(agents_payload(snapshot)))
+      snapshot = Keyword.get_lazy(opts, :snapshot, fn -> Aiur.Orchestrator.live_snapshot(Aiur.Orchestrator.server(), 15_000) end)
+      IO.puts(Jason.encode!(Map.merge(agents_payload(snapshot), Keyword.get_lazy(opts, :gateway, &gateway_facts/0))))
       exit_marker(0)
     end)
+  end
+
+  # A peer caches these to delegate here (`Aiur.Ownership.PeerState`); the ownership ref needs the daemon key.
+  defp gateway_facts do
+    key = with {:ok, key} <- Aiur.Identity.instance_key(), do: key
+    served = if Process.whereis(Supervisors), do: for(%{repo: r, state: :running} <- Supervisors.which_projects(), do: r), else: []
+    repos = List.wrap(GitHubConfig.repo()) ++ served
+    %{daemon_key: if(is_binary(key), do: key), projects: repos |> Enum.filter(&is_binary/1) |> Enum.map(&String.downcase/1) |> Enum.uniq()}
+  rescue
+    # Unreadable facts are omitted, so the peer reads them as unknown; the agents list still answers.
+    _ -> %{}
   end
 
   defp agents_payload(%{running: running}) when is_list(running) do

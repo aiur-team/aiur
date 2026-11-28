@@ -69,6 +69,9 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
     field(:max_concurrent_agents, :integer)
+
+    # @config-reference config-configuration-agent-00 agent.resource_concurrency | boolean | false | Use measured host, cgroup, build, and provider readings to set the dispatch ceiling. |
+    field(:resource_concurrency, :boolean, default: false)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
@@ -119,7 +122,7 @@ defmodule Aiur.Config.Schema.Agent do
     # or new prompt input before alerting; productive turns reset the count,
     # and 0 / nil disables this outcome-based bound.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.max_consecutive_noop_turns | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
+    # @config-reference config-configuration-agent-00 agent.max_consecutive_noop_turns | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review, or an open PR whose body fails the PR body check, becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
     field(:max_consecutive_noop_turns, :integer, default: 3)
     # @config-reference config-configuration-agent-00 agent.max_retry_attempts | integer | 3 | Failed-turn retry count. |
     field(:max_retry_attempts, :integer, default: 3)
@@ -242,6 +245,9 @@ defmodule Aiur.Config.Schema.Agent do
     field(:unreviewed_pr_age_limit_minutes, :integer, default: 120)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_enabled | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
     field(:ci_recovery_enabled, :boolean, default: true)
+
+    # @config-reference config-configuration-agent-00 agent.ci_failed_rework | boolean | true | Reworks a ticket on a failed CI verdict; set `false` when CI runs outside hosted Actions. |
+    field(:ci_failed_rework, :boolean, default: true)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_poll | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
     field(:ci_recovery_max_per_poll, :integer, default: 5)
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_hour | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
@@ -341,6 +347,7 @@ defmodule Aiur.Config.Schema.Agent do
         :prior_work_continuation,
         :max_dispatches_per_ticket,
         :max_concurrent_agents,
+        :resource_concurrency,
         :run_queue_threshold,
         :max_concurrent_builds,
         :build_nice,
@@ -378,6 +385,7 @@ defmodule Aiur.Config.Schema.Agent do
         :non_closing_merge_marker,
         :unreviewed_pr_age_limit_minutes,
         :ci_recovery_enabled,
+        :ci_failed_rework,
         :ci_recovery_max_per_poll,
         :ci_recovery_max_per_hour,
         :max_cpu_pressure,

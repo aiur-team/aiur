@@ -7,7 +7,7 @@ defmodule Aiur.ProviderAccountGeneration do
   provider response data.
   """
 
-  alias Aiur.ProviderAccountGeneration.{Owner, Snapshot}
+  alias Aiur.ProviderAccountGeneration.{Context, Owner, Snapshot}
 
   @pubsub Aiur.PubSub
 
@@ -42,64 +42,154 @@ defmodule Aiur.ProviderAccountGeneration do
     }
   end
 
+  @doc "Creates an in-process context for one provider account generation."
+  @spec new_context(provider(), backend(), GenServer.server()) :: map()
+  def new_context(provider, backend, server), do: Context.new_binding(provider, backend, server)
+
+  @doc "Fetches the live binding and owner for a previously created context."
+  @spec fetch_context(map()) ::
+          {:ok, GenServer.server(), reference(), reference(), String.t()} | :error
+  def fetch_context(session), do: Context.fetch(session)
+
+  @doc "Reads one value retained in a provider account context."
+  @spec context_value(map(), atom()) :: term() | nil
+  def context_value(session, key), do: Context.value(session, key)
+
+  @doc "Stores one value in a provider account context."
+  @spec put_context_value(map(), atom(), term()) :: :ok
+  def put_context_value(session, key, value), do: Context.put(session, key, value)
+
+  @doc "Deletes one value from a provider account context."
+  @spec delete_context_value(map(), atom()) :: :ok
+  def delete_context_value(session, key), do: Context.delete(session, key)
+
+  @doc "Clears a provider account context for its provider and backend."
+  @spec clear_context(provider(), backend(), map()) :: :ok
+  def clear_context(provider, backend, session), do: Context.clear(provider, backend, session)
+
+  @doc "Returns an unavailable snapshot when the provider account owner cannot be reached."
+  @spec unavailable_snapshot(provider(), backend()) :: snapshot()
+  def unavailable_snapshot(provider, backend), do: Snapshot.unavailable(provider, backend)
+
   @spec lookup(provider(), backend(), binding()) :: snapshot()
   def lookup(provider, backend, binding), do: lookup(__MODULE__, provider, backend, binding)
 
-  @spec lookup(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) :: snapshot()
+  @spec lookup(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) ::
+          snapshot()
   def lookup(server, provider, backend, binding) do
     {binding, _opts} = unwrap_binding(binding, %{})
-    safe_call(server, {:lookup, provider, backend, binding}, Snapshot.unavailable(provider, backend))
+
+    safe_call(
+      server,
+      {:lookup, provider, backend, binding},
+      Snapshot.unavailable(provider, backend)
+    )
   end
 
   @doc false
-  @spec issue_binding(GenServer.server(), provider(), backend()) :: {:ok, lifecycle_binding()} | {:error, :owner_unavailable}
-  def issue_binding(server, provider, backend), do: safe_call(server, {:issue_binding, provider, backend}, {:error, :owner_unavailable})
+  @spec issue_binding(GenServer.server(), provider(), backend()) ::
+          {:ok, lifecycle_binding()} | {:error, :owner_unavailable}
+  def issue_binding(server, provider, backend),
+    do: safe_call(server, {:issue_binding, provider, backend}, {:error, :owner_unavailable})
 
   @doc false
-  @spec recover_binding(GenServer.server(), provider(), backend(), lifecycle_binding()) :: :ok | {:error, :owner_unavailable}
-  def recover_binding(server, provider, backend, %{binding: binding, authority: authority, topic: topic})
+  @spec recover_binding(GenServer.server(), provider(), backend(), lifecycle_binding()) ::
+          :ok | {:error, :owner_unavailable}
+  def recover_binding(server, provider, backend, %{
+        binding: binding,
+        authority: authority,
+        topic: topic
+      })
       when is_reference(binding) and is_reference(authority) and is_binary(topic) do
-    safe_call(server, {:recover_binding, provider, backend, binding, authority, topic}, {:error, :owner_unavailable})
+    safe_call(
+      server,
+      {:recover_binding, provider, backend, binding, authority, topic},
+      {:error, :owner_unavailable}
+    )
   end
 
   @spec bind(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
-  def bind(provider, backend, binding, opts \\ []), do: bind(__MODULE__, provider, backend, binding, opts)
+  def bind(provider, backend, binding, opts \\ []),
+    do: bind(__MODULE__, provider, backend, binding, opts)
 
-  @spec bind(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
-  def bind(server, provider, backend, binding, opts) when is_list(opts), do: transition(server, :bind, provider, backend, binding, opts)
+  @spec bind(
+          GenServer.server(),
+          provider(),
+          backend(),
+          binding() | lifecycle_binding(),
+          keyword()
+        ) :: {:ok, snapshot()}
+  def bind(server, provider, backend, binding, opts) when is_list(opts),
+    do: transition(server, :bind, provider, backend, binding, opts)
 
   @spec replace(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
-  def replace(provider, backend, binding, opts \\ []), do: replace(__MODULE__, provider, backend, binding, opts)
+  def replace(provider, backend, binding, opts \\ []),
+    do: replace(__MODULE__, provider, backend, binding, opts)
 
-  @spec replace(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
-  def replace(server, provider, backend, binding, opts) when is_list(opts), do: transition(server, :replace, provider, backend, binding, opts)
+  @spec replace(
+          GenServer.server(),
+          provider(),
+          backend(),
+          binding() | lifecycle_binding(),
+          keyword()
+        ) :: {:ok, snapshot()}
+  def replace(server, provider, backend, binding, opts) when is_list(opts),
+    do: transition(server, :replace, provider, backend, binding, opts)
 
   @spec confirm(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
-  def confirm(provider, backend, binding, opts \\ []), do: confirm(__MODULE__, provider, backend, binding, opts)
+  def confirm(provider, backend, binding, opts \\ []),
+    do: confirm(__MODULE__, provider, backend, binding, opts)
 
-  @spec confirm(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
-  def confirm(server, provider, backend, binding, opts) when is_list(opts), do: transition(server, :confirm, provider, backend, binding, opts)
+  @spec confirm(
+          GenServer.server(),
+          provider(),
+          backend(),
+          binding() | lifecycle_binding(),
+          keyword()
+        ) :: {:ok, snapshot()}
+  def confirm(server, provider, backend, binding, opts) when is_list(opts),
+    do: transition(server, :confirm, provider, backend, binding, opts)
 
   @spec invalidate(provider(), backend(), binding(), keyword()) :: {:ok, snapshot()}
-  def invalidate(provider, backend, binding, opts \\ []), do: invalidate(__MODULE__, provider, backend, binding, opts)
+  def invalidate(provider, backend, binding, opts \\ []),
+    do: invalidate(__MODULE__, provider, backend, binding, opts)
 
-  @spec invalidate(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
-  def invalidate(server, provider, backend, binding, opts) when is_list(opts), do: transition(server, :invalidate, provider, backend, binding, opts)
+  @spec invalidate(
+          GenServer.server(),
+          provider(),
+          backend(),
+          binding() | lifecycle_binding(),
+          keyword()
+        ) :: {:ok, snapshot()}
+  def invalidate(server, provider, backend, binding, opts) when is_list(opts),
+    do: transition(server, :invalidate, provider, backend, binding, opts)
 
   @doc false
-  @spec retire(GenServer.server(), provider(), backend(), binding() | lifecycle_binding(), keyword()) :: {:ok, snapshot()}
-  def retire(server, provider, backend, binding, opts) when is_list(opts), do: transition(server, :retire, provider, backend, binding, opts)
+  @spec retire(
+          GenServer.server(),
+          provider(),
+          backend(),
+          binding() | lifecycle_binding(),
+          keyword()
+        ) :: {:ok, snapshot()}
+  def retire(server, provider, backend, binding, opts) when is_list(opts),
+    do: transition(server, :retire, provider, backend, binding, opts)
 
   @doc "Subscribe the caller to change events for one exact trusted binding."
   @spec subscribe(provider(), backend(), binding()) :: :ok | {:error, term()}
   def subscribe(provider, backend, binding), do: subscribe(__MODULE__, provider, backend, binding)
 
-  @spec subscribe(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) :: :ok | {:error, term()}
+  @spec subscribe(GenServer.server(), provider(), backend(), binding() | lifecycle_binding()) ::
+          :ok | {:error, term()}
   def subscribe(server, provider, backend, binding) do
     {binding, _opts} = unwrap_binding(binding, %{})
 
     with {:ok, topic} <-
-           safe_call(server, {:subscription_topic, provider, backend, binding}, {:error, :owner_unavailable}) do
+           safe_call(
+             server,
+             {:subscription_topic, provider, backend, binding},
+             {:error, :owner_unavailable}
+           ) do
       case Process.whereis(@pubsub) do
         pid when is_pid(pid) -> Phoenix.PubSub.subscribe(@pubsub, topic)
         _ -> {:error, :subscription_unavailable}
@@ -109,10 +199,16 @@ defmodule Aiur.ProviderAccountGeneration do
 
   defp transition(server, action, provider, backend, binding, opts) do
     {binding, opts} = unwrap_binding(binding, Map.new(opts))
-    safe_call(server, {action, provider, backend, binding, Map.new(opts)}, {:ok, Snapshot.unavailable(provider, backend)})
+
+    safe_call(
+      server,
+      {action, provider, backend, binding, Map.new(opts)},
+      {:ok, Snapshot.unavailable(provider, backend)}
+    )
   end
 
-  defp unwrap_binding(%{binding: binding, authority: authority}, opts) when is_reference(binding) and is_reference(authority) do
+  defp unwrap_binding(%{binding: binding, authority: authority}, opts)
+       when is_reference(binding) and is_reference(authority) do
     {binding, opts |> Map.put_new(:authority, authority) |> unwrap_previous_binding()}
   end
 

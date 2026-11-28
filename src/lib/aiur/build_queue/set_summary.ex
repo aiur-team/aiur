@@ -1,7 +1,22 @@
 defmodule Aiur.BuildQueue.SetSummary do
   @moduledoc "Set counts and admission state from reconciled item evidence."
   @terminal [:completed, :cancelled, :removed]
+  @stall_after_ms 3_600_000
   alias Aiur.BuildQueue.Ordering
+
+  @doc "Returns whether a list has remained unstarted for an hour while dispatch slots are free."
+  @spec stalled?(map(), integer(), non_neg_integer()) :: boolean()
+  def stalled?(queue, now_ms, free_slots) when is_map(queue) and is_integer(now_ms) and is_integer(free_slots) do
+    created_at = Map.get(queue, :created_at)
+    items = Map.get(queue, :items, [])
+
+    queue[:kind] == :list and free_slots > 0 and match?(%DateTime{}, created_at) and
+      now_ms - DateTime.to_unix(created_at, :millisecond) >= @stall_after_ms and
+      Enum.any?(items, &(&1.state not in @terminal)) and
+      not Enum.any?(items, &(&1.state == :claimed))
+  end
+
+  def stalled?(_queue, _now_ms, _free_slots), do: false
 
   @spec decorate([map()], [String.t()]) :: [map()]
   def decorate(queues, unavailable) do

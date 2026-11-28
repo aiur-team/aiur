@@ -217,7 +217,7 @@ the machine, independently of repository workflows.
 | `machine:capacity.sources.<backend>.serves` | string array | `[coding]` | Work kinds this source may take. |
 | `machine:capacity.sources.<backend>.reserve.percent` | number | `0` | 0–100; remaining percent workers must leave on the reserved accounts. |
 | `machine:capacity.sources.<backend>.reserve.accounts` | string array | all accounts | Which `agent.accounts.<backend>` entries the reserve covers. |
-| `machine:capacity.sources.<backend>.limits.daily_usd` | number | `null` | Hard USD cap per UTC day; also `weekly_usd` and `monthly_usd` (UTC calendar periods). Non-negative. |
+| `machine:capacity.sources.<backend>.limits.daily_usd` | number | `null` | Hard USD cap per UTC day; also `weekly_usd` and `monthly_usd` (UTC calendar periods). Non-negative. Applies to `metered` and `prepaid` sources only. |
 | `machine:capacity.sources.<backend>.limits.weekly_usd` | number | `null` | See `daily_usd`. |
 | `machine:capacity.sources.<backend>.limits.monthly_usd` | number | `null` | See `daily_usd`. |
 | `machine:capacity.limits` | map | `{}` | Hard USD caps over all metered and prepaid sources together. |
@@ -227,6 +227,10 @@ the machine, independently of repository workflows.
 | `machine:capacity.default_burn_percent_per_hour` | number | `null` | Greater than 0, at most 100; burn assumed for a running agent before one is learned. |
 | `machine:coordination.database_url_env` | string | `AIUR_LEASE_DATABASE_URL` | Name of an environment variable, never a URL. |
 | `machine:coordination.offline_after_seconds` | integer | `180` | A gateway whose newest instance heartbeat is older than this raises one `system.gateway.<id>.offline` attention per outage, from the repository leader only; return closes it silently. Needs the shared store (`AIUR_LEASE_DATABASE_URL`); 30–86400 seconds. |
+| `machine:push.enabled` | boolean | `false` | Master switch for push relay delivery. |
+| `machine:push.send_timeout_ms` | integer | `5000` | Per-relay request timeout; 500–30000 ms. |
+| `machine:push.outbox.max_age_seconds` | integer | `86400` | Maximum outbox age; 600–604800 seconds. |
+| `machine:push.allow_loopback_relay` | boolean | `false` | Allows loopback relay URLs for tests and self-hosted development. |
 
 Account registration, logout and settings writes preserve the other top-level
 sections. Malformed machine files cause account writes to return an error without

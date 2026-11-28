@@ -1,10 +1,10 @@
 defmodule Aiur.ExecutorAttention.CLI do
   @moduledoc false
   alias Aiur.ControlCLI.Reasons
-  alias Aiur.Executor.{Claims, Roster}
+  alias Aiur.Executor.{Claims, Roster, SessionCLI, Status}
   alias Aiur.ExecutorAttention.DecisionEscalation
   alias Aiur.ExecutorAttention.DeferredWait
-  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox}
+  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorListener, ExecutorWakeInbox, OperatorNotify}
   alias Aiur.ExecutorSweep.TriageBacklog
 
   import Aiur.ControlCLI.Protocol, only: [control_error: 1, error_marker: 0, exit_marker: 1, guarded: 2]
@@ -25,6 +25,23 @@ defmodule Aiur.ExecutorAttention.CLI do
 
       _ ->
         IO.puts(:stderr, "aiur: executor-emit payload must be a JSON object")
+        exit_marker(64)
+    end
+  end
+
+  @spec notify(String.t(), String.t(), String.t(), String.t()) :: :ok
+  def notify(kind, text, ticket, url) when is_binary(kind) and is_binary(text) and is_binary(ticket) and is_binary(url) do
+    case OperatorNotify.notify(kind, text, ticket: ticket, url: url) do
+      {:ok, id} ->
+        IO.puts(Jason.encode!(%{id: id, topic: "operator.notify." <> kind}))
+        exit_marker(0)
+
+      {:error, {:publish_failed, _reason}} ->
+        IO.puts(:stderr, "aiur: notification not published (the event bus did not accept it)")
+        exit_marker(1)
+
+      {:error, reason} ->
+        IO.puts(:stderr, "aiur: notify rejected (#{reason})")
         exit_marker(64)
     end
   end
@@ -435,22 +452,18 @@ defmodule Aiur.ExecutorAttention.CLI do
     end
   end
 
-  @doc "Prints the `status` WAKES, DECISIONS and TRIAGE lines."
+  @doc "Prints the wake, decision, triage, and Executor session status lines."
   @spec print_wake_status() :: :ok
   def print_wake_status do
-    print_wakes()
+    snapshot = Status.snapshot()
+    print_wakes(snapshot.wakes)
     DecisionEscalation.print_status()
     TriageBacklog.print_status()
+    SessionCLI.print_status(snapshot)
   end
 
-  defp print_wakes do
-    case ExecutorWakeInbox.stats() do
-      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
-      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
-    end
-  catch
-    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
-  end
+  defp print_wakes(%{cursor: cursor, pending_count: pending_count}), do: IO.puts("WAKES CURSOR #{cursor} PENDING #{pending_count}")
+  defp print_wakes(:unavailable), do: IO.puts("WAKES unavailable (cursor and pending count could not be read)")
 
   defp executor_subscription_result(:ok, action, topic) do
     IO.puts("#{action} #{topic}")

@@ -4,9 +4,35 @@ defmodule Aiur.Orchestrator.StatusReportProgressTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.StatusReport.Progress
   alias Aiur.ProgressRetention
   alias Aiur.Projections.UnitsRow
   alias Aiur.TrackerIdentity
+
+  test "ticket progress keeps a worker's step and falls back to its phase band" do
+    identity = identity()
+    key = TrackerIdentity.github_key(identity)
+    updated_at = ~U[2026-11-24 03:05:00Z]
+    activities = %{key => %{progress: %{status: :known, percent: 42, step: "Writing reducer tests", progress_source: :worker, observed_at: updated_at}}}
+
+    assert Progress.ticket_progress(identity, activities, "work") == %{
+             percent: 42,
+             step: "Writing reducer tests",
+             phase: "work",
+             source: :worker,
+             checklist: nil,
+             updated_at: updated_at
+           }
+
+    assert Progress.ticket_progress(identity, %{}, "ci") == %{
+             percent: 85,
+             step: "Waiting for CI",
+             phase: "ci",
+             source: :phase,
+             checklist: nil,
+             updated_at: nil
+           }
+  end
 
   test "serves the retained last-known progress when the live projection cannot (#1963)" do
     ticket = identity()

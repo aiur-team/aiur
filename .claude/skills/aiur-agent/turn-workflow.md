@@ -1,7 +1,9 @@
 # Running a turn
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks,
+except a draft blocked from outside the ticket, which may go to
+`agent:human-review` with an `outside_blocker` reason (SKILL.md, "Never idle").
 All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
 Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
@@ -53,27 +55,32 @@ in the workpad rather than falling back to raw label edits.
 3. Find or create one persistent issue comment titled `## Agent Workpad`.
 4. Keep all progress, plan, validation, PR URL, blockers, final notes, and the
    current handoff in that single workpad comment.
-5. Follow the issue instructions exactly.
-6. Use judgment based on feature size.
-7. Large feature asks should usually follow the full loop
+5. Keep the workpad checklist current as work completes. At meaningful
+   milestones, call `emit_event` with `name: "report_progress"` and payload
+   `{percent: 0..100, step: "one concise line, at most 120 characters"}` so
+   the ticket status and dashboard show the current task. Phase-band fallback
+   progress is automatic when no worker report exists.
+6. Follow the issue instructions exactly.
+7. Use judgment based on feature size.
+8. Large feature asks should usually follow the full loop
    `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-code-review`.
-8. Smaller asks may skip brainstorm, plan, or review when the extra step would
+9. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
-9. Before CI or review handoff, assess the exact PR head against the configured
+10. Before CI or review handoff, assess the exact PR head against the configured
    base using `dev-loop.md`'s integration checklist. During `human-review` or
    `ci-wait`, integrate only when GitHub reports the exact PR head as
    `CONFLICTING` or a newer base commit fixes a failing required check, naming
    the commit and check. A reviewer request alone does not authorize a merge.
    File overlap and base movement alone do not require a push. Record required conflict resolution in the workpad;
    unavailable assessments block handoff rather than imply safety.
-10. When implementation and draft-PR self-review are complete and only CI
+11. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
     draft, then move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and
     end the turn. The daemon owns continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered required-check pass for the current head SHA, verify
+12. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. Any head that
     is not `CONFLICTING` permits `agent:human-review` even if stale or overlapping.
     If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
@@ -84,9 +91,9 @@ in the workpad rather than falling back to raw label edits.
     move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written
     `--remove-label agent:ci-wait` removes nothing and strands the pair.
-12. Move the issue to `Done` only when the issue explicitly says the agent should
+13. Move the issue to `Done` only when the issue explicitly says the agent should
     close it out without human review.
-13. Before ending a turn while the issue remains active, update the handoff with
+14. Before ending a turn while the issue remains active, update the handoff with
     current phase, key decisions, validation completed, and remaining next steps.
 
 ## PR review feedback loop

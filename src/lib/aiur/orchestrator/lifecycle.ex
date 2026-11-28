@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     PauseGuard,
     PauseResume,
     RemoteControlMode,
+    ResourceEnvelope,
     Slots,
     SnapshotStore,
     State,
@@ -146,8 +147,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       fleet_paused: GlobalPause.boot_fleet_paused(),
       gateway_paused: GatewayPause.initial(),
       global_pause: Map.drop(global_pause, [:globally_paused]),
-      effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
-      load_envelope_state: EnvelopeResume.boot(config.agent),
+      effective_concurrent_agents: if(config.agent.resource_concurrency, do: 1, else: DispatchPolicy.initial_load_envelope_limit(config.agent)),
+      load_envelope_state: boot_envelope(config.agent),
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       poll_frozen: false,
@@ -427,7 +428,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
         poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
+    |> ResourceEnvelope.configure(config.agent)
   end
+
+  defp boot_envelope(%{resource_concurrency: true}), do: %{cpu_snapshot: nil, resources: ResourceEnvelope.boot()}
+  defp boot_envelope(agent), do: EnvelopeResume.boot(agent)
 
   defp install_event_tracked_fn(tracked_issue?) do
     if Events.publisher_available?() do

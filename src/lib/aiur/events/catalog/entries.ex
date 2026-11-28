@@ -40,8 +40,12 @@ defmodule Aiur.Events.Catalog.Entries do
     },
     # aiur/executor_events.ex — private to the Executor principal.
     %Entry{pattern: "executor.#", class: :journaled, owner: "executor-attention"},
+    %Entry{pattern: "executor.agent_conversation.started", class: :journaled, owner: "executor-attention"},
+    %Entry{pattern: "executor.thread.message", class: :journaled, owner: "executor-attention"},
     %Entry{pattern: "executor.newsletter.failed", class: :journaled, owner: "newsletter"},
     %Entry{pattern: "system.newsletter.ready", class: :journaled, owner: "newsletter"},
+    # aiur/operator_notify.ex — operator-authored text a host app shows as a device push.
+    %Entry{pattern: "operator.notify.*", class: :live, export?: true, attrs: [title: :text, body: :text, ticket: :id, url: :text, created_at: :text], owner: "executor-attention"},
     # aiur/voice_conversation/handoff.ex — transcript and summary remain private.
     %Entry{pattern: "executor.voice.session_ended", class: :journaled, owner: "voice-conversation"},
     # aiur/alerts.ex; aiur/agent_runner/tool_executor.ex
@@ -79,6 +83,15 @@ defmodule Aiur.Events.Catalog.Entries do
                }
              end)
 
+  @ticket_progress %Entry{
+    pattern: "ticket.*.progress",
+    class: :live,
+    export?: false,
+    refs: [:ticket],
+    attrs: [percent: :integer, step: :text, phase: {:enum, ~w(plan work review pr ci merge)}, source: {:enum, ~w(worker checklist phase)}, done: :integer, total: :integer, updated_at: :text],
+    owner: "harness-adapters"
+  }
+
   @agent_command %Entry{pattern: "ticket.*.agent.command", class: :logged, export?: true, refs: [:ticket], owner: "harness-adapters"}
 
   @entries @core ++
@@ -86,6 +99,7 @@ defmodule Aiur.Events.Catalog.Entries do
              @ci ++
              @comments ++
              [@merge_group_failure, @merge_group_requeue, @agent_command] ++
+             [@ticket_progress] ++
              @progress ++
              PlannedEntries.entries() ++ SystemEntries.entries() ++ GithubSystemEntries.entries() ++ TicketEntries.entries() ++ AttentionEntries.entries() ++ LegacyEntries.entries()
 

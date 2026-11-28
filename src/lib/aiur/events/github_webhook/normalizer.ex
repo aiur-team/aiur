@@ -190,7 +190,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
         {:error, {:malformed_payload, "issue_comment"}}
 
       CommentFilter.agent_workpad?(comment) ->
-        {:drop, :agent_workpad_comment}
+        Triples.workpad_progress_triple(issue, comment, repo)
 
       true ->
         Triples.issue_comment_triple(issue, comment, repo)

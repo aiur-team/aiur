@@ -83,7 +83,7 @@ defmodule Aiur.DecisionStore.DedupTest do
                DecisionStore.get(blocking_twin.decision_id, pid)
 
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
-      assert MapSet.member?(ids, "979")
+      assert MapSet.member?(ids, {:github, "its-everdred", "aiur", "979"})
     end
   end
 
@@ -128,7 +128,7 @@ defmodule Aiur.DecisionStore.DedupTest do
       assert replacement.decision_status == :open
       assert {:ok, %Decision{decision_status: :moot}} = DecisionStore.get(expired.decision_id, pid)
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
-      assert ids == MapSet.new(["979"])
+      assert ids == MapSet.new([{:github, "its-everdred", "aiur", "979"}])
     end
 
     test "an exact question with a human-required authority stays distinct", %{dir: dir} do

@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{CommentWake, PrAnchored, State}
+  alias Aiur.Orchestrator.{CommentWake, PrAnchored, ResourceEnvelope, State}
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -99,6 +99,30 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
 
       assert result.capacity_hold == nil
       assert_receive {:pr_anchored_dispatch, %{id: "pr-42", identifier: "42", state: "pr-watch"}}, 1000
+    end
+
+    test "rechecks free slots after a resource sample lowers the ceiling" do
+      running = Map.new(1..4, fn i -> {to_string(i), %{control: %{status: :working}}} end)
+      state = ResourceEnvelope.configure(%{base_state() | running: running, max_concurrent_agents: 8}, %{resource_concurrency: true})
+      state = %{state | effective_concurrent_agents: 8}
+      pr = %{"number" => 42, "title" => "My PR", "body" => "", "head" => %{"ref" => "feat/my-feature"}}
+
+      event = %{
+        author_trusted?: true,
+        open_pull_request_fetcher: fn _n -> {:ok, pr} end,
+        pr_anchored_dispatch_fun: fn _, _ -> flunk("started a fifth worker after the ceiling fell to four") end,
+        admission_probes_fun: fn ->
+          stamp = System.monotonic_time(:millisecond)
+
+          Map.merge(admission_probes(0.0), %{
+            resource_sampled_at_ms: stamp,
+            resource_readings: [ResourceEnvelope.binding(:build_gate, :pressure, stamp)]
+          })
+        end
+      }
+
+      assert %{effective_concurrent_agents: 4, capacity_hold: %{signal: :envelope}} =
+               PrAnchored.maybe_route_pr_anchored_or_legacy(state, "42", :github, event, 1)
     end
 
     test "holds an open human PR dispatch above the load threshold, and retries it instead of dropping it" do

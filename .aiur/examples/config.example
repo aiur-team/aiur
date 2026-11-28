@@ -133,6 +133,7 @@ agent:
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # final silent-agent watchdog; Codex also probes every 60s (long test/coverage work can be quiet)
   # max_cpu_pressure: 20.0              # Linux CPU PSI some avg60 percent ceiling; null disables
+  # resource_concurrency: false       # opt in to the measured dispatch ceiling
   # target_cpu_pressure: 10.0           # PSI AIMD target percent; null disables
   # max_load_average: 1.5                # per-scheduler ceiling only when PSI unavailable; null disables
   # target_load_average: 1.0             # per-scheduler AIMD fallback only; null disables
@@ -367,7 +368,7 @@ alerts:
 #   max_active_sets: null              # unfinished started sets; held sets do not count
 #   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
 #   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
-#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
+#   start_trigger: pr_opened           # default; pr_merged makes lists serial; issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes

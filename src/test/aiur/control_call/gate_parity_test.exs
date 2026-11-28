@@ -11,6 +11,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     handoff: [:Aiur, :Handoff, :CLI],
     session: [:Aiur, :HarnessSessionCLI],
     usage: [:Aiur, :Usage, :CLI],
+    capacity: [:Aiur, :Capacity, :View],
     ticket_usage: [:Aiur, :TicketUsageCLI],
     sweep: [:Aiur, :ExecutorSweep, :CLI],
     pr_merge: [:Aiur, :PrMerge, :Record],
@@ -63,11 +64,13 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:agent, :executor_release, [0, 1], ~w(executor-release)},
     {:agent, :executor_revoke, [1, 2], ~w(executor-revoke)},
     {:agent, :executor_emit, [2], ~w(executor-emit)},
+    {:agent, :notify, [4], ~w(notify)},
     {:agent, :executor_subscribe, [1], ~w(executor-subscribe)},
     {:agent, :executor_unsubscribe, [1], ~w(executor-unsubscribe)},
     {:agent, :executor_subscriptions, [0], ~w(executor-subscriptions)},
     {:agent, :todo, [1, 2], ~w(--todo)},
     {:agent, :redispatch, [2], ~w(redispatch)},
+    {:agent, :rework, [2, 3], ~w(rework)},
     {:agent, :reset_budget, [1], ~w(reset-budget)},
     {:agent, :pause_global, [0], ~w(pause)},
     {:agent, :resume_global, [0], ~w(resume)},
@@ -89,6 +92,7 @@ defmodule Aiur.ControlCall.GateParityTest do
     {:handoff, :agents, [0], ~w(agents)},
     {:session, :rpc, [1], ~w(executor-session)},
     {:usage, :rpc, [2], ~w(usage)},
+    {:capacity, :rpc, [1], ~w(capacity)},
     {:usage, :legacy_accounts, [2], ~w(accounts)},
     {:ticket_usage, :rpc, [2], ~w(ticket-usage)},
     {:sweep, :rpc, [1], ~w(executor-sweep)},
@@ -153,10 +157,9 @@ defmodule Aiur.ControlCall.GateParityTest do
     assert unmapped(Enum.map(functions(), &elem(&1, 0)), @remote, @local) == []
   end
 
-  test "every mapped gate word is accepted by the remote gate" do
-    gate = gate_words()
-    missing = for {key, words} <- @remote, word <- words, word not in gate, do: {key, word}
-    assert missing == []
+  test "every remote engine gate word maps to an allowlisted call and vice versa" do
+    mapped_words = @remote |> Map.values() |> List.flatten() |> MapSet.new()
+    assert MapSet.new(gate_words()) == mapped_words
   end
 
   test "deny-class functions are never mapped to a remote word" do

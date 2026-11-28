@@ -134,32 +134,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   #     surfaces when the held request is the preflight probe itself.
   @doc false
   @spec local_budget_hold_reason(term()) :: map() | nil
-  def local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
-  def local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
-
-  def local_budget_hold_reason({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold),
-    do: hold
-
-  def local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
-
-  def local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
-    do: local_budget_hold_reason(inner)
-
-  def local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
-    do: local_budget_hold_reason(Map.get(diagnostic, :detail))
-
-  def local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
-  def local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
-  def local_budget_hold_reason(:github_budget_broker_timeout), do: %{reason: :github_budget_broker_timeout}
-  def local_budget_hold_reason(%{reason: :github_budget_broker_timeout} = detail), do: detail
-
-  def local_budget_hold_reason({:github, classification, %{reason: :github_budget_broker_timeout} = detail})
-      when classification in [:timeout, :local_hold], do: detail
-
-  def local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :timeout, detail: detail}}),
-    do: local_budget_hold_reason(detail)
-
-  def local_budget_hold_reason(_reason), do: nil
+  defdelegate local_budget_hold_reason(reason), to: Aiur.LocalBudgetHold, as: :reason
 
   @doc false
   @spec local_budget_reset_delay(map()) :: non_neg_integer()
@@ -178,7 +153,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
     recovery = claim_recovery_message(auto_reclaim)
 
     message =
-      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{failures(reason_code, attempt)} " <>
         "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
@@ -202,7 +177,14 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}) when is_integer(timeout_ms),
     do: {:workspace_hook_timeout, %{hook: "before_run", timeout_ms: timeout_ms}}
 
+  # An agent run that failed every attempt is not a tracker failure; naming it
+  # one sent operators looking at GitHub for a provider or agent fault.
+  defp claim_release_reason({%{__exception__: true}, stacktrace}) when is_list(stacktrace), do: {:agent_retry_exhausted, %{}}
+  defp claim_release_reason("agent exited: " <> _detail), do: {:agent_retry_exhausted, %{}}
   defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+
+  defp failures(:agent_retry_exhausted, attempt), do: "#{attempt} failed agent attempts"
+  defp failures(_reason_code, _attempt), do: "#{@max_retry_poll_failures} tracker failures"
 
   @doc false
   @spec recovery_delay_options(term()) :: keyword()

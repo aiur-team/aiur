@@ -10,6 +10,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   @alerts [
     {"system.feature_supply_low", "orchestration"},
     {"system.feature_supply_low.resolved", "orchestration"},
+    {"system.queue.stalled_list", "orchestration"},
+    {"system.queue.stalled_list.resolved", "orchestration"},
     {"system.gateway.*.offline", "executor-attention"},
     {"system.gateway.*.offline.resolved", "executor-attention"},
     {"system.claude_account.*.usage_probe_failing", "executor-attention"},
@@ -53,6 +55,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.conversation.journal.degraded.resolved", "conversations"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded", "telemetry"},
+    # aiur/usage_ledger/store.ex
+    {"system.usage_ledger.degraded.resolved", "telemetry"},
     # aiur/memory_watchdog.ex
     {"system.daemon.memory_high", "telemetry"},
     # aiur/memory_watchdog.ex
@@ -147,6 +153,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive", "orchestration"},
+    # aiur/orchestrator/unresponsive_watchdog.ex
+    {"system.orchestrator.unresponsive.resolved", "orchestration"},
     # aiur/ownership/projection.ex
     {"system.ownership.ambiguous", "config"},
     # aiur/landing_watch/pr_rerun.ex
@@ -203,6 +213,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.restart.handoff.completed", "orchestration"},
     # aiur/handoff/report.ex
     {"system.restart.handoff.fallback", "orchestration"},
+    # aiur/main_line_build.ex
+    {"system.build.not_on_main", "orchestration"},
     # aiur/rtk_startup_check.ex
     {"system.rtk.gh_rewrite", "harness-adapters"},
     # aiur/orchestrator/spend_cap/health.ex

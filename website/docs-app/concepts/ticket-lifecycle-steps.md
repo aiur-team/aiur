@@ -45,7 +45,10 @@ An open, unblocked ticket needs an **explicit** state label to be dispatchable.
   The provenance fetch starts with `per_page=50` pages and retries at
   `per_page=20` when a page exceeds the response cap. Events are pruned to the
   fields used for provenance before being held, dropping embedded source issue
-  bodies. If even the smallest page is too large the ticket is **deferred**
+  bodies. When every page size is too large, or the timeline runs past 400
+  events (long comment threads do both), Aiur reads the same label events from
+  the issue events endpoint, which carries no comments. If that is too large as
+  well, the ticket is **deferred**
   (never revoked), the log line carries
   `cause=transport_limit`, and the alert is
   `github.dispatch_authorization.timeline_unreadable` — an Aiur limit to raise,
@@ -277,7 +280,7 @@ For a decided Command, the Executor may moot only an answer that an Executor rec
 
 The agent opens a `Closes #<issue>` **draft** PR. PRs run fast CI until approved. `ci:full`, a configured full-CI label, or an approved PR matching `full_ci_paths` selects the full suite. The merge queue always runs it. After self-review, the agent marks work ready; `agent:ci-wait` releases the turn and dispatch slot. Main has no `ci` push run.
 
-Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait.
+Aiur refuses `ci-wait` and `human-review` hand-offs for drafts; pending drafts already in human review stay there instead of moving to CI wait. When a run with a draft PR exhausts its retries, the ticket goes back to `rework`, not to CI wait.
 
 Aiur requires successful checks on the current head before returning the agent for `agent:human-review`. Draft, missing or skipped checks remain pending.
 

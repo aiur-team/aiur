@@ -1,13 +1,15 @@
 defmodule Aiur.Executor.TranscriptIngest do
   @moduledoc """
-  Captures only the attached Claude transcript, resuming from durable journal checkpoints.
+  Captures an attached Claude or Codex transcript, resuming from durable journal checkpoints.
 
   Tailer callbacks, session boundaries and cursor commits share this mailbox so
   a boundary cannot overtake records already read. The polling tailer runs under
   a dedicated DynamicSupervisor; manager restart reclaims its stopped readers.
   """
   use GenServer
+  alias Aiur.Claude.Transcript
   alias Aiur.Claude.TranscriptTailer
+  alias Aiur.Codex.RolloutTranscript
   alias Aiur.Conversation.{Ingest, Ref}
   alias Aiur.Executor.{Session, SessionIngest, TranscriptFormat, TranscriptPath}
 
@@ -49,7 +51,20 @@ defmodule Aiur.Executor.TranscriptIngest do
     {:noreply, state}
   end
 
-  def handle_call(:status, _from, state), do: {:reply, %{transcript_rejection: state.error}, state}
+  def handle_call(:status, _from, state) do
+    status = %{transcript_rejection: state.error}
+
+    status =
+      if state.capture && state.capture.binding.harness == "codex" do
+        status
+        |> Map.put(:codex_rollout, if(RolloutTranscript.layout_status(state.capture.layout_record) == :supported, do: :tested, else: :unsupported))
+        |> Map.put(:codex_cli_version, codex_version(state.capture.layout_record))
+      else
+        status
+      end
+
+    {:reply, status, state}
+  end
 
   @impl true
   def handle_info({:barrier, from}, state) do
@@ -85,6 +100,7 @@ defmodule Aiur.Executor.TranscriptIngest do
   end
 
   def handle_info({token, {:event, event}}, %{capture: %{token: token} = capture} = state) do
+    capture = maybe_compact(capture, event)
     {:noreply, %{state | capture: %{capture | pending: [event | capture.pending]}}}
   end
 
@@ -178,7 +194,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     binding = state.capture.binding
     opts = path_options(state)
 
-    case TranscriptPath.validate(binding.transcript_path, "claude", binding.provider_session_id, opts) do
+    case TranscriptPath.validate(binding.transcript_path, binding.harness, binding.provider_session_id, opts) do
       {:ok, _} -> TranscriptTailer.poll(state.capture.pid, :infinity)
       {:error, _} -> send(self(), {state.capture.token, {:status, :unreadable}})
     end
@@ -188,8 +204,8 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   defp start_capture(state) do
     case Session.current() do
-      {:ok, %{harness: "claude", state: "attached", transcript_path: path} = binding} when is_binary(path) ->
-        case TranscriptPath.validate(path, "claude", binding.provider_session_id, path_options(state)) do
+      {:ok, %{harness: harness, state: "attached", transcript_path: path} = binding} when harness in ["claude", "codex"] and is_binary(path) ->
+        case TranscriptPath.validate(path, harness, binding.provider_session_id, path_options(state)) do
           {:ok, ^path} ->
             launch_ready(state, binding)
 
@@ -212,19 +228,34 @@ defmodule Aiur.Executor.TranscriptIngest do
   end
 
   defp launch_ready(state, %{clear_rebind_until: _}), do: state
+
+  defp launch_ready(state, %{harness: "codex"} = binding) do
+    case first_record(binding.transcript_path) do
+      {:ok, record} ->
+        if RolloutTranscript.layout_status(record) == :supported, do: launch(state, binding, record), else: reject_path(state, binding, :unsupported_layout)
+
+      _ ->
+        reject_path(state, binding, :unsupported_layout)
+    end
+  end
+
   defp launch_ready(state, binding), do: launch(state, binding)
 
-  defp launch(state, binding) do
+  defp launch(state, binding, layout_record \\ nil) do
     {:ok, writer} = Ingest.writer(Ref.executor())
     owner = self()
     token = make_ref()
     hash = :crypto.hash(:sha256, binding.transcript_path) |> Base.encode16(case: :lower)
     offset = if binding.locator_hash == hash, do: binding.transcript_offset, else: 0
 
+    extractor = if binding.harness == "codex", do: &RolloutTranscript.extract/2, else: &Transcript.extract_disk_record/2
+    format = binding.transcript_format || TranscriptFormat.new()
+
     opts = [
       path: binding.transcript_path,
       from: {:offset, offset},
       interval_ms: nil,
+      extractor: extractor,
       on_record: fn record -> send(owner, {token, {:record, record}}) end,
       on_message: fn event -> send(owner, {token, {:event, event}}) end,
       on_offset: fn cursor -> send(owner, {token, {:offset, cursor}}) end,
@@ -234,7 +265,7 @@ defmodule Aiur.Executor.TranscriptIngest do
     {:ok, pid} = DynamicSupervisor.start_child(state.supervisor, %{id: TranscriptTailer, start: {TranscriptTailer, :start_link, [opts]}, restart: :temporary})
 
     source = %{
-      harness: "claude",
+      harness: binding.harness,
       role: :executor,
       provider_session_id: binding.provider_session_id,
       aiur_attempt_id: nil,
@@ -251,12 +282,13 @@ defmodule Aiur.Executor.TranscriptIngest do
       written_at: nil,
       gap: nil,
       pending: [],
-      format: Map.get(binding, :transcript_format) || TranscriptFormat.new(),
+      format: format,
       closing: false,
       reason: nil,
       supervisor: state.supervisor,
       clock: state.clock,
-      writer: writer
+      writer: writer,
+      layout_record: layout_record
     }
 
     %{state | capture: capture, error: nil, error_binding: nil}
@@ -269,9 +301,41 @@ defmodule Aiur.Executor.TranscriptIngest do
 
   defp carry_format(state, _previous), do: state
 
+  defp maybe_compact(%{source: source} = capture, %{role: :system, payload: %{session_boundary: "compact"}}) do
+    Ingest.end_session(Ref.executor(), capture.binding.provider_session_id, "compact")
+    %{capture | source: %{source | start_reason: "compact"}}
+  end
+
+  defp maybe_compact(capture, _event), do: capture
+
+  defp first_record(path) do
+    case File.open(path, [:read, :binary]) do
+      {:ok, file} ->
+        result =
+          with line when is_binary(line) <- IO.read(file, :line),
+               {:ok, record} <- Jason.decode(line) do
+            {:ok, record}
+          else
+            _ -> {:error, :unsupported_layout}
+          end
+
+        File.close(file)
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp checkpoint_format(format, "codex", %{"payload" => %{"cli_version" => version}}) when is_binary(version), do: Map.put(format, :codex_cli_version, version)
+  defp checkpoint_format(format, _harness, _layout_record), do: format
+
+  defp codex_version(%{"payload" => %{"cli_version" => version}}) when is_binary(version), do: version
+  defp codex_version(_record), do: nil
+
   defp reconcile_detach do
     case Session.current() do
-      {:ok, %{harness: "claude", state: "detached", provider_session_id: id, end_reason: reason}} when is_binary(id) ->
+      {:ok, %{harness: harness, state: "detached", provider_session_id: id, end_reason: reason}} when harness in ["claude", "codex"] and is_binary(id) ->
         Ingest.end_session(Ref.executor(), id, reason || "detached")
 
       _ ->
@@ -288,7 +352,7 @@ defmodule Aiur.Executor.TranscriptIngest do
       with :ok <- GenServer.call(capture.writer, :flush, :infinity),
            {:ok, binding} <- Session.current(),
            true <- identity(binding) == identity(capture.binding),
-           {:ok, _} <- Session.record_checkpoint(capture.binding, capture.offset, capture.format) do
+           {:ok, _} <- Session.record_checkpoint(capture.binding, capture.offset, checkpoint_format(capture.format, capture.binding.harness, capture.layout_record)) do
         %{capture | written_at: now}
       else
         _ -> capture

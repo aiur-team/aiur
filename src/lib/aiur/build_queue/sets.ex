@@ -11,11 +11,24 @@ defmodule Aiur.BuildQueue.Sets do
     projected = Map.new(projections, &{&1.issue_id, &1})
     now = System.system_time(:millisecond)
     sets = Enum.map(document.queues, &set(&1, document.items, projected, observations, now)) |> Enum.sort_by(&{&1.rank, &1.id})
-    members = Map.new(document.items, &{&1.issue_id, %{set_id: &1.queue_id, position: &1.position || 0}})
+    queues = Map.new(document.queues, &{&1.id, &1})
+
+    members =
+      Map.new(document.items, fn item ->
+        queue = queues[item.queue_id]
+        {item.issue_id, %{set_id: item.queue_id, position: item.position || 0, start_trigger: (queue && queue.start_trigger) || Settings.start_trigger(settings)}}
+      end)
+
     %{sets: sets, members: members, max_age_ms: Settings.observation_max_age_ms(settings)}
   end
 
   defp set(queue, items, projected, observations, now) do
+    created_at_ms =
+      case Map.get(queue, :created_at) do
+        %DateTime{} = created_at -> DateTime.to_unix(created_at, :millisecond)
+        _ -> 0
+      end
+
     items = Enum.filter(items, &(&1.queue_id == queue.id))
     states = Enum.map(items, &Map.get(projected, &1.issue_id, %{state: :unknown}))
     unfinished = Enum.any?(states, &(&1.state not in [:completed, :cancelled, :removed]))
@@ -23,9 +36,13 @@ defmodule Aiur.BuildQueue.Sets do
 
     %{
       id: queue.id,
+      name: Map.get(queue, :name, queue.id),
+      kind: Map.get(queue, :kind),
+      created_at_ms: created_at_ms,
       rank: queue.rank,
       held: queue.held,
       unfinished: unfinished,
+      started: Enum.any?(states, &(&1.state in [:claimed, :completed, :cancelled, :removed])),
       active: Enum.any?(states, &(&1.state == :claimed)),
       unknown: Enum.any?(states, &(&1.state == :unknown)),
       observed_at_ms: observed

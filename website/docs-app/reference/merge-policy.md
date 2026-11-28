@@ -5,7 +5,7 @@ The operator merge command enforces this policy, status and capabilities display
 | Key | Type | Default | Controls | <!-- generated-reference:config-merge-policy-00 -->
 | --- | --- | --- | --- |
 | `merge_policy.attribution_scan` | boolean | false | Enables the premerge AI-attribution scan of the PR title and body. |
-| `merge_policy.ci` | string | `wait` | `wait` (the only mode) requires full CI before merge. |
+| `merge_policy.ci` | string | `wait` | `wait` requires full CI before merge; `external` means an outside gate decides merge readiness, so GitHub check results never move ticket state or wake agents. |
 | `merge_policy.full_ci_labels` | array | `[main-fix]` | Case-insensitive PR or ticket labels requiring full CI regardless of `ci`. |
 | `merge_policy.full_ci_paths` | array | `[]` | Changed-path globs (`*`, `**`, `?`) requiring full CI on approved PRs and the merge queue; matches deleted paths too. |
 | `merge_policy.local_tests` | string | `partial` | `all`: full local suite; `partial`: tests relevant to the change, falling back to the full suite when selection is unsafe; `none`: compile and format only. |
@@ -37,8 +37,8 @@ App-authored fixer tickets carrying the main-watch marker are authorized by this
 config while `dispatch_fixer` remains enabled. Under PAT auth (or a shared daemon
 and agent identity), tickets instead get `needs-triage` and an Executor attention.
 
-Fixers take the next free slot first, within max-agents and the same CPU, memory,
-explicit state limits and pause gates as other workers. After five minutes awaiting
+At equal priority, ready fixers take the next free slot first. Max-agents and the same CPU, memory,
+state limits and pause gates apply. After five minutes awaiting
 first dispatch, `system.main.fixer.stalled` reports the observed hold reason or `unknown`.
 
 Recovery comments on the open ticket without closing it; a missing open PR raises

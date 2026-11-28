@@ -196,6 +196,8 @@ if config_env() == :test do
   # tests drive `Aiur.ModelDiscovery.refresh/2` with an injected fetcher; the
   # lazy background refresh every other test could trip is off entirely.
   config :aiur, :model_discovery_refresh?, false
+  # Nor may a usage read poll OpenRouter's key endpoint; tests inject the request.
+  config :aiur, :openrouter_key_poll?, false
 
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production

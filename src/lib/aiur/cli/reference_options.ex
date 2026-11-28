@@ -42,7 +42,7 @@ defmodule Aiur.CLI.ReferenceOptions do
     {:backend, "aiur redispatch 142 --backend codex", "Selects a backend for a ticket redispatch.", "aiur redispatch 142 --backend codex"},
     {:pause, "aiur --pause", "Cold-starts with the global provisioning switch paused.", "aiur --pause"},
     {:max_agents, "aiur --max-agents 6",
-     "Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. With `projects:` set in `~/.aiur/machine` it also sets the machine-wide ceiling, overriding `capacity.max_agents`.",
+     "Launch-only session cap. It overrides `agent.max_concurrent_agents` in the default mode. Resource-based concurrency uses the lower cap. Aiur warns when the session value exceeds the configured cap. `status` identifies the active binding. With `projects:` set in `~/.aiur/machine` it also sets the machine-wide ceiling, overriding `capacity.max_agents`.",
      "aiur --max-agents 6"},
     {:interactive, "aiur --interactive", "Requests the terminal UI, including from a background launch.", "aiur --bg --interactive"},
     {:headless, "aiur --headless", "Requests no terminal UI. Background launch injects it unless `--interactive` is present.", "aiur run --headless"},

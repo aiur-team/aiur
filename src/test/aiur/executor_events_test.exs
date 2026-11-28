@@ -321,6 +321,19 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("system.*.capacity_starved")
   end
 
+  test "conversation starts are accepted on the durable Executor stream" do
+    :ok = ExecutorEvents.subscribe("executor.#")
+
+    assert {:ok, id, _count} =
+             ExecutorEvents.publish(
+               "executor.agent_conversation.started",
+               %{ticket: "8154-test"},
+               source: :internal
+             )
+
+    assert {:ok, [%{"id" => ^id, "topic" => "executor.agent_conversation.started"}]} = ExecutorEvents.replay(["executor.#"], nil)
+  end
+
   test "listener delivers live events and advances the persisted cursor" do
     listener = spawn(fn -> ExecutorEvents.listen(topic: "executor.#") end)
     on_exit(fn -> stop_listener(listener) end)

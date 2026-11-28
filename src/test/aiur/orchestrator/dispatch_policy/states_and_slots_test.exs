@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
   import Aiur.TestSupport.DispatchPolicyFixture
 
+  alias Aiur.BuildQueue.Hints
   alias Aiur.{Issue, Workflow}
   alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
@@ -13,13 +14,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
     # are states where by definition no agent work exists. Dispatching into them
     # cannot produce progress, only cost, and each committed dispatch bills a
     # lifetime unit toward the terminal latch.
-    test "a merging or ci-wait ticket is not dispatchable even when listed as an active state" do
+    test "a merging, ci-wait or human-review ticket is not dispatchable even when listed as an active state" do
       # The operator config that produced #1759 listed `merging` in
       # `active_states`, so the refusal must hold *despite* that listing —
       # otherwise this test would pass against the pre-fix code.
       write_workflow_file!(Workflow.workflow_file_path(),
         max_concurrent_agents: 5,
-        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait"]
+        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait", "human-review"]
       )
 
       state = %State{max_concurrent_agents: 5}
@@ -36,7 +37,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         assert DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
       end
 
-      for parked <- ["merging", "ci-wait"] do
+      # open-games lists `human-review` as active: a ticket waiting on the
+      # creator's verdict was redispatched into no-op turns until agent:error.
+      for parked <- ["merging", "ci-wait", "human-review"] do
         ticket = issue("parked-#{parked}", state: parked)
 
         assert DispatchPolicy.no_agent_work_state?(parked)
@@ -58,7 +61,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
       assert DispatchPolicy.no_agent_work_state?("Merging")
       assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
 
-      refute DispatchPolicy.no_agent_work_state?("human-review")
+      assert DispatchPolicy.no_agent_work_state?(" Human-Review")
+
+      refute DispatchPolicy.no_agent_work_state?("rework")
       refute DispatchPolicy.no_agent_work_state?(nil)
       refute DispatchPolicy.no_agent_work_state?(:merging)
     end
@@ -212,6 +217,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
     test "the hold description names only the blockers actually holding dispatch" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
 
       blocked =
         issue("blocked",
@@ -233,6 +239,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
 
     test "every open blocker is named when more than one holds dispatch" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
 
       blocked =
         issue("blocked", state: "todo", blocked_by: [blocker("7", "todo"), blocker("8", "rework")])
@@ -258,11 +265,12 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
         issue("blocked", state: "todo", blocked_by: [blocker("9", nil), blocker("10", "Closed")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
-               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_merged"
+               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored [#9 unknown: blocker state unreadable]; needs pr_opened"
     end
 
     test "a non-numeric blocker identifier is printed without a number sigil" do
       terminal_states = MapSet.new(["done", "cancelled"])
+      :ets.insert(Hints.create_table(), {"blocked", {0, 0}, false, :pr_merged})
       blocked = issue("blocked", state: "todo", blocked_by: [blocker("KHALA-41", "rework")])
 
       assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==

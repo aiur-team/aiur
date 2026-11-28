@@ -49,10 +49,9 @@ while the worker keeps working; it must not trigger a self-pause. Bare coordinat
 pauses and explicit operator-decision pauses (including legacy attentions) remain
 valid.
 
-Open blocking Commands count toward `waiting_for_human`. Expired unanswered
-blockers remain visible and answerable, but stop gating dispatch. A matching
-re-raise moots the stale record before opening its replacement. The Executor
-can also moot or dismiss a blocker whose ticket is closed or question is moot.
+Open blocking Commands count toward `waiting_for_human`. Expired unanswered blockers stay visible and answerable, and stop gating dispatch. A matching re-raise moots the stale record before opening its replacement. The Executor can moot or dismiss a blocker when its ticket closes or its question becomes moot.
+
+Aiur compares wording, context, and options to link eligible creator questions to an open Command on the same ticket or an answer from the last seven days. Answers on other tickets require shared context and a non-blocking request. Sensitive, irreversible, and native prompts retain their own answer paths.
 
 Agents classify the action, not the subsystem around it. Routine,
 reversible operational choices should use `supervisor_allowed`.

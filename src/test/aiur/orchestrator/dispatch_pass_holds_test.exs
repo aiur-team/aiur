@@ -145,7 +145,10 @@ defmodule Aiur.Orchestrator.DispatchPassHoldsTest do
     assert final.dispatch_declines[candidate_issue.id] == :tracker_revalidation_failed
   end
 
-  defp partition(issues), do: DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())
+  defp partition(issues) do
+    {chain, held, _deferred} = DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())
+    {chain, held}
+  end
 
   defp age(key) do
     [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)

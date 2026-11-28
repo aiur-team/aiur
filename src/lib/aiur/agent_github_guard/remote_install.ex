@@ -9,10 +9,7 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
   @doc "The shell script that installs `scripts` and the agent support directories into `workspace`."
   @spec script(Path.t(), Path.t(), [{String.t(), String.t()}], keyword()) :: String.t()
   def script(workspace, relative_bin_dir, scripts, opts) when is_binary(workspace) do
-    scripts =
-      Enum.map_join(scripts, "\n", fn {name, script} ->
-        AgentCommandInstaller.remote_install_script(workspace, relative_bin_dir, [name], script)
-      end)
+    install_script = AgentCommandInstaller.remote_install_script(workspace, relative_bin_dir, scripts)
 
     # Remote workers get the same empty agent-private `GH_CONFIG_DIR`; without
     # it an SSH-launched agent still reaches the remote host's `~/.config/gh`.
@@ -24,7 +21,7 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
     quota_dir = Aiur.Shell.escape(AgentGitHubGuard.quota_dir(workspace))
     token_file = remote_agent_token_script(opts)
 
-    scripts <>
+    install_script <>
       "\nif [ -L #{config_dir} ] || { [ -e #{config_dir} ] && [ ! -d #{config_dir} ]; }; then\n" <>
       "  echo 'unsafe agent gh config dir' >&2\n  exit 73\nfi\n" <>
       "mkdir -p #{config_dir} || { echo 'agent gh config dir is unavailable' >&2; exit 73; }\n" <>

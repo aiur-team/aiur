@@ -62,10 +62,12 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 50 | `Aiur.Executor.Principal` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 51 | `Aiur.Executor.Session` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 52 | `Aiur.Executor.SessionIngest` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 53 | `Aiur.ExecutorSweep` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 54 | `Aiur.Executor.TakeoverAlert.Monitor` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 55 | `Aiur.Executor.TakeoverAlert.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 56 | `Aiur.Executor.TranscriptIngest` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 53 | `Aiur.Executor.BackgroundAgents` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 54 | `Aiur.ExecutorSweep` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 55 | `Aiur.Executor.TakeoverAlert.Monitor` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 56 | `Aiur.Executor.TakeoverAlert.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 57 | `Aiur.Executor.TranscriptIngest` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 57 | `Aiur.Executor.HarnessState` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 57 | `Aiur.ExecutorWakeInbox` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 58 | `Aiur.Experiments.Analyst` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 59 | `Aiur.Experiments.AnalystTrigger` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
@@ -138,19 +140,20 @@ classification is by module role, not a line-by-line audit; the follow-up ticket
 | 126 | `Aiur.Usage.Alerts` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 127 | `Aiur.UsageCompaction.Coordinator` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 128 | `Aiur.UsageLedger.Store` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 129 | `AiurWeb.Build.Index` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 130 | `AiurWeb.ControlCenterCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 131 | `AiurWeb.DashboardAuth.ChallengeStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 132 | `AiurWeb.FinancialData` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 133 | `AiurWeb.FinancialDataAccess.Generation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 134 | `AiurWeb.FinancialData.ChangeBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 135 | `AiurWeb.FinancialData.SubscriptionAuthority` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 136 | `Aiur.Webhooks.DeliveryLog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 137 | `Aiur.Webhooks.ModeRegistry` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 138 | `Aiur.Webhooks.ModeTable` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 139 | `AiurWeb.OperatorControlCenter.Analytics.Prewarmer` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 140 | `AiurWeb.Streamdeck.Deck.SettingsSnapshot` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
-| 141 | `AiurWeb.VoiceSessionLimiter` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 129 | `Aiur.Usage.GasLedger` | machine | Stores paid API spend for the configured host user. | #8156 |
+| 130 | `AiurWeb.Build.Index` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 131 | `AiurWeb.ControlCenterCache` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 132 | `AiurWeb.DashboardAuth.ChallengeStore` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 133 | `AiurWeb.FinancialData` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 134 | `AiurWeb.FinancialDataAccess.Generation` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 135 | `AiurWeb.FinancialData.ChangeBridge` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 136 | `AiurWeb.FinancialData.SubscriptionAuthority` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 137 | `Aiur.Webhooks.DeliveryLog` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 138 | `Aiur.Webhooks.ModeRegistry` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 139 | `Aiur.Webhooks.ModeTable` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 140 | `AiurWeb.OperatorControlCenter.Analytics.Prewarmer` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 141 | `AiurWeb.Streamdeck.Deck.SettingsSnapshot` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
+| 142 | `AiurWeb.VoiceSessionLimiter` | machine | Serves the whole machine (provider, credential, executor, dashboard or runtime plumbing). | — |
 | 142 | `Aiur.Workspace.Ownership.Reconciler` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 143 | `Aiur.Workspace.Ownership.Store` | per-project | Holds ticket-keyed, tracker or workspace state of one repository. | follow-up |
 | 144 | `Aiur.Logs.Retention` | machine | Prunes log files on the machine. | — |

@@ -10,7 +10,7 @@ defmodule Aiur.Events.GithubCIPoller do
 
   require Logger
 
-  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
+  alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery, UnavailableCI}
   alias Aiur.GitHub.{Access, CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
@@ -22,6 +22,10 @@ defmodule Aiur.Events.GithubCIPoller do
 
   @spec recover_failure(map(), map(), keyword()) :: map()
   defdelegate recover_failure(issue, result, opts), to: Recovery, as: :recover
+  @doc "Keeps an early failure only for a ticket waiting on CI; any other state waits for the full run."
+  @spec settle_early_failure(map(), boolean()) :: map()
+  def settle_early_failure(result, true = _waiting_on_ci), do: result
+  def settle_early_failure(result, false), do: Evaluation.await_remaining_checks(result)
   @spec complete_recovery(map(), map(), term(), keyword()) :: map()
   defdelegate complete_recovery(issue, result, recovered, opts), to: Recovery, as: :complete
   @spec record_failure(map(), map(), keyword()) :: :ok | {:error, term()}
@@ -179,6 +183,7 @@ defmodule Aiur.Events.GithubCIPoller do
             Evaluation.evaluate(check_runs, commit_status)
             |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
             |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.fail_fast(pr, opts)
             |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
             |> Map.merge(%{
               target: target,
@@ -189,12 +194,14 @@ defmodule Aiur.Events.GithubCIPoller do
               reviewed_head?: Map.get(pr, "reviewed_head?")
             })
             |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> UnavailableCI.settle(opts)
             |> log_classification()
 
           {:ok, {:unchanged, recovered_invalidation}} ->
             Evaluation.evaluate(check_runs, commit_status)
             |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
             |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.fail_fast(pr, opts)
             |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
             |> Map.merge(%{
               target: target,
@@ -206,6 +213,7 @@ defmodule Aiur.Events.GithubCIPoller do
               base_repair_invalidation: recovered_invalidation
             })
             |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> UnavailableCI.settle(opts)
             |> log_classification()
 
           {:ok, {:repaired, invalidation}} ->
@@ -388,6 +396,7 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, ^observed_head_sha} ->
         Evaluation.evaluate(check_runs, commit_status)
         |> Evaluation.enforce_required_checks(check_runs, commit_status, current_pr, opts)
+        |> Evaluation.fail_fast(current_pr, opts)
         |> Evaluation.enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
         |> Map.merge(%{
           target: target,
@@ -401,6 +410,7 @@ defmodule Aiur.Events.GithubCIPoller do
         |> Map.put(:ready_at_ms, Map.get(current_pr, "ready_at_ms"))
         |> Map.put(:reviewed_head?, Map.get(current_pr, "reviewed_head?"))
         |> Map.merge(Evaluation.merge_queue_observation(current_pr))
+        |> UnavailableCI.settle(opts)
         |> log_classification()
 
       {:ok, current_head_sha} ->

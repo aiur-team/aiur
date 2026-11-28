@@ -285,6 +285,12 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       State.deactivated_running_entry?(running_entry) ->
         state
 
+      # A completed entry is parked after its worker finished the run, so its
+      # last activity only ages. Replacement goes through the completed-runner
+      # path, never a stall retry.
+      State.completed_running_entry?(running_entry) ->
+        state
+
       true ->
         maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms)
     end

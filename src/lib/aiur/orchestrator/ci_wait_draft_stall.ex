@@ -12,7 +12,8 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
     if is_binary(target) do
       state = ensure_seeded(state, opts)
 
-      if Map.get(result, :pending_reason) == :draft_pull_request and in_ci_wait? do
+      # #8102: a ci-wait ticket with no open PR waits for CI that never comes; recover it like a stuck draft.
+      if Map.get(result, :pending_reason) in [:draft_pull_request, :open_pr_not_yet_visible] and in_ci_wait? do
         observe(state, issue, result, target, opts)
       else
         clear(state, target, opts)
@@ -70,7 +71,7 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
   defp running_entry(state, issue), do: Map.get(state.running, issue.id || issue.identifier)
 
   defp recover(state, issue, result, target, opts) do
-    message = "PR is still a draft; finish and mark ready"
+    message = if no_pr?(result), do: "No open PR; commit, push and open the PR", else: "PR is still a draft; finish and mark ready"
     issue_id = issue.id || issue.identifier
     comment = Keyword.get(opts, :draft_stall_comment, fn id, body -> TicketTransition.write_comment(id, body, writer: :ci_lifecycle, tracker: Keyword.get(opts, :tracker, Aiur.Tracker)) end)
     transition = Keyword.get(opts, :draft_stall_transition, fn current, ticket -> transition_to_rework(current, ticket, opts) end)
@@ -138,13 +139,19 @@ defmodule Aiur.Orchestrator.CiWaitDraftStall do
 
   defp emit(state, issue, result, target, opts) do
     topic = "ticket.#{target}.pr.draft_ci_wait"
-    message = "Ticket #{target} PR ##{Map.get(result, :pr_number) || "unknown"} is still a draft; finish and mark ready"
+
+    message =
+      if no_pr?(result),
+        do: "Ticket #{target} is in ci-wait with no open PR; commit, push and open the PR",
+        else: "Ticket #{target} PR ##{Map.get(result, :pr_number) || "unknown"} is still a draft; finish and mark ready"
 
     case alert_emitter(opts).(topic, issue: issue, central: true, message: message, reason: message, needs_attention: true) do
       :ok -> put_alerts(state, MapSet.put(alerts(state), target))
       {:error, reason} -> log_failure(topic, reason, state)
     end
   end
+
+  defp no_pr?(result), do: Map.get(result, :pending_reason) == :open_pr_not_yet_visible
 
   defp clear(state, target, opts) do
     state = put_since(state, Map.delete(since_map(state), target))

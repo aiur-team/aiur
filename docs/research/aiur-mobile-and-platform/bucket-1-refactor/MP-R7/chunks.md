@@ -1,11 +1,11 @@
 # MP-R7 C4 status
 
-Updated 2026-10-21 UTC by MP-R7-C4-T02 (#3477).
+Historical disposition updated 2026-11-21 UTC by MP-R7-C4-T03 (#3478).
 This bounded record replaces no historical chunks outside C4.
 
 ## MP-R7-C4 — Physical package: blocked (no-go)
 
-The [promotion scorecard](plan.md) does not pass criteria 1, 3 or 5.
+The [promotion scorecard](plan.md) recheck still fails criterion 1 and does not establish criterion 5. The prescribed no-start tests now pass; the physical package remains parked.
 Keep harness-adapters as a logical in-app component. A merged promotion
 record is evidence of the decision, not permission to start the moves.
 
@@ -13,9 +13,15 @@ record is evidence of the decision, not permission to start the moves.
 | --- | --- |
 | C4-T01 (#3476) | Merged: component-declared supervision children (#5200) |
 | C4-T02 (#3477) | No-go record; this change |
-| C4-T03 (#3478) | Blocked: physical package skeleton and core move |
-| C4-T04 (#3479) | Blocked: adapter moves |
+| C4-T03 (#3478) | Re-scoped in-tree repair; no-go for physical package move. Current boundary census: 40 live keys (11 out, 29 in), down from 94 at #3477; the harness-adapters allowlist has 11 entries, plus one NativeCapture facade seam. Provider-family usage, setup-I/O, invocation context, event-humanizer behavior/helpers, shared token normalization, pricing-window routing dependencies, provider/account-generation facade calls, native-capture calls, Claude hook liveness, review-thread writes, Linear GraphQL, subscription policy validation, tool-result exclusion, and usage snapshot construction now use harness/kernel contracts or app-level composition; the config-owned dotenv parser replaces the setup-wizard wrapper. The no-start harness subset passes (1,532 tests, 0 failures, 3 excluded). The ≤40 total live-key target is met; the full-suite run timed out after 2,530 tests. See [recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21). |
+| C4-T04 (#3479) | Deferred: the [T03 recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21) kept physical promotion at no-go. |
 | C4-T05 (#3480) | Blocked: physical package release/boot check |
+
+OpenAI-compatible, Muse, Codex, and Claude (headless and REPL) remain under
+`src/lib/aiur/`, along with their provider registrations. The Gemini/ACP
+PR [#2870](https://github.com/aiur-team/aiur/pull/2870) was unmerged at the T04
+review. Once physical promotion is approved and `aiur_harness` exists, the
+Gemini adapter belongs there and follows Muse because it uses Muse transport.
 
 Re-check when a second consumer or independent-release need is recorded,
 or MP-R1-C11 requests a plan refresh. Then rerun all five criteria,

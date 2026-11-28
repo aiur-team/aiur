@@ -111,7 +111,8 @@ export default withMermaid(defineConfig({
             { text: 'Overview', link: '/' },
             { text: 'Quick start', link: '/guide/quick-start' },
             { text: 'Accounts by backend', link: '/guide/claude-accounts' },
-            { text: 'Railway deployments', link: '/guide/railway' }
+            { text: 'Railway deployments', link: '/guide/railway' },
+            { text: 'Push relay', link: '/guide/push-relay' }
           ]
         },
         {
@@ -129,6 +130,7 @@ export default withMermaid(defineConfig({
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
             { text: 'GUI conversations', link: '/guide/gui-conversations' },
+            { text: 'Embed conversation components', link: '/guide/conversation-components' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Projects home', link: '/guide/projects-home' },
             { text: 'Outbound events', link: '/guide/outbound-events' },

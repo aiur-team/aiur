@@ -142,13 +142,15 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
 
-Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+Hosts pass `user_id` per run. Authenticated `GET /api/v1/usage/users/<user_id>` returns that user's provider-reported Minerals, costs, reset times, Gas and reusable SVG paths. Any host user id is accepted; users without records get an empty/unknown view. Requires client-token read scope.
 
-With an `openrouter:` route configured, the provider row shows the key's
-remaining credit against the limit it was bought with, and
-`aiur usage openrouter` lists each route's spend per route and model beside that
-reading. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it
-the row reports an unknown reading rather than zero credit.
+Record charges via `POST /api/v1/usage/gas` with client-token write scope. Required JSON: `id`, non-empty `user_id`, `api`, `amount_usd`, `occurred_at`; optional: `basis`, `ticket`, `conversation_id`. Missing or blank IDs return `422 invalid_user_id`. Repeated IDs are idempotent; changed data conflict. `AIUR_GAS_BUDGET_USD` sets the optional budget.
+
+Authenticated `GET /api/v1/capacity` returns the `aiur.capacity` v1 view, the same as `aiur capacity --json`: one "Energy" figure and each source's state, accounts, reserve, holds and limits, as dispatch computes them. Each figure carries `observed_at`, `age_ms` and `freshness`; show a `null` `energy.level` as unknown, never as full.
+
+With an `openrouter:` route configured, the provider row shows the key's remaining credit against its limit, and `aiur usage openrouter` lists each route's spend per route and model. The credit reading comes from `OPENROUTER_MANAGEMENT_KEY`; without it, the route key's own limit stands in.
+
+The route key is also polled at OpenRouter's `GET /key` at most every five minutes and shown under `key` as `reported`: USD used, limit and remaining (when set), and `observed_at`. A failed poll is `no_reading` with a reason, never zero; the key is never printed.
 
 With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
 It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
@@ -166,11 +168,7 @@ At zero, daemon requests are rejected locally and agent-launched `gh` commands w
 
 Aiur also coordinates request *shape* across all local instances that share a credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state by SHA-256 fingerprints, never the token or consumer identity itself. It enforces a shared requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and jittered admission starts.
 
-A primary exhaustion holds its resource globally; a secondary-limit response or `Retry-After` holds every consumer of that token, including separately started daemons and agent `gh` commands.
-
-The broker is optional: without `python3`, metering fails open to unmetered
-requests (announced once at boot). `claude-repl` agents require `python3` for
-their durable lifecycle-hook spool, independently of the broker.
+A primary exhaustion holds its resource globally. Secondary limits and `Retry-After` hold every consumer of that token, including separate daemons and agent `gh` commands. Without `python3`, the optional broker fails open; `claude-repl` still needs it for lifecycle-hook spooling.
 
 The defaults are deliberately conservative and can be tuned per workflow:
 
@@ -410,7 +408,7 @@ The binding admission signal (which host-pressure gate is holding dispatch) and 
 
 Because reading the build gate scans its lock files, that probe runs on a reduced cadence and carries the last observation forward, so telemetry never disturbs a real build acquisition. `/analytics`, `aiurdev analytics` (including `--json`), and the self-contained HTML report expose the same pressure evidence.
 
-This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
+This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically. When [resource-based concurrency](/reference/configuration-agent#resource-based-dispatch-ceiling) is enabled, the dashboard and Analytics concurrency tile report the live dispatch ceiling and the age of its binding reading.
 
 ## Sizing a container
 

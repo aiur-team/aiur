@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
+  alias Aiur.Orchestrator.ResourceEnvelope
   alias AiurWeb.OperatorControlCenter.DecisionPath
 
   attr(:decisions, :list, default: [])
@@ -63,6 +64,19 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       <span aria-hidden="true">◉</span>
       <span><b>Partial Command counts.</b> Counts are at least this high.</span>
     </div>
+    """
+  end
+
+  attr(:capacity, :map, required: true)
+
+  @spec dispatch_ceiling(map()) :: Phoenix.LiveView.Rendered.t()
+  def dispatch_ceiling(assigns) do
+    assigns = assign(assigns, :binding, ResourceEnvelope.label(assigns.capacity))
+
+    ~H"""
+    <p :if={@binding} id="dispatch-ceiling">
+      <strong>Dispatch ceiling {@capacity.effective}</strong> · {@binding}
+    </p>
     """
   end
 

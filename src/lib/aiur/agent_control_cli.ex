@@ -68,6 +68,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate github_usage(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_emit(topic, payload_json), to: Aiur.ExecutorAttention.CLI
+  defdelegate notify(kind, text, ticket, url), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_unsubscribe(topic), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_subscriptions(), to: Aiur.ExecutorAttention.CLI
@@ -117,6 +118,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
 
   defdelegate redispatch(targets, backend), to: Aiur.AgentControlCLI.Redispatch
+  defdelegate rework(issue, reason), to: Aiur.AgentControlCLI.Rework
+  defdelegate rework(issue, reason, opts), to: Aiur.AgentControlCLI.Rework
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run
   defdelegate take(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :take
   defdelegate release(targets, owner), to: Aiur.ControlCLI.ExecutorOwnership, as: :release

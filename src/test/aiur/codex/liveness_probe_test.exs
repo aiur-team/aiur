@@ -28,6 +28,7 @@ defmodule Aiur.Codex.LivenessProbeTest do
   # Production arms the probe every 60_000 ms. The injected interval only
   # shortens the wait so a silent server is caught inside a test-sized window.
   @probe_interval_ms 200
+  @quick_turns_interval_ms 2_000
   # Above the 5_000 ms app-server read timeout the probe waits for an answer, so
   # a silent server's recoverable probe timeout stays distinguishable from the
   # turn's own backstop.
@@ -99,11 +100,30 @@ defmodule Aiur.Codex.LivenessProbeTest do
 
     assert result.result == :turn_completed
     refute_received {:agent_message, :turn_ended_with_error}
-    # The server answered every read it received, so the turn crossed several
-    # probe intervals and was not killed by one.
-    assert [_, _ | _rest] = probe_reads(trace)
+    # The turn crossed several probe intervals and was not ended by one; its
+    # frames are the liveness evidence, so any read it drew was answered.
     assert elapsed >= 1_000
     assert elapsed < @turn_timeout_ms
+  end
+
+  # Open-games 467 (2026-11-15): under CPU load the rate-limit read missed its
+  # deadline while the turn streamed, the probe ended the turn, and Codex killed
+  # every running command with exit 137. A quiet spell draws a read here; the
+  # server never answers it but streams past the read's deadline, so only the
+  # frames prove it is alive.
+  test "a turn that streams past an unanswered probe read is not ended", ctx do
+    %{root: root} = ctx
+    trace = Path.join(root, "codex.trace")
+    deltas = div(LivenessProbe.probe_timeout_ms() + 1_500, 150)
+    session = start_agent(ctx, unanswered_stream_script(trace, deltas))
+    test_pid = self()
+
+    assert {:ok, result} = CodexAgent.run_turn(session, "busy host", issue(), on_message: forward_to(test_pid))
+
+    assert result.result == :turn_completed
+    refute_received {:agent_message, :turn_ended_with_error}
+    # The read really went out and was never answered.
+    assert [_read | _rest] = probe_reads(trace)
   end
 
   test "an app-server that refuses the probe read with a usage-limit error pauses", ctx do
@@ -119,6 +139,35 @@ defmodule Aiur.Codex.LivenessProbeTest do
     assert pause.kind == :usage_limit_exhausted
     assert pause.reason =~ "reported usage exhaustion"
     assert pause.reset_hint == nil
+    refute_received {:agent_message, :turn_ended_with_error}
+  end
+
+  # Regression for #7963: a completed turn returns `{:ok, :turn_completed}`, not
+  # its loop state, so its probe timer was never cancelled. Each finished turn
+  # left a `:codex_liveness_probe` message for the next turn on the same runner;
+  # two of them made the next turn send a read and immediately count it as
+  # unanswered, killing a healthy session within milliseconds of turn start.
+  test "probe timers from finished turns cannot time out a later turn", ctx do
+    %{root: root} = ctx
+    trace = Path.join(root, "codex.trace")
+    # Both quick turns must finish before either one's timer fires, so neither
+    # timer is consumed by the second turn instead of reaching the third.
+    session = ctx |> start_agent(instant_turn_script(trace)) |> Map.put(:liveness_probe_interval_ms, @quick_turns_interval_ms)
+    test_pid = self()
+
+    for _turn <- 1..2 do
+      assert {:ok, %{result: :turn_completed}} =
+               CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
+    end
+
+    # Timers fire in deadline order, so once this later one arrives every timer
+    # the finished turns armed has already fired into this mailbox.
+    Process.send_after(self(), :earlier_probe_timers_fired, @quick_turns_interval_ms * 2)
+    assert_receive :earlier_probe_timers_fired, @quick_turns_interval_ms * 5
+
+    assert {:ok, %{result: :turn_completed}} =
+             CodexAgent.run_turn(session, "quick", issue(), on_message: forward_to(test_pid))
+
     refute_received {:agent_message, :turn_ended_with_error}
   end
 
@@ -178,6 +227,32 @@ defmodule Aiur.Codex.LivenessProbeTest do
     """
   end
 
+  # A server that starts the turn, stays quiet long enough for the probe to
+  # send a read, then streams `deltas` deltas 150 ms apart and completes. It
+  # never answers a probe read.
+  defp unanswered_stream_script(trace, deltas) do
+    """
+    #!/bin/sh
+    #{handshake_cases(trace)}
+      *'"method":"turn/start"'*)
+        rid=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+        printf '{"id":%s,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\\n' "$rid"
+        printf '%s\\n' '#{turn_started_frame()}'
+        printf '%s\\n' '#{rate_limits_frame(28)}'
+        (
+          sleep 0.7
+          for _ in #{Enum.join(1..deltas, " ")}; do
+            sleep 0.15
+            printf '%s\\n' '#{delta_frame()}'
+          done
+          printf '%s\\n' '#{completed_frame()}'
+        ) &
+        ;;
+    esac
+    done
+    """
+  end
+
   # A server that starts the turn and then keeps streaming while answering every
   # probe read with an allowance-left snapshot.
   defp streaming_script(trace) do
@@ -205,6 +280,28 @@ defmodule Aiur.Codex.LivenessProbeTest do
     esac
     done
     wait
+    """
+  end
+
+  # A healthy server whose turns complete as soon as they start and which answers
+  # every probe read.
+  defp instant_turn_script(trace) do
+    """
+    #!/bin/sh
+    #{handshake_cases(trace)}
+      *'"method":"turn/start"'*)
+        rid=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+        printf '{"id":%s,"result":{"turn":{"id":"turn-1","status":"inProgress","items":[]}}}\\n' "$rid"
+        printf '%s\\n' '#{turn_started_frame()}'
+        printf '%s\\n' '#{completed_frame()}'
+        ;;
+      *'"method":"account/rateLimits/read"'*)
+        case "$line" in
+          *'"id":6'*) printf '%s\\n' '#{probe_answer_frame(28)}' ;;
+        esac
+        ;;
+    esac
+    done
     """
   end
 

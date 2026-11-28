@@ -13,6 +13,9 @@ defmodule AiurWeb.BuildOrderApiController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.BuildOrdersCLI
+  alias Aiur.Commands.Scope
+  alias AiurWeb.BuildOrderHostApi
+  alias AiurWeb.CommandsScopeAuth
 
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, params) do
@@ -23,6 +26,39 @@ defmodule AiurWeb.BuildOrderApiController do
       {:error, reason} -> failure(conn, reason)
     end
   end
+
+  @doc "Returns the feature or epic document authorized by the embedded-host grant."
+  @spec embedded(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def embedded(conn, _params) do
+    case conn.assigns[:command_scope] do
+      %{build_order: %{kind: kind, key: key}} = scope when kind in [:feature, :epic] ->
+        case BuildOrderHostApi.read(scope, host_opts(conn, key, kind)) do
+          {:ok, document} -> respond(conn, 200, document)
+          {:error, :not_found} -> error(conn, 404, :build_order_not_found, "Build Order scope was not found")
+          {:error, :unavailable} -> error(conn, 503, :build_order_unavailable, "Build Order projection is unavailable")
+        end
+
+      _missing_scope ->
+        error(conn, 404, :build_order_not_found, "Build Order scope was not found")
+    end
+  end
+
+  @doc "Mints a short-lived Build Order grant for one feature or epic."
+  @spec mint_scope(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def mint_scope(conn, %{"principal" => principal, "build_order" => %{"kind" => kind, "key" => key}} = params)
+      when is_binary(principal) and kind in ["feature", "epic"] and is_binary(key) do
+    with {:ok, secret} <- CommandsScopeAuth.signing_secret(conn),
+         {:ok, expires_in} <- build_order_expiry(params),
+         {:ok, minted} <- Scope.mint(principal, [], secret: secret, expires_in: expires_in, build_order: %{kind: kind, key: key}) do
+      conn
+      |> put_status(201)
+      |> json(%{"token" => minted.token, "expires_at" => DateTime.to_iso8601(minted.scope.expires_at), "scope" => Scope.to_public(minted.scope)})
+    else
+      _invalid -> error(conn, 422, :invalid_scope, "Build Order scope request is invalid")
+    end
+  end
+
+  def mint_scope(conn, _params), do: error(conn, 422, :invalid_scope, "Build Order scope request is invalid")
 
   @spec method_not_allowed(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def method_not_allowed(conn, _params) do
@@ -35,6 +71,22 @@ defmodule AiurWeb.BuildOrderApiController do
   defp source(conn) do
     Map.get(conn.private, :build_order_data_source) ||
       Application.get_env(:aiur, :build_order_data_source, AiurWeb.BuildOrder.DataSource)
+  end
+
+  defp host_opts(conn, key, kind) do
+    opts = conn.private[:build_order_host_opts] || []
+    opts = Keyword.put(opts, :activity_fun, Keyword.get(opts, :activity_fun, &Aiur.TicketActivity.snapshots/0))
+
+    opts
+    |> Keyword.put_new(:scope_kind, kind)
+    |> Keyword.put(:scope_key, key)
+  end
+
+  defp build_order_expiry(params) do
+    case Map.get(params, "expires_in", 900) do
+      value when is_integer(value) and value > 0 and value <= 86_400 -> {:ok, value}
+      _invalid -> {:error, :invalid_scope}
+    end
   end
 
   defp root_opts(%{"root" => root}) when is_binary(root) and root != "", do: [root: root]

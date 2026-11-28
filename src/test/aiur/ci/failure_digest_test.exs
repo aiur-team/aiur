@@ -102,6 +102,16 @@ defmodule Aiur.CI.FailureDigestTest do
     refute digest.flake_only
   end
 
+  # A rework reason quotes these lines, so GitHub's exit-code annotation and
+  # multi-line stack traces must not crowd out the message that names the failure.
+  test "each check keeps its first failure messages as error lines" do
+    cap = %{"annotation_level" => "failure", "message" => "SKILL.md has 122 lines; the cap is 120\n    at gm-core.test.ts:14"}
+    warning = %{"annotation_level" => "warning", "message" => "Node 18 is deprecated"}
+    runner_exit = %{"annotation_level" => "failure", "message" => "Process completed with exit code 1."}
+    assert {:ok, digest} = build([run(1, "workspace")], %{1 => [warning, cap, runner_exit, annotation("Gm.CoreTest :: line cap")]})
+    assert [%{name: "workspace", errors: ["SKILL.md has 122 lines; the cap is 120", "new-failure :: Gm.CoreTest :: line cap"]}] = digest.checks
+  end
+
   test "routine coverage exit annotations do not hide known-flake-only jobs" do
     identity = "Aiur.ExampleTest :: flaky test"
     fixture = Path.expand("../../fixtures/ci/coverage-exit-annotations.json", __DIR__) |> File.read!() |> Jason.decode!()

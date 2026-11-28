@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
   import Aiur.OrchestratorStatusSupport
   import ExUnit.CaptureIO
 
-  alias Aiur.AgentControlCLI
+  alias Aiur.{AgentControlCLI, BuildQueue.Hints, SnapshotFenceSupport}
   alias Aiur.GitHub.{OpenIssueSnapshot, ResourceStore}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.{DispatchCandidates, DispatchPolicy}
@@ -13,7 +13,6 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.Reconciler.Reactivation
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.SnapshotFenceSupport
   alias Aiur.TestSupport.RunnerTasks
 
   setup do
@@ -113,6 +112,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
 
     ResourceStore.reset()
     OpenIssueSnapshot.reset()
+    :ets.insert(Hints.create_table(), {blocked.id, {0, 0}, false, :pr_merged})
     blocker = %{"number" => 100, "state" => "open", "labels" => [%{"name" => "sym:rework"}]}
     :ok = ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", "100"), blocker)
     :ok = ResourceStore.put_resource(ResourceStore.key(:issue_blocked_by, "owner", "repo", blocked.id), [blocker])

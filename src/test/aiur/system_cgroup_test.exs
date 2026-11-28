@@ -45,6 +45,32 @@ defmodule Aiur.SystemCgroupTest do
     assert SystemCgroup.memory_max_bytes() == :unavailable
   end
 
+  test "reads Aiur slice pressure and the tighter memory limit from a descendant cgroup", %{root: root} do
+    slice = Path.join(root, "aiur.slice")
+    worker = Path.join(slice, "worker.scope")
+    File.mkdir_p!(worker)
+    Application.put_env(:aiur, :cgroup_root_override, worker)
+
+    write!(slice, "cpu.max", "max 100000")
+    write!(slice, "cpu.pressure", "some avg10=2.0 avg60=0.0 avg300=0.0 total=10")
+    write!(slice, "memory.high", "900")
+    write!(slice, "memory.max", "1000")
+    write!(slice, "memory.stat", "inactive_file 200")
+
+    write!(slice, "memory.current", "925")
+    assert SystemCgroup.dispatch_headroom(10.0, 0.8) == :pressure
+    write!(slice, "memory.current", "850")
+    assert SystemCgroup.dispatch_headroom(10.0, 0.8) == :healthy
+    write!(slice, "cpu.pressure", "some avg10=20.0 avg60=0.0 avg300=0.0 total=10")
+    assert SystemCgroup.dispatch_headroom(10.0, 0.8) == :pressure
+    write!(slice, "cpu.pressure", "invalid")
+    assert SystemCgroup.dispatch_headroom(10.0, 0.8) == :unknown
+    write!(slice, "cpu.pressure", "some avg10=2.0 avg60=0.0 avg300=0.0 total=10")
+    write!(slice, "memory.current", "925")
+    write!(slice, "memory.stat", "invalid")
+    assert SystemCgroup.dispatch_headroom(10.0, 0.8) == :unknown
+  end
+
   defp write!(root, name, contents), do: File.write!(Path.join(root, name), contents)
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)

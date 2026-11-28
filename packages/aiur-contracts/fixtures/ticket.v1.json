@@ -55,6 +55,14 @@
     "live_conversation": null,
     "open_decision_count": 0,
     "open_decision_count_health": "unknown",
+    "progress": {
+      "checklist": null,
+      "percent": 15,
+      "phase": "work",
+      "source": "phase",
+      "step": "Working through the plan",
+      "updated_at": null
+    },
     "queue_depth": 1,
     "review": "not_started",
     "session_id": "session-5698",

@@ -39,25 +39,129 @@ defmodule Aiur.SystemCgroup do
     with {:ok, current} <- read("memory.current"),
          {current, ""} when current >= 0 <- Integer.parse(String.trim(current)),
          maximum when is_integer(maximum) and maximum > 0 <- memory_max_bytes() do
-      %{current: current, inactive_file: inactive_file_bytes(), max: maximum}
+      %{current: current, inactive_file: inactive_file_bytes(cgroup_root()) || 0, max: maximum}
     else
       _ -> :unavailable
     end
   end
 
-  defp inactive_file_bytes do
-    with {:ok, contents} <- read("memory.stat"),
+  @doc "Capacity signal from the Aiur slice, or the daemon's cgroup when no slice is present."
+  @spec dispatch_headroom(number(), number()) :: :healthy | :pressure | :unknown
+  def dispatch_headroom(cpu_target, memory_threshold) do
+    current = cgroup_root()
+    parents = ancestors(current)
+    slice = Enum.find(parents, &(Path.basename(&1) == "aiur.slice")) || find_managed_slice(parents)
+    root = slice || current
+
+    if is_nil(slice) and unconstrained_root?(root), do: :healthy, else: resource_headroom(root, cpu_target, memory_threshold, not is_nil(slice))
+  end
+
+  defp find_managed_slice(parents) do
+    if is_nil(Application.get_env(:aiur, :cgroup_root_override)) do
+      parents
+      |> Enum.take_while(&(&1 != "/"))
+      |> Enum.map(&Path.join(&1, "aiur.slice"))
+      |> Enum.find(&File.dir?/1)
+    end
+  end
+
+  # The cgroup v2 hierarchy root has no CPU or memory controller limits.
+  defp unconstrained_root?(@default_mount),
+    do: not File.exists?(Path.join(@default_mount, "cgroup.type")) and match?({:ok, _}, read("cgroup.controllers", @default_mount))
+
+  defp unconstrained_root?(_root), do: false
+
+  defp resource_headroom(root, cpu_target, memory_threshold, slice?) do
+    cpu = cpu_headroom(root, cpu_target, slice?)
+    memory = memory_headroom(root, memory_threshold)
+
+    cond do
+      :pressure in [cpu, memory] -> :pressure
+      :unknown in [cpu, memory] -> :unknown
+      true -> :healthy
+    end
+  end
+
+  defp ancestors(path) do
+    parent = Path.dirname(path)
+    if path == parent, do: [path], else: [path | ancestors(parent)]
+  end
+
+  defp cpu_headroom(root, target, slice?) do
+    with {:ok, quota} <- read("cpu.max", root),
+         [limit, period] <- String.split(quota),
+         true <- limit == "max" or is_integer(positive_limit(limit)),
+         true <- is_integer(positive_limit(period)) do
+      if limit == "max" and not slice?, do: :healthy, else: cpu_pressure_headroom(root, target)
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp cpu_pressure_headroom(root, target) do
+    with {:ok, contents} <- read("cpu.pressure", root),
+         %{avg10: avg10} <- Aiur.SystemPressure.parse(contents) do
+      if avg10 > target, do: :pressure, else: :healthy
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp memory_headroom(root, threshold) do
+    case {read_limit(root, "memory.high"), read_limit(root, "memory.max")} do
+      {:unlimited, :unlimited} -> :healthy
+      {:unknown, _} -> :unknown
+      {_, :unknown} -> :unknown
+      {high, maximum} -> memory_pressure_headroom(root, Enum.min(Enum.filter([high, maximum], &is_integer/1)), threshold)
+    end
+  end
+
+  defp memory_pressure_headroom(root, limit, threshold) do
+    with {:ok, current} <- read("memory.current", root),
+         {bytes, ""} when bytes >= 0 <- Integer.parse(String.trim(current)),
+         inactive when is_integer(inactive) <- inactive_file_bytes(root) do
+      if max(0, bytes - inactive) > limit * threshold, do: :pressure, else: :healthy
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp read_limit(root, name) do
+    case read(name, root) do
+      {:ok, value} -> parse_limit(String.trim(value))
+      _ -> :unknown
+    end
+  end
+
+  defp parse_limit("max"), do: :unlimited
+
+  defp parse_limit(limit) do
+    case Integer.parse(limit) do
+      {value, ""} when value >= 0 -> value
+      _ -> :unknown
+    end
+  end
+
+  defp positive_limit(text) do
+    case Integer.parse(text) do
+      {value, ""} when value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp inactive_file_bytes(root) do
+    with {:ok, contents} <- read("memory.stat", root),
          line when is_binary(line) <- Enum.find(String.split(contents, "\n"), &String.starts_with?(&1, "inactive_file ")),
          ["inactive_file", value] <- String.split(line),
          {bytes, ""} when bytes >= 0 <- Integer.parse(value) do
       bytes
     else
-      _ -> 0
+      _ -> nil
     end
   end
 
-  defp read(name) do
-    case :file.open(Path.join(cgroup_root(), name), [:read, :binary, :raw]) do
+  defp read(name, root \\ cgroup_root()) do
+    case :file.open(Path.join(root, name), [:read, :binary, :raw]) do
       {:ok, fd} ->
         try do
           read_chunks(fd, [])

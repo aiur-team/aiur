@@ -131,12 +131,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     assert hd(get(:document).queues).start_trigger == :pr_opened
     assert {:error, :invalid_start_trigger} = GenServer.call(pid, {:mutate, {:adopt, 100, nil, :soon}})
     assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
-    assert {:ok, [{"optimistic", :ok}]} = MutationCLI.execute(verb: :set, queue: "optimistic", start_on: "default", server: pid)
+    assert {:ok, [{"optimistic", {:ok, {:trigger_applied, :pr_opened, :config}}}]} = MutationCLI.execute(verb: :set, queue: "optimistic", start_on: "default", server: pid)
     assert hd(get(:document).queues).start_trigger == nil
     generation = hd(get(:document).queues).generation
     reconcile(pid)
     assert hd(get(:document).queues).generation == generation
-    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_merged
+    assert hd(Aiur.BuildQueue.show(pid).queues).start_trigger == :pr_opened
   end
 
   test "generated Build Order queue names cannot collide with an existing list" do

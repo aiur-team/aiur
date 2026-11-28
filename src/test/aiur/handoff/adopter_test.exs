@@ -4,7 +4,7 @@ defmodule Aiur.Handoff.AdopterTest do
   alias Aiur.AgentRunner.Handoff, as: Runner
   alias Aiur.Capacity.LedgerStore
   alias Aiur.Handoff.{Adopter, Compatibility, Record, Report}
-  alias Aiur.Orchestrator.{OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
 
   setup do
     dir = Path.join(System.tmp_dir!(), "adopter-#{System.unique_integer([:positive])}")
@@ -48,7 +48,7 @@ defmodule Aiur.Handoff.AdopterTest do
     assert state.running["one"].agent_total_tokens == 27
     assert State.effective_runtime_seconds(state.running["one"], DateTime.utc_now()) >= 119
     assert state.claimed == MapSet.new(["one"])
-    assert state.dispatch_recovery.codex_thrash_budget["one"] == %{attempts: 3}
+    assert state.dispatch_recovery.codex_thrash_budget["one"] == %{lifetime: 3}
     assert OrphanedWorkers.stop_untracked_runners(state).running == state.running
 
     {retained, [issue]} =
@@ -65,6 +65,32 @@ defmodule Aiur.Handoff.AdopterTest do
     assert [%{adopted_from: "restart"}] = StatusReport.snapshot_payload(state).running
     assert :none = Record.read(dir: dir)
     assert Adopter.adopt(state, options(dir)).running == state.running
+  end
+
+  # The saved window start is a reading of the previous VM's monotonic clock,
+  # which means nothing in this one. Kept as-is it can sit ahead of this VM's
+  # clock, so the window never lapses: #740 stayed held by a 60-second circuit
+  # until an operator ran `reset-budget`. Lifetime spend is real and survives.
+  test "adoption keeps lifetime spend but not the previous VM's restart window", %{dir: dir} do
+    now = System.monotonic_time(:millisecond)
+    saved = %{count: 6, lifetime: 5, tripped: :window, alert_emitted: true, window_start_ms: now + 3_600_000}
+    agent = Map.put(agent(dir, "one"), "dispatch_attempts", Runner.encode(saved))
+    assert :ok = Record.write(record([agent]), dir: dir)
+
+    runner = fn _agent, 2, recipient, _opts ->
+      send(recipient, {:handoff_adopted, self(), {:ok, %{metadata: %{}}}})
+
+      receive do
+        :stop -> :ok
+      end
+    end
+
+    state = Adopter.adopt(%State{max_concurrent_agents: 1}, options(dir, runner: runner))
+    on_exit(fn -> send(state.running["one"].pid, :stop) end)
+
+    assert state.dispatch_recovery.codex_thrash_budget["one"] == %{lifetime: 5}
+    assert {:ok, admitted} = Dispatcher.check_thrash_budget(state, "one", now)
+    assert %{count: 1, lifetime: 5} = admitted.dispatch_recovery.codex_thrash_budget["one"]
   end
 
   test "unknown schema stops every listed agent and consumes one fallback outcome each", %{dir: dir} do
@@ -349,7 +375,7 @@ defmodule Aiur.Handoff.AdopterTest do
       "backend" => "codex",
       "running_entry" => Runner.encode(entry),
       "transport" => Map.merge(hello(), %{"kind" => "relay", "directory" => dir}),
-      "dispatch_attempts" => Runner.encode(%{attempts: 3})
+      "dispatch_attempts" => Runner.encode(%{lifetime: 3, count: 2, window_start_ms: 0})
     }
   end
 

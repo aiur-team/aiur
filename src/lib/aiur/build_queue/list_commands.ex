@@ -10,7 +10,7 @@ defmodule Aiur.BuildQueue.ListCommands do
          {:ok, current_labels, missing} <- open_members(state, command) do
       {actions, already_marked} = skip_existing_markers(actions, current_labels, state.settings)
       document = record(state, document, actions, observations, current_labels)
-      document = record_existing_markers(document, already_marked, observations, state)
+      document = record_existing_markers(document, already_marked, current_labels, state)
       {:ok, document, actions, observations, missing}
     end
   end
@@ -25,12 +25,15 @@ defmodule Aiur.BuildQueue.ListCommands do
     |> then(fn {existing, remaining} -> {remaining, Enum.map(existing, &elem(&1, 1))} end)
   end
 
-  defp record_existing_markers(document, [], _observations, _state), do: document
+  defp record_existing_markers(document, [], _current_labels, _state), do: document
 
-  defp record_existing_markers(document, ids, observations, state) do
+  # `current_labels` is the live listing that found these markers. The reconcile
+  # observations can be empty while an earlier marker write is still pending, so
+  # they cannot be relied on for an id here.
+  defp record_existing_markers(document, ids, current_labels, state) do
     existing =
       Enum.map(ids, fn id ->
-        labels = observations[id].labels
+        labels = get_in(current_labels, [id, :labels]) || []
         target_labels = Enum.uniq(labels ++ ["#{state.settings.tracker.github.label_prefix}:queued"])
         %Intent{id: Ecto.UUID.generate(), issue_id: id, action: :mark, target_labels: target_labels, recorded_at_ms: state.clock.(), outcome: :ok}
       end)

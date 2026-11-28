@@ -9,11 +9,18 @@ defmodule Aiur.Usage.Headless.Context do
   never recovered from prose or paths, and never becomes a guessed identity.
   """
 
-  alias Aiur.{Boot, CodingAgent, Issue, TrackerIdentity}
-  alias Aiur.ProviderAccountGeneration.Snapshot
+  alias Aiur.{Boot, CodingAgent, Issue, ProviderAccountGeneration, TrackerIdentity}
 
-  @enforce_keys [:run_id, :agent_family, :backend, :transport, :account_generation, :source_sequence]
+  @enforce_keys [
+    :run_id,
+    :agent_family,
+    :backend,
+    :transport,
+    :account_generation,
+    :source_sequence
+  ]
   defstruct [
+    :user_id,
     :run_id,
     :tracker_identity,
     :attempt_id,
@@ -71,6 +78,7 @@ defmodule Aiur.Usage.Headless.Context do
     generation = account_generation(agent_family, usage_context.backend, opts)
 
     %__MODULE__{
+      user_id: string_or_nil(Keyword.get(opts, :user_id)),
       run_id: Keyword.get(opts, :run_id) || Boot.run_id(),
       tracker_identity: tracker_identity(issue),
       attempt_id: string_or_nil(Keyword.get(opts, :attempt_id) || Keyword.get(opts, :telemetry_attempt_id)),
@@ -106,16 +114,24 @@ defmodule Aiur.Usage.Headless.Context do
   # records bounded coverage rather than borrowing another account's identity.
   defp account_generation(agent_family, backend, opts) do
     opts
-    |> Keyword.get(:account_generation, Snapshot.unavailable(agent_family, backend))
+    |> Keyword.get(
+      :account_generation,
+      ProviderAccountGeneration.unavailable_snapshot(agent_family, backend)
+    )
     |> project_generation(agent_family, backend)
   end
 
   @doc "Projects a DASH-018 account-generation snapshot into the envelope's account context."
   @spec project_generation(map(), atom()) :: account_generation()
-  def project_generation(snapshot, agent_family), do: project_generation(snapshot, agent_family, :app_server)
+  def project_generation(snapshot, agent_family),
+    do: project_generation(snapshot, agent_family, :app_server)
 
   @spec project_generation(map(), atom(), atom()) :: account_generation()
-  def project_generation(%{generation: generation, freshness: freshness, health: health, reason: reason}, agent_family, backend) do
+  def project_generation(
+        %{generation: generation, freshness: freshness, health: health, reason: reason},
+        agent_family,
+        backend
+      ) do
     %{
       provider: agent_family,
       backend: backend,
@@ -127,7 +143,11 @@ defmodule Aiur.Usage.Headless.Context do
   end
 
   def project_generation(_snapshot, agent_family, backend) do
-    project_generation(Snapshot.unavailable(agent_family, backend), agent_family, backend)
+    project_generation(
+      ProviderAccountGeneration.unavailable_snapshot(agent_family, backend),
+      agent_family,
+      backend
+    )
   end
 
   defp usage_context(opts) do

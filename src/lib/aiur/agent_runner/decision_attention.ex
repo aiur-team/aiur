@@ -71,18 +71,27 @@ defmodule Aiur.AgentRunner.DecisionAttention do
 
   defp request_and_format(requester, payload, opts) do
     case safely_request_decision(requester, payload, opts) do
-      {:ok, %{status: status, decision: decision}} ->
+      {:ok, %{status: status, decision: decision} = result} ->
         {:ok,
          %{
            "decision_id" => decision.decision_id,
            "version" => decision.version,
            "status" => Atom.to_string(status)
-         }}
+         }
+         |> put_creator_overlap(result)}
 
       {:error, reason} ->
         {:error, {:decision_rejected, reason}}
     end
   end
+
+  defp put_creator_overlap(result, %{creator_overlap: %{command_path: path, status: status}}) do
+    overlap = %{"command_path" => path, "status" => Atom.to_string(status)}
+    overlap = if status == :answered, do: Map.put(overlap, "next_step", "Use the linked answer. This question is already answered."), else: overlap
+    Map.put(result, "creator_overlap", overlap)
+  end
+
+  defp put_creator_overlap(result, _outcome), do: result
 
   defp safely_request_decision(decision_requester, payload, opts) do
     decision_requester.(payload, opts)

@@ -16,13 +16,15 @@ defmodule AiurPushRelay.Router do
 
   defp route(%{method: "GET", path_info: ["healthz"]} = conn, opts) do
     case Store.call(opts.store, :health) do
-      :ok -> json(conn, 200, %{store: "ok"})
-      _ -> json(conn, 503, %{store: "error"})
+      :ok -> json(conn, 200, health(opts, "ok"))
+      _ -> json(conn, 503, health(opts, "error"))
     end
   end
 
   defp route(%{method: "POST", path_info: ["v1", "handles"]} = conn, opts) do
     with {:ok, params, conn} <- body(conn),
+         :ok <- provider_available(opts, params),
+         :ok <- limit_handle_creation(conn, opts),
          {:ok, result} <- Handles.create(opts.store, opts.pins, params) do
       json(conn, 201, result)
     else
@@ -44,6 +46,7 @@ defmodule AiurPushRelay.Router do
          true <- is_map(params),
          {:ok, row} <- Handles.authenticate(opts.store, params["handle"], bearer(conn)),
          false <- row.gone,
+         :ok <- provider_available(opts, row),
          {:ok, envelope} <- Envelope.validate(params, Map.get(opts.pins, row.app_topic)),
          {:ok, status} <- Send.enqueue(opts.sender, row, envelope) do
       json(conn, status, %{status: "accepted"})
@@ -55,6 +58,63 @@ defmodule AiurPushRelay.Router do
   end
 
   defp route(conn, _), do: json(conn, 404, %{error: "not_found"})
+
+  defp limit_handle_creation(conn, opts) do
+    limits = Map.get(opts, :limits, %{handles_per_ip_hour: 20})
+    ip = conn.remote_ip |> :inet.ntoa() |> to_string()
+
+    case Store.call(opts.store, :consume, [
+           "ip:" <> ip,
+           limits.handles_per_ip_hour,
+           limits.handles_per_ip_hour,
+           System.system_time(:second)
+         ]) do
+      :ok -> :ok
+      {:limited, seconds} -> {:error, {:rate_limited, seconds}}
+      error -> error
+    end
+  end
+
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: AiurPushRelay.Provider.Router}, %{platform: platform})
+       when platform in ["apns", "fcm"] do
+    if AiurPushRelay.Provider.Router.available?(platform),
+      do: :ok,
+      else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(%{providers: registry}, %{"platform" => platform})
+       when platform in ["apns", "fcm"] do
+    if registry.available?(platform), do: :ok, else: {:error, :provider_unavailable}
+  end
+
+  defp provider_available(opts, %{platform: "fcm"}) do
+    allow_test_fcm = Application.get_env(:aiur_push_relay, :allow_test_fcm, false)
+
+    case opts[:fcm_health] do
+      "ok" -> :ok
+      "test" when allow_test_fcm -> :ok
+      _ -> {:error, :provider_unavailable}
+    end
+  end
+
+  defp provider_available(_opts, _row), do: :ok
+
+  defp health(%{providers: AiurPushRelay.Provider.Router}, store) do
+    Map.merge(%{store: store}, AiurPushRelay.Provider.Router.health())
+  end
+
+  defp health(%{providers: registry}, store) do
+    %{store: store, apns: if(registry.available?("apns"), do: "available", else: "unavailable")}
+  end
+
+  defp health(opts, store), do: %{store: store, fcm: opts[:fcm_health] || "unconfigured"}
 
   defp body(conn) do
     case read_body(conn, length: 8192, read_length: 8193) do
@@ -79,6 +139,12 @@ defmodule AiurPushRelay.Router do
     end
   end
 
+  defp respond(conn, {:error, {:rate_limited, seconds}}) do
+    conn
+    |> put_resp_header("retry-after", to_string(seconds))
+    |> json(429, %{error: "rate_limited", retry_after_s: seconds})
+  end
+
   defp respond(conn, {:error, reason}) do
     status =
       case reason do
@@ -87,6 +153,7 @@ defmodule AiurPushRelay.Router do
         :handle_gone -> 410
         :too_large -> 413
         reason when reason in [:schema, :fallback_mismatch] -> 422
+        :provider_unavailable -> 503
         _ -> 503
       end
 

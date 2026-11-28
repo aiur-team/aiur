@@ -37,9 +37,9 @@ defmodule Aiur.Commands do
   defdelegate record_override_handoff(identifier, snapshots, receipt, opts \\ []), to: Aiur.DecisionStore
   @spec needs_you?(map()) :: boolean()
   defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
+  defdelegate validate_review_handoff(labels, identifier, decisions), to: Aiur.Commands.OutcomeGate, as: :validate_handoff
   @spec matches_route?(map(), atom() | nil) :: boolean()
   defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
-  @spec override_rows(map()) :: [map()]
   defdelegate override_rows(decision), to: Aiur.Commands.OverridePresentation, as: :rows
   @spec pending_override_status(map()) :: map() | nil
   defdelegate pending_override_status(decision), to: Aiur.Commands.OverridePresentation, as: :pending
@@ -74,16 +74,16 @@ defmodule Aiur.Commands do
           {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
   defdelegate attention_correlation(issue, slug), to: Aiur.DecisionAttention, as: :correlation
 
-  @spec blocked_ticket_ids() :: {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  @spec blocked_ticket_ids() :: {:ok, MapSet.t(term())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(), to: Aiur.DecisionStore
-
-  @spec blocked_ticket_ids(GenServer.server()) ::
-          {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  @spec blocked_ticket_ids(GenServer.server()) :: {:ok, MapSet.t(term())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(server), to: Aiur.DecisionStore
 
+  @doc false
+  @spec decision_ticket_key(map()) :: Aiur.DecisionTicketKey.t() | nil
+  defdelegate decision_ticket_key(ticket), to: Aiur.DecisionTicketKey, as: :from_ticket
   @spec classify_supervisor_token(term()) :: Aiur.SupervisorToken.classification()
   defdelegate classify_supervisor_token(token), to: Aiur.SupervisorToken, as: :classify
-
   @spec create_ask(String.t(), map()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate create_ask(repo, attrs), to: Aiur.Asks, as: :create
 

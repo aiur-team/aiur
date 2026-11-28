@@ -5,10 +5,10 @@ defmodule AiurWeb.BuildLive do
 
   require Logger
 
-  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, OverrideSummary, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
+  alias AiurWeb.Build.{CommandCard, Composer, Controls, Conversation, DataSource, Freshness, OverrideSummary, Protocol, QueueAdd, Read, Ticket, TicketDoc, URLState, UsageUpdates}
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, DecisionCommands, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, DecisionCommands, NavState, Overview, RouteRegistry}
   alias AiurWeb.Presenter
 
   @snapshot_timeout_ms 15_000
@@ -37,13 +37,14 @@ defmodule AiurWeb.BuildLive do
         build_state: :loading,
         build_snapshot: nil,
         daemon_hint: nil,
+        dispatch_capacity: nil,
         route: @route,
         tracker_kind: Runtime.tracker_kind(),
         agent_kind: Runtime.agent_kind(),
         analytics: Presenter.analytics_navigation()
       )
 
-    {:ok, if(connected, do: load_snapshot(socket), else: socket)}
+    {:ok, if(connected, do: socket |> refresh_dispatch_capacity() |> load_snapshot(), else: socket)}
   end
 
   @impl true
@@ -122,7 +123,7 @@ defmodule AiurWeb.BuildLive do
 
   def handle_info({:control_lifecycle, payload}, socket) when is_map(payload), do: {:noreply, Controls.lifecycle(socket, payload)}
 
-  def handle_info(:fleet_changed, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> Conversation.info(:fleet_changed)}
+  def handle_info(:fleet_changed, socket), do: {:noreply, socket |> DashboardShell.refresh_pause() |> refresh_dispatch_capacity() |> Conversation.info(:fleet_changed)}
   def handle_info({AiurWeb.FinancialData, :updated, _} = message, socket), do: {:noreply, UsageUpdates.queue(socket, message)}
   def handle_info(:build_usage_flush, socket), do: {:noreply, UsageUpdates.flush(socket)}
   def handle_info(tick, socket) when tick in [:build_usage_github_tick, :build_usage_elevenlabs_tick], do: {:noreply, UsageUpdates.tick(socket, tick)}
@@ -193,6 +194,8 @@ defmodule AiurWeb.BuildLive do
 
   defp refresh_controls(socket), do: if(connected?(socket), do: Controls.refresh(socket), else: socket)
 
+  defp refresh_dispatch_capacity(socket), do: assign(socket, :dispatch_capacity, Freshness.read_dispatch_capacity())
+
   defp source_opts(socket), do: Read.source_opts(socket)
 
   # Every answer re-checks the endpoint gate, not just the mount-time assign (EC-12).
@@ -262,7 +265,10 @@ defmodule AiurWeb.BuildLive do
       tracker_kind={@tracker_kind} agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}
       pause_state={DashboardShell.pause_state(assigns)}>
-      <:status><OverrideSummary.summary state={@fleet_overrides} /></:status>
+      <:status>
+        <OverrideSummary.summary state={@fleet_overrides} />
+        <Overview.dispatch_ceiling capacity={@dispatch_capacity} />
+      </:status>
       <:sidebar><div id="bd-usage-nav" class="ax-nu" phx-update="ignore" aria-label="Usage" role="group"></div></:sidebar>
       <div id="build-root" class="bd-root" phx-hook="BuildHome" phx-update="ignore"
         data-url-state={Jason.encode!(@url_state)} data-build-state={state_name(@build_state)} data-build-reason={reason(@build_state)}

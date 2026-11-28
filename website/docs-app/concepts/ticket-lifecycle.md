@@ -74,16 +74,59 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle/outcome.ex:294-301`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume/tracker_control.ex:307` |
 | `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
-| `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
+| `done` | orchestrator on merge when the PR carries a closing keyword and no blocking open PR remains; pending outcomes do not hold dependents | `merged_ticket_reconciler.ex`; `comment_wake.ex:46` |
+
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
+
+## Review and outcome gates
+
+Use `creator-facing` when a ticket needs creator review. Before `human-review`,
+an open Command routed to the creator must exist. A missing card or unavailable
+Command store refuses handoff so the agent can retry after recording it.
+
+Use `engineering-only` for engineering review; handoff requires an open Command
+with `audience: executor`.
+
+After merge, the ticket reaches `done` without a creator verdict. Its open
+Command remains available to creator and Executor; answers retain actor,
+reason, and time. Pending outcomes use no worker slots or turns and hold no
+dependents or queue work. “Needs changes” creates a separate epic follow-up;
+it never reopens the blocker.
+
+A pending PR `Post-deploy check:` remains recorded for completion on
+`/post-deploy`, but does not hold the merged ticket or its dependents open. For
+an epic, add `epic` and list `Children: #123, #124` plus optional
+`Follow-ups: #125` in its body. The epic itself stays open while any listed
+issue is open or has `needs-triage`.
+
+These labels and fields are the OGM contract. Opt in with `creator-facing`,
+`engineering-only`, `epic`, or a post-deploy record. Use Command APIs for cards
+and outcomes; retry through durable projections. Missing outcomes do not hold
+merged work; missing epic relationships keep it open. Create follow-ups
+idempotently.
+
 
 When the no-op turn bound or normal turn limit stops an agent, a newly opened or
 moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
 finishes, the ticket goes to `human-review`.
 
-At the no-op bound, verified rework with no new PR head becomes `error`. Other
-no-op-bound tickets keep their state and receive an alert. A normal turn limit
+At the no-op bound, verified rework with no new PR head becomes `error`, and so
+does a ticket whose open PR fails the PR body check, such as a draft. Kept
+active, it would be redispatched into the same no-op turns. Other no-op-bound
+tickets keep their state and receive an alert. A normal turn limit
 leaves the state unchanged when no PR head moved.
+
+A `ci-wait` ticket whose ready PR has a required check that already failed goes
+to `rework` without waiting for the checks still running on that head. The rework
+comment lists the failed checks with each one's first error lines. A failure the
+CI recovery would rerun as a flake still waits for the run to finish.
+
+Some failures are not about the code and never send a ticket to `rework`:
+
+- A gate job such as `required` that failed only because its upstream jobs were cancelled counts as a cancelled run. Aiur reruns it once and raises an attention if the rerun is cancelled too.
+- A check GitHub never started, for billing, a spending limit or a `startup_failure`, leaves the verdict pending.
+
+A repository whose CI runs outside hosted Actions sets `agent.ci_failed_rework: false`, and no CI failure reworks its tickets.
 
 When the poll sees a GitHub ticket enter `rework`, whoever applied the label, the
 daemon cancels the PR head's queued and running `ci` and `pr body` runs, so
@@ -116,6 +159,14 @@ A worker's `human-review` handback
 goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
+
+A draft PR cannot enter `ci-wait` or `human-review`. The one exception is a
+draft blocked from outside the ticket, such as a stop rule or a gate the ticket
+cannot pass.
+
+The worker passes the cause as `outside_blocker`, the ticket goes to
+`human-review` with its PR still a draft, and the reviewer gets a
+`ticket.<id>.agent.draft_handoff` alert naming the PR and the cause.
 
 The state tool reports the applied `state` and the
 `requested_state` separately. An approval redirect includes
@@ -202,6 +253,10 @@ could not be read — and which model ran instead.
 `model:<family>` for each family your CLIs report. It creates no version-specific labels
 and never deletes ones a repository already has; those keep working as exact pins.
 
+On Codex, the effort and a `model:codex*` pin are read again before every turn, so
+changing `model:low` to `model:xhigh` takes effect on the ticket's next turn without
+a new thread. Other backends pick up a label change at their next session start.
+
 ## Build queue
 
 **Stacked pull requests.** A dependent PR may target an open, unmerged direct `blocked_by` blocker's head branch. CI uses held edges and delivered PR facts (valid for 24 hours), independent of dispatch freshness. Missing facts or a merged/closed blocker restore `tracker.base_branch`. Retarget to integration before merge.
@@ -212,7 +267,7 @@ and never deletes ones a repository already has; those keep working as exact pin
 rebase rewritten history, and keep its PR draft until every blocker merges. When its own work is done,
 it parks for blocker merge, then restacks onto the integration branch before CI handoff.
 
-Promotion and dispatch follow the same ladder: `pr_opened` → `pr_ci_green` → `pr_approved` → `pr_merged` (default) → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
+Promotion and dispatch follow the same ladder: `pr_opened` (default) → `pr_ci_green` → `pr_approved` → `pr_merged` → `issue_closed`. Later stages satisfy earlier triggers; missing or stale evidence holds dispatch. `agent:queued` marks membership; `agent:todo` requests dispatch. See [Start trigger](/concepts/build-orders#start-trigger).
 
 Item states are projections, not tracker labels:
 

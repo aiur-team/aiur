@@ -1,5 +1,5 @@
 defmodule Aiur.SystemPressure do
-  @moduledoc "Reads Linux CPU PSI some averages as percentages of stalled time."
+  @moduledoc "Reads Linux CPU and memory PSI some averages as percentages of stalled time."
 
   @type sample :: %{avg10: float(), avg60: float()}
 
@@ -7,6 +7,13 @@ defmodule Aiur.SystemPressure do
   def cpu do
     source = Application.get_env(:aiur, :cpu_pressure_source_override, fn -> File.read("/proc/pressure/cpu") end)
 
+    read(source)
+  end
+
+  @spec memory() :: sample() | :unavailable
+  def memory, do: read(fn -> File.read("/proc/pressure/memory") end)
+
+  defp read(source) do
     case source.() do
       {:ok, contents} -> parse(contents)
       _ -> :unavailable

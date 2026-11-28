@@ -23,6 +23,7 @@ These registered namespaces freeze producer ownership before every producer ship
 | `ticket.<id>.pr.closed_unmerged`, `ticket.<id>.issue.closed` | Queue readiness / MP-E1 | Re-read queue and pull-request state. |
 | `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
 | `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
+| `operator.notify.*` | Host notification feed | Consume notification events when event export is enabled. |
 | `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
 | `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
 | `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
@@ -37,13 +38,14 @@ The human-needed signal exports only Command identity, requester kind, blocking,
 | Logged | Events an agent emits for its own ticket (`ticket.<id>.agent.*`) | Written to the ticket's event log asynchronously, on a best-effort basis, only with a trusted ticket identity and while its log writer exists. Own emissions are not replayed on the agent's next turn. |
 | Ledgered | Alerts and attentions emitted through the alert system (`ticket.<id>.agent.attention.*`, `system.*` alerts) | Kept in the alert feed; the ledger does not replay them as events. |
 | Journaled | Executor stream (`executor.*`) and Command lifecycle | Written before delivery. The Executor stream replays from its cursor; Command records remain in their owning store. |
+| Live | `operator.notify.*` Executor wakes and external notification feed | The notification is exported to the event feed; the Executor listener projects its ID and topic into the durable wake inbox. |
 
 These classes describe the existing persistence paths; a topic name alone does not guarantee durability.
 Logged events can be recovered by bootstrap when they match a subscription and follow its cursor, but bootstrap excludes own-emission (`self`) markers.
 
 Event IDs are unique per instance and survive restarts. They increase in the order they are assigned, may have gaps, and do not describe delivery order; use them to deduplicate, not to sort deliveries.
 
-Wakes for non-Executor topics that arrive while the Executor listener is down are not replayed; read `aiur status` and the tracker after a restart.
+The conversation-start event `executor.agent_conversation.started` is projected into the durable Executor inbox. `operator.notify.*` stays available to subscribers through the event feed; it is not itself an Executor wake.
 
 ## Agent events
 
@@ -250,6 +252,9 @@ and `records`. Records have increasing `seq` values greater than `after`.
 Event records contain the identifier-only external envelope: `v`, `instance`,
 `id`, `topic`, `class`, timestamps, `source`, `refs`, `attrs`, `payload_version`
 and `anchor`. They contain no transcript or message content.
+
+`operator.notify.*` records ([`aiur notify`](/reference/cli-decisions)) carry
+the notification's `title`, `body`, `ticket`, `url` and `created_at` in `attrs`.
 
 Omit `after` to get the current head with no backlog. Bootstrap by noting that
 head, reading the required snapshots, then following with `after=<head_seq>`.

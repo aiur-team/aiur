@@ -1,7 +1,9 @@
 # Dev loop
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks,
+except a draft blocked from outside the ticket, which may go to
+`agent:human-review` with an `outside_blocker` reason (SKILL.md, "Never idle").
 All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
 Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.

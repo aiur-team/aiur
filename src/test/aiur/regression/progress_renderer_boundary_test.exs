@@ -56,6 +56,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
     "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
     "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
+    "aiur/voice_conversation/briefing_source.ex" => ["ProgressRenderer.terminal("],
     "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
     "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
     "aiur/build_orders_cli.ex" => [
@@ -99,8 +100,11 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
     "aiur/progress_retention/checkpoint.ex",
+    "aiur/project/status_rows.ex",
     "aiur/ticket_activity.ex",
+    "aiur/project/status_rows.ex",
     "aiur/ticket_activity/projection.ex",
+    "aiur/ticket_activity/projection/publication.ex",
     "aiur/ticket_activity/projection/snapshot.ex",
     "aiur/units_cli.ex",
     "aiur_web/build_order/ticket_context_presenter.ex",
@@ -111,7 +115,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/components/operator_control_center/ticket_context.ex",
     "aiur_web/live/streamdeck_live/components.ex",
     "aiur_web/operator_control_center/run_summary_presenter.ex",
-    "aiur_web/operator_control_center/units_presentation.ex"
+    "aiur_web/operator_control_center/units_presentation.ex",
+    "aiur_web/presenter/entries.ex"
   ]
 
   # Walk and read lib/ once per module. `File.read!/1` queues every read on the

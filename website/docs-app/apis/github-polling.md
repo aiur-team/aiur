@@ -18,7 +18,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | --- | --- | --- |
 | Tracker state | Issue labels, active tickets, blockers, and pull requests | Keeps dispatch and the Units page aligned with GitHub. |
 | Ticket branches | Validated refs and commits; subscribed known-ref changes trigger async compare (`per_page=1`, caller `ticket_branch_rewrite`) | `behind`/`diverged` or 404 emits `ticket.N.branch.force-push` (404: `previous_missing`). Errors/holds log and count `[:aiur, :events, :branch_rewrite, :error]`; new/unsubscribed refs skip compare. |
-| Comments and reviews | Trusted issue comments, PR comments, reviews, unresolved threads, and cached PR approval/merge-queue/ready timestamps | Wakes the correct agent for operator direction or rework; the five-minute Executor sweep reuses these fields and raises durable wakes without its own GitHub request. It looks up findings against cached PR bodies or merge-group entries and reports their cache age; entries older than five minutes (or with unknown age) remain visible as `unverified`. Oversized merge-group pages use a compact per-run age index; at the body-byte cap, `ResourceStore.Memory.enforce/2` sheds least-recently-written bodies until they fit. |
+| Comments and reviews | Trusted issue comments, PR comments, reviews, unresolved threads, and cached PR approval/merge-queue/ready timestamps | Wakes the correct agent for operator direction or rework; the five-minute Executor sweep reuses these fields and raises durable wakes without its own GitHub request. Agent Workpad comments are parsed for checklist progress at the same comment boundary and publish only percent, phase, checklist counts, and the first unchecked step; they do not wake the agent or add a GitHub read. Webhooks and polling share the comment resource version for deduplication. It looks up findings against cached PR bodies or merge-group entries and reports their cache age; entries older than five minutes (or with unknown age) remain visible as `unverified`. Oversized merge-group pages use a compact per-run age index; at the body-byte cap, `ResourceStore.Memory.enforce/2` sheds least-recently-written bodies until they fit. |
 | CI | Terminal checks and mergeability while a ticket is in `agent:ci-wait` or `agent:human-review` | Required-check configuration (branch rules and protection) is shared through the repository-configuration cache; CI verdicts remain uncached. A green current head already marked ready and not reviewed moves directly to human review and publishes the ready wake; a draft or a head that still needs agent work returns to the agent. Approved landing PRs with current-head PR-caused failures have auto-merge disabled or are removed from the queue, then route to rework with failed job names; inherited and unknown failures stay held. Cancelled and infrastructure failures get one bounded rerun before repair routing. Two consecutive `CONFLICTING` observations on the same PR head move the ticket to rework with instructions to merge `main`; `UNKNOWN` breaks the streak. On the primary instance, a PR approved at its current head is left to the landing watcher, which tries `update-branch` first. |
 | Runner queue pressure | Queued `ci` pull-request workflow runs, attributed to the landing watcher's existing open-PR observations | Each landing-watch poll reports queued, approved-at-head, unapproved-at-head, and unattributed run counts, plus oldest queue ages. It does not cancel or rerun workflows. The `system.ci.runner_queue` event reports the census; only the queued-run Actions listing is an additional read. |
 | Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits, using a successful `merge_group` run for the main SHA when no completed push run exists | Detects failures through check webhooks, base pushes and polling; retains state across restarts. Fixer mode is opt-in (`on_red: dispatch_fixer`). Governed callers `main_fixer_open_issues` and `main_fixer_create` list/file tickets; shared comment and PR readers reconcile evidence/recovery. A broker timeout gets one immediate retry after a logged 1s backoff; other errors retry on the next poll. At default 120s, a single-page listing adds at most 30 calls/hr; pagination and comment/PR reads add calls (mechanism budget, not measured savings). [Fixer dispatch](/reference/merge-policy). |
@@ -107,7 +107,9 @@ Agent pushes and `gh pr update-branch` check ticket labels via REST and refuse i
 
 Draft PRs remain pending even with green checks. Mark completed work ready before CI wait; `ci gate` requires fast checks on PRs and full checks in the merge queue, or on policy-forced PRs. Main has no `ci` push run.
 
-`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait. `aiur status` shows `draft_pr`.
+`ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. `aiur status` shows `draft_pr`.
+
+After `agent.ci_wait_rewake_minutes`, a CI-wait draft, or a CI-wait ticket with no open PR, raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait; after an hour it moves to `rework`. A worker's own `ci-wait` hand-off is refused unless an open PR's head is its clean, committed local `HEAD`.
 
 Review polling keeps a per-ticket cursor seeded from its first cutoff. Issue comments cannot advance it; disabled or failed reads retain it.
 
@@ -210,6 +212,10 @@ A page-1 `304` on a churned ticket cannot self-heal: the change that would refre
 Only trust a `304` for a paginated read when the read was single-page (then page 1 *is* the list), or when the validator kept is the last page's rather than the first's. If neither is practical, do not make the read conditional: an unconditional read that is correct beats a conditional one that is quietly wrong.
 
 The open-PR branch lookup is a narrow exception: new PRs appear on page 1, so its validator changes. A later-page closure may remain visible until page 1 changes or a pull-request webhook arrives. This held listing serves only branch lookups, not general paginated-list queries.
+
+Dispatch authorization keeps one validator per timeline page and revalidates every page. A full last page is always read unconditionally, because a new event opens the next page without changing it. An unchanged timeline then costs no billable request, and a changed one costs one per changed page.
+
+The held open-PR listing drops REST URL templates (`_links` and `*_url` keys except `html_url`) so it fits the resource store's body cap and keeps its validator.
 
 Issue comments and PR changed files drain every page; single-list readers refuse a next page with `pagination_unexpected` rather than return a partial list.
 
@@ -332,3 +338,7 @@ an identical head needs no read. A later committer date alone proves nothing.
 
 Provider handoff rechecks held PR state before delivery. These evidence reads
 claim no quota saving.
+
+## Work overlap evidence
+
+Overlap review uses the existing complete open-issue listing, shared conditional open-PR listing, and the newest recorded merges from the last 14 days. A background scan refreshes this evidence every five minutes. Dispatch reads the local snapshot, and review events reuse it. The reviewer can report unavailable evidence while the source is loading.

@@ -61,7 +61,9 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   def configure(conn, params) do
     native? = params["native"] == "true"
-    decision = seed_decision!(native?)
+    executor? = params["executor"] == "true"
+    decision = seed_decision!(native?, executor?)
+    if executor?, do: Phoenix.Config.put(AiurWeb.Endpoint, :decision_store, @store)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
     :persistent_term.put({__MODULE__, :join_delay_ms}, if(native?, do: 0, else: 4_000))
     :persistent_term.put({__MODULE__, :join_state}, :waiting)
@@ -111,7 +113,7 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   defp question_answers(_decision), do: nil
 
-  defp seed_decision!(native?) do
+  defp seed_decision!(native?, executor?) do
     unless Process.whereis(@store) do
       dir = Path.join(System.tmp_dir!(), "aiur-browser-command-answer-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)
@@ -134,11 +136,15 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
       System.at_exit(fn _ -> Aiur.TestCleanup.rm_rf!(dir) end)
     end
 
+    question = if executor?, do: "Should the Executor continue the browser fixture?", else: "Should the browser fixture record this operator decision?"
+    ticket = if executor?, do: %{identifier: "executor"}, else: %{identifier: "BROWSER-5149", title: "Browser answer fixture", url: "https://example.invalid/5149"}
+    requester = if executor?, do: [requester: %{kind: :executor, executor_id: "operator"}, origin: :executor_cli], else: []
+
     {:ok, %{decision: decision}} =
       DecisionStore.request(
         %{
           "source_id" => "browser-answer-#{System.unique_integer([:positive])}",
-          "question" => "Should the browser fixture record this operator decision?",
+          "question" => question,
           "blocking" => true,
           "authority" => "human_required",
           "reversibility" => "reversible",
@@ -146,10 +152,10 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
           "options" => [%{"id" => "approve", "label" => "Approve"}]
         },
         [
-          ticket: %{identifier: "BROWSER-5149", title: "Browser answer fixture", url: "https://example.invalid/5149"},
+          ticket: ticket,
           source: %{agent_id: "browser-fixture", session_id: "browser-fixture", event_id: nil},
           questions: if(native?, do: questions(), else: [])
-        ],
+        ] ++ requester,
         @store
       )
 

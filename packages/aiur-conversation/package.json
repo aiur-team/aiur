@@ -1,0 +1,33 @@
+{
+  "name": "@aiur/conversation",
+  "version": "0.2.0",
+  "description": "Embeddable conversation components for apps that host Aiur: the chat composer",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./composer": {
+      "types": "./src/composer.d.ts",
+      "default": "./src/composer.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "24.1.3"
+  }
+}

@@ -210,6 +210,44 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       refute_receive {:transition, "176", "done"}, 100
     end
 
+    test "a merged PR on its ticket branch completes it without a closing keyword" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Implements the accepted work.",
+        head_ref: "aiur/176-accepted-work",
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        clear_session_handle_fun: fn _identifier -> :ok end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "done"}, 1000
+      refute_receive {:transition, "176", "human-review"}, 100
+    end
+
+    test "a Refs marker on its ticket branch keeps the ticket open" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Refs #176\n(merge does not close the ticket)",
+        head_ref: "aiur/176-accepted-work",
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      refute_receive {:transition, "176", "done"}, 1000
+    end
+
     # A body naming the ticket mid-prose is not a closing keyword either — the
     # parser is deliberately no wider than GitHub's own rule.
     test "a merged PR that mentions the ticket without a keyword leaves it open" do
