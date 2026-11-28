@@ -28,5 +28,6 @@ Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalida
 Aiur.Scripts.AgentWorktreeTest	create checks out the PR head in a unique worktree with a unique branch	#7539	2026-11-20
 Aiur.TmuxAgentSocketTest	agent calls target their own server despite colliding pane ids	#7282	2026-11-13
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
+AiurWeb.DashboardLive.RetainedActionsTest	a revision uses the rendered retained version when the overview has an older same-ID row	#8218	2026-12-12
 AiurWeb.DashboardShellPauseStateTest	unpublished daemon snapshot renders a loading pause state	#5983	2026-12-31
 AiurWeb.UsageAccountsApiControllerTest	*	#7217	2026-11-13
