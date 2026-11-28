@@ -12,10 +12,11 @@ defmodule AiurWeb.TicketThreadControllerTest do
 
   setup context do
     Aiur.TestSupport.start_owned_endpoint!()
-    EndpointStubs.put(conversation_executor_session_fun: fn -> %{"state" => "unknown"} end, conversation_units_fun: fn -> %{snapshot: %{rows: []}} end)
+    EndpointStubs.put(conversation_executor_session_fun: fn -> %{"state" => "unknown"} end)
     context = TestSupport.setup(context)
     {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => "node-thread", "number" => 7}, {"o", "r"}, {"o", "r"})
     {:ok, worker} = Ref.worker(identity)
+    EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: identity}]}} end)
     Map.merge(context, %{worker: worker, worker_dir: Path.join(context.root, Ref.conversation_id(worker))})
   end
 
@@ -31,6 +32,7 @@ defmodule AiurWeb.TicketThreadControllerTest do
       %{role: "assistant", msg_id: "m2", body: "rebased", timestamp: now}
     ]
 
+    assert {:ok, _head} = Store.prepare(dir, worker)
     Ingest.append(worker, %{source() | role: :worker}, events)
     assert :ok = flush(worker)
     id = Ref.conversation_id(worker)

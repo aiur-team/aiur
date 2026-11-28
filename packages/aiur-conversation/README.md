@@ -1,7 +1,7 @@
 # @aiur/conversation
 
 Embeddable conversation components for apps that host an Aiur conversation.
-It ships one component today, the chat composer `<aiur-composer>`.
+It ships the chat composer `<aiur-composer>` and ticket thread `<aiur-thread>`.
 
 The composer is a custom element with no dependencies and no build step, so it
 works in plain HTML, React, Vue or Svelte. It never talks to Aiur or to a voice
@@ -165,10 +165,12 @@ bubble and cross the shadow boundary.
   A host that needs to confirm delivery should provide `onSend` and reject
   that promise on failure so the draft stays available.
 - `aiur-conversation-error` carries `{ action, code, message, error }` in
-  `detail`. The action is `send`, `upload`, `dictation` or `voice`. The
+  `detail`. The action is `send`, `upload`, `dictation`, `voice`, `read` or
+  `answer`. The
   shared `conversationError(action, error)` helper keeps a recognized
   adapter code, maps permission errors to `permission_denied`, and otherwise
-  uses `upload_failed`, `provider_unavailable` or `send_failed` as appropriate.
+  uses `upload_failed`, `provider_unavailable`, `send_failed`, `read_failed` or
+  `answer_failed` as appropriate.
   Use `message` for user-facing text. The original error is available for
   host diagnostics. The element still emits `aiur-composer-error` with the
   same detail.
@@ -184,6 +186,40 @@ composer.onSend = sendToHost;
 composer.addEventListener('aiur-conversation-state', ({ detail }) => render(detail));
 render(composer.state);
 ```
+
+## Ticket thread
+
+`<aiur-thread>` renders a ticket's entries and exposes the same controller as a
+headless API. The host supplies ticket-scoped adapters; `read` returns
+`{ entries, next_after }`, `send` accepts `{ message_id, text, attachments }`,
+and optional `subscribe` calls its callback when the thread changes (for
+example, from `ticket.<id>.agent.thread.changed`). The controller de-duplicates
+entries by position when a live refresh overlaps the current page.
+
+```js
+import { defineThread } from '@aiur/conversation';
+
+defineThread();
+const thread = document.querySelector('aiur-thread');
+thread.adapters = {
+  read: ({ after, limit }) => api.readTicketThread(issue, { after, limit }),
+  send: (message) => api.sendTicketMessage(issue, message),
+  answer: (answer) => api.answerTicketCommand(issue, answer),
+  subscribe: (onChanged) => eventFeed.subscribe(`ticket.${issue}.agent.thread.changed`, onChanged),
+};
+```
+
+Use `thread.load()`, `thread.send(text, attachments)` and
+`thread.answer(commandId, answer)` from host controls. The send adapter response
+is exposed as `state.receipt`; if it includes `request_id`, provide an optional
+`receipt(requestId)` adapter and call `refreshReceipt()` to read the latest
+`queued`, `delivered` or `consumed` status and delivery mode. The component emits the
+shared `aiur-conversation-state` and `aiur-conversation-error` events and an
+`aiur-thread-state` snapshot. Hosts can replace the controls through the
+`controls` slot. Style the `thread`, `entries`, `entry`, `entry-body`,
+`timestamp`, `status` and `error` parts and the `--aiur-thread-*` custom
+properties. Compose `<aiur-thread>` beside `<aiur-composer>`; each owns its
+controller and the host owns the adapters.
 
 ## Theme
 

@@ -5,8 +5,9 @@ title: Embed conversation components
 # Embed conversation components
 
 `@aiur/conversation` provides reusable behavior and default views for host
-apps that embed Aiur. The package includes `<aiur-composer>` for message drafts,
-attachments, dictation and two-way voice.
+apps that embed Aiur. It includes `<aiur-composer>` for message drafts,
+attachments, dictation and two-way voice, and `<aiur-thread>` for a ticket's
+operator and worker messages.
 
 ## Exportable views today
 
@@ -14,7 +15,7 @@ The host-styling contract currently covers these packages:
 
 | Package | Exported view | Host contract |
 | --- | --- | --- |
-| `@aiur/conversation` | Chat composer | Controller state and commands, replacement controls, slots and CSS properties. |
+| `@aiur/conversation` | Chat composer and ticket thread | Controller state and commands, replacement controls, slots and CSS properties. |
 | `aiur-build-order` | Build Order review and graph | `build-order.v1` document renderers, `<aiur-build-order>`, and host CSS tokens. |
 | `@aiur/commands` | Command list and response | Static HTML renderers and `data-part` CSS hooks. |
 
@@ -63,10 +64,16 @@ percentage is estimated.
   `stopping`), and attachments (`uploading`, `ready`). State changes use
   `aiur-conversation-state` and failures use `aiur-conversation-error`, with
   codes including `permission_denied`, `upload_failed`,
-  `provider_unavailable` and `send_failed`. Controllers describe labels,
+  `provider_unavailable`, `send_failed`, `read_failed` and `answer_failed`. Controllers describe labels,
   focus order and live announcements for both default and host views.
 - **Host adapters.** The host supplies upload, dictation, voice and send
-  adapters. The backend APIs remain the source of truth for conversations.
+  adapters. `<aiur-thread>` reads `{ entries, next_after }`, sends messages and
+  attachments through its ticket-scoped adapter, and accepts a subscription
+  adapter to refresh when the host receives `ticket.<id>.agent.thread.changed`.
+  Host controls can call `load()`, `send(text, attachments)` and
+  `answer(commandId, answer)`. Send results are available as `state.receipt`,
+  and `refreshReceipt()` can re-read the request receipt. The backend APIs
+  remain the source of truth for conversations.
   Components have no built-in transport to Aiur or to voice providers.
 - **Replaceability.** Each component has a test that replaces a control or
   view and checks the same behavior and events.

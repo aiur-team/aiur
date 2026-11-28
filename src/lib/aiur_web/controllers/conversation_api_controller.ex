@@ -61,6 +61,7 @@ defmodule AiurWeb.ConversationApiController do
       })
     else
       {:error, :ambiguous_subject, _ids} = error -> resolved(conn, error, "worker")
+      {:error, :not_found} -> failure(conn, {:error, :thread_not_found})
       error -> failure(conn, error)
     end
   end

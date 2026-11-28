@@ -45,8 +45,8 @@ export interface ComposerSendDetail {
   attachments: ComposerAttachment[];
 }
 
-export type ConversationAction = 'send' | 'upload' | 'dictation' | 'voice';
-export type ConversationErrorCode = 'permission_denied' | 'upload_failed' | 'provider_unavailable' | 'send_failed';
+export type ConversationAction = 'send' | 'upload' | 'dictation' | 'voice' | 'read' | 'answer';
+export type ConversationErrorCode = 'permission_denied' | 'upload_failed' | 'provider_unavailable' | 'send_failed' | 'read_failed' | 'answer_failed';
 
 export interface ComposerErrorDetail {
   action: ConversationAction;

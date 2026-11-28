@@ -15,12 +15,34 @@ test('loads entries by cursor and sends attachments with a stable message id', a
   assert.equal(calls[1][1].text, 'look at this');
   assert.equal(calls[1][1].attachments[0].name, 'image.png');
   assert.match(calls[1][1].message_id, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(calls[2], ['read', { after: 'next' }]);
+  assert.deepEqual(calls[2], ['read', { after: 'next', limit: 100 }]);
 });
 
 test('keeps the loaded thread and reports a send failure', async () => {
   const controller = new ThreadController({ read: async () => ({ entries: [], cursor: null }), send: async () => { throw Object.assign(new Error('offline'), { code: 'offline' }); } });
   assert.equal(await controller.send('hello'), false);
   assert.equal(controller.state.error.action, 'send');
-  assert.equal(controller.state.error.code, 'offline');
+  assert.equal(controller.state.error.code, 'send_failed');
+});
+
+test('overlapping pages do not duplicate a thread entry', async () => {
+  let page = 0;
+  const controller = new ThreadController({
+    read: async () => ({ entries: [{ pos: 8, role: 'agent', text: page++ === 0 ? 'first copy' : 'overlap' }], next_after: 8 }),
+    send: async () => ({}),
+  });
+  await controller.load();
+  await controller.load();
+  assert.deepEqual(controller.state.entries.map(({ pos, text }) => ({ pos, text })), [{ pos: 8, text: 'first copy' }]);
+});
+
+test('exposes and refreshes the send receipt for a host delivery status view', async () => {
+  const controller = new ThreadController({
+    read: async () => ({ entries: [], next_after: 0 }),
+    send: async () => ({ request_id: 41, status: 'queued' }),
+    receipt: async (requestId) => ({ request_id: requestId, status: 'consumed', mode: 'steer' }),
+  });
+  await controller.send('hello');
+  assert.deepEqual(controller.state.receipt, { request_id: 41, status: 'queued' });
+  assert.deepEqual(await controller.refreshReceipt(), { request_id: '41', status: 'consumed', mode: 'steer' });
 });
