@@ -20,6 +20,15 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
     assert output == ""
   end
 
+  test "fal billing key is scrubbed from agent environments" do
+    previous = System.get_env("FAL_KEY")
+    System.put_env("FAL_KEY", "fal-secret")
+    on_exit(fn -> if previous, do: System.put_env("FAL_KEY", previous), else: System.delete_env("FAL_KEY") end)
+
+    assert {~c"FAL_KEY", false} in AgentEnvironment.workspace_env("/work/aiur/8221")
+    assert "FAL_KEY" in AgentEnvironment.provider_credential_env_names()
+  end
+
   test "identifies inherited Erlang distribution environment names" do
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_AFLAGS")
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_LIBS")

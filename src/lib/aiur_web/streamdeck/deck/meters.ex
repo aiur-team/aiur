@@ -22,7 +22,7 @@ defmodule AiurWeb.Streamdeck.Deck.Meters do
     |> Usage.order_families()
     |> Enum.zip(block.providers)
     |> Map.new(fn {family, row} -> {Atom.to_string(family), meter(family, row, inputs.accounts)} end)
-    |> Map.put("apis", for(row <- block.apis, row.lines != nil, do: api(row, DateTime.to_unix(now, :millisecond))))
+    |> Map.put("apis", for(row <- block.apis, row.lines != nil, row.note != "No account quota API is configured", do: api(row, DateTime.to_unix(now, :millisecond))))
   end
 
   defp api(row, now_ms) do

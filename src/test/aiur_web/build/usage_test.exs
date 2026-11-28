@@ -116,21 +116,28 @@ defmodule AiurWeb.Build.UsageTest do
 
   test "#7757 APIS lists every API the daemon holds a key for" do
     credit = I.window(nil, nil, %{kind: :credit, credits: %{status: :available, amount: 10.4}, remaining: 10.4})
-    window = %{used_percent: 10.0, remaining: 90_000, reset_at: DateTime.add(I.now(), 3600)}
+    window = %{used: 10_000, limit: 100_000, used_percent: 10.0, remaining: 90_000, reset_at: DateTime.add(I.now(), 3600)}
 
     inputs =
       I.inputs(%{
-        api_keys: [:openrouter, :openrouter_management, :deepseek, :openai],
+        api_keys: [:openrouter, :openrouter_management, :deepseek, :openai, :moonshot, :anthropic, :gemini],
         github: {:ok, I.quota()},
         elevenlabs: %{state: :observed, window: window},
         meters: %{openrouter: I.snapshot(:openrouter, %{"credits-remaining" => credit}), deepseek: I.snapshot(:deepseek, %{"balance" => credit})}
       })
 
     apis = block(inputs).apis
-    assert Enum.map(apis, & &1.name) == ["GitHub", "ElevenLabs", "OpenRouter", "DeepSeek", "OpenAI"]
+    assert Enum.map(apis, & &1.name) == ["GitHub", "ElevenLabs", "OpenRouter", "DeepSeek", "OpenAI", "Moonshot", "Anthropic", "Gemini"]
     assert Enum.find(apis, &(&1.name == "DeepSeek")).credits.left == "$10.40"
     openai = Enum.find(apis, &(&1.name == "OpenAI"))
-    assert openai.none and openai.credits == nil and openai.note == "Configured · a project key cannot read billing"
+    assert hd(openai.lines).acc == [nil]
+    assert ["Freshness", "unknown"] in hd(openai.lines).tip
+
+    for name <- ["OpenAI", "Moonshot", "Anthropic", "Gemini"] do
+      row = Enum.find(apis, &(&1.name == name))
+      assert hd(row.lines).acc == [nil]
+      assert ["Freshness", "unknown"] in hd(row.lines).tip
+    end
 
     [_, _, openrouter] = block(%{inputs | api_keys: [:openrouter]}).apis
     assert openrouter.note == "Credits need OPENROUTER_MANAGEMENT_KEY"
@@ -207,12 +214,21 @@ defmodule AiurWeb.Build.UsageTest do
       [_, row] = block(I.inputs(%{elevenlabs: %{state: state, failure: :authentication}})).apis
       assert row.name == "ElevenLabs"
       assert hd(row.lines).acc == [nil]
-      assert hd(row.lines).tip == [["Credits left", note]]
+      assert [status, period, age, freshness] = hd(row.lines).tip
+      assert status == ["Status", note]
+      assert period == ["Period", "character quota"]
+      assert age == ["Observed age", "unknown"]
+      assert freshness == ["Freshness", "unknown"]
     end
 
     window = %{used_percent: 10.0, remaining: 90_000, reset_at: DateTime.add(I.now(), 3600)}
     rows = block(I.inputs(%{elevenlabs: %{state: :observed, window: window}})).apis
-    assert hd(List.last(rows).lines).tip == [["Credits left", "90.0K left · 90% left"]]
+    assert [used, left, quota, period, _age, freshness] = hd(List.last(rows).lines).tip
+    assert used == ["Characters used", "unknown"]
+    assert left == ["Characters left", "90.0K"]
+    assert quota == ["Quota", "unknown"]
+    assert period == ["Period", "character quota"]
+    assert freshness == ["Freshness", "fresh"]
     assert hd(List.last(rows).lines).acc == [90.0]
     refute Enum.any?(rows, &(&1.name == "Search"))
   end

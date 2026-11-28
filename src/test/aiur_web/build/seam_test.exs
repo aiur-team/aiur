@@ -21,6 +21,9 @@ defmodule AiurWeb.Build.SeamTest do
     "Aiur.ElevenLabs.Quota",
     # GitHub reads its supervised quota snapshot and existing resource holds.
     "Aiur.GitHub.Access",
+    # Provider credentials and account usage enter the dashboard through its API usage seam.
+    "Aiur.Accounts.EnvKey",
+    "Aiur.Usage",
     # Durable previous-boot readings come from the existing local ledger file.
     "Aiur.ModelAvailability",
     # Watch events register the socket pid with the existing focused polling service.

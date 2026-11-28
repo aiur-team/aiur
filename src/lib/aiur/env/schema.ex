@@ -193,6 +193,7 @@ defmodule Aiur.Env.Schema do
 
     # --- Provider API keys ---
     {"DEEPSEEK_API_KEY", type: :secret, group: :provider_keys, purpose: "DeepSeek backend key; used when a backend config names this env var.", fetch: "platform.deepseek.com -> API Keys"},
+    {"FAL_KEY", type: :secret, group: :provider_keys, purpose: "fal.ai read-only billing key with `billing:usage:read` permission."},
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
