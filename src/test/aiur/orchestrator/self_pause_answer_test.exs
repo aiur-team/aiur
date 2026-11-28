@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
 
   alias Aiur.{AgentControlCLI, DecisionDispatch, DecisionStore, Issue}
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.Orchestrator.{ControlLifecycle, OperatorMessages, PauseResume, PushRouting, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, OperatorMessages, PauseResume, PushRouting, Slots, State, StatusReport}
 
   setup do
     orchestrator = Process.whereis(Orchestrator)
@@ -69,6 +69,23 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
       assert text =~ "Custom response: Continue with the accepted contract"
       assert_working(ctx.orchestrator, issue)
     end
+  end
+
+  test "overlap-review decision pauses release the slot and answering resumes the worker", ctx do
+    {issue, worker} = install_worker(ctx.orchestrator)
+    decision = request_decision(issue, "overlap_review")
+    pause(ctx.orchestrator, issue, :paused, "operator_decision")
+
+    state = :sys.get_state(ctx.orchestrator)
+    assert state.running[issue.id].paused_reason == :input_required
+    assert Slots.max_concurrent_agent_status(state).occupied == 0
+    assert State.reserved_paused_running_count(state.running) == 0
+
+    answer(decision)
+    send(worker, :run)
+    receive_barrier({:first_input, text})
+    assert text =~ "Custom response: Continue with the accepted contract"
+    assert_working(ctx.orchestrator, issue)
   end
 
   test "the answer precedes a restored interrupt input on resume", ctx do
@@ -356,8 +373,9 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     end
   end
 
-  defp pause(orchestrator, issue, phase) do
-    :sys.replace_state(orchestrator, &PushRouting.maybe_pause_on_request(&1, issue.identifier))
+  defp pause(orchestrator, issue, phase, reason \\ nil) do
+    event = if reason, do: %{payload: %{reason: reason}}, else: %{}
+    :sys.replace_state(orchestrator, &PushRouting.maybe_pause_on_request(&1, issue.identifier, event))
 
     state = :sys.get_state(orchestrator)
     request = ControlLifecycle.current_pending(state.control_lifecycle, issue.id)
@@ -365,14 +383,18 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
 
     if phase == :paused do
       send(orchestrator, {:worker_control_state, issue.id, :paused, %{request_id: request.request_id, generation: request.generation}})
-      assert :sys.get_state(orchestrator).running[issue.id].paused_reason == :agent_pause_request
+      expected = if reason == "operator_decision", do: :input_required, else: :agent_pause_request
+      assert :sys.get_state(orchestrator).running[issue.id].paused_reason == expected
     end
   end
 
-  defp request_decision(issue) do
+  defp request_decision(issue, kind \\ nil) do
+    payload = %{"question" => "May I continue?", "blocking" => true, "authority" => "supervisor_allowed", "reversibility" => "reversible"}
+    payload = if kind, do: Map.put(payload, "kind", kind), else: payload
+
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
-               %{"question" => "May I continue?", "blocking" => true, "authority" => "supervisor_allowed", "reversibility" => "reversible"},
+               payload,
                ticket: %{identifier: issue.identifier, title: issue.title, url: nil},
                source: %{agent_id: issue.id, session_id: "thread-#{issue.id}"}
              )

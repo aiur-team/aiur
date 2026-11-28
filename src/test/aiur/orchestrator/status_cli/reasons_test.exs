@@ -5,6 +5,8 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.Orchestrator.StatusCLI.PausedReservations
+
   alias Aiur.{Config, DispatchBudgetStore, Issue}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.State
@@ -164,6 +166,34 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
     assert output =~ "SUPERVISION 1/2 — Aiur.Events.IdGenerator DOWN (last termination: :killed)"
     refute output =~ "SUPERVISION 2/2 healthy"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  test "status shows the age of a long-held paused reservation" do
+    emitted = self()
+
+    output =
+      capture_io(fn ->
+        PausedReservations.print(
+          %{count: 1, oldest_age_seconds: 3_601},
+          active?: fn _topic -> false end,
+          emit: fn alert -> send(emitted, {:alert, alert}) end
+        )
+      end)
+
+    assert output =~ "1 slots held by paused agents (oldest 1h)"
+    assert_received {:alert, %{topic: "system.dispatch.paused_reservations", needs_attention: true, severity: "warning", reason: reason}}
+    assert reason =~ "oldest reservation is 1h old"
+  end
+
+  test "status resolves the paused-reservation attention after slots are released" do
+    emitted = self()
+
+    PausedReservations.print(%{count: 0, oldest_age_seconds: nil},
+      active?: fn _topic -> true end,
+      emit: fn alert -> send(emitted, {:alert, alert}) end
+    )
+
+    assert_received {:alert, %{topic: "system.dispatch.paused_reservations.resolved", needs_attention: false}}
   end
 
   test "status prints healthy and unavailable supervision states" do

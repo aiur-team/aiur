@@ -55,6 +55,33 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     assert [%{id: "launch-list", name: "Monday launch list"}] = snapshot.stalled_lists
   end
 
+  test "status snapshot counts only paused entries that still reserve capacity" do
+    now = DateTime.utc_now()
+    old = DateTime.add(now, -3_601, :second)
+
+    state = %State{
+      running: %{
+        "decision" => %{
+          identifier: "decision",
+          issue: %Issue{id: "decision", identifier: "decision", state: "in-progress"},
+          paused_at: now,
+          paused_reason: :input_required,
+          control: %{status: :paused}
+        },
+        "operator" => %{
+          identifier: "operator",
+          issue: %Issue{id: "operator", identifier: "operator", state: "in-progress"},
+          paused_at: old,
+          paused_reason: :operator_pause,
+          control: %{status: :paused}
+        }
+      }
+    }
+
+    assert %{count: 1, oldest_age_seconds: age} = StatusReport.snapshot_payload(state).paused_reservations
+    assert age >= 3_600
+  end
+
   test "snapshot retains same-head rework attempt counts for the Executor sweep" do
     state = %State{rework_attempts: %{{"4429", "current-head"} => 3, {"4429", "old-head"} => 1}}
 

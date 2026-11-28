@@ -288,6 +288,14 @@ defmodule Aiur.Orchestrator.PushRouting do
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
     cond do
+      reason in ["operator_decision", :operator_decision] ->
+        prepared =
+          entry
+          |> Map.delete(:blocker_pause)
+          |> clear_budget_pause_context()
+
+        {prepared, :input_required}
+
       reason == "dependency" and (is_binary(blocker_identifier) or is_integer(blocker_identifier)) ->
         generation = Map.get(entry, :blocker_pause_generation, 0) + 1
 

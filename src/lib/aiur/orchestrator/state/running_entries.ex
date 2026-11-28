@@ -53,7 +53,18 @@ defmodule Aiur.Orchestrator.State.RunningEntries do
   # (`:label_override`) releases too: a consumer that pauses many tickets must
   # not starve dispatch. Any pause on a `ci-wait` ticket
   # releases too: its PR is handed off and the daemon owns that wait (#4694).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :optimistic_blocker_failed, :max_agent_duration, :usage_limit_exhausted, :label_override]
+  # An Executor-decision wait also releases: the answer is already durable and
+  # dispatch/worker messaging owns the resume, so keeping the paused slot adds
+  # no safety.
+  @non_reserving_pause_reasons [
+    :ci_wait,
+    :blocker_dependency,
+    :optimistic_blocker_failed,
+    :max_agent_duration,
+    :usage_limit_exhausted,
+    :label_override,
+    :input_required
+  ]
 
   @spec non_reserving_pause_reason?(term()) :: boolean()
   def non_reserving_pause_reason?(reason), do: reason in @non_reserving_pause_reasons

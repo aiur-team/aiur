@@ -62,6 +62,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       )
 
     idle = idle_snapshot(state, now_ms, activity_by_identity, decision_counts)
+    capacity = Slots.max_concurrent_agent_status(state)
 
     %{
       ci_wait:
@@ -82,7 +83,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       idle: idle,
       # Build CLI rows on demand on the reader, not on every publish (#1837).
       agent_totals: state.agent_totals,
-      capacity: Slots.max_concurrent_agent_status(state),
+      capacity: capacity,
+      paused_reservations: paused_reservations(Map.get(capacity, :paused_reservations, []), now),
       stalled_lists: stalled_queue_lists(state, DateTime.to_unix(now, :millisecond)),
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
@@ -112,6 +114,16 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       }
     }
     |> StatusObservation.attach(state, now)
+  end
+
+  defp paused_reservations(entries, now) do
+    oldest_age_seconds =
+      case Enum.min_by(entries, &DateTime.to_unix/1, fn -> nil end) do
+        %DateTime{} = paused_at -> max(DateTime.diff(now, paused_at, :second), 0)
+        nil -> nil
+      end
+
+    %{count: length(entries), oldest_age_seconds: oldest_age_seconds}
   end
 
   defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms),

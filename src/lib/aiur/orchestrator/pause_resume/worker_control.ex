@@ -267,8 +267,9 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
     Map.put(running_entry, :control, control)
   end
 
-  defp clear_agent_pause_on_work(%{paused_reason: :agent_pause_request} = entry, :working),
-    do: Map.delete(entry, :paused_reason)
+  defp clear_agent_pause_on_work(%{paused_reason: reason} = entry, :working)
+       when reason in [:agent_pause_request, :input_required],
+       do: Map.delete(entry, :paused_reason)
 
   defp clear_agent_pause_on_work(entry, _status), do: entry
 
