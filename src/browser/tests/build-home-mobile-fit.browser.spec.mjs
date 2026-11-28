@@ -21,7 +21,7 @@ test('no horizontal page scroll and every bottom-nav item is fully visible', asy
     })
   }))
   expect(fit.scrollWidth).toBeLessThanOrEqual(fit.innerWidth)
-  expect(fit.items.map(item => item.path)).toEqual(['/', '/commands', '/analytics', '/experiments', '/streamdeck'])
+  expect(fit.items.map(item => item.path)).toEqual(['/', '/commands', '/models', '/analytics', '/experiments', '/streamdeck'])
   for (const item of fit.items) {
     expect(item.left, item.text).toBeGreaterThanOrEqual(0)
     expect(item.right, item.text).toBeLessThanOrEqual(fit.clientWidth)
