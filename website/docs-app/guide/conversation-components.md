@@ -67,7 +67,8 @@ percentage is estimated.
   `provider_unavailable`, `send_failed`, `read_failed` and `answer_failed`. Controllers describe labels,
   focus order and live announcements for both default and host views.
 - **Host adapters.** The host supplies upload, dictation, voice and send
-  adapters. `<aiur-thread>` reads `{ entries, next_after }`, sends messages and
+  adapters. `<aiur-thread>` reads `{ entries, next_after }` from
+  `/api/v1/:issue_identifier/thread/messages`, sends messages and
   attachments through its ticket-scoped adapter, and accepts a subscription
   adapter to refresh when the host receives `ticket.<id>.agent.thread.changed`.
   Host controls can call `load()`, `send(text, attachments)` and

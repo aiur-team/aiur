@@ -10,6 +10,7 @@ export class AiurThread extends BASE {
   #status;
   #unsubscribe;
   #adapters = {};
+  #verdictDrafts = new Map();
 
   constructor() {
     super();
@@ -17,10 +18,10 @@ export class AiurThread extends BASE {
     this.#root.innerHTML = `<style>${STYLE}</style><section class="thread" part="thread" aria-label="Ticket conversation"><div class="entries" part="entries"></div><p class="status" part="status" role="status"></p><p class="error" part="error" role="alert" hidden></p><slot name="controls"></slot><slot name="entry"></slot></section>`;
     this.#entries = this.#root.querySelector('.entries');
     this.#status = this.#root.querySelector('.status');
-    this.#wireController();
+    this.#wireController(this.#controller);
   }
 
-  set adapters(value) { this.#adapters = value ?? {}; this.#unsubscribe?.(); this.#controller = new ThreadController(this.#adapters); this.#wireController(); if (this.isConnected) { this.#unsubscribe = this.#controller.connect(); this.load(); } }
+  set adapters(value) { this.#adapters = value ?? {}; this.#unsubscribe?.(); this.#controller = new ThreadController(this.#adapters); this.#wireController(this.#controller); if (this.isConnected) { this.#unsubscribe = this.#controller.connect(); this.load(); } }
   get adapters() { return this.#adapters; }
   get state() { return this.#controller.state; }
   load() { return this.#controller.load(); }
@@ -31,9 +32,10 @@ export class AiurThread extends BASE {
   connectedCallback() { this.#unsubscribe = this.#controller.connect(); this.load(); }
   disconnectedCallback() { this.#unsubscribe?.(); }
 
-  #wireController() {
+  #wireController(controller) {
     for (const type of ['aiur-conversation-state', 'aiur-conversation-error']) {
-      this.#controller.addEventListener(type, ({ detail }) => {
+      controller.addEventListener(type, ({ detail }) => {
+        if (controller !== this.#controller) return;
         if (type === 'aiur-conversation-state') this.#render(detail);
         this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
       });
@@ -68,15 +70,18 @@ export class AiurThread extends BASE {
         }
         visual.setAttribute('part', 'media'); article.append(visual);
       }
-      if (entry.kind === 'command' && entry.decision_id) {
+      const answered = new Set(state.answeredCommands ?? []);
+      if (entry.kind === 'command' && entry.decision_id && !answered.has(entry.decision_id)) {
         const form = this.ownerDocument.createElement('form'); form.setAttribute('part', 'verdict');
         const label = this.ownerDocument.createElement('label'); label.setAttribute('part', 'verdict-label'); label.textContent = 'Your answer';
         const input = this.ownerDocument.createElement('textarea'); input.required = true; input.setAttribute('part', 'verdict-input');
+        input.value = this.#verdictDrafts.get(entry.decision_id) ?? '';
+        input.addEventListener('input', () => this.#verdictDrafts.set(entry.decision_id, input.value));
         const submit = this.ownerDocument.createElement('button'); submit.type = 'submit'; submit.setAttribute('part', 'verdict-submit'); submit.textContent = 'Answer';
         form.addEventListener('submit', async (event) => {
           event.preventDefault(); submit.disabled = true;
           const sent = await this.answer(entry.decision_id, input.value);
-          if (sent) form.remove(); else submit.disabled = false;
+          if (sent) this.#verdictDrafts.delete(entry.decision_id); else submit.disabled = false;
         });
         label.append(input); form.append(label, submit); article.append(form);
       }

@@ -37,12 +37,25 @@ test('overlapping pages do not duplicate a thread entry', async () => {
 });
 
 test('exposes and refreshes the send receipt for a host delivery status view', async () => {
+  const polled = [];
   const controller = new ThreadController({
     read: async () => ({ entries: [], next_after: 0 }),
     send: async () => ({ request_id: 41, status: 'queued' }),
-    receipt: async (requestId) => ({ request_id: requestId, status: 'consumed', mode: 'steer' }),
+    receipt: async (requestId) => { polled.push(requestId); return { id: Number(requestId), status: polled.length === 1 ? 'delivered' : 'consumed', mode: 'steer' }; },
   });
   await controller.send('hello');
   assert.deepEqual(controller.state.receipt, { request_id: 41, status: 'queued' });
-  assert.deepEqual(await controller.refreshReceipt(), { request_id: '41', status: 'consumed', mode: 'steer' });
+  assert.deepEqual(await controller.refreshReceipt(), { id: 41, status: 'delivered', mode: 'steer', request_id: '41' });
+  assert.deepEqual(await controller.refreshReceipt(), { id: 41, status: 'consumed', mode: 'steer', request_id: '41' });
+  assert.deepEqual(polled, ['41', '41']);
+});
+
+test('an adapter replacement ignores a late result from the previous ticket', async () => {
+  let finish;
+  const old = new ThreadController({ read: () => new Promise((resolve) => { finish = resolve; }) });
+  const pending = old.load();
+  old.adapters = { read: async () => ({ entries: [{ pos: 2 }], next_after: 2 }) };
+  finish({ entries: [{ pos: 1 }], next_after: 1 });
+  await pending;
+  assert.deepEqual(old.state.entries, []);
 });

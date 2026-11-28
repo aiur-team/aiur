@@ -39,7 +39,7 @@ defmodule AiurWeb.TicketThreadControllerTest do
     anchor = %{"event" => %{"event_id" => 9}, "kind" => "command_requested", "precision" => "exact", "conversation_id" => id, "pos" => 4, "subject_ref" => %{"decision_id" => "dec_1"}}
     assert :ok = Store.append_anchor_line(dir, anchor)
 
-    response = request("/7/thread")
+    response = request("/7/thread/messages")
     assert response.status == 200
     refute response.resp_body =~ token
     body = Jason.decode!(response.resp_body)
@@ -55,25 +55,25 @@ defmodule AiurWeb.TicketThreadControllerTest do
     refute masked == token
     assert is_binary(hd(body["entries"])["at"])
 
-    first = Jason.decode!(request("/7/thread?limit=2").resp_body)
+    first = Jason.decode!(request("/7/thread/messages?limit=2").resp_body)
     assert Enum.map(first["entries"], &{&1["pos"], &1["kind"]}) == [{1, "message"}, {3, "operator_message"}]
     assert first["next_after"] == 3
-    rest = Jason.decode!(request("/7/thread?after=3").resp_body)
+    rest = Jason.decode!(request("/7/thread/messages?after=3").resp_body)
     assert Enum.map(rest["entries"], & &1["pos"]) == [4, 6]
-    assert Jason.decode!(request("/7/thread?after=6").resp_body)["entries"] == []
+    assert Jason.decode!(request("/7/thread/messages?after=6").resp_body)["entries"] == []
 
     # The current run can carry a newer display identifier than subject.json; only the Units projection knows it.
     {:worker, identity} = worker.subject
-    assert_error(request("/8/thread"), 404, "thread_not_found")
+    assert_error(request("/8/thread/messages"), 404, "thread_not_found")
     EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: %{identity | identifier: "8"}}]}} end)
-    assert Jason.decode!(request("/8/thread").resp_body)["conversation_id"] == id
+    assert Jason.decode!(request("/8/thread/messages").resp_body)["conversation_id"] == id
   end
 
   test "a ticket with no worker conversation is thread_not_found and bad parameters are typed 422s" do
-    assert_error(request("/7/thread"), 404, "thread_not_found")
+    assert_error(request("/7/thread/messages"), 404, "thread_not_found")
 
-    for query <- ["after=x", "after=-1", "after=1.5"], do: assert_error(request("/7/thread?" <> query), 422, "invalid_cursor")
-    for limit <- ["0", "201", "x"], do: assert_error(request("/7/thread?limit=" <> limit), 422, "invalid_limit")
+    for query <- ["after=x", "after=-1", "after=1.5"], do: assert_error(request("/7/thread/messages?" <> query), 422, "invalid_cursor")
+    for limit <- ["0", "201", "x"], do: assert_error(request("/7/thread/messages?limit=" <> limit), 422, "invalid_limit")
     assert request("/7/thread", :post).status == 405
   end
 

@@ -7,9 +7,9 @@ defmodule AiurWeb.ObservabilityApiController do
 
   alias Aiur.Claude.HookEvents
   alias Aiur.Conversation.History
+  alias Aiur.Listener
   alias Aiur.Orchestrator
   alias Aiur.PollCadence
-  alias Aiur.Listener
   alias AiurWeb.{EndpointConfig, MessageInbox, Presenter}
   alias Plug.Conn
 
@@ -60,7 +60,8 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
     message_id = Map.get(params, "message_id")
 
-    with {:ok, delivery} <- delivery_mode(Map.get(params, "delivery")),
+    with true <- is_binary(text) || {:error, :invalid_message},
+         {:ok, delivery} <- delivery_mode(Map.get(params, "delivery")),
          {:ok, text} <- with_attachments(issue_identifier, text, message_id, Map.get(params, "attachments")) do
       issue_identifier
       |> send_operator_message(text, message_id, conn.assigns[:auth_actor], delivery)

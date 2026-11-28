@@ -18,14 +18,21 @@ defmodule AiurWeb.MessageInboxTest do
     attachments = [image("mock.png"), image("mock.png")]
 
     assert {:ok, lines} = MessageInbox.write(workspace, "chat-1", attachments)
-    assert lines == ["Attachment: .aiur/inbox/chat-1/mock.png", "Attachment: .aiur/inbox/chat-1/mock-1.png"]
-    assert File.read!(Path.join(workspace, ".aiur/inbox/chat-1/mock.png")) == @png
+    assert [first, second] = lines
+    assert first == second
+    assert String.starts_with?(first, "Attachment: .aiur/inbox/chat-1/mock-")
+    assert File.read!(Path.join(workspace, String.replace_prefix(first, "Attachment: ", ""))) == @png
+    changed = %{"name" => "mock.png", "mime_type" => "image/png", "data" => Base.encode64(@png <> "changed")}
+    assert {:ok, [different]} = MessageInbox.write(workspace, "chat-1", [changed])
+    refute different == first
+    assert File.read!(Path.join(workspace, String.replace_prefix(first, "Attachment: ", ""))) == @png
     assert MessageInbox.append("Use this one ", lines) == "Use this one\n\n" <> Enum.join(lines, "\n")
   end
 
   test "a name cannot leave the inbox folder", %{workspace: workspace} do
-    assert {:ok, ["Attachment: .aiur/inbox/_.._up/passwd"]} = MessageInbox.write(workspace, "/../up", [image("../../etc/passwd")])
-    assert File.exists?(Path.join(workspace, ".aiur/inbox/_.._up/passwd"))
+    assert {:ok, [line]} = MessageInbox.write(workspace, "/../up", [image("../../etc/passwd")])
+    assert String.starts_with?(line, "Attachment: .aiur/inbox/_.._up/passwd-")
+    assert File.exists?(Path.join(workspace, String.replace_prefix(line, "Attachment: ", "")))
   end
 
   test "refuses types, data and counts outside Command media", %{workspace: workspace} do

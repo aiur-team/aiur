@@ -191,7 +191,8 @@ render(composer.state);
 
 `<aiur-thread>` renders a ticket's entries and exposes the same controller as a
 headless API. The host supplies ticket-scoped adapters; `read` returns
-`{ entries, next_after }`, `send` accepts `{ message_id, text, attachments }`,
+`{ entries, next_after }` from `GET /api/v1/:issue_identifier/thread/messages`,
+`send` accepts `{ message_id, text, attachments }`,
 and optional `subscribe` calls its callback when the thread changes (for
 example, from `ticket.<id>.agent.thread.changed`). The controller de-duplicates
 entries by position when a live refresh overlaps the current page.

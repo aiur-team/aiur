@@ -37,7 +37,7 @@ defmodule Aiur.Conversation.ThreadEventsTest do
 
     Ingest.append(worker, %{source() | role: :worker}, events)
     assert :ok = flush(worker)
-    assert_receive {:event, %{topic: ^topic} = event}
+    assert_receive {:event, %{topic: ^topic} = event}, 100
     assert Map.take(event, [:head_pos, :kind]) == %{head_pos: 3, kind: "operator_message"}
     refute Enum.any?(Map.values(event), &(&1 == "secret plan"))
     refute_received {:event, %{topic: ^topic}}

@@ -26,16 +26,10 @@ defmodule AiurWeb.MessageInbox do
 
   def write(workspace, folder, attachments) when is_binary(workspace) and is_binary(folder) and is_list(attachments) do
     with {:ok, files} <- decode_all(attachments),
-         true <- File.dir?(workspace) || {:error, :workspace_unavailable} do
-      dir = Path.join([@inbox, safe_segment(folder)])
-      File.mkdir_p!(Path.join(workspace, dir))
-
-      {:ok,
-       for {name, bytes} <- unique_names(files) do
-         relative = Path.join(dir, name)
-         File.write!(Path.join(workspace, relative), bytes)
-         "Attachment: #{relative}"
-       end}
+         true <- File.dir?(workspace) || {:error, :workspace_unavailable},
+         dir = Path.join([@inbox, safe_segment(folder)]),
+         :ok <- File.mkdir_p(Path.join(workspace, dir)) do
+      write_files(workspace, dir, files)
     end
   end
 
@@ -97,14 +91,35 @@ defmodule AiurWeb.MessageInbox do
 
   defp safe_segment(value), do: value |> String.replace(~r/[^A-Za-z0-9._-]/, "_") |> String.trim_leading(".") |> String.slice(0, 120)
 
-  defp unique_names(files) do
-    {named, _seen} =
-      Enum.map_reduce(files, %{}, fn {name, bytes}, seen ->
-        count = Map.get(seen, name, 0)
-        unique = if count == 0, do: name, else: "#{Path.rootname(name)}-#{count}#{Path.extname(name)}"
-        {{unique, bytes}, Map.put(seen, name, count + 1)}
-      end)
+  defp write_files(workspace, dir, files) do
+    Enum.reduce_while(files, {:ok, []}, fn {name, bytes}, {:ok, acc} ->
+      digest = :crypto.hash(:sha256, bytes) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+      stored_name = "#{Path.rootname(name)}-#{digest}#{Path.extname(name)}"
+      relative = Path.join(dir, stored_name)
+      path = Path.join(workspace, relative)
 
-    named
+      result =
+        case File.write(path, bytes, [:binary, :exclusive]) do
+          :ok -> :ok
+          {:error, :eexist} -> existing_file(path, bytes)
+          {:error, _} -> {:error, :attachment_write_failed}
+        end
+
+      case result do
+        :ok -> {:cont, {:ok, ["Attachment: #{relative}" | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, lines} -> {:ok, Enum.reverse(lines)}
+      error -> error
+    end
+  end
+
+  defp existing_file(path, bytes) do
+    case File.read(path) do
+      {:ok, ^bytes} -> :ok
+      _different -> {:error, :attachment_collision}
+    end
   end
 end
