@@ -17,9 +17,10 @@ defmodule Aiur.AgentRunner.NoChangeHandoff do
     base = Keyword.get(opts, :base_branch, System.get_env("AIUR_BASE_BRANCH"))
     verifier = Keyword.get(opts, :no_change_verifier, &default_verify/3)
 
-    cond do
-      not is_binary(base) or String.trim(base) == "" -> {:error, :base_branch_unavailable}
-      true -> verifier.(workspace, String.trim(base), commit)
+    if is_binary(base) and String.trim(base) != "" do
+      verifier.(workspace, String.trim(base), commit)
+    else
+      {:error, :base_branch_unavailable}
     end
   end
 
