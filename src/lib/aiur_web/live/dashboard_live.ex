@@ -14,10 +14,12 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.DashboardLive.Voice
   alias AiurWeb.DashboardLive.VoicePanel
+  alias AiurWeb.{FinancialData, FinancialDataAccess, ModelsProjection}
   alias AiurWeb.OperatorControlCenter.DecisionEvents
   alias AiurWeb.OperatorControlCenter.GatewayGrantCommands
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
+  alias AiurWeb.OperatorControlCenter.ProviderMeterSource
 
   @decision_events DecisionEvents.events()
 
@@ -45,6 +47,15 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:elevenlabs_quota_tick, socket) do
     Session.schedule_elevenlabs_quota_tick()
     {:noreply, Voice.assign_voice(socket)}
+  end
+
+  def handle_info({FinancialData, :updated, _identity} = message, %{assigns: %{live_action: :models}} = socket) do
+    with context when not is_nil(context) <- FinancialDataAccess.context(socket),
+         meters <- ProviderMeterSource.reload(context, message) do
+      {:noreply, Phoenix.Component.assign(socket, :models_projection, ModelsProjection.snapshot(meters: meters))}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   @impl true

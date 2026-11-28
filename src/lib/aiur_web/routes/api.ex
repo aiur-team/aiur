@@ -51,6 +51,8 @@ defmodule AiurWeb.Routes.Api do
       scope "/" do
         pipe_through(:client_token_read)
 
+        get("/api/v1/models", AiurWeb.ModelsApiController, :index)
+        match(:*, "/api/v1/models", AiurWeb.ModelsApiController, :method_not_allowed)
         get("/api/v1/events", AiurWeb.EventsController, :index)
         get("/api/v1/events/catalog", AiurWeb.EventsController, :catalog)
         match(:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed)

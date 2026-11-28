@@ -15,8 +15,10 @@ defmodule Aiur.CodingAgent do
 
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.CodingAgent.Backend
+  alias Aiur.CodingAgent.CapacityGate
   alias Aiur.CodingAgent.ModelGrammar
   alias Aiur.CodingAgent.ProvidersView
+  alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.CodingAgent.Routing
   alias Aiur.Config
   alias Aiur.Harness.Capabilities
@@ -74,6 +76,15 @@ defmodule Aiur.CodingAgent do
   defdelegate provider_account_generation(provider), to: ProvidersView
   defdelegate provider_meter_backend(provider), to: ProvidersView
   defdelegate provider_meter_probe(provider), to: ProvidersView
+  @doc "Read-only capacity verdicts for configured routes."
+  @spec capacity_record([String.t()]) :: map()
+  defdelegate capacity_record(routes), to: CapacityGate, as: :record
+  @doc "Whether a route currently has its required credentials."
+  @spec route_usable?(String.t()) :: boolean()
+  defdelegate route_usable?(route), to: RouteCredentials, as: :usable?
+  @doc "The environment variable missing for a route, or nil when its credentials are usable."
+  @spec route_missing_key_env(String.t()) :: String.t() | nil
+  defdelegate route_missing_key_env(route), to: RouteCredentials, as: :missing_key_env
   defdelegate stream_diagnostics(port), to: StreamDiagnostics, as: :recent_text
 
   # Model and label grammar.

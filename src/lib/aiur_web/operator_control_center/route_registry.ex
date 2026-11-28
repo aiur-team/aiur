@@ -25,6 +25,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:decisions, :decision]
     },
     %{
+      id: :models,
+      label: "Models",
+      icon: "◈",
+      description: "Configured model routes, usage and dispatch availability.",
+      path: "/models",
+      type: :live,
+      owner: :dashboard,
+      availability: :available,
+      active_actions: [:models]
+    },
+    %{
       id: :voice,
       label: "Voice",
       icon: "",

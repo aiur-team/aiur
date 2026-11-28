@@ -165,6 +165,7 @@ export default withMermaid(defineConfig({
         {
           text: 'APIs',
           items: [
+            { text: 'Models', link: '/apis/models' },
             { text: 'GitHub', link: '/apis/github' },
             { text: 'GitHub polling', link: '/apis/github-polling' },
             { text: 'GitHub API budgets', link: '/apis/github-budgets' },
