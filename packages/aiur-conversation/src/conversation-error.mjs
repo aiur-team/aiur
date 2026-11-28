@@ -3,6 +3,8 @@ const MESSAGES = {
   upload_failed: 'Could not upload the attachment.',
   provider_unavailable: 'Voice or dictation is unavailable.',
   send_failed: 'Could not send the message.',
+  read_failed: 'Could not load the conversation.',
+  answer_failed: 'Could not submit the Command answer.',
 };
 
 const FALLBACK = {
@@ -10,6 +12,8 @@ const FALLBACK = {
   send: 'send_failed',
   dictation: 'provider_unavailable',
   voice: 'provider_unavailable',
+  read: 'read_failed',
+  answer: 'answer_failed',
 };
 
 /** Normalize adapter failures for controls, live regions and host messages. */

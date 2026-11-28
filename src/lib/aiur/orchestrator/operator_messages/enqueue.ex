@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
   alias Aiur.AgentQueueStore.Correlation
   alias Aiur.AgentQueueStore.TargetIndex
-  alias Aiur.Listener.Scheduler
+  alias Aiur.Listener.{Effective, Scheduler}
   alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, OverrideRecovery, PauseGuard, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, EnqueueNextWorker, Unread}
 
@@ -102,6 +102,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
       correlation: message_correlation(payload, mode),
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
       message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
+      delivery_mode: Map.get(payload, :delivery_mode),
       queue_when_full: Map.get(payload, :queue_when_full) == true,
       mode: mode
     }
@@ -370,14 +371,14 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     end
   end
 
-  defp listener_context(state, id, %{delivery_policy: :listener, origin: origin}, capabilities) do
+  defp listener_context(state, id, %{delivery_policy: :listener, origin: origin} = request, capabilities) do
     view =
       case ListenerModes.get_mode(state, id) do
         {:reply, {:ok, view}, _state} -> view
         {:reply, {:error, _reason}, _state} -> nil
       end
 
-    Map.merge(capabilities, %{listener_view: view, listener_origin: origin})
+    Map.merge(capabilities, %{listener_view: Effective.for_message(view, request.delivery_mode), listener_origin: origin})
   end
 
   defp listener_context(_state, _id, _request, capabilities), do: capabilities

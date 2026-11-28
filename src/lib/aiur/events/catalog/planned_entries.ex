@@ -77,6 +77,11 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
     }
   ]
 
+  # #8082: identifier-only; host apps re-read GET /api/v1/:issue_identifier/thread after head_pos.
+  @thread [
+    %Entry{pattern: "ticket.*.agent.thread.changed", class: :live, export?: true, attrs: [head_pos: :integer, kind: {:enum, ~w(message operator_message)}], owner: "conversations"}
+  ]
+
   # contracts/identity-and-capabilities.md §5 (MP-R1): clients re-read capabilities.
   @capabilities [
     %Entry{pattern: "system.capabilities.changed", class: :live, export?: true, attrs: [revision: :integer], owner: "identity"}
@@ -87,7 +92,7 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
     %Entry{pattern: "executor.conversation.#", class: :journaled, reserved: true, owner: "conversations"}
   ]
 
-  @entries @decision ++ @queue_events ++ @queue ++ @listener ++ @capabilities ++ @reserved
+  @entries @decision ++ @queue_events ++ @queue ++ @listener ++ @thread ++ @capabilities ++ @reserved
 
   @spec entries() :: [Entry.t()]
   def entries, do: @entries

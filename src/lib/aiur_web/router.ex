@@ -254,7 +254,6 @@ defmodule AiurWeb.Router do
 
   scope "/", AiurWeb do
     pipe_through(:client_token_read)
-    get("/api/v1/:issue_identifier/thread", ConversationApiController, :worker_thread)
   end
 
   scope "/", AiurWeb do

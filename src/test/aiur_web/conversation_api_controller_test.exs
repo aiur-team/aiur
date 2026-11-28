@@ -113,9 +113,22 @@ defmodule AiurWeb.ConversationApiControllerTest do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
 
-    response = request_path("/api/v1/7/thread")
+    response = request_path("/api/v1/7/thread/messages")
     assert response.status == 200
     assert %{"conversation_id" => ^id, "entries" => [%{"pos" => 1}]} = Jason.decode!(response.resp_body)
+  end
+
+  test "legacy ticket thread route keeps the paginated history response", %{root: root} do
+    EndpointStubs.put(conversation_worker_repository_fun: fn -> {:ok, {"o", "r"}} end)
+    ref = worker("legacy-thread-node")
+    id = Ref.conversation_id(ref)
+    assert {:ok, _} = Store.prepare(Path.join(root, id), ref)
+    Ingest.append(ref, source(), [event(1)])
+    assert :ok = flush(ref)
+
+    response = request_path("/api/v1/7/thread?limit=1")
+    assert response.status == 200
+    assert %{"conversation_id" => ^id, "entries" => [%{"pos" => 1}], "sessions" => [%{"session_seq" => 1}], "head_pos" => 1} = Jason.decode!(response.resp_body)
   end
 
   test "sessions and strongest filtered anchors are serialized", %{ref: ref, dir: dir} do
