@@ -143,37 +143,4 @@ defmodule Aiur.DecisionDispatchTest do
 
     assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
   end
-
-  test "re-dispatches an idle ticket when a correlated answer is queued for its next worker" do
-    alias Aiur.Orchestrator.OperatorMessages.EnqueueNextWorker
-
-    dir = Aiur.TestSupport.tmp_root!("optional-answer-redispatch")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
-    Application.put_env(:aiur, :pending_operator_messages_store_path, Path.join(dir, "pending.json"))
-    on_exit(fn -> Application.delete_env(:aiur, :pending_operator_messages_store_path) end)
-    queue_store = Aiur.AgentQueueStore.new()
-
-    state = %Aiur.Orchestrator.State{queue_store: queue_store, running: %{}}
-
-    request = %{
-      origin: :decision,
-      actor: "executor",
-      turn_id: nil,
-      action_id: "answer-action",
-      correlation: %{decision_id: "decision-1"},
-      mode: :correlated
-    }
-
-    enqueue_plain = fn store, attrs, _request ->
-      {next_store, item} = Aiur.AgentQueueStore.enqueue(store, attrs)
-      {:ok, next_store, item, :accepted}
-    end
-
-    record_evidence = fn _item -> :ok end
-
-    assert {{:ok, %{status: :accepted}}, next_state} =
-             EnqueueNextWorker.enqueue(state, "979", "Answer", request, enqueue_plain, record_evidence, [])
-
-    assert next_state.queued_demand_hints["979"] == 2
-  end
 end

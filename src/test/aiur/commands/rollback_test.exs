@@ -16,6 +16,7 @@ defmodule Aiur.Commands.RollbackTest do
     fixtures = %{
       native_released: %{native_ref: "codex:thread:turn:7", reason: :pause, at: at},
       request_attributed: %{requester: %{kind: :executor}, origin: :executor_cli},
+      default_applied: %{option_id: "ship", at: at},
       routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
       escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},
       human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
@@ -35,6 +36,8 @@ defmodule Aiur.Commands.RollbackTest do
       executor_claimed: %{executor_id: "executor", expires_at: DateTime.add(at, 60), at: at},
       executor_claim_released: %{executor_id: "executor", reason: :released, at: at}
     }
+
+    assert :default_applied in EventData.fact_types()
 
     for type <- EventData.fact_types() do
       assert {:ok, event} = DecisionEvent.new(type, decision.decision_id, 1, Map.fetch!(fixtures, type), event_id: "fact-1", run_id: "rollback-run")
