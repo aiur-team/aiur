@@ -185,6 +185,17 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
     assert reason =~ "oldest reservation is 1h old"
   end
 
+  test "status resolves the paused-reservation attention after slots are released" do
+    emitted = self()
+
+    PausedReservations.print(%{count: 0, oldest_age_seconds: nil},
+      active?: fn _topic -> true end,
+      emit: fn alert -> send(emitted, {:alert, alert}) end
+    )
+
+    assert_received {:alert, %{topic: "system.dispatch.paused_reservations.resolved", needs_attention: false}}
+  end
+
   test "status prints healthy and unavailable supervision states" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
 

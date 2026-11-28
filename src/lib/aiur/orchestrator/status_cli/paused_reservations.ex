@@ -22,18 +22,23 @@ defmodule Aiur.Orchestrator.StatusCLI.PausedReservations do
         })
       end
     else
-      if active?.(@attention_topic) do
-        emit.(%{
-          topic: @attention_topic <> ".resolved",
-          reason: "No long-held paused worker reservations remain.",
-          needs_attention: false,
-          severity: "info"
-        })
-      end
+      resolve_attention(active?, emit)
     end
   end
 
+  def print(%{count: 0}, opts), do: resolve_attention(Keyword.get(opts, :active?, &Aiur.AlertFeed.active_system_attention?/1), Keyword.get(opts, :emit, &emit_alert/1))
   def print(_summary, _opts), do: :ok
+
+  defp resolve_attention(active?, emit) do
+    if active?.(@attention_topic) do
+      emit.(%{
+        topic: @attention_topic <> ".resolved",
+        reason: "No long-held paused worker reservations remain.",
+        needs_attention: false,
+        severity: "info"
+      })
+    end
+  end
 
   defp emit_alert(%{topic: topic} = alert), do: Aiur.Signal.alert(topic, Map.to_list(Map.delete(alert, :topic)))
 
