@@ -43,7 +43,8 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|event = {"system.main.ci.canary", payload}|,
       ~S|Logger.warning("main-watch persistence failed: #{inspect(reason)}")|,
       ~S|defp attention?("system.main.ci.flake_rerun", %{outcome: outcome}) when is_list(outcome), do: Enum.any?(outcome, &(&1.result.status != "ok"))|,
-      ~S|defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]|
+      ~S|defp attention?(topic, _payload), do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun"]|,
+      ~S|do: topic in ["system.main.ci.failed", "system.main.ci.canary", "system.main.ci.unavailable", "system.main.ci.flake_rerun", "system.release.failed"]|
     ],
     "aiur/main_watch/state.ex" => [
       ~S|events = if state.status == :red, do: [{"system.main.ci.failed.resolved", recovery}], else: []|,
