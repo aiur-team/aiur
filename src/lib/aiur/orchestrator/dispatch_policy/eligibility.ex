@@ -35,8 +35,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
     end
   end
 
-  def identity_decision(_issue, _active_states, _terminal_states), do: {:skip, :invalid_issue}
-
   defp ordinary_identity_decision(issue, active_states, terminal_states) do
     cond do
       foreign_label = foreign_active_state_label(issue, active_states, terminal_states) -> {:skip, {:foreign_owner, foreign_label}}
@@ -55,11 +53,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Eligibility do
 
   defp valid_issue_shape?(_issue), do: false
 
-  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) when is_list(labels) do
+  defp foreign_active_state_label(%Issue{labels: labels}, active_states, terminal_states) do
     IssueStates.foreign_active_state_label(labels, Aiur.GitHub.Config.label_prefix(), active_states, terminal_states)
   end
-
-  defp foreign_active_state_label(_issue, _active_states, _terminal_states), do: nil
 
   @spec state_slots_available?(term(), term()) :: boolean()
   def state_slots_available?(%Issue{state: issue_state}, %State{} = state) do
