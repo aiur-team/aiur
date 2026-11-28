@@ -400,10 +400,14 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   # The startup sweep of closed tickets runs in one task, one workspace after
   # the other, so a long list neither blocks the Orchestrator nor starts a git
   # process per ticket at once.
-  defp terminal_issue_cleanup(%Issue{identifier: identifier}) when is_binary(identifier) do
-    clear_session_handle(identifier)
-    clear_listen_mode(identifier)
-    [{identifier, identifier, nil}]
+  defp terminal_issue_cleanup(%Issue{identifier: identifier, state: issue_state}) when is_binary(identifier) do
+    if DispatchPolicy.terminal_issue_state?(issue_state, DispatchPolicy.terminal_state_set()) do
+      clear_session_handle(identifier)
+      clear_listen_mode(identifier)
+      [{identifier, identifier, nil}]
+    else
+      []
+    end
   end
 
   defp terminal_issue_cleanup(_issue), do: []
