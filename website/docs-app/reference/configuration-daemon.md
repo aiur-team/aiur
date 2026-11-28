@@ -299,8 +299,8 @@ compaction:
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
 | `observability.telemetry_enabled` | boolean | true | Master analytics capture switch; restart to apply. Disabled boots append a local `analytics/capture-gaps.ndjson` marker and `/analytics` shows a capture-off notice. |
-| `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. |
-| `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. |
+| `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. The same limit bounds `capacity.ndjson`. |
+| `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. The same limit bounds `capacity.ndjson`. |
 | `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
 `dashboard_writable` controls authorization, not authentication. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before use. A loopback listener can bind without them but rejects every dashboard request until both are set. A listener beyond loopback refuses to start without both.

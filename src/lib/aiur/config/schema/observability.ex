@@ -41,10 +41,10 @@ defmodule Aiur.Config.Schema.Observability do
     # @config-detail observability.capture_github_facts | boolean | true | Enables analytics GitHub fact and repo-timeline reads when the master capture switch is on. |
     field(:capture_github_facts, :boolean, default: true)
     # @config-reference config-configuration-16 observability.telemetry_retention_max_bytes
-    # @config-detail observability.telemetry_retention_max_bytes | integer | 67108864 | Maximum retained telemetry bytes. |
+    # @config-detail observability.telemetry_retention_max_bytes | integer | 67108864 | Maximum retained telemetry bytes. The same limit bounds `capacity.ndjson`. |
     field(:telemetry_retention_max_bytes, :integer, default: 64 * 1024 * 1024)
     # @config-reference config-configuration-16 observability.telemetry_retention_max_age_days
-    # @config-detail observability.telemetry_retention_max_age_days | integer | 30 | Maximum retained telemetry age. |
+    # @config-detail observability.telemetry_retention_max_age_days | integer | 30 | Maximum retained telemetry age. The same limit bounds `capacity.ndjson`. |
     field(:telemetry_retention_max_age_days, :integer, default: 30)
     # @config-reference config-configuration-16 observability.telemetry_retention_prune_interval_bytes
     # @config-detail observability.telemetry_retention_prune_interval_bytes | integer or nil | nil | Bytes between retention-prune checks. |
