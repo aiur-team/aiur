@@ -15,7 +15,7 @@ record is evidence of the decision, not permission to start the moves.
 | C4-T02 (#3477) | No-go record; this change |
 | C4-T03 (#3478) | Re-scoped in-tree repair; no-go for physical package move. Current boundary census: 40 live keys (11 out, 29 in), down from 94 at #3477; the harness-adapters allowlist has 11 entries, plus one NativeCapture facade seam. Provider-family usage, setup-I/O, invocation context, event-humanizer behavior/helpers, shared token normalization, pricing-window routing dependencies, provider/account-generation facade calls, native-capture calls, Claude hook liveness, review-thread writes, Linear GraphQL, subscription policy validation, tool-result exclusion, and usage snapshot construction now use harness/kernel contracts or app-level composition; the config-owned dotenv parser replaces the setup-wizard wrapper. The no-start harness subset passes (1,532 tests, 0 failures, 3 excluded). The ≤40 total live-key target is met; the full-suite run timed out after 2,530 tests. See [recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21). |
 | C4-T04 (#3479) | Deferred: the [T03 recheck](plan.md#c4-t03-in-tree-recheck-2026-11-21) kept physical promotion at no-go. |
-| C4-T05 (#3480) | Blocked: physical package release/boot check |
+| C4-T05 (#3480) | Deferred with T04: the adapters still ship in the `aiur` OTP application. The separate-package release check has no `aiur_harness` application to validate. |
 
 OpenAI-compatible, Muse, Codex, and Claude (headless and REPL) remain under
 `src/lib/aiur/`, along with their provider registrations. The Gemini/ACP
@@ -28,3 +28,11 @@ or MP-R1-C11 requests a plan refresh. Then rerun all five criteria,
 including two consecutive post-rule releases with zero allowlisted
 violations in both directions and an independent test run. Manual
 foreground acceptance remains an Executor post-deploy check.
+
+After physical promotion and the T04 adapter move, resume T05 by adding
+`aiur_harness` to the OTP release if it is a separate application. Run the
+live adapter registry against the assembled release in CI and confirm the
+check fails when an adapter is removed from a scratch release. Then run the
+approved foreground Codex and Claude smoke and attach both chat captures.
+C6-T01 should report physical packaging verification as deferred until this
+evidence exists.
