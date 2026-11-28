@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
-  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
+  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, LifecycleFence, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
   alias Aiur.Orchestrator.CommandOverrideContext
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -185,6 +185,9 @@ defmodule Aiur.Orchestrator.Calls do
 
   def handle_call({:redispatch, _identifier, _backend}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}
+
+  def handle_call({:pin_rework, identifier}, _from, state) when is_binary(identifier),
+    do: {:reply, :ok, LifecycleFence.pin_rework(state, identifier)}
 
   def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),

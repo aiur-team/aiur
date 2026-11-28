@@ -53,6 +53,23 @@ defmodule Aiur.ExecutorWakeProjection do
      }}
   end
 
+  defp project("executor.agent_conversation.started" = topic, event, _pr, _head_sha, _last_review_sha) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok,
+     %{
+       "wake_id" => typed_id(value(event, :id)),
+       "event_id" => typed_id(value(event, :id)),
+       "topic" => topic,
+       "topic_class" => "executor.agent_conversation",
+       "ticket" => ticket_identifier(value(event, :ticket)),
+       "action" => "started",
+       "count" => 1,
+       "first_seen_at" => now,
+       "last_seen_at" => now
+     }}
+  end
+
   defp project("executor.decision.answered" = topic, event, _pr, _head_sha, _last_review_sha) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
 
@@ -265,6 +282,10 @@ defmodule Aiur.ExecutorWakeProjection do
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil
+
+  defp ticket_identifier(value) when is_integer(value) and value > 0, do: Integer.to_string(value)
+  defp ticket_identifier(value) when is_binary(value), do: if(Regex.match?(~r/\A[1-9][0-9]*\z/, value), do: value)
+  defp ticket_identifier(_value), do: nil
 
   defp valid_sha(value) when is_binary(value), do: if(Regex.match?(@sha, value), do: String.downcase(value), else: nil)
   defp valid_sha(_value), do: nil

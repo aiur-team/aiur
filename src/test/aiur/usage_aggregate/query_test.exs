@@ -89,6 +89,22 @@ defmodule Aiur.UsageAggregate.QueryTest do
     assert summary.groups.by_provider[:codex].tokens == %{input: 18}
   end
 
+  test "groups actual usage by host supplied user id" do
+    first = envelope(%{attribution: Map.put(attribution("run-A", identity(1)), :user_id, "user-a")})
+    second = claude_envelope(%{attribution: Map.put(attribution("run-B", identity(2)), :user_id, "user-b")})
+
+    projection =
+      Projection.new()
+      |> Projection.apply_record(record(1, first, %{tokens: %{input: 12}}))
+      |> Projection.apply_record(record(2, second, %{tokens: %{input: 8}}))
+
+    summary = Query.summary(state(projection), %{runs: ["run-A", "run-B"]})
+
+    assert summary.groups.by_user_id["user-a"].tokens == %{input: 12}
+    assert summary.groups.by_user_id["user-b"].tokens == %{input: 8}
+    assert summary.reconciliation.reconciled?
+  end
+
   test "unions an explicit run set and typed ticket set without keying by bare issue number" do
     summary = Query.summary(state(scenario()), %{runs: ["run-A"], tickets: [identity(2), 1128, "1128"]})
 

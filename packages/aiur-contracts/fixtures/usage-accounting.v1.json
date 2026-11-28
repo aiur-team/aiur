@@ -1,0 +1,62 @@
+{
+  "contract": "aiur.usage.accounting",
+  "contract_version": 1,
+  "observed_at": "2026-11-27T12:00:00Z",
+  "user_id": "host-user-7",
+  "icons": {
+    "codex": { "logo": "/provider-assets/codex-color.svg", "token": "/provider-assets/claude-token.svg" },
+    "claude": { "logo": "/provider-assets/claude-symbol.svg", "token": "/provider-assets/codex-token.svg" }
+  },
+  "minerals": {
+    "basis": "provider_reported",
+    "status": "actual",
+    "providers": {
+      "codex": {
+        "tokens": { "input": 1200, "output": 80 },
+        "money_estimate": { "provider_reported_estimate:USD": "0.25" },
+        "by_ticket": {
+          "github:aiur-team/aiur#8156": {
+            "tokens": { "input": 1200, "output": 80 },
+            "money": { "provider_reported_estimate:USD": "0.25" }
+          }
+        },
+        "by_run": {
+          "run-2026-11-27": {
+            "tokens": { "input": 1200, "output": 80 },
+            "money": { "provider_reported_estimate:USD": "0.25" }
+          }
+        }
+      }
+    },
+    "allocation_periods": {
+      "codex": {
+        "weekly": {
+          "used_percent": 30,
+          "resets_at": "2026-11-30T00:00:00Z",
+          "observed_at": "2026-11-27T11:59:20Z",
+          "age_ms": 40000,
+          "freshness": "fresh"
+        }
+      }
+    },
+    "coverage": { "status": "complete" }
+  },
+  "gas": {
+    "budget_usd": "50",
+    "spent_usd": "1.25",
+    "remaining_usd": "48.75",
+    "records": {
+      "fal": [
+        {
+          "amount_usd": "1.25",
+          "occurred_at": "2026-11-27T11:00:00Z",
+          "basis": "actual",
+          "ticket": "8156",
+          "conversation_id": "conv-2"
+        }
+      ]
+    },
+    "status": "available"
+  },
+  "coverage": { "health": "healthy" }
+}

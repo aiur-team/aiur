@@ -36,6 +36,15 @@ defmodule Aiur.Orchestrator.OverrideRecovery do
   def capacity?({:redispatch_deferred, reason}), do: capacity?(reason)
   def capacity?(_), do: false
 
+  @doc """
+  `aiur rework` must record its reason even when no slot is free: the input
+  stays queued on the parked entry, and the turn that reads it starts when the
+  reconciler finds a slot (Open-Games #468, #475).
+  """
+  @spec queue_when_full?(map(), term()) :: boolean()
+  def queue_when_full?(%{queue_when_full: true}, reason), do: capacity?(reason)
+  def queue_when_full?(_request, _reason), do: false
+
   @spec admission_hold(term()) :: :capacity | :claim_pending | nil
   def admission_hold(:already_claimed), do: :claim_pending
   def admission_hold({:redispatch_deferred, reason}), do: admission_hold(reason)

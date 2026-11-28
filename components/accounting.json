@@ -48,6 +48,7 @@
   "owns": {
     "config": [],
     "env": [
+      "AIUR_GAS_BUDGET_USD",
       "DEEPSEEK_API_KEY",
       "MOONSHOT_API_KEY",
       "NETLIFY_AUTH_TOKEN",
@@ -80,6 +81,7 @@
   ],
   "config": [],
   "env": [
+    "AIUR_GAS_BUDGET_USD",
     "DEEPSEEK_API_KEY",
     "MOONSHOT_API_KEY",
     "NETLIFY_AUTH_TOKEN",

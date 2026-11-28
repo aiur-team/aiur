@@ -35,7 +35,9 @@ defmodule Aiur.Orchestrator.Status.StatusRowsTest do
     # (structs don't implement Access). The struct's body map is reached directly now.
     refute snapshot == :timeout
     assert Process.alive?(pid)
-    assert inspect(snapshot) =~ "hello operator text"
+
+    assert %{running: [%{pending_operator_messages: [%{text: "hello operator text"}]}]} =
+             snapshot
   end
 
   test "snapshot keeps legacy running entries with omitted optional Codex fields available" do
