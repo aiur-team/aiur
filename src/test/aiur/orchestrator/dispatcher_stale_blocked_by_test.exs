@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     def update_issue_state(_issue_id, _state, _opts), do: :ok
   end
 
-  alias Aiur.GitHub.{Quota, ResourceStore}
+  alias Aiur.GitHub.{BoundedBlockedBy, Quota, ResourceStore}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
@@ -81,7 +81,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
 
     :ets.insert(
       ResourceStore.Table,
-      {key, Map.update!(entry, :fetched_at_ms, &(&1 - Aiur.GitHub.BoundedBlockedBy.max_age_ms() - 1))}
+      {key, Map.update!(entry, :fetched_at_ms, &(&1 - BoundedBlockedBy.max_age_ms() - 1))}
     )
 
     test_pid = self()
