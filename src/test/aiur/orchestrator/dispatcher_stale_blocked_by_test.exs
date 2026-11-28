@@ -1,21 +1,14 @@
 defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
   @moduledoc """
-  Regression for #2709: a dependent held at `dispatch_decline=:dependency`
-  after every blocker closed.
-
-  #2553 made `Issues.hydrate_blocked_by/1` revalidate unconditionally, but the
-  dispatch gate never reached that arity. `Dispatcher.default_blocked_by_hydrator/1`
-  -> `Tracker.hydrate_blocked_by/1` -> `Client.hydrate_blocked_by/1`, whose
-  `opts \\\\ []` default forwarded to `Issues.hydrate_blocked_by(issue, [])`,
-  and without `revalidate: true` the store answered with the held body and no
-  request. Every dispatcher test injects `:blocked_by_hydrator`, and the #2553
-  tests call `Issues.hydrate_blocked_by/2` with `revalidate: true` directly, so
-  neither saw the production chain.
+  Regression for #8196: a populated candidate blocker list can be stale after
+  GitHub removes an edge without delivering a webhook. The dispatch gate must
+  route that list through the bounded freshness check rather than trust the
+  candidate snapshot or force a remote read on every dispatch pass.
 
   This test runs that chain end to end — no injected hydrator, the real
-  `Client` and `Transport` — against a GitHub double that answers `304` to any
-  conditional read (the endpoint's ETag tracks the blocked issue, not the
-  blocker state it embeds) and the truth to an unconditional one.
+  `Client` and `Transport` — against a GitHub double that returns the current
+  empty blocker list after the cached edge record is aged past its freshness
+  bound.
   """
 
   use Aiur.TestSupport
@@ -76,7 +69,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
 
   test "a removed edge in a populated candidate list no longer holds dispatch on the next tick" do
     # The stored list from the dispatch tick before the blocker merged: the
-    # blocker is open, in human review, and the entry carries a validator.
+    # blocker is open, in human review, and the edge record is past its freshness bound.
     key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 14)
 
     held = [
@@ -84,6 +77,12 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     ]
 
     ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+    [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+
+    :ets.insert(
+      ResourceStore.Table,
+      {key, Map.update!(entry, :fetched_at_ms, &(&1 - Aiur.GitHub.BoundedBlockedBy.max_age_ms() - 1))}
+    )
 
     test_pid = self()
 
