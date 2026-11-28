@@ -332,7 +332,7 @@ defmodule Aiur.ExecutorListenerTest do
   # #4567: dec_2043ed93d73bbe63 on #3141 came from a codex agent through
   # DecisionStore.request, which journals only `executor.decision.requested`.
   # That path wrote no wake, so the Executor never heard of the Decision.
-  test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
+  test "each Decision requested through DecisionStore wakes the Executor once, blocking or not" do
     :ok = Aiur.TestSupport.ensure_id_generator_running()
     dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
 
@@ -366,7 +366,7 @@ defmodule Aiur.ExecutorListenerTest do
       decision
     end
 
-    _nonblocking = request.("parity-note-#{suffix}", false)
+    nonblocking = request.("parity-note-#{suffix}", false)
     decision = request.("parity-#{suffix}", true)
 
     # Both events are already in the listener's mailbox: the request publishes
@@ -383,20 +383,31 @@ defmodule Aiur.ExecutorListenerTest do
     # enqueued every wake they produce; the wait only covers the inbox flush.
     assert "executor.#" in Exchange.bindings_for(listener)
     assert is_map(:sys.get_state(listener))
-    assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+    assert {:ok, wakes} = ExecutorWakeInbox.wait(1_000, @inbox_name)
     wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
+    command_topic = "ticket.#{ticket_identifier}.agent.command.requested"
+
+    # The blocking wake keeps its own topic: a non-blocking Command on the same
+    # ticket must not coalesce into it and replace its decision id.
+    assert [wake] = Enum.filter(wakes, &(&1["topic"] == wake_topic))
 
     assert %{
-             "topic" => ^wake_topic,
              "ticket" => ^ticket_identifier,
              "needs_attention" => true,
              "escalation" => "created",
+             "blocking" => true,
              "question" => "Defer composed mobile pixels?",
              "count" => 1
            } = wake
 
     assert wake["decision_id"] == decision.decision_id
-    assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
+
+    # A non-blocking Command wakes the Executor too, so a new Command never
+    # needs `aiur commands` polling to be noticed.
+    assert [command_wake] = Enum.filter(wakes, &(&1["topic"] == command_topic))
+    assert %{"blocking" => false, "count" => 1} = command_wake
+    assert command_wake["decision_id"] == nonblocking.decision_id
+    assert length(ExecutorWakeInbox.pending(@inbox_name)) == 2
   end
 
   # #4575 review: a ladder fault must not crash the process that holds the Executor bindings.

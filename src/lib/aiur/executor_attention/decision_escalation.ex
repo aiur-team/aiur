@@ -27,10 +27,16 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
 
   @type entry :: %{wake: non_neg_integer(), operator: non_neg_integer(), woke_at: DateTime.t() | nil}
 
-  @doc "The wake record for a Decision. Agent text is sanitized and listed in `untrusted_fields`."
+  @doc """
+  The wake record for a Decision. Agent text is sanitized and listed in `untrusted_fields`.
+
+  A non-blocking Decision (`blocking: false`) wakes on its own topic, so it never
+  coalesces with, and overwrites, a blocking Decision's wake for the same ticket.
+  """
   @spec wake_record(String.t(), String.t(), term(), term(), keyword()) :: map()
   def wake_record(ticket, decision_id, question, recommendation, opts \\ []) do
-    topic = "ticket.#{ticket}.agent.attention.operator-decision"
+    blocking = Keyword.get(opts, :blocking, true)
+    topic = if blocking, do: "ticket.#{ticket}.agent.attention.operator-decision", else: "ticket.#{ticket}.agent.command.requested"
     {:ok, record} = ExecutorWakeProjection.project(%{"topic" => topic, "id" => Keyword.get(opts, :event_id), "needs_attention" => true})
 
     Map.merge(record, %{
@@ -39,6 +45,7 @@ defmodule Aiur.ExecutorAttention.DecisionEscalation do
       "recommendation" => untrusted(option_id(recommendation), 64),
       "gates" => Keyword.get_lazy(opts, :gates, fn -> gates(ticket) end),
       "escalation" => Keyword.get(opts, :escalation, "created"),
+      "blocking" => blocking,
       "untrusted_fields" => ["question", "recommendation"]
     })
   end
