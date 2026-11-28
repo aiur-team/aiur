@@ -211,6 +211,14 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         end
       end
 
+      defp dispatch(%{"type" => "text", "text" => text}, %{conversation_id: conversation_id} = state)
+           when is_binary(conversation_id) do
+        case invoke(state, :push_text, [state.instance, conversation_id, text]) do
+          :ok -> {:ok, state}
+          {:error, reason} -> operation_error(state, reason)
+        end
+      end
+
       defp dispatch(%{"type" => "end"}, %{conversation_id: conversation_id} = state) when is_binary(conversation_id) do
         case invoke(state, :end_session, [state.instance, conversation_id, :user_end]) do
           :ok -> {:ok, state}
@@ -248,7 +256,6 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         end
       end
 
-      defp dispatch(%{"type" => "text"}, state), do: error(state, "unsupported_frame", "Text input is unavailable.")
       defp dispatch(_frame, state), do: error(state, "invalid_frame", "Frame is not valid in this direction.")
 
       defp invoke(%{api: api} = state, operation, args) do
@@ -268,6 +275,9 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
 
       defp default_invoke(_state, :push_audio, [instance, conversation_id, audio]),
         do: VoiceConverse.push_audio(instance, conversation_id, audio)
+
+      defp default_invoke(_state, :push_text, [instance, conversation_id, text]),
+        do: VoiceConverse.push_text(instance, conversation_id, text)
 
       defp default_invoke(_state, :playback_state, [instance, id, frame]),
         do: VoiceConverse.playback_state(instance, id, frame)
@@ -291,6 +301,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         do: %{"v" => 1, "type" => "agent_text", "turn_id" => to_string(turn_id), "text" => text, "final" => final?}
 
       defp event_frame(%Events.AgentTextTiming{} = event), do: hd(VoiceConverse.EventFrames.frames(event))
+      defp event_frame({:session_info, info}), do: hd(VoiceConverse.EventFrames.frames({:session_info, info}))
 
       defp event_frame(%Events.AgentAudio{turn_id: turn_id, format: format, data_b64: data_b64}),
         do: %{

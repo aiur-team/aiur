@@ -8,7 +8,7 @@ defmodule VoiceConverse.Wire do
 
   @version 1
   @client_types ~w(start audio text playback_state confirm_draft discard_draft end)
-  @server_types ~w(state transcript agent_text agent_text_timing agent_audio interrupted draft delivery context_gap error ended)
+  @server_types ~w(state transcript agent_text agent_text_timing agent_audio interrupted draft delivery context_gap session_info error ended)
   @types @client_types ++ @server_types
   @required %{
     "start" => ["target"],
@@ -16,6 +16,7 @@ defmodule VoiceConverse.Wire do
     "text" => ["text"],
     "playback_state" => ["state"],
     "agent_text_timing" => ["turn_id", "text", "audio_offset_ms", "estimated"],
+    "session_info" => ["option_id", "label", "interruption_supported"],
     "confirm_draft" => ["draft_id"],
     "discard_draft" => ["draft_id"],
     "end" => [],
@@ -81,7 +82,16 @@ defmodule VoiceConverse.Wire do
       is_integer(frame["audio_offset_ms"]) and frame["audio_offset_ms"] >= 0 and valid_chars?(Map.get(frame, "chars"))
   end
 
+  defp valid_fields?(%{"type" => "session_info"} = frame) do
+    is_binary(frame["option_id"]) and is_binary(frame["label"]) and is_boolean(frame["interruption_supported"]) and
+      optional_number?(frame, "cost_estimate_usd") and optional_integer?(frame, "session_seconds_left") and
+      optional_integer?(frame, "minutes_left_today") and
+      (not Map.has_key?(frame, "fork_mode") or frame["fork_mode"] in ["native", "replay"])
+  end
+
   defp valid_fields?(_), do: true
+  defp optional_number?(frame, key), do: not Map.has_key?(frame, key) or (is_number(frame[key]) and frame[key] >= 0)
+  defp optional_integer?(frame, key), do: not Map.has_key?(frame, key) or (is_integer(frame[key]) and frame[key] >= 0)
   defp valid_chars?(nil), do: true
 
   defp valid_chars?(chars) when is_list(chars) do

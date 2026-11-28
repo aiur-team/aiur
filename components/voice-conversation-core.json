@@ -5,6 +5,8 @@
   "kind": "package",
   "paths": [
     ".github/workflows/voice-converse-standalone.yml",
+    "packages/elixir/package-lock.json",
+    "packages/elixir/package.json",
     "packages/elixir/voice_converse/**",
     "scripts/check-voice-converse-isolation.sh"
   ],

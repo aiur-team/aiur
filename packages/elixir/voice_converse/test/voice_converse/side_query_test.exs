@@ -23,19 +23,22 @@ defmodule VoiceConverse.SideQueryTest do
     assert opts[:timeout_ms] == 60_000
   end
 
-  for {mode, prefix} <- [
-        native: "Here is what the agent's notes say: ",
-        history_copy: "Here is what the agent's notes say: ",
-        replay: "The agent's summary says: "
+  for {mode, prefix, status_mode} <- [
+        {:native, "Here is what the agent's notes say: ", :native},
+        {:history_copy, "Here is what the agent's notes say: ", :native},
+        {:replay, "The agent's summary says: ", :replay}
       ] do
     test "#{mode} replies persist fork identity and cost", ctx do
       mode = unquote(mode)
       {id, session, provider} = start!(ctx, :never, %{fork: mode})
+      assert_receive {:voice_conversation, ^id, {:session_info, _initial}}
       history(provider, "one")
       assert_receive {:consult_fork, _, ref, _}, 1_000
       send(session, {:fork_answer, ref, "Prior constraint", mode, %{session_id: "child-id", cost_usd: 0.012}})
       prefix = unquote(prefix)
       _ = :sys.get_state(session)
+      assert_receive {:voice_conversation, ^id, {:session_info, status}}
+      assert status.fork_mode == unquote(status_mode)
       assert {:send_context, prefix <> "Prior constraint"} in FakeProvider.calls(provider)
       assert {:announce, prefix <> "Prior constraint", [when: :idle]} in FakeProvider.calls(provider)
       assert :sys.get_state(session).consult == nil

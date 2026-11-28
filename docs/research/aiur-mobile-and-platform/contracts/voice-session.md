@@ -92,8 +92,20 @@ The clock is milliseconds from that turn's first audio sample.
 Offsets are turn-relative milliseconds and lengths count Unicode grapheme
 clusters (`String.graphemes/1`, browser `Intl.Segmenter`). Missing or null
 `chars` means reveal on arrival. `estimated: false` identifies provider timing.
-The public codec schema lives in
+`session_info` carries required `option_id`, display `label`, and `interruption_supported`, plus optional
+`cost_estimate_usd`, `session_seconds_left`, `minutes_left_today`, and
+`fork_mode` (`native` or `replay`). Hosts send it when the session starts,
+after each assistant turn, and after a fork answer. Omitted optional values
+are unavailable and clients hide their corresponding fields. When interruption events are
+unsupported, clients use local speech-start detection to stop playback. The public codec schema lives in
 `packages/aiur-contracts/schemas/voice-converse.v1.schema.json`.
+
+## 13 Session status
+
+`session_info` is a server-to-client v1 frame. Cost is omitted when the
+provider has no numeric price estimate; limits are omitted when the host cannot
+derive them. `fork_mode: replay` tells the client that an answer came from a
+saved summary.
 
 ## 4.1 Normalized assistant timing
 

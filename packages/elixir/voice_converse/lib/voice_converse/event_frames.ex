@@ -37,6 +37,7 @@ defmodule VoiceConverse.EventFrames do
   def frames(%Events.Interruption{turn_id: id}), do: [%{v: 1, type: "interrupted", turn_id: to_string(id)}]
   def frames(%Events.Error{code: code, message: message}), do: frames({:error, code, message})
   def frames({:state, state}), do: [%{v: 1, type: "state", state: to_string(state)}]
+  def frames({:session_info, info}), do: [Map.merge(%{v: 1, type: "session_info"}, info)]
   def frames({:draft, %{status: status} = record}) when status in ["proposed", "unknown"], do: [Map.put(record, :v, 1)]
   def frames({:draft, %{draft_id: id, status: status}}), do: [%{v: 1, type: "delivery", draft_id: id, status: status}]
   def frames({:error, code, message}), do: [%{v: 1, type: "error", code: to_string(code), message: message}]

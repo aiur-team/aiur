@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Voice conversation</title>
+    <link rel="stylesheet" href="/talk.css">
+  </head>
+  <body>
+    <main class="conversation" aria-labelledby="page-title">
+      <header class="topbar">
+        <h1 id="page-title">Conversation</h1>
+        <p id="state-detail" role="status" aria-live="polite">Ready when you are</p>
+      </header>
+
+      <section class="conversation-body" aria-label="Conversation">
+        <div id="state-indicator" class="state-indicator" data-state="connecting" aria-hidden="true">Ready</div>
+        <p id="user-transcript" class="user-transcript" aria-live="polite"></p>
+        <p id="assistant-text" class="assistant-text" aria-live="polite"></p>
+        <div id="draft-cards" class="draft-cards" role="region" aria-label="Drafts"></div>
+        <p id="error-message" class="error-message" role="alert"></p>
+      </section>
+
+      <section class="status-line" aria-label="Session information">
+        <span data-session-info="option" hidden></span>
+        <span data-session-info="cost" hidden></span>
+        <span data-session-info="session" hidden></span>
+        <span data-session-info="daily" hidden></span>
+        <span data-session-info="replay" hidden></span>
+      </section>
+
+      <nav class="mode-switch" aria-label="Conversation mode">
+        <button type="button" data-mode="voice" aria-pressed="true">Voice</button>
+        <button type="button" data-mode="text" aria-pressed="false">Text only</button>
+      </nav>
+
+      <section id="voice-controls" class="controls" aria-label="Voice controls">
+        <button id="start" class="primary" type="button">Start</button>
+        <button id="mute" type="button" aria-pressed="false" disabled>Mute</button>
+        <button id="end" type="button" disabled>End</button>
+      </section>
+
+      <section id="text-controls" class="text-controls" aria-label="Text controls" hidden>
+        <button id="start-text" class="primary" type="button">Start text conversation</button>
+        <button id="end-text" type="button" disabled>End</button>
+        <form id="text-form">
+          <label for="message-input">Message</label>
+          <textarea id="message-input" rows="3" autocomplete="off"></textarea>
+          <button class="primary" type="submit">Send</button>
+        </form>
+        <label class="speak-toggle"><input id="speak-replies" type="checkbox"> Speak replies</label>
+      </section>
+
+      <audio id="assistant-audio" autoplay playsinline></audio>
+    </main>
+    <script type="module">
+      import { VoiceConverseClient } from "/voice_converse_client.js";
+      const query = new URLSearchParams(location.search);
+      const target = JSON.parse(query.get("target") || '"__TARGET__"');
+      const token = query.get("token") || "__TOKEN__";
+      const client = new VoiceConverseClient({
+        url: query.get("ws") || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/voice?token=${encodeURIComponent(token)}`,
+        target,
+        draftContainer: document.querySelector("#draft-cards"),
+      });
+      client.browserStt = query.get("browser_stt") === "true";
+      if (client.browserStt) {
+        document.querySelector("#state-detail").textContent =
+          "Browser speech recognition may send audio to your browser vendor's cloud.";
+      }
+      client.speakReplies = false;
+      client.bindPage();
+      window.voiceConverse = client;
+    </script>
+  </body>
+</html>
