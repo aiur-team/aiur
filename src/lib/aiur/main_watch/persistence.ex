@@ -46,6 +46,7 @@ defmodule Aiur.MainWatch.Persistence do
       unavailable: false,
       last_error: nil,
       last_completed_at: nil,
+      release_runs: %{},
       started_at: System.system_time(:millisecond)
     }
   end

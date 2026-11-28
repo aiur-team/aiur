@@ -44,6 +44,19 @@ defmodule Aiur.MainWatchTest do
     refute_received {:emitted, _, _}
   end
 
+  test "two consecutive release failures alert once and a later success resolves" do
+    server = launch(Persistence.empty())
+    failed = fn id, conclusion -> %{id: id, name: "nightly-release", conclusion: conclusion, status: "completed", url: "run/#{id}"} end
+    finish_poll(server, {:ok, Map.put(result([]), :release_runs, [failed.(2, "failure"), failed.(1, "cancelled")])})
+    assert_received {:emitted, "system.release.failed", %{workflow: "nightly-release", run_id: 2}}
+    GenServer.cast(server, :reconcile)
+    finish_poll(server, {:ok, Map.put(result([]), :release_runs, [failed.(2, "failure"), failed.(1, "cancelled")])})
+    refute_received {:emitted, "system.release.failed", _}
+    GenServer.cast(server, :reconcile)
+    finish_poll(server, {:ok, Map.put(result([]), :release_runs, [failed.(3, "success")])})
+    assert_received {:emitted, "system.release.failed.resolved", %{workflow: "nightly-release", run_id: 3}}
+  end
+
   test "restored ETag snapshot is passed into the next poll" do
     parent = self()
     date = DateTime.to_unix(~U[2026-10-10 00:00:00Z], :millisecond)

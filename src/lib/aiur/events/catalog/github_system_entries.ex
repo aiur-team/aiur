@@ -69,7 +69,9 @@ defmodule Aiur.Events.Catalog.GithubSystemEntries do
     # aiur/main_watch/fixer.ex
     {"system.main.fixer.no_pr", "github-listeners"},
     # aiur/main_watch/fixer_watchdog.ex
-    {"system.main.fixer.stalled", "github-listeners"}
+    {"system.main.fixer.stalled", "github-listeners"},
+    {"system.release.failed", "github-listeners"},
+    {"system.release.failed.resolved", "github-listeners"}
   ]
 
   @entries Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner, export?: true) end)

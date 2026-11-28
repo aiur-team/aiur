@@ -17,11 +17,13 @@ defmodule Aiur.MainWatch.GitHub do
          {:ok, commit_window, commit_etag} <- commits(owner, repo, branch, token, opts),
          {commits, dates} = commit_window,
          {:ok, {runs, merge_groups}} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
+         {:ok, release_runs} <- release_runs(owner, repo, branch, token, opts),
          {:ok, observations} <- observations(commits, runs, merge_groups, workflows, opts) do
       {:ok,
        %{
          observations: observations,
          runs: runs,
+         release_runs: release_runs,
          merge_groups: merge_groups,
          commits: commits,
          commit_dates: dates,
@@ -29,6 +31,28 @@ defmodule Aiur.MainWatch.GitHub do
          actions_write: Keyword.get_lazy(opts, :actions_write, fn -> actions_write?(opts) end)
        }}
     end
+  end
+
+  defp release_runs(owner, repo, branch, token, opts) do
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{branch: branch, per_page: 100})
+
+    case request_fun(opts).(github_request(token, "main_watch_release_runs", opts) |> Map.put(:url, url)) do
+      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}} when is_list(runs) ->
+        {:ok, runs |> Enum.filter(&release_run?/1) |> Enum.map(&normalize/1)}
+
+      {:ok, %{status: 200}} ->
+        {:error, :invalid_release_runs}
+
+      {:ok, response} ->
+        {:error, request_error(response, "main_watch_release_runs", opts)}
+
+      {:error, reason} ->
+        {:error, Access.classify_error({:error, reason})}
+    end
+  end
+
+  defp release_run?(run) do
+    run["status"] == "completed" and run["name"] in ["nightly-release", "release-npm"]
   end
 
   @spec actions_write?(keyword()) :: boolean()
@@ -207,7 +231,9 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp runs_page(url, token, dates, opts) do
-    case request_fun(opts).(github_request(token, "main_watch_runs", opts) |> Map.put(:url, url)) do
+    caller = Keyword.get(opts, :request_caller, "main_watch_runs")
+
+    case request_fun(opts).(github_request(token, caller, opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
         incomplete = Access.parse_next_page_url(Map.get(response, :headers, [])) && not window_covered?(runs, dates)
         if incomplete, do: {:error, :main_runs_incomplete}, else: {:ok, runs}
@@ -216,7 +242,7 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, :invalid_main_runs}
 
       {:ok, response} ->
-        {:error, request_error(response, "main_watch_runs", opts)}
+        {:error, request_error(response, caller, opts)}
 
       {:error, reason} ->
         {:error, Access.classify_error({:error, reason})}

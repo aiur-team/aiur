@@ -139,6 +139,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.intent.outbox_full", "config"},
     # aiur/landing_watch.ex
     {"system.main.ci.failed.resolved", "orchestration"},
+    {"system.release.failed", "orchestration"},
+    {"system.release.failed.resolved", "orchestration"},
     # aiur/usage/alerts.ex
     {"system.netlify.credits_low", "executor-attention"},
     # aiur/usage/alerts.ex
