@@ -3,6 +3,8 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.DecisionStore.AnswerDispatchTest do
   use Aiur.DecisionStoreCase, async: false
 
+  alias Aiur.Commands.OptionalDefaults
+
   describe "answer outbox" do
     test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do
       parent = self()
@@ -82,6 +84,113 @@ defmodule Aiur.DecisionStore.AnswerDispatchTest do
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(audit_type(&1) == :answer_recorded)) == 1
       assert Enum.count(audit, &(audit_type(&1) == :dispatch_queued)) == 1
+    end
+
+    test "an expired unanswered optional Command accepts a late answer", %{dir: dir} do
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Ship or wait?",
+                 "blocking" => false,
+                 "source_id" => "late-optional-answer",
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "wait", "label" => "Wait"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
+               })
+
+      assert {:ok, %{status: :accepted}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, decision.decision_id, %{"idempotency_key" => "late-answer", "expected_version" => 1, "option_id" => "wait"})
+
+      assert wait_for_decision(pid, decision.decision_id, &(&1.decision_status == :decided)).answer.selected_option_id == "wait"
+    end
+
+    test "recording an optional default persists it in the decision audit", %{dir: dir} do
+      pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Ship or wait?",
+                 "blocking" => false,
+                 "source_id" => "optional-default-fact",
+                 "options" => [%{"id" => "ship", "label" => "Ship"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
+               })
+
+      assert :ok = OptionalDefaults.apply("979", pid)
+      assert {:ok, %{default_applied: %{option_id: "ship", at: %DateTime{}}}} = DecisionStore.get(decision.decision_id, pid)
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert Enum.map(audit, &audit_type/1) == [:requested, :default_applied]
+    end
+
+    test "a differing answer after merge creates one corrective ticket", %{dir: dir} do
+      parent = self()
+
+      pid =
+        start_store!(dir,
+          dispatch_delay_ms: 60_000,
+          override_context_reader: fn _ticket ->
+            %{pr: %{merged?: true, number: 91, merge_commit_sha: String.duplicate("a", 40)}}
+          end,
+          late_answer_corrective_find: fn _answer, _opts -> {:ok, nil} end,
+          late_answer_corrective_reconciler: fn decision, answer, pr, _opts ->
+            send(parent, {:corrective_ticket, decision.decision_id, answer.selected_option_id, pr.number})
+            {:ok, %{identifier: "979-corrective"}}
+          end
+        )
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Ship or wait?",
+                 "blocking" => false,
+                 "source_id" => "late-answer-after-merge",
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "wait", "label" => "Wait"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Safe default"}
+               })
+
+      assert :ok = OptionalDefaults.apply("979", pid)
+
+      assert {:ok, %{action: answer_action, status: :accepted}} =
+               answer(pid, decision.decision_id, %{"idempotency_key" => "late-merged", "expected_version" => 1, "option_id" => "wait"})
+
+      assert_receive {:corrective_ticket, decision_id, "wait", 91}, 1_000
+      assert decision_id == decision.decision_id
+      assert answer_action.selected_option_id == "wait"
+    end
+
+    test "a custom late answer after merge creates a corrective ticket", %{dir: dir} do
+      parent = self()
+
+      pid =
+        start_store!(dir,
+          dispatch_delay_ms: 60_000,
+          override_context_reader: fn _ticket -> %{pr: %{merged?: true, number: 92, merge_commit_sha: String.duplicate("b", 40)}} end,
+          late_answer_corrective_find: fn _answer, _opts -> {:ok, nil} end,
+          late_answer_corrective_reconciler: fn decision, answer, pr, _opts ->
+            send(parent, {:custom_corrective_ticket, decision.decision_id, answer.custom_response, pr.number})
+            {:ok, %{identifier: "979-custom-corrective"}}
+          end
+        )
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Ship or wait?",
+                 "blocking" => false,
+                 "source_id" => "late-custom-after-merge",
+                 "options" => [%{"id" => "ship", "label" => "Ship"}, %{"id" => "wait", "label" => "Wait"}],
+                 "recommendation" => %{"option_id" => "ship", "reason" => "Safe default"}
+               })
+
+      assert :ok = OptionalDefaults.apply("979", pid)
+
+      assert {:ok, %{status: :accepted, action: action}} =
+               answer(pid, decision.decision_id, %{"idempotency_key" => "late-custom", "expected_version" => 1, "custom_response" => "Hold rollout"})
+
+      assert_receive {:custom_corrective_ticket, decision_id, "Hold rollout", 92}, 1_000
+      assert decision_id == decision.decision_id
+      assert action.custom_response == "Hold rollout"
     end
 
     test "dispatch timeout settles once and ignores a late correlated result", %{dir: dir} do

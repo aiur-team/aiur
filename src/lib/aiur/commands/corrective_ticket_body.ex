@@ -6,6 +6,70 @@ defmodule Aiur.Commands.CorrectiveTicketBody do
   @spec marker(String.t()) :: String.t()
   def marker(id), do: "<!-- aiur-command-override:#{id} -->"
 
+  @doc false
+  @spec late_answer_marker(String.t()) :: String.t()
+  def late_answer_marker(id), do: "<!-- aiur-command-late-answer:#{id} -->"
+
+  @doc false
+  @spec create_late_answer(Decision.t(), Aiur.DecisionAnswer.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_late_answer(decision, answer, pr, opts) do
+    with {:ok, [original]} <- call(opts, :issues, &Aiur.Tracker.fetch_issue_states_by_ids/1, [[decision.ticket.identifier]]),
+         attrs <- late_answer(decision, answer, pr, original.labels),
+         {:ok, raw} <- call(opts, :create, &Aiur.Tracker.create_issue/2, [attrs, [caller: "command_late_answer_create"]]) do
+      {:ok, normalize_ticket(raw)}
+    else
+      {:ok, _missing} -> {:error, :original_ticket_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec find_late_answer(Aiur.DecisionAnswer.t(), keyword()) :: term()
+  def find_late_answer(answer, opts) do
+    call(opts, :find, &Aiur.Tracker.find_issue/2, [late_answer_marker(answer.action_id), [caller: "command_late_answer_reconcile"]])
+  end
+
+  defp call(opts, key, default, args), do: apply(Keyword.get(opts, key, default), args)
+
+  defp normalize_ticket(raw) do
+    %{identifier: to_string(Map.get(raw, "number", Map.get(raw, :number))), title: Map.get(raw, :title, Map.get(raw, "title")), url: Map.get(raw, "url", Map.get(raw, :url))}
+  end
+
+  @doc false
+  @spec late_answer(Decision.t(), Aiur.DecisionAnswer.t(), map(), [String.t()]) :: map()
+  def late_answer(decision, answer, pr, labels) do
+    selected =
+      case answer.selected_option_id do
+        nil ->
+          answer.custom_response
+
+        id ->
+          case Enum.find(decision.options, &(&1.id == id)) do
+            nil -> id
+            option -> "#{id}: #{option.label}"
+          end
+      end
+
+    %{
+      title: "Late Command answer for ##{decision.ticket.identifier}: #{decision.short_label || String.slice(decision.question, 0, 40)}",
+      body:
+        """
+        #{late_answer_marker(answer.action_id)}
+
+        Original Command: #{decision.decision_id}
+        Original ticket: ##{decision.ticket.identifier}
+        Question: #{decision.question}
+        Default proceeded on: #{decision.recommendation.option_id}
+        Late answer: #{selected}
+        Merged PR: ##{pr.number}
+        Merge SHA: #{pr.merge_commit_sha}
+
+        Change the merged behaviour to match the late answer through a new PR.
+        """
+        |> String.trim(),
+      labels: labels(labels)
+    }
+  end
+
   @spec build(Decision.t(), map(), map(), list()) :: map()
   def build(decision, record, pr, labels) do
     revision = Enum.find(decision.revisions, &(&1.action_id == record.action_id))

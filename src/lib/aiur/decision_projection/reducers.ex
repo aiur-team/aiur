@@ -8,7 +8,7 @@ defmodule Aiur.DecisionProjection.Reducers do
   @command_fact_types Aiur.Commands.EventData.fact_types()
 
   @spec transition(term(), term()) :: {:ok, term()} | {:error, term()}
-  def transition(%Decision{decision_status: :expired, blocking: true, answer: nil} = decision, %DecisionEvent{type: :answer_recorded, data: answer} = event) do
+  def transition(%Decision{decision_status: :expired, answer: nil} = decision, %DecisionEvent{type: :answer_recorded, data: answer} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
          :ok <- TransitionValidation.require_answer_identity(decision, answer),
          :ok <- TransitionValidation.require_option(decision, answer),

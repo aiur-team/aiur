@@ -51,11 +51,11 @@ defmodule AiurWeb.StreamdeckAnswerOutcomesTest do
     assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :streamdeck}
   end
 
-  test "expired nonblocking Command is withdrawn", %{store: store, decision: decision, socket: socket} do
+  test "expired nonblocking Command accepts its late answer", %{store: store, decision: decision, socket: socket} do
     assert {:ok, _} = DecisionStore.expire(decision.decision_id, "timeout", [], store)
-    assert %{status: :error, payload: %{reason: "withdrawn", status: "expired"}} = reply(socket, wire_answer(decision, "expired"))
+    assert %{status: :ok, payload: %{"status" => "accepted"}} = reply(socket, wire_answer(decision, "expired"))
     assert {:ok, current} = DecisionStore.get(decision.decision_id, store)
-    assert current.answer == nil
+    assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :streamdeck}
   end
 
   test "stale version is structured and does not record an answer", %{store: store, decision: decision, socket: socket} do

@@ -58,6 +58,24 @@ defmodule Aiur.DecisionStore.Calls do
     CommandFacts.record(state, id, type, data, opts)
   end
 
+  def handle_call({:apply_optional_command_defaults, _ticket}, _from, %{writable?: false} = state),
+    do: {:reply, {:error, :store_read_only}, state}
+
+  def handle_call({:apply_optional_command_defaults, ticket}, _from, state) do
+    decisions = Enum.filter(Map.values(state.current), &(&1.ticket.identifier == ticket and not &1.blocking and is_nil(&1.answer) and not is_nil(&1.recommendation)))
+
+    Enum.reduce_while(decisions, {:ok, state}, fn decision, {:ok, acc} ->
+      case CommandFacts.record(acc, decision.decision_id, :default_applied, %{option_id: decision.recommendation.option_id, at: DateTime.utc_now()}, []) do
+        {:reply, {:ok, _result}, next} -> {:cont, {:ok, next}}
+        {:reply, {:error, reason}, next} -> {:halt, {{:error, reason}, next}}
+      end
+    end)
+    |> case do
+      {:ok, next} -> {:reply, :ok, next}
+      {{:error, reason}, next} -> {:reply, {:error, reason}, next}
+    end
+  end
+
   def handle_call({:override_handoff_candidates, identifier}, _from, state),
     do: {:reply, {:ok, WorkerHandoffs.snapshots(state, identifier)}, state}
 

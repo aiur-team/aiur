@@ -91,6 +91,19 @@ defmodule Aiur.Commands.Projection do
     end
   end
 
+  def apply(decision, %DecisionEvent{type: :default_applied, data: data} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),
+         false <- decision.blocking,
+         %{option_id: option_id} <- decision.recommendation,
+         true <- option_id == data.option_id,
+         true <- is_nil(decision.default_applied) do
+      {:ok, %{decision | default_applied: data}}
+    else
+      {:error, _reason} = error -> error
+      _other -> {:error, :default_not_applicable}
+    end
+  end
+
   @corrective_types Aiur.Commands.CorrectiveFacts.types()
   def apply(decision, %{type: type} = event) when type in @corrective_types do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version),

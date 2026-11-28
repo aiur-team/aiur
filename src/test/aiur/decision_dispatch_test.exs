@@ -8,9 +8,10 @@ defmodule Aiur.DecisionDispatchTest do
       DecisionValidation.normalize(
         %{
           "question" => "Should we deploy?",
-          "blocking" => true,
+          "blocking" => false,
           "source_id" => "dispatch-test",
-          "options" => [%{"id" => "ship", "label" => "Ship it"}]
+          "options" => [%{"id" => "ship", "label" => "Ship it"}, %{"id" => "wait", "label" => "Wait"}],
+          "recommendation" => %{"option_id" => "ship", "reason" => "Reversible"}
         },
         ticket: %{identifier: "981", title: "OCC-3", url: nil},
         source: %{agent_id: "agent-1", session_id: "session-1"},
@@ -109,5 +110,37 @@ defmodule Aiur.DecisionDispatchTest do
     assert String.length(payload.body) <= DecisionDispatch.max_message_chars()
     assert payload.body =~ "Custom response:"
     assert payload.body =~ "Decision lifecycle correlation:"
+  end
+
+  test "tells the worker when a late answer changes its recorded optional default" do
+    decision =
+      answered_decision(%{
+        "idempotency_key" => "override-default",
+        "expected_version" => 1,
+        "option_id" => "wait"
+      })
+      |> Map.merge(%{
+        blocking: false,
+        recommendation: %{option_id: "ship", reason: "Ship is reversible"},
+        default_applied: %{option_id: "ship", at: DateTime.utc_now()}
+      })
+
+    assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
+  end
+
+  test "tells the worker that a custom response replaces the optional default" do
+    decision =
+      answered_decision(%{
+        "idempotency_key" => "custom-override-default",
+        "expected_version" => 1,
+        "custom_response" => "Hold the rollout"
+      })
+      |> Map.merge(%{
+        blocking: false,
+        recommendation: %{option_id: "ship", reason: "Ship is reversible"},
+        default_applied: %{option_id: "ship", at: DateTime.utc_now()}
+      })
+
+    assert DecisionDispatch.render(decision) =~ "This overrides the default you proceeded on; change course."
   end
 end

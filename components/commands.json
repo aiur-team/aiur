@@ -36,6 +36,7 @@
     "Aiur.Commands.NativeCapture",
     "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
+    "Aiur.Commands.OptionalDefaults",
     "Aiur.Commands.OutcomeGate",
     "Aiur.Commands.RequestContent",
     "Aiur.Decision",

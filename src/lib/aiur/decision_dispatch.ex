@@ -75,6 +75,7 @@ defmodule Aiur.DecisionDispatch do
   @spec render(Decision.t()) :: String.t()
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
     response = NativeAnswer.render(decision, answer) || response_text(decision, answer)
+    override = if overrides_default?(decision, answer), do: "This overrides the default you proceeded on; change course.", else: nil
     rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
     feedback = if answer.feedback != [], do: "Option feedback:\n" <> Feedback.render(answer.feedback), else: nil
 
@@ -82,12 +83,21 @@ defmodule Aiur.DecisionDispatch do
       Enum.join([lifecycle_correlation(decision, answer), lifecycle_instruction()], "\n\n")
 
     prefix =
-      [response, rationale, feedback]
+      [override, response, rationale, feedback]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n\n")
 
     bound(prefix, @max_message_chars - byte_size(lifecycle) - 2) <> "\n\n" <> lifecycle
   end
+
+  defp overrides_default?(%Decision{blocking: false, recommendation: %{option_id: recommended}}, %DecisionAnswer{selected_option_id: selected})
+       when is_binary(selected),
+       do: selected != recommended
+
+  defp overrides_default?(%Decision{blocking: false, recommendation: %{option_id: _recommended}}, %DecisionAnswer{selected_option_id: nil, custom_response: response})
+       when is_binary(response) and response != "", do: true
+
+  defp overrides_default?(_decision, _answer), do: false
 
   defp lifecycle_correlation(decision, answer) do
     "Decision lifecycle correlation: " <>

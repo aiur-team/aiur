@@ -4,17 +4,17 @@ defmodule Aiur.DecisionStore.Info do
   require Logger
 
   alias Aiur.Decision
+  alias Aiur.DecisionDispatchTasks
   alias Aiur.DecisionPubSub
-  alias Aiur.DecisionStore.CorrectiveOverrides
-  alias Aiur.DecisionStore.OverrideMerges
-  alias Aiur.DecisionStore.OverridePushes
-
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
+  alias Aiur.DecisionStore.CorrectiveOverrides
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
+  alias Aiur.DecisionStore.OverrideMerges
+  alias Aiur.DecisionStore.OverridePushes
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionStore.Settlement
 
@@ -22,6 +22,7 @@ defmodule Aiur.DecisionStore.Info do
   def handle_info(:reconcile_override_pushes, state) do
     if state.writable?, do: OverridePushes.reconcile(state)
     state = CorrectiveOverrides.reconcile(state)
+    if state.writable?, do: reconcile_late_answers(state)
     timer = Process.send_after(self(), :reconcile_override_pushes, 30_000)
     {:noreply, %{state | override_reconcile_timer: timer}}
   end
@@ -50,6 +51,23 @@ defmodule Aiur.DecisionStore.Info do
     if state.writable?,
       do: {:noreply, OverridePushes.settle(state, candidates, sha, ref, at, pr)},
       else: {:noreply, state}
+  end
+
+  def handle_info({:reconcile_late_answer_corrective, action_id}, state),
+    do: {:noreply, reconcile_late_answer_corrective(state, action_id)}
+
+  def handle_info({:late_answer_corrective_result, correlation, result}, state) do
+    state =
+      if Map.get(state.late_answer_corrective_jobs, correlation.action_id) == correlation.job_id,
+        do: %{state | late_answer_corrective_jobs: Map.delete(state.late_answer_corrective_jobs, correlation.action_id)},
+        else: state
+
+    case result do
+      {:error, reason} -> Logger.warning("late answer corrective ticket failed action=#{correlation.action_id} reason=#{inspect(reason)}")
+      _created_or_existing -> :ok
+    end
+
+    {:noreply, state}
   end
 
   def handle_info(:repair_decision_projection, state) do
@@ -200,6 +218,60 @@ defmodule Aiur.DecisionStore.Info do
       {:noreply, state}
     else
       {:noreply, Dispatch.clear_revision_follow_up_inflight(state, operation, key)}
+    end
+  end
+
+  defp reconcile_late_answer_corrective(state, action_id) do
+    with %Decision{blocking: false, default_applied: %{option_id: _default}, answer: answer} = decision <- find_differing_answer(state.current, action_id),
+         %{pr: %{merged?: true, number: number, merge_commit_sha: sha} = pr} when is_integer(number) and is_binary(sha) <- state.override_context_reader.(decision.ticket.identifier),
+         false <- Map.has_key?(state.late_answer_corrective_jobs, action_id) do
+      owner = self()
+      correlation = %{action_id: action_id, decision_id: decision.decision_id, job_id: make_ref()}
+      operation = fn -> find_or_create_late_answer(state, answer, decision, pr, number, sha) end
+
+      callback = fn key, result -> send(owner, {:late_answer_corrective_result, key, result}) end
+
+      case DecisionDispatchTasks.enqueue(decision.ticket.identifier, correlation, operation, callback, state.decision_dispatch_tasks, owner: owner) do
+        :pending -> %{state | late_answer_corrective_jobs: Map.put(state.late_answer_corrective_jobs, action_id, correlation.job_id)}
+        _error -> state
+      end
+    else
+      _not_eligible -> state
+    end
+  end
+
+  defp find_differing_answer(current, action_id) do
+    Enum.find_value(current, fn
+      {_id, %Decision{default_applied: %{option_id: default}, answer: %{action_id: ^action_id, selected_option_id: selected}} = decision}
+      when is_binary(selected) and selected != default ->
+        decision
+
+      {_id, %Decision{default_applied: %{option_id: _default}, answer: %{action_id: ^action_id, selected_option_id: nil, custom_response: response}} = decision}
+      when is_binary(response) and response != "" ->
+        decision
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp reconcile_late_answers(state) do
+    state.current
+    |> Map.values()
+    |> Enum.reduce(state, fn
+      %Decision{answer: %{action_id: action_id}}, acc when is_binary(action_id) ->
+        reconcile_late_answer_corrective(acc, action_id)
+
+      _decision, acc ->
+        acc
+    end)
+  end
+
+  defp find_or_create_late_answer(state, answer, decision, pr, number, sha) do
+    case state.late_answer_corrective_find.(answer, []) do
+      {:ok, existing} when is_map(existing) -> {:ok, existing}
+      {:ok, nil} -> state.late_answer_corrective_reconciler.(decision, answer, Map.merge(pr, %{number: number, merge_commit_sha: sha}), [])
+      {:error, _reason} = error -> error
     end
   end
 end

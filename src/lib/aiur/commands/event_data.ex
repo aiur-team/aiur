@@ -15,7 +15,17 @@ defmodule Aiur.Commands.EventData do
   @spec fact_types() :: [atom()]
   def fact_types,
     do:
-      [:request_attributed, :native_released, :requester_notified, :override_implemented, :override_worker_handoff, :override_merge_settled, :override_resume_state, :override_prompt_delivered] ++
+      [
+        :request_attributed,
+        :native_released,
+        :requester_notified,
+        :default_applied,
+        :override_implemented,
+        :override_worker_handoff,
+        :override_merge_settled,
+        :override_resume_state,
+        :override_prompt_delivered
+      ] ++
         @routing_types ++ @corrective_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
@@ -35,6 +45,14 @@ defmodule Aiur.Commands.EventData do
          {:ok, reason} <- enum(Validation.get(raw, :reason), [:idle_timeout, :pause, :interrupt, :turn_ended, :session_gone, :not_holdable], :reason),
          {:ok, at} <- release_timestamp(Validation.get(raw, :at)) do
       {:ok, %{native_ref: ref, reason: reason, at: at}}
+    end
+  end
+
+  def normalize(:default_applied, raw) when is_map(raw) do
+    with {:ok, option_id} <- Validation.bounded_required(Validation.get(raw, :option_id), 128, :option_id),
+         {:ok, at} <- release_timestamp(Validation.get(raw, :at)),
+         {:ok, parsed, _offset} <- DateTime.from_iso8601(at) do
+      {:ok, %{option_id: option_id, at: parsed}}
     end
   end
 
@@ -95,6 +113,7 @@ defmodule Aiur.Commands.EventData do
   def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:native_released, data), do: json_safe(data)
+  def to_json_safe(:default_applied, data), do: Aiur.JSONSafe.normalize(data)
   def to_json_safe(:request_attributed, data), do: json_safe(data)
 
   defp recovery_read(raw) do
