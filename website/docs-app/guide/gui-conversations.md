@@ -5,7 +5,7 @@ How to read a worker or Executor conversation in the [GUI](/guide/gui), in the b
 ## Open a full conversation
 
 Select **Open in conversation** from a Command with a known conversation position,
-or navigate to `/conversations/:conversation_id`. The worker conversation drawer remains available from `/voice`; the legacy Units board has retired.
+or navigate to `/conversations/:conversation_id`. The worker conversation drawer remains available from `/voice`; it shows the session route when reported. The legacy Units board has retired.
 
 A conversation without recorded messages shows **No messages yet**. Until its
 journal exists, it also says **Conversation not found**; storage failures show

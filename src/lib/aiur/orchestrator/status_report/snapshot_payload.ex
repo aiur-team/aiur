@@ -422,6 +422,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     %{
       backend: backend,
       agent_family: CodingAgent.family_for(backend),
+      route: Map.get(execution, :route),
       requested_model: Map.get(execution, :requested_model),
       resolved_model: Map.get(execution, :resolved_model),
       effort: Map.get(execution, :effort),

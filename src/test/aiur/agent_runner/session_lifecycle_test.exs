@@ -63,7 +63,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert :ok = SessionLifecycle.report_session_execution(self(), issue, session)
 
-      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", requested_model: "opus", effort: nil}}, 1000
+      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", route: "claude-repl:opus", requested_model: "opus", effort: nil}}, 1000
     end
   end
 

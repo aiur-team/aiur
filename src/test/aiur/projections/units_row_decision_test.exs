@@ -4,6 +4,14 @@ defmodule Aiur.Projections.UnitsRowDecisionTest do
   alias Aiur.Projections.UnitsRow
   alias Aiur.TrackerIdentity
 
+  test "projects the route reported by a running session" do
+    ticket = identity("acme", "alpha", "NODE-route", "83")
+    row = snapshot_row(ticket, status: status(ticket, route: "codex:gpt-5.5:high"), decisions: %{entries: []})
+
+    assert row.route == "codex:gpt-5.5:high"
+    assert row.field_sources.route == :status_report
+  end
+
   test "falls back to the status count when a Decision entry has no count" do
     ticket = identity("acme", "alpha", "NODE-missing-decision-count", "15")
 
@@ -152,6 +160,7 @@ defmodule Aiur.Projections.UnitsRowDecisionTest do
       work_state: Keyword.get(attrs, :work_state, :working),
       waiting_reason: Keyword.get(attrs, :waiting_reason, :active),
       resolved_model: Keyword.get(attrs, :resolved_model),
+      route: Keyword.get(attrs, :route),
       turn_count: Keyword.get(attrs, :turn_count),
       turn_count_observed?: Keyword.has_key?(attrs, :turn_count),
       context_usage: Keyword.get(attrs, :context_usage),
