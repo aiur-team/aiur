@@ -11,13 +11,15 @@ defmodule Aiur.AgentGitHubGuard.LeaseRenewalOwnerTest do
     dir = Aiur.TestSupport.tmp_root!("aiur-lease-renewer")
     File.mkdir_p!(dir)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
-    %{renewals: Path.join(dir, "renewals")}
+    %{renewals: Path.join(dir, "renewals"), renewer_pid_file: Path.join(dir, "renewer.pid")}
   end
 
-  test "the renewer stops when the call that owns the lease is killed", %{renewals: renewals} do
-    run_owner(renewals, "kill -9 $$")
+  test "the renewer stops when the call that owns the lease is killed", %{renewals: renewals, renewer_pid_file: pid_file} do
+    run_owner(renewals, "printf '%s\\n' \"$budget_renewal_pid\" > \"$RENEWER_PID_FILE\"; kill -9 $$", pid_file)
 
-    Process.sleep(3_500)
+    renewer_pid = String.trim(File.read!(pid_file))
+    assert String.match?(renewer_pid, ~r/\A\d+\z/)
+    assert :ok = wait_for_renewer_exit(renewer_pid)
     assert renewal_count(renewals) == 0
   end
 
@@ -27,7 +29,7 @@ defmodule Aiur.AgentGitHubGuard.LeaseRenewalOwnerTest do
     assert renewal_count(renewals) >= 1
   end
 
-  defp run_owner(renewals, then_do) do
+  defp run_owner(renewals, then_do, pid_file \\ nil) do
     script = """
     . "$1"
     budget_command() { echo renew >> "$RENEWALS"; }
@@ -37,7 +39,26 @@ defmodule Aiur.AgentGitHubGuard.LeaseRenewalOwnerTest do
     #{then_do}
     """
 
-    System.cmd("sh", ["-c", script, "sh", @broker], env: [{"RENEWALS", renewals}], stderr_to_stdout: true)
+    env = [{"RENEWALS", renewals}]
+    env = if pid_file, do: [{"RENEWER_PID_FILE", pid_file} | env], else: env
+    System.cmd("sh", ["-c", script, "sh", @broker], env: env, stderr_to_stdout: true)
+  end
+
+  defp wait_for_renewer_exit(pid) do
+    script = """
+    pid=$1
+    attempts=0
+    while kill -0 "$pid" 2>/dev/null; do
+      [ "$attempts" -lt 100 ] || exit 1
+      attempts=$((attempts + 1))
+      sleep 0.05
+    done
+    """
+
+    case System.cmd("sh", ["-c", script, "sh", String.trim(pid)], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, {status, output}}
+    end
   end
 
   defp renewal_count(path) do
