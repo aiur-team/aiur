@@ -31,10 +31,12 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.ClosedRepair do
 
   defp apply_result(state, merge, {:ok, [issue], cache}, opts, record_fun, repair_fun) do
     state = cache_result(state, merge.ticket_id, cache)
+    outcome_gate? = Keyword.get(opts, :repair_outcome_gate_issue_fun, fn _issue -> false end).(issue)
 
     cond do
       checked?(state, merge) -> state
       not closed?(issue) -> state
+      outcome_gate? -> repair_fun.(state, issue, merge, opts)
       issue.state_labels in [nil, []] -> repair_fun.(state, issue, merge, opts)
       true -> record_fun.(state, issue, merge)
     end

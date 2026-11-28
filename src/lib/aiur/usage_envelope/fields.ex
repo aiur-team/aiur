@@ -34,7 +34,7 @@ defmodule Aiur.UsageEnvelope.Fields do
     :unknown_account_generation
   ]
   @token_fields [:input, :cached_input, :cache_creation_input, :output, :reasoning_output, :provider_reported_total]
-  @attribution_fields [:run_id, :tracker_identity, :attempt_id, :session_id, :thread_id, :turn_id, :request_id]
+  @attribution_fields [:user_id, :run_id, :tracker_identity, :attempt_id, :session_id, :thread_id, :turn_id, :request_id]
   @account_generation_fields [
     :schema_version,
     :provider,

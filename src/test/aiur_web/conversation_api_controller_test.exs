@@ -105,6 +105,19 @@ defmodule AiurWeb.ConversationApiControllerTest do
     assert Jason.decode!(ambiguous.resp_body)["error"]["conversation_ids"] == Enum.sort([Ref.conversation_id(ref), Ref.conversation_id(other)])
   end
 
+  test "ticket thread reads the worker's durable transcript", %{root: root} do
+    EndpointStubs.put(conversation_worker_repository_fun: fn -> {:ok, {"o", "r"}} end)
+    ref = worker("thread-node")
+    id = Ref.conversation_id(ref)
+    assert {:ok, _} = Store.prepare(Path.join(root, id), ref)
+    Ingest.append(ref, source(), [event(1)])
+    assert :ok = flush(ref)
+
+    response = request_path("/api/v1/7/thread")
+    assert response.status == 200
+    assert %{"conversation_id" => ^id, "entries" => [%{"pos" => 1}]} = Jason.decode!(response.resp_body)
+  end
+
   test "sessions and strongest filtered anchors are serialized", %{ref: ref, dir: dir} do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
@@ -174,7 +187,11 @@ defmodule AiurWeb.ConversationApiControllerTest do
   end
 
   defp request(suffix, method \\ :get, auth? \\ true, ip \\ {127, 0, 0, 1}) do
-    conn = conn(method, "/api/v1/conversations" <> suffix)
+    request_path("/api/v1/conversations" <> suffix, method, auth?, ip)
+  end
+
+  defp request_path(path, method \\ :get, auth? \\ true, ip \\ {127, 0, 0, 1}) do
+    conn = conn(method, path)
     conn = %{conn | secret_key_base: String.duplicate("s", 64), remote_ip: ip}
     conn = conn |> Plug.Session.call(@session) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
 

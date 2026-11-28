@@ -17,6 +17,7 @@
     "src/lib/aiur/control_call.ex",
     "src/lib/aiur/control_call/allowlist.ex",
     "src/lib/aiur/control_call/allowlist/**",
+    "src/lib/aiur/control_call/keyed_receipt.ex",
     "src/lib/aiur/control_call/literal.ex",
     "src/lib/aiur/control_call/project.ex",
     "src/lib/aiur/control_cli/**",

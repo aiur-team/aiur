@@ -39,6 +39,28 @@ defmodule Aiur.AgentRunner.CiWaitTransitionTest do
     end
   end
 
+  test "creator review handoff requires a creator Command for the current issue" do
+    issue = %Issue{id: "gid-outcome-gate", identifier: "8129", labels: ["creator-facing"]}
+    parent = self()
+
+    executor =
+      ToolExecutor.build(issue, nil, nil, %{},
+        coordination_runner: fn _key, operation, _opts -> operation.() end,
+        ci_wait_pr_fetcher: fn "gid-outcome-gate" -> {:ok, nil} end,
+        outcome_decisions_fun: fn -> [] end,
+        ticket_state_writer: fn id, state ->
+          send(parent, {:state_write, id, state})
+          :ok
+        end
+      )
+
+    response = executor.("aiur_set_ticket_state", %{"state" => "human-review"})
+
+    assert response["success"] == false
+    assert Jason.decode!(response["output"])["error"]["reason"] =~ "missing_actionable_creator_command"
+    refute_received {:state_write, _, _}
+  end
+
   test "a draft PR blocked from outside the ticket may go to human-review with its reason" do
     # A worker whose stop rule or gate is blocked from outside the ticket opens a
     # draft PR and hands it to a reviewer instead of looping into agent:error.

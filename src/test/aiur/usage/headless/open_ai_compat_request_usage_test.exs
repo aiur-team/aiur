@@ -32,6 +32,22 @@ defmodule Aiur.Usage.Headless.OpenAICompatRequestUsageTest do
     assert {:ok, ^cell} = cell |> Key.encode_cell() |> Key.decode_cell()
   end
 
+  test "host user attribution survives normalization and aggregate key encoding" do
+    payload = %{
+      "request_id" => "req-user-attribution",
+      "model" => "deepseek-v4-flash",
+      "usage" => %{"prompt_tokens" => 90, "completion_tokens" => 20, "total_tokens" => 110}
+    }
+
+    assert {:ok, host_context} = Context.build(nil, "deepseek", user_id: "host-user-7", account_generation: Snapshot.unavailable(:deepseek, :openai_compat))
+    assert [{:ok, envelope}] = DeepSeek.RequestUsage.extract(payload, nil, host_context, @now)
+    assert envelope.attribution.user_id == "host-user-7"
+
+    cell = {{Key.dims(envelope), {:token, :input}}, 90}
+    assert {:ok, {decoded_cell, 90}} = cell |> Key.encode_cell() |> Key.decode_cell()
+    assert elem(decoded_cell, 0).user_id == "host-user-7"
+  end
+
   test "OpenRouter records the selected upstream without overloading query source" do
     payload = %{
       "request_id" => "req-openrouter",
