@@ -260,6 +260,9 @@ defmodule Aiur.GitHub.Tracker do
   """
   @impl Aiur.Tracker.IssueTracker
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(%Issue{blocked_by: blockers} = issue) when is_list(blockers) and blockers != [],
+    do: client_module().hydrate_blocked_by(%{issue | blocked_by: []}, revalidate: true)
+
   def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
 
   @doc "Reads bounded dependency evidence without fetching missing or stale resources."

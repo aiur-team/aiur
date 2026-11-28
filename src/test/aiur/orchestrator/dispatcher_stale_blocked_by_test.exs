@@ -74,7 +74,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     :ok
   end
 
-  test "a blocker that closed after the list was stored no longer holds the dependent on the next tick" do
+  test "a removed edge in a populated candidate list no longer holds dispatch on the next tick" do
     # The stored list from the dispatch tick before the blocker merged: the
     # blocker is open, in human review, and the entry carries a validator.
     key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 14)
@@ -84,16 +84,6 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     ]
 
     ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
-
-    closed = [
-      %{
-        "number" => 53,
-        "html_url" => "u53",
-        "state" => "closed",
-        "labels" => [],
-        "updated_at" => "2026-09-18T02:07:50Z"
-      }
-    ]
 
     test_pid = self()
 
@@ -105,7 +95,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
       conn = Plug.Conn.put_resp_header(conn, "etag", ~s("e1"))
 
       case validator do
-        [] -> Req.Test.json(conn, closed)
+        [] -> Req.Test.json(conn, [])
         _conditional -> Plug.Conn.send_resp(conn, 304, "")
       end
     end)
@@ -115,7 +105,8 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
       identifier: "14",
       title: "dependent whose last blocker just merged",
       state: "todo",
-      selected_backend: "codex"
+      selected_backend: "codex",
+      blocked_by: [%{id: "53", identifier: "53", state: "human-review", url: "u53"}]
     }
 
     runner = fn dispatched, recipient, opts ->
@@ -144,8 +135,8 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     assert Map.has_key?(next_state.running, candidate.id)
     refute Map.get(next_state.dispatch_declines, candidate.id) == :dependency
 
-    # And the store now holds the truth, so a later reader is not misled either.
-    assert [%{"number" => 53, "state" => "closed"}] = ResourceStore.data(key)
+    # The empty result replaced the stale list, so later readers see no edge.
+    assert ResourceStore.data(key) == []
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
